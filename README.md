@@ -208,6 +208,12 @@ detects managed-entry drift, converts MCP secrets to environment-variable
 references, and stops on unmanaged conflicts. Read the full [safety
 model](docs/safety.md) before synchronizing an existing setup.
 
+## Comparison
+
+Aikito complements rather than replaces traditional dotfiles and agent-native memory systems. Each approach serves a different management boundary.
+
+See [Comparison and Design Boundaries](docs/comparison.md) for a neutral overview of manual workflows, dotfiles, agent-specific memory systems, and Aikito.
+
 ## Documentation
 
 Browse the [documentation index](docs/README.md) for concepts, operational

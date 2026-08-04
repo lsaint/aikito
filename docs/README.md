@@ -14,6 +14,8 @@ model, an operational guide, or command details.
   runtime entry points, and synchronization model.
 - [Safety model](safety.md) — review privacy, backup, conflict, and credential
   boundaries before synchronizing an existing setup.
+- [Comparison](comparison.md) — compare design boundaries across manual
+  copying, dotfiles, single-agent memory, and Aikito.
 
 ## Guides
 
