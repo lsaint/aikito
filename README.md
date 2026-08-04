@@ -30,13 +30,12 @@ agents.
 <details>
 <summary>Copy this prompt to your coding agent</summary>
 
-> Set up Aikito from https://github.com/lsaint/aikito. Clone the source into
-> `~/aikito-src`, then read the README, `skills/aikito/SKILL.md`, and any linked
-> documentation relevant to the setup before proceeding.
-> Keep the source checkout separate from the `~/aikito` workspace. Initialize
-> the workspace, inspect the generated files, and preview any existing Agent
-> configuration before importing it. Show me the plan and all conflicts before
-> running `aikito adopt --apply` or any `aikito sync ...` command. Never
+> Set up Aikito from https://github.com/lsaint/aikito. Read the README,
+> `skills/aikito/SKILL.md`, and any linked documentation relevant to the setup,
+> then install the CLI with `brew install lsaint/tap/aikito`. Initialize the
+> `~/aikito` workspace, inspect the generated files, and preview any existing
+> Agent configuration before importing it. Show me the plan and all conflicts
+> before running `aikito adopt --apply` or any `aikito sync ...` command. Never
 > overwrite unmanaged configuration or expose credentials. After I approve the
 > changes, synchronize the global resources and verify the result with
 > `aikito status`.
@@ -101,8 +100,13 @@ model.
 
 ## Quick Start
 
-> Homebrew distribution is planned but not available yet. For now, run the
-> Aikito CLI directly from source.
+### Option 1: Install via Homebrew (Recommended)
+
+```bash
+brew install lsaint/tap/aikito
+```
+
+### Option 2: Run from Source
 
 Clone the CLI source separately from the workspace that will contain your data:
 
@@ -115,6 +119,8 @@ The `PATH` change applies to the current shell. Add the export to `~/.zshrc` or
 `~/.bashrc` to keep it across sessions, or invoke
 `$HOME/aikito-src/bin/aikito` directly.
 
+### Initialize Workspace
+
 Create a new Git-managed workspace and inspect it:
 
 ```bash
@@ -122,8 +128,9 @@ aikito init ~/aikito
 aikito status
 ```
 
-`~/aikito-src` is the CLI source checkout; `~/aikito` is your AI workspace.
-They must remain separate. Set `AIKITO_DIR` to use a different workspace path.
+When running from source, `~/aikito-src` is the CLI source checkout while
+`~/aikito` is your AI workspace; they must remain separate. Set `AIKITO_DIR` to
+use a different workspace path.
 
 A clean initial workspace reports the configured Agent registry with no active
 resources and an empty global memory scope:

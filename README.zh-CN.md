@@ -28,12 +28,12 @@ Aikito 把可复用的 memory 和 Agent 资源统一保存在一个由 Git 管�
 <details>
 <summary>复制这段提示词给你的 Coding Agent</summary>
 
-> 从 https://github.com/lsaint/aikito 配置 Aikito。将源码克隆到 `~/aikito-src`，然后先
-> 阅读源码目录中的 README、`skills/aikito/SKILL.md`，以及与配置任务相关的链接文档。
-> 保持源码目录与 `~/aikito` 工作区相互独立。初始化工作区、检查
-> 生成的文件，并在导入本机已有 Agent 配置前先进行预览。运行 `aikito adopt --apply` 或任何
-> `aikito sync ...` 命令之前，先向我展示执行计划和所有冲突。不要覆盖未受管理的配置，也不要
-> 暴露凭据。获得我的确认后，再同步全局资源，并使用 `aikito status` 验证结果。
+> 从 https://github.com/lsaint/aikito 配置 Aikito。先阅读 README、
+> `skills/aikito/SKILL.md` 以及与配置任务相关的链接文档，然后使用
+> `brew install lsaint/tap/aikito` 安装 CLI。初始化 `~/aikito` 工作区、检查生成的文件，
+> 并在导入本机已有 Agent 配置前先进行预览。运行 `aikito adopt --apply` 或任何
+> `aikito sync ...` 命令之前，先向我展示执行计划和所有冲突。不要覆盖未受管理的配置，
+> 也不要暴露凭据。获得我的确认后，再同步全局资源，并使用 `aikito status` 验证结果。
 
 </details>
 
@@ -66,9 +66,6 @@ block-beta
     D -- "积累" --> A
 ```
 
-> Aikito 仍在积极开发中。Homebrew 分发已经进入规划，但目前尚未提供；当前版本从源码
-> 运行 CLI。
-
 ## Aikito 管理什么？
 
 | 资源 | 规范来源 | 同步目标 |
@@ -92,6 +89,14 @@ Aikito 的同步和凭据安全模型依赖软链接及 POSIX 文件权限，因
 
 ## 快速开始
 
+### 方式一：通过 Homebrew 安装（推荐）
+
+```bash
+brew install lsaint/tap/aikito
+```
+
+### 方式二：从源码运行
+
 将 CLI 源码与保存用户数据的工作区分别放置：
 
 ```bash
@@ -102,6 +107,8 @@ export PATH="$HOME/aikito-src/bin:$PATH"
 `PATH` 设置只对当前 shell 生效。需要跨会话使用时，请将该 export 写入 `~/.zshrc` 或
 `~/.bashrc`，也可以直接运行 `$HOME/aikito-src/bin/aikito`。
 
+### 初始化工作区
+
 创建由 Git 管理的工作区并检查状态：
 
 ```bash
@@ -109,8 +116,8 @@ aikito init ~/aikito
 aikito status
 ```
 
-`~/aikito-src` 是 CLI 源码目录，`~/aikito` 是 AI 工作区，两者必须保持分离。可以通过
-`AIKITO_DIR` 指定其他工作区路径。
+源码运行时，`~/aikito-src` 是 CLI 源码目录，`~/aikito` 是 AI 工作区，两者必须保持
+分离。可以通过 `AIKITO_DIR` 指定其他工作区路径。
 
 全新工作区会显示已经识别的 Agent 注册表、尚未激活的资源，以及空的全局 memory：
 
