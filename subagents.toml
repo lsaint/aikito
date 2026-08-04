@@ -1,0 +1,12 @@
+[subagents.formatter]
+description = "Runs project-approved formatting and lint-fix operations."
+agents = ["codex", "claude-code"]
+
+[subagents.formatter.codex]
+model = "gpt-5.4-mini"
+model_reasoning_effort = "low"
+
+[subagents.formatter.claude-code]
+model = "haiku"
+effort = "low"
+

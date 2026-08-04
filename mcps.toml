@@ -1,0 +1,13 @@
+[servers."atlassian-rovo"]
+transport = "remote"
+url = "https://mcp.atlassian.com/v1/mcp"
+agents = ["codex", "claude-code", "opencode", "agy"]
+
+[servers."atlassian-rovo".authentication]
+method = "basic_api_token"
+account_email = "user@example.com"
+token_env = "ATLASSIAN_API_TOKEN"
+authorization_env = "ATLASSIAN_MCP_AUTHORIZATION"
+
+[servers."atlassian-rovo".overrides.opencode]
+timeout = 30000

@@ -1,0 +1,955 @@
+#!/usr/bin/env python3
+"""
+Aikito - Agent Workspace Resource Management CLI Tool
+Handles skills, memory, MCP configs, and .agents runtime directory synchronization.
+Supports sync_mode: 'link' (symlinks) or 'copy' (file/directory copy).
+"""
+
+import argparse
+import os
+import shutil
+import shlex
+import subprocess
+import sys
+import tomllib
+from pathlib import Path
+from typing import List
+
+from aikito_adopt import build_adopt_plan, execute_adoption
+from aikito_init import init_workspace
+from aikito_mcp import (
+    MCPConfigError,
+    authenticate_mcp,
+    load_agents,
+    sync_mcp_configs,
+)
+
+from aikito_render import (
+    render_mcp_status_table,
+    render_memory_notes_table,
+    render_status_report,
+    render_subagents_status_table,
+)
+from aikito_status import (
+    collect_mcp_matrix,
+    collect_memory_notes_rows,
+    collect_subagents_matrix,
+    get_status_report_data,
+)
+from aikito_subagent import (
+    SubagentConfigError,
+    sync_subagent_configs,
+)
+
+__version__ = "0.1.0"
+
+
+def get_aikito_dir() -> Path:
+    env_dir = os.environ.get("AIKITO_DIR")
+    if env_dir:
+        return Path(env_dir).expanduser().resolve()
+    return Path.home() / "aikito"
+
+
+def get_agents_dir() -> Path:
+    return Path.home() / ".agents"
+
+
+def ensure_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+
+
+def sync_resource(source: Path, target: Path, mode: str = "link") -> bool:
+    """
+    Syncs source path to target path using specified mode ('link' or 'copy').
+    """
+    if not source.exists():
+        print(f"[WARN] Source path does not exist: {source}", file=sys.stderr)
+        return False
+
+    mode = mode.lower()
+    if mode not in ("link", "copy"):
+        print(
+            f"[WARN] Invalid sync_mode '{mode}', defaulting to 'link'", file=sys.stderr
+        )
+        mode = "link"
+
+    # Remove existing target if needed (symlink, file, or directory)
+    if target.is_symlink() or target.exists():
+        try:
+            if target.is_symlink() or target.is_file():
+                target.unlink()
+            elif target.is_dir():
+                shutil.rmtree(target)
+        except Exception as e:
+            print(
+                f"[ERROR] Failed to remove existing target {target}: {e}",
+                file=sys.stderr,
+            )
+            return False
+
+    if mode == "link":
+        try:
+            target.symlink_to(source)
+            print(f"[LINK] {target} -> {source}")
+            return True
+        except Exception as e:
+            print(
+                f"[ERROR] Failed to create symlink {target} -> {source}: {e}",
+                file=sys.stderr,
+            )
+            return False
+    else:  # copy mode
+        try:
+            if source.is_dir():
+                shutil.copytree(source, target)
+                print(f"[COPY DIR] {source} -> {target}")
+            else:
+                shutil.copy2(source, target)
+                print(f"[COPY FILE] {source} -> {target}")
+            return True
+        except Exception as e:
+            print(f"[ERROR] Failed to copy {source} to {target}: {e}", file=sys.stderr)
+            return False
+
+
+def sync_global_entry(
+    source: Path, target: Path, agent_name: str, resource_name: str
+) -> bool:
+    """
+    Ensures an agent runtime entry points to its canonical global resource.
+
+    Existing regular files and directories are never overwritten because they
+    may contain unmanaged user resources.
+    """
+    if not target.parent.exists():
+        print(f"[SKIP] {agent_name} not detected: {target.parent}")
+        return True
+
+    expected_source = source.resolve()
+
+    if target.is_symlink():
+        if target.resolve(strict=False) == expected_source:
+            print(f"[OK] {agent_name} {resource_name}: {target} -> {source}")
+            return True
+
+        print(f"[RELINK] {agent_name} {resource_name}: {target} -> {source}")
+        target.unlink()
+        target.symlink_to(expected_source)
+        return True
+
+    if target.exists():
+        print(
+            f"[CONFLICT] {agent_name} {resource_name}: {target} is not a symlink; "
+            "move or merge it manually, then run 'aikito sync global' again.",
+            file=sys.stderr,
+        )
+        return False
+
+    target.symlink_to(expected_source)
+    print(f"[LINK] {agent_name} {resource_name}: {target} -> {source}")
+    return True
+
+
+def cmd_global_sync(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    skills_toml_path = aikito_dir / "skills.toml"
+    agents_skills_dir = get_agents_dir() / "skills"
+    global_instruction_source = aikito_dir / "global" / "AGENTS.md"
+
+    if not skills_toml_path.exists():
+        print(f"[ERROR] Config file not found: {skills_toml_path}", file=sys.stderr)
+        sys.exit(1)
+
+    with open(skills_toml_path, "rb") as f:
+        data = tomllib.load(f)
+
+    skills = data.get("skills", [])
+    if not isinstance(skills, list):
+        print("[ERROR] 'skills' in skills.toml must be a list.", file=sys.stderr)
+        sys.exit(1)
+
+    # If ~/.agents/skills itself is a symlink, replace it with a directory
+    if agents_skills_dir.is_symlink():
+        print(
+            f"[INFO] Replacing old top-level symlink at {agents_skills_dir} with directory"
+        )
+        agents_skills_dir.unlink()
+
+    ensure_dir(agents_skills_dir)
+
+    valid_targets = set()
+    for skill_name in skills:
+        source = aikito_dir / "skills" / skill_name
+        target = agents_skills_dir / skill_name
+        valid_targets.add(skill_name)
+        sync_resource(source, target, mode="link")
+
+    # Clean up stale symlinks in ~/.agents/skills/
+    for item in agents_skills_dir.iterdir():
+        if item.name not in valid_targets:
+            print(f"[CLEANUP] Removing stale item: {item}")
+            if item.is_symlink() or item.is_file():
+                item.unlink()
+            elif item.is_dir():
+                shutil.rmtree(item)
+
+    if not global_instruction_source.is_file():
+        print(
+            f"[ERROR] Global instruction file not found: {global_instruction_source}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    try:
+        agents = load_agents(aikito_dir, Path.home())
+    except MCPConfigError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    instruction_results = [
+        sync_global_entry(
+            global_instruction_source,
+            definition.instruction_path,
+            definition.display_name,
+            "instructions",
+        )
+        for definition in agents.values()
+        if definition.instruction_path is not None
+    ]
+    skill_entry_results = [
+        sync_global_entry(
+            agents_skills_dir,
+            definition.skills_path,
+            definition.display_name,
+            "skills",
+        )
+        for definition in agents.values()
+        if definition.skills_path is not None
+    ]
+
+    if not all((*instruction_results, *skill_entry_results)):
+        print(
+            "[ERROR] Global resources were synced, but one or more Agent "
+            "runtime targets have conflicts.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print(
+        f"[SUCCESS] Global resources synced successfully "
+        f"({len(valid_targets)} skills, 1 instruction source, "
+        f"{len(skill_entry_results)} Agent skill entries)."
+    )
+
+
+def cmd_project_sync(args: argparse.Namespace) -> None:
+    project_name = args.project_name
+    aikito_dir = get_aikito_dir()
+    agent_toml_path = aikito_dir / "projects" / project_name / "agent.toml"
+
+    if args.project_path:
+        project_path = Path(args.project_path).expanduser().resolve()
+    else:
+        project_path = None
+        if agent_toml_path.exists():
+            with open(agent_toml_path, "rb") as f:
+                data = tomllib.load(f)
+            saved_path = data.get("path")
+            if saved_path:
+                project_path = Path(saved_path).expanduser().resolve()
+
+        if not project_path:
+            print(
+                f"[ERROR] Project path not provided and no saved path found in {agent_toml_path}.\n"
+                f"Usage: aikito sync project {project_name} <project_path>",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    if not project_path.exists():
+        print(f"[ERROR] Project path does not exist: {project_path}", file=sys.stderr)
+        sys.exit(1)
+
+    agents_dir = project_path / ".agents"
+    agents_skills_dir = agents_dir / "skills"
+    agents_memory_dir = agents_dir / "memory"
+
+    ensure_dir(agents_dir)
+    ensure_dir(agents_skills_dir)
+    ensure_dir(agents_memory_dir)
+
+    agent_toml_path = aikito_dir / "projects" / project_name / "agent.toml"
+    skills = []
+    memory_files = []
+    sync_mode = "link"
+
+    if agent_toml_path.exists():
+        with open(agent_toml_path, "rb") as f:
+            data = tomllib.load(f)
+        skills = data.get("skills", [])
+        memory_files = data.get("memory", [])
+        sync_mode = str(data.get("sync_mode", "link")).lower()
+    else:
+        print(
+            f"[INFO] Config {agent_toml_path} not found. Proceeding with default project sync."
+        )
+
+    print(f"[INFO] Syncing project '{project_name}' (mode: {sync_mode})")
+
+    # 1. Sync project skills
+    valid_skill_targets = set()
+    for skill_name in skills:
+        source = aikito_dir / "skills" / skill_name
+        target = agents_skills_dir / skill_name
+        valid_skill_targets.add(skill_name)
+        sync_resource(source, target, mode=sync_mode)
+
+    for item in agents_skills_dir.iterdir():
+        if item.name not in valid_skill_targets:
+            print(f"[CLEANUP] Removing stale skill item: {item}")
+            if item.is_symlink() or item.is_file():
+                item.unlink()
+            elif item.is_dir():
+                shutil.rmtree(item)
+
+    # 2. Sync project memory files (always link)
+    valid_memory_targets = set()
+    for mem_file in memory_files:
+        source = aikito_dir / "memory" / mem_file
+        target = agents_memory_dir / mem_file
+        valid_memory_targets.add(mem_file)
+        sync_resource(source, target, mode="link")
+
+    # 3. Sync project's own memory directory contents (index.md, notes, README.md, etc.) (always link)
+    proj_mem_source = aikito_dir / "projects" / project_name / "memory"
+    if not proj_mem_source.exists():
+        proj_mem_source = aikito_dir / "memory" / project_name
+
+    if proj_mem_source.exists() and proj_mem_source.is_dir():
+        for item in proj_mem_source.iterdir():
+            target = agents_memory_dir / item.name
+            valid_memory_targets.add(item.name)
+            sync_resource(item, target, mode="link")
+    else:
+        print(f"[INFO] No project memory dir found at {proj_mem_source}")
+
+    for item in agents_memory_dir.iterdir():
+        if item.name not in valid_memory_targets:
+            print(f"[CLEANUP] Removing stale memory item: {item}")
+            if item.is_symlink() or item.is_file():
+                item.unlink()
+            elif item.is_dir():
+                shutil.rmtree(item)
+
+    # 4. Sync project AGENTS.md (always link)
+    proj_agents_md = aikito_dir / "projects" / project_name / "AGENTS.md"
+    if proj_agents_md.exists():
+        target = agents_dir / "AGENTS.md"
+        sync_resource(proj_agents_md, target, mode="link")
+    else:
+        print(
+            f"[INFO] No AGENTS.md found for project '{project_name}' at {proj_agents_md}"
+        )
+
+    # 5. Persist local project path to agent.toml
+    save_project_path(agent_toml_path, project_path)
+
+    print(
+        f"[SUCCESS] Project '{project_name}' synced successfully to {agents_dir} using mode '{sync_mode}'."
+    )
+
+
+def save_project_path(agent_toml_path: Path, project_path: Path) -> None:
+    home = Path.home()
+    try:
+        rel = project_path.relative_to(home)
+        path_str = f"~/{rel}"
+    except ValueError:
+        path_str = str(project_path)
+
+    lines = []
+    if agent_toml_path.exists():
+        lines = agent_toml_path.read_text().splitlines()
+
+    has_path = False
+    new_lines = []
+    for line in lines:
+        if line.strip().startswith("path =") or line.strip().startswith("path="):
+            new_lines.append(f'path = "{path_str}"')
+            has_path = True
+        else:
+            new_lines.append(line)
+    if not has_path:
+        new_lines.append(f'path = "{path_str}"')
+
+    agent_toml_path.parent.mkdir(parents=True, exist_ok=True)
+    agent_toml_path.write_text("\n".join(new_lines).strip() + "\n")
+
+
+def cmd_mcp_sync(args: argparse.Namespace) -> None:
+    try:
+        success = sync_mcp_configs(
+            aikito_dir=get_aikito_dir(),
+            home=Path.home(),
+            dry_run=args.dry_run,
+            force=args.force,
+        )
+    except MCPConfigError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        sys.exit(1)
+    if not success:
+        sys.exit(1)
+
+
+def cmd_mcp_auth(args: argparse.Namespace) -> None:
+    try:
+        success = authenticate_mcp(
+            aikito_dir=get_aikito_dir(),
+            home=Path.home(),
+            agent=args.agent,
+            server=args.server,
+        )
+    except MCPConfigError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        sys.exit(1)
+    if not success:
+        sys.exit(1)
+
+
+def cmd_subagent_sync(args: argparse.Namespace) -> None:
+    try:
+        success = sync_subagent_configs(
+            aikito_dir=get_aikito_dir(),
+            home=Path.home(),
+            dry_run=args.dry_run,
+            force_targets=args.force,
+            prune=args.prune,
+        )
+    except SubagentConfigError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        sys.exit(1)
+    if not success:
+        sys.exit(1)
+
+
+def cmd_status(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    home = Path.home()
+    target = getattr(args, "status_target", None)
+
+    is_tty = sys.stdout.isatty() if args.color == "auto" else (args.color == "always")
+    no_color = args.no_color or (
+        os.environ.get("NO_COLOR") is not None and os.environ.get("NO_COLOR") != ""
+    )
+    use_unicode = is_tty
+    use_color = is_tty and not no_color
+
+    if target == "mcp":
+        try:
+            server_rows, agent_names = collect_mcp_matrix(
+                aikito_dir=aikito_dir,
+                home=home,
+                live=getattr(args, "live", False),
+            )
+            table_str = render_mcp_status_table(
+                server_rows, agent_names, use_unicode, use_color
+            )
+            print(table_str)
+        except MCPConfigError as exc:
+            print(f"[ERROR] {exc}", file=sys.stderr)
+            sys.exit(1)
+        return
+
+    if target in ("subagents", "subagent"):
+        try:
+            subagent_rows, orphan_files, agent_names = collect_subagents_matrix(
+                aikito_dir=aikito_dir,
+                home=home,
+            )
+            table_str = render_subagents_status_table(
+                subagent_rows, orphan_files, agent_names, use_unicode, use_color
+            )
+            print(table_str)
+        except SubagentConfigError as exc:
+            print(f"[ERROR] {exc}", file=sys.stderr)
+            sys.exit(1)
+        return
+
+    if target == "memory":
+        note_rows = collect_memory_notes_rows(aikito_dir=aikito_dir, home=home)
+        table_str = render_memory_notes_table(note_rows, use_unicode, use_color)
+        print(table_str)
+        return
+
+    # Top-level Dashboard report
+    report_data = get_status_report_data(aikito_dir, home)
+    rendered = render_status_report(
+        report_data,
+        is_tty=is_tty,
+        no_color=no_color,
+    )
+    print(rendered)
+
+
+def cmd_init(args: argparse.Namespace) -> None:
+    target = Path(args.target) if args.target else get_aikito_dir()
+    home = Path.home()
+    success = init_workspace(target, home, force=args.force)
+    if not success:
+        sys.exit(1)
+
+
+class MemoryFileItem:
+    def __init__(self, scope: str, rel_path: Path, full_path: Path):
+        self.scope = scope
+        self.rel_path = rel_path
+        self.full_path = full_path
+
+    @property
+    def stem(self) -> str:
+        return self.full_path.stem
+
+    @property
+    def short_identifier(self) -> str:
+        return f"{self.scope}/{self.stem}"
+
+    @property
+    def full_identifier(self) -> str:
+        rel_no_ext = str(self.rel_path.with_suffix(""))
+        return f"{self.scope}/{rel_no_ext}"
+
+
+class MemoryTargetConflictError(Exception):
+    def __init__(self, target: str, candidates: list[MemoryFileItem]):
+        super().__init__(f"Multiple memory notes match '{target}'")
+        self.target = target
+        self.candidates = candidates
+
+
+def find_memory_files(aikito_dir: Path) -> List[MemoryFileItem]:
+    items = []
+
+    # 1. Global memory
+    global_mem = aikito_dir / "memory"
+    if global_mem.is_dir():
+        for file_path in global_mem.rglob("*.md"):
+            if file_path.is_file():
+                rel_path = file_path.relative_to(global_mem)
+                items.append(
+                    MemoryFileItem(
+                        scope="global", rel_path=rel_path, full_path=file_path
+                    )
+                )
+
+    # 2. Project memory
+    projects_dir = aikito_dir / "projects"
+    if projects_dir.is_dir():
+        for proj_folder in sorted(projects_dir.iterdir()):
+            if proj_folder.is_dir():
+                proj_mem = proj_folder / "memory"
+                if proj_mem.is_dir():
+                    for file_path in proj_mem.rglob("*.md"):
+                        if file_path.is_file():
+                            rel_path = file_path.relative_to(proj_mem)
+                            items.append(
+                                MemoryFileItem(
+                                    scope=proj_folder.name,
+                                    rel_path=rel_path,
+                                    full_path=file_path,
+                                )
+                            )
+
+    return items
+
+
+def resolve_memory_target(aikito_dir: Path, target: str) -> Path:
+    target_raw = target.strip()
+    if target_raw.endswith("…"):
+        target_raw = target_raw[:-1]
+    target_norm = target_raw[:-3] if target_raw.endswith(".md") else target_raw
+
+    items = find_memory_files(aikito_dir)
+
+    matched = []
+    seen_paths = set()
+
+    def add_match(item: MemoryFileItem) -> None:
+        resolved_path = item.full_path.resolve()
+        global_mem = (aikito_dir / "memory").resolve()
+        projects_dir = (aikito_dir / "projects").resolve()
+
+        is_safe = False
+        try:
+            if resolved_path.is_relative_to(global_mem) or resolved_path.is_relative_to(
+                projects_dir
+            ):
+                is_safe = True
+        except AttributeError:
+            is_safe = str(resolved_path).startswith(str(global_mem)) or str(
+                resolved_path
+            ).startswith(str(projects_dir))
+
+        if not is_safe:
+            print(
+                f"[ERROR] Path escape detected for memory note: {item.full_path}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        if resolved_path not in seen_paths:
+            seen_paths.add(resolved_path)
+            matched.append(item)
+
+    def match_keys(item: MemoryFileItem) -> tuple[str, ...]:
+        if "/" in target_norm:
+            return (item.short_identifier, item.full_identifier)
+        return (item.stem,)
+
+    exact_matches = [item for item in items if target_norm in match_keys(item)]
+    candidates = exact_matches or [
+        item
+        for item in items
+        if any(key.startswith(target_norm) for key in match_keys(item))
+    ]
+    for item in candidates:
+        add_match(item)
+
+    if len(matched) == 1:
+        return matched[0].full_path
+
+    if len(matched) > 1:
+        raise MemoryTargetConflictError(target, matched)
+
+    print(f"[ERROR] Memory note '{target}' not found.", file=sys.stderr)
+    print("Run 'aikito status memory' to view available memory files.", file=sys.stderr)
+    sys.exit(1)
+
+
+def resolve_memory_target_for_command(
+    aikito_dir: Path, target: str, operation: str
+) -> Path:
+    try:
+        return resolve_memory_target(aikito_dir, target)
+    except MemoryTargetConflictError as exc:
+        print(
+            f"[CONFLICT] Multiple memory notes match '{exc.target}':\n",
+            file=sys.stderr,
+        )
+        for item in exc.candidates:
+            print(f"  - {item.full_identifier}", file=sys.stderr)
+        print("\nPlease specify the full identifier, e.g.:", file=sys.stderr)
+        for item in exc.candidates:
+            print(
+                f"  aikito {operation} memory {item.full_identifier}",
+                file=sys.stderr,
+            )
+        sys.exit(1)
+
+
+def cmd_show_memory(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    target_file = resolve_memory_target_for_command(
+        aikito_dir, args.target, operation="show"
+    )
+
+    try:
+        print(target_file.read_text(), end="")
+    except Exception as e:
+        print(
+            f"[ERROR] Failed to read memory note {target_file}: {e}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+def cmd_edit_memory(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    target_file = resolve_memory_target_for_command(
+        aikito_dir, args.target, operation="edit"
+    )
+
+    editor_env = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
+    cmd_args = shlex.split(editor_env) + [str(target_file)]
+
+    try:
+        res = subprocess.run(cmd_args)
+        if res.returncode != 0:
+            sys.exit(res.returncode)
+    except Exception as exc:
+        print(
+            f"[ERROR] Failed to launch editor '{editor_env}': {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+def cmd_adopt(args: argparse.Namespace) -> None:
+    target = Path(args.target) if args.target else get_aikito_dir()
+    home = Path.home()
+    try:
+        plan = build_adopt_plan(target, home)
+        dry_run = not args.apply or args.dry_run
+        success = execute_adoption(plan, dry_run=dry_run)
+        if not success:
+            sys.exit(1)
+    except Exception as exc:
+        print(
+            f"[ERROR] Failed to adopt local agent configurations: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="aikito",
+        description="Agent Workspace Resource Management & Synchronization CLI Tool",
+    )
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+        help="Show program's version number and exit",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # version
+    p_version = subparsers.add_parser(
+        "version",
+        help="Print Aikito CLI version",
+    )
+    p_version.set_defaults(func=lambda args: print(f"aikito {__version__}"))
+
+    # init
+    p_init = subparsers.add_parser(
+        "init",
+        help="Initialize Aikito user data workspace (creates directory skeleton, templates, .gitignore, and git repo)",
+    )
+    p_init.add_argument(
+        "target",
+        nargs="?",
+        default=None,
+        help="Target directory for Aikito workspace (default: ~/aikito or $AIKITO_DIR)",
+    )
+    p_init.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite template files if they already exist",
+    )
+    p_init.set_defaults(func=cmd_init)
+
+    # adopt
+    p_adopt = subparsers.add_parser(
+        "adopt",
+        help="Adopt existing local agent configurations into the Aikito workspace",
+    )
+    p_adopt.add_argument(
+        "target",
+        nargs="?",
+        default=None,
+        help="Target directory for Aikito workspace (default: ~/aikito or $AIKITO_DIR)",
+    )
+    p_adopt.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply adoption changes to workspace (default: false, preview only)",
+    )
+    p_adopt.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview adoption changes without modifying workspace files",
+    )
+    p_adopt.set_defaults(func=cmd_adopt)
+
+    # status & drill-down subparsers
+    p_status = subparsers.add_parser(
+        "status",
+        help="Show synchronization status dashboard or drill down into mcp, subagents, memory",
+    )
+
+    p_status.add_argument(
+        "--color",
+        choices=["auto", "always", "never"],
+        default="auto",
+        help="Controls color and table formatting mode (default: auto)",
+    )
+    p_status.add_argument(
+        "--no-color",
+        action="store_true",
+        help="Disable colorized output (equivalent to NO_COLOR=1)",
+    )
+    p_status.set_defaults(func=cmd_status)
+
+    status_subparsers = p_status.add_subparsers(dest="status_target", required=False)
+
+    def add_color_args(p: argparse.ArgumentParser) -> None:
+        p.add_argument(
+            "--color",
+            choices=["auto", "always", "never"],
+            default="auto",
+            help="Controls color and table formatting mode (default: auto)",
+        )
+        p.add_argument(
+            "--no-color",
+            action="store_true",
+            help="Disable colorized output (equivalent to NO_COLOR=1)",
+        )
+
+    p_status_mcp = status_subparsers.add_parser(
+        "mcp", help="Drill down into managed MCP server configs"
+    )
+    p_status_mcp.add_argument(
+        "--live",
+        action="store_true",
+        help="Also invoke each agent's MCP status command",
+    )
+    add_color_args(p_status_mcp)
+    p_status_mcp.set_defaults(func=cmd_status)
+
+    p_status_subagents = status_subparsers.add_parser(
+        "subagents", help="Drill down into subagent definitions"
+    )
+    add_color_args(p_status_subagents)
+    p_status_subagents.set_defaults(func=cmd_status)
+
+    p_status_memory = status_subparsers.add_parser(
+        "memory", help="Drill down into memory links and notes"
+    )
+    add_color_args(p_status_memory)
+    p_status_memory.set_defaults(func=cmd_status)
+
+    # auth & drill-down subparsers
+    p_auth = subparsers.add_parser(
+        "auth",
+        help="Authenticate with external services or platforms",
+    )
+    auth_subparsers = p_auth.add_subparsers(dest="auth_target", required=True)
+
+    # auth mcp <agent> <server>
+    p_auth_mcp = auth_subparsers.add_parser(
+        "mcp",
+        help="Authenticate an MCP server and always print its authorization URL",
+    )
+    p_auth_mcp.add_argument("agent", help="Agent name, for example codex or opencode")
+    p_auth_mcp.add_argument("server", help="Canonical server name")
+    p_auth_mcp.set_defaults(func=cmd_mcp_auth)
+
+    # sync & drill-down subparsers
+    p_sync = subparsers.add_parser(
+        "sync",
+        help="Synchronize global resources, project, MCP servers, or subagents",
+    )
+    sync_subparsers = p_sync.add_subparsers(dest="sync_target", required=True)
+
+    # sync global
+    p_sync_global = sync_subparsers.add_parser(
+        "global",
+        help="Sync global skills and agent instruction links",
+    )
+    p_sync_global.set_defaults(func=cmd_global_sync)
+
+    # sync project <project_name> [project_path]
+    p_sync_project = sync_subparsers.add_parser(
+        "project",
+        help="Sync project skills and memory to <project-path>/.agents/",
+    )
+    p_sync_project.add_argument(
+        "project_name", help="Name of the project in ~/aikito/projects/"
+    )
+    p_sync_project.add_argument(
+        "project_path",
+        nargs="?",
+        default=None,
+        help="Path to the actual codebase directory (optional if already specified in agent.toml)",
+    )
+    p_sync_project.set_defaults(func=cmd_project_sync)
+
+    # sync mcp
+    p_sync_mcp = sync_subparsers.add_parser(
+        "mcp",
+        help="Safely synchronize managed MCP entries into agent configs",
+    )
+    p_sync_mcp.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report changes without writing config or state files",
+    )
+    p_sync_mcp.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace conflicting managed entries after manual review",
+    )
+    p_sync_mcp.set_defaults(func=cmd_mcp_sync)
+
+    # sync subagents (and alias subagent)
+    p_sync_subagent = sync_subparsers.add_parser(
+        "subagents",
+        aliases=["subagent"],
+        help="Synchronize canonical subagent definitions into target agent configs",
+    )
+    p_sync_subagent.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report changes without modifying files",
+    )
+    p_sync_subagent.add_argument(
+        "--force",
+        nargs="*",
+        help="Force overwrite of specific conflict target(s), e.g. --force claude-code/formatter",
+    )
+    p_sync_subagent.add_argument(
+        "--prune",
+        action="store_true",
+        help="Remove managed subagent files that are no longer defined",
+    )
+    p_sync_subagent.set_defaults(func=cmd_subagent_sync)
+
+    # show & drill-down subparsers
+    p_show = subparsers.add_parser(
+        "show",
+        help="Display raw contents of managed resources",
+    )
+    show_subparsers = p_show.add_subparsers(dest="show_target", required=True)
+
+    # show memory <target>
+    p_show_memory = show_subparsers.add_parser(
+        "memory",
+        help="Print raw markdown content of a global or project memory file",
+    )
+    p_show_memory.add_argument(
+        "target",
+        help="Exact name, unique prefix, or path of the memory note (e.g. simplified-clean, global/example)",
+    )
+    p_show_memory.set_defaults(func=cmd_show_memory)
+
+    # edit & drill-down subparsers
+    p_edit = subparsers.add_parser(
+        "edit",
+        help="Edit managed resources with external editor",
+    )
+    edit_subparsers = p_edit.add_subparsers(dest="edit_target", required=True)
+
+    # edit memory <target>
+    p_edit_memory = edit_subparsers.add_parser(
+        "memory",
+        help="Open a global or project memory file in your configured editor",
+    )
+    p_edit_memory.add_argument(
+        "target",
+        help="Exact name, unique prefix, or path of the memory note (e.g. simplified-clean, global/example)",
+    )
+    p_edit_memory.set_defaults(func=cmd_edit_memory)
+
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

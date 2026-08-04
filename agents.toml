@@ -1,0 +1,80 @@
+# Agent registry: the single source of truth for agent identity and paths.
+#
+# Every agent that aikito can target is defined here. Three capabilities are
+# optional per agent:
+#   - instruction_path : where aikito sync global links global/AGENTS.md
+#   - skills_path      : where aikito sync global links the shared ~/.agents/skills directory
+#   - [agents.<name>.mcp] : how aikito sync mcp writes managed MCP entries
+#
+# An agent without an [agents.<name>.mcp] section (or with
+# config_format = "unsupported") does not participate in MCP synchronization.
+#
+# mcps.toml's `agents = [...]` values must reference keys defined here.
+
+# =============================================================================
+# Codex CLI
+# =============================================================================
+[agents.codex]
+display_name = "Codex"
+instruction_path = ".codex/AGENTS.md"
+
+[agents.codex.subagents]
+config_path = ".codex/agents"
+config_format = "codex_toml"
+
+[agents.codex.mcp]
+config_path = ".codex/config.toml"
+config_format = "toml"
+name_style = "underscore"                       # server-name -> server_name
+live_command = ["codex", "mcp", "list"]
+auth_command = ["codex", "mcp", "login", "{target}"]
+
+# =============================================================================
+# Claude Code CLI
+# =============================================================================
+[agents.claude-code]
+display_name = "Claude Code"
+instruction_path = ".claude/CLAUDE.md"
+skills_path = ".claude/skills"
+
+[agents.claude-code.subagents]
+config_path = ".claude/agents"
+config_format = "claude_markdown"
+
+[agents.claude-code.mcp]
+config_path = ".claude.json"
+config_format = "claude_json"
+name_style = "verbatim"
+live_command = ["claude", "mcp", "list"]
+auth_command = ["claude", "mcp", "login", "{target}"]
+
+# =============================================================================
+# Antigravity CLI (agy)
+# =============================================================================
+[agents.agy]
+display_name = "Antigravity CLI (agy)"
+instruction_path = ".gemini/GEMINI.md"
+skills_path = ".gemini/antigravity-cli/skills"
+
+[agents.agy.subagents]
+config_path = ".gemini/config/agents"
+config_format = "agy_markdown"
+
+[agents.agy.mcp]
+config_path = ".gemini/config/mcp_config.json"
+config_format = "agy_json"
+name_style = "verbatim"
+
+# =============================================================================
+# OpenCode CLI
+# =============================================================================
+[agents.opencode]
+display_name = "OpenCode"
+instruction_path = ".config/opencode/AGENTS.md"
+
+[agents.opencode.mcp]
+config_path = ".config/opencode/opencode.jsonc"
+config_format = "jsonc"
+name_style = "verbatim"
+live_command = ["opencode", "mcp", "list"]
+auth_command = ["opencode", "mcp", "auth", "{target}"]
