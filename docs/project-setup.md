@@ -33,7 +33,20 @@ projects/example/
 ```
 
 The project name identifies its workspace configuration. The `path` points to
-the project receiving the managed `.agents/` runtime directory.
+the project receiving the managed `.agents/` runtime directory. `sync_mode`
+controls only the selected project skills:
+
+- Keep the default `link` mode when this Aikito workspace is the shared source
+  of truth and projects should receive skill updates immediately.
+- Choose `copy` when the project repository should contain and track a managed
+  snapshot of its selected skills, such as for collaborators or CI environments
+  that do not share the workspace.
+
+Project instructions and memory always remain linked, regardless of
+`sync_mode`. Copied skills may diverge from their canonical workspace versions;
+review and reconcile collaborator changes before running a synchronization that
+would replace them. See [Architecture](architecture.md#project-skill-sync-modes)
+for the full design trade-off.
 
 ## Synchronize and Verify
 

@@ -69,6 +69,29 @@ project. Project instructions and memory use symbolic links so their canonical
 content remains in the Aikito workspace. Skills use the project's configured
 `sync_mode`, which can link or copy them.
 
+### Project Skill Sync Modes
+
+`sync_mode` applies only to project skills under `.agents/skills/`. Project
+instructions and memory always remain linked to the Aikito workspace so that
+their canonical content has a single source of truth. Selecting `copy` therefore
+does not make every managed project resource independent of Aikito or eliminate
+all symbolic links.
+
+The two skill modes serve different collaboration models:
+
+| Mode | Runtime representation | Design intent | Trade-off |
+| --- | --- | --- | --- |
+| `link` | Symbolic links to workspace skills | Keep one live canonical skill shared by projects | Skill content is not stored in the project repository and requires access to the Aikito workspace and symbolic-link support |
+| `copy` | Managed copies inside the project | Make selected skill contents reviewable and versionable with the project | Copies can drift from their canonical skills and must be reconciled before synchronization replaces collaborator changes |
+
+Use `link` when the workspace is the authoritative working environment and
+projects should immediately see canonical skill updates. Use `copy` when a
+project needs a self-contained, Git-trackable snapshot of its selected skills,
+for example when collaborators or CI do not share the same Aikito workspace.
+Treat copied skills as generated project artifacts: make lasting improvements
+in the canonical workspace skill, or explicitly reconcile project changes back
+into it before synchronizing again.
+
 The `.agents/skills/` and `.agents/memory/` directories are exclusively managed
 by Aikito. Synchronization removes entries there that are not selected by the
 project configuration. Do not store unrelated files in those directories.
