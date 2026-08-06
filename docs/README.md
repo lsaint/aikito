@@ -10,6 +10,9 @@ model, an operational guide, or command details.
   configure, and operate Aikito on your behalf.
 - [Memory workflow](memory-workflow.md) — decide what knowledge should persist
   and where it belongs.
+- [Capture browser conversations](chat-distiller.md) — use
+  [Chat Distiller](https://github.com/lsaint/chat-distiller) to
+  turn browser AI discussions into reviewable Markdown in `inbox/`.
 - [Architecture](architecture.md) — understand the canonical workspace,
   runtime entry points, and synchronization model.
 - [Safety model](safety.md) — review privacy, backup, conflict, and credential

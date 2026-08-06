@@ -184,6 +184,26 @@ aikito status
 同步可能在检测到的 Agent 配置目录中创建软链接。遇到未受管理的既有文件时，Aikito 会报告
 冲突，不会静默覆盖。
 
+## （可选）浏览器端配套工具：Chat Distiller
+
+[Chat Distiller](https://github.com/lsaint/chat-distiller) 是 Aikito 的浏览器端配套 Chrome 插件。它可以将浏览器中漫长、未结构化的 AI 对话转化为简洁、结构化的 Markdown 记忆笔记，并直接保存到 Aikito 工作区的 `inbox/` 目录。
+
+两者组合支持了灵活的知识工作流——既可用于当前任务的即时消费，也可用于长期记忆的沉淀复用（**Distill → Store / Use → Reuse**）：
+
+```mermaid
+flowchart LR
+    A["浏览器 AI 对话"] -->|"Chat Distiller 提炼"| B["Aikito inbox/"]
+    B -->|"审阅与沉淀"| C["Git 管理的持久记忆"]
+    B -->|"直接使用"| D["Coding Agents"]
+    C -->|"跨 Agent 复用"| D
+```
+
+- **Distill（提炼）**：一键将浏览器 AI 对话提炼为结构化 Markdown 笔记，保存到工作区的 `inbox/` 暂存区。
+- **Store（保存与归档）**：审阅后将笔记沉淀至全局或项目 `memory/` 作用域，正式由 Git 进行版本管理。
+- **Use & Reuse（使用与复用）**：可直接读取 `inbox/` 应对当前任务，也可通过 Git 托管的持久记忆在不同会话及 Coding Agent 之间跨项目复用。
+
+完整的审阅与归档工作流请参阅[捕捉浏览器 AI 对话](docs/chat-distiller.md)。
+
 ## 安全优先
 
 `aikito init` 创建的是本地 Git 仓库，不会自动将其设为私有，也不代表它可以安全公开。

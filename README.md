@@ -202,6 +202,26 @@ Synchronization may create symbolic links in detected Agent configuration
 directories. Existing unmanaged files are reported as conflicts and are not
 silently overwritten.
 
+## Optional Browser Companion: Chat Distiller
+
+[Chat Distiller](https://github.com/lsaint/chat-distiller) is Aikito's optional companion Chrome extension. It transforms long, unstructured browser AI conversations into concise, structured Markdown memory notes and saves them directly to your Aikito workspace's `inbox/`.
+
+Together, they support a flexible knowledge workflow—from immediate task usage to long-term memory accumulation (**Distill → Store / Use → Reuse**):
+
+```mermaid
+flowchart LR
+    A["Browser AI conversation"] -->|"Distill with Chat Distiller"| B["Aikito inbox/"]
+    B -->|"Review & Archive"| C["Git-Managed Memory"]
+    B -->|"Direct Use"| D["Coding Agents"]
+    C -->|"Reuse Context"| D
+```
+
+- **Distill**: One click turns browser AI discussions into clean Markdown notes saved to `inbox/`.
+- **Store**: Review and organize verified notes into global or project memory scopes, tracked by Git for long-term reuse.
+- **Use & Reuse**: Read notes directly from `inbox/` for immediate tasks, or access Git-managed memory automatically across sessions and coding agents.
+
+Read [Capture Browser Conversations](docs/chat-distiller.md) for the complete staging and review workflow.
+
 ## Safety First
 
 `aikito init` creates a local Git repository; it does not make that repository
