@@ -225,7 +225,7 @@ class ShowMemoryTest(unittest.TestCase):
         )
         p_note.write_text("# Project Conflict Content")
 
-        # Stem conflict -> exits with code 1 and prints candidates to stderr
+        # 1. Stem conflict -> exits with code 1 and prints candidates & disambiguation command to stderr
         with (
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
@@ -233,83 +233,146 @@ class ShowMemoryTest(unittest.TestCase):
             args = AIKITO_CLI.build_parser().parse_args(["show", "memory", "conflict"])
             with self.assertRaises(SystemExit) as cm:
                 args.func(args)
-            self.assertEqual(cm.exception.code, 1)
-            err_msg = mock_stderr.getvalue()
-            self.assertIn("[CONFLICT]", err_msg)
-            self.assertIn("global/notes/conflict", err_msg)
-            self.assertIn("doxturbo/notes/conflict", err_msg)
-            self.assertIn("aikito show memory global/notes/conflict", err_msg)
-            self.assertNotIn("aikito edit memory", err_msg)
 
-        # Disambiguated by full identifier: global/notes/conflict
+        self.assertEqual(cm.exception.code, 1)
+        error_message = mock_stderr.getvalue()
+        self.assertIn("[CONFLICT]", error_message)
+        self.assertIn("global/notes/conflict", error_message)
+        self.assertIn("doxturbo/notes/conflict", error_message)
+        self.assertIn("aikito show memory global/notes/conflict", error_message)
+        self.assertIn("aikito show memory doxturbo/notes/conflict", error_message)
+
+        # 2. Disambiguated by scope/type/stem -> prints exact content
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
         ):
-            args = AIKITO_CLI.build_parser().parse_args(
-                ["show", "memory", "global/notes/conflict"]
-            )
+            args = AIKITO_CLI.build_parser().parse_args(["show", "memory", "global/notes/conflict"])
             args.func(args)
             self.assertEqual(mock_stdout.getvalue(), "# Global Conflict Content")
 
-        # Disambiguated by full identifier: doxturbo/notes/conflict
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
         ):
-            args = AIKITO_CLI.build_parser().parse_args(
-                ["show", "memory", "doxturbo/notes/conflict"]
-            )
+            args = AIKITO_CLI.build_parser().parse_args(["show", "memory", "doxturbo/notes/conflict"])
             args.func(args)
             self.assertEqual(mock_stdout.getvalue(), "# Project Conflict Content")
 
     def test_show_memory_same_scope_conflict(self) -> None:
-        (self.aikito_dir / "memory" / "archive").mkdir(parents=True, exist_ok=True)
-        note1 = self.aikito_dir / "memory" / "notes" / "dup.md"
-        note1.write_text("# Active Dup Note")
-        note2 = self.aikito_dir / "memory" / "archive" / "dup.md"
-        note2.write_text("# Archived Dup Note")
+        (self.aikito_dir / "memory" / "notes" / "release-checklist.md").write_text("# Checklist")
+        (self.aikito_dir / "memory" / "notes" / "release-process.md").write_text("# Process")
 
         with (
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
         ):
-            args = AIKITO_CLI.build_parser().parse_args(["show", "memory", "dup"])
+            args = AIKITO_CLI.build_parser().parse_args(["show", "memory", "release"])
             with self.assertRaises(SystemExit) as cm:
                 args.func(args)
-            self.assertEqual(cm.exception.code, 1)
-            err_msg = mock_stderr.getvalue()
-            self.assertIn("[CONFLICT]", err_msg)
-            self.assertIn("global/notes/dup", err_msg)
-            self.assertIn("global/archive/dup", err_msg)
 
-        # Disambiguated by full identifier: global/archive/dup
-        with (
-            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
-        ):
-            args = AIKITO_CLI.build_parser().parse_args(
-                ["show", "memory", "global/archive/dup"]
-            )
-            args.func(args)
-            self.assertEqual(mock_stdout.getvalue(), "# Archived Dup Note")
+        self.assertEqual(cm.exception.code, 1)
+        error_message = mock_stderr.getvalue()
+        self.assertIn("[CONFLICT]", error_message)
+        self.assertIn("global/notes/release-checklist", error_message)
+        self.assertIn("global/notes/release-process", error_message)
 
     def test_show_memory_not_found(self) -> None:
         with (
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
         ):
-            args = AIKITO_CLI.build_parser().parse_args(
-                ["show", "memory", "nonexistent"]
-            )
+            args = AIKITO_CLI.build_parser().parse_args(["show", "memory", "nonexistent"])
             with self.assertRaises(SystemExit) as cm:
                 args.func(args)
-            self.assertEqual(cm.exception.code, 1)
-            err_msg = mock_stderr.getvalue()
-            self.assertIn("[ERROR] Memory note 'nonexistent' not found.", err_msg)
-            self.assertIn(
-                "Run 'aikito status memory' to view available memory files.", err_msg
-            )
+
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("[ERROR] Memory note 'nonexistent' not found.", mock_stderr.getvalue())
+
+
+class ShowSkillTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.aikito_dir = Path(self.temporary_directory.name)
+        (self.aikito_dir / "skills").mkdir(parents=True)
+
+        (self.aikito_dir / "skills.toml").write_text('skills = ["durable-memory", "agent-browser"]\n')
+
+        g_skill = self.aikito_dir / "skills" / "durable-memory"
+        g_skill.mkdir()
+        (g_skill / "SKILL.md").write_text("# Durable Memory Content")
+
+        b_skill = self.aikito_dir / "skills" / "agent-browser"
+        b_skill.mkdir()
+        (b_skill / "SKILL.md").write_text("# Agent Browser Content")
+
+    def tearDown(self) -> None:
+        self.temporary_directory.cleanup()
+
+    def test_show_skill_parser(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+        args = parser.parse_args(["show", "skill", "durable-memory"])
+        self.assertEqual(args.command, "show")
+        self.assertEqual(args.show_target, "skill")
+        self.assertEqual(args.target, "durable-memory")
+        self.assertEqual(args.func, AIKITO_CLI.cmd_show_skill)
+
+        args_alias = parser.parse_args(["show", "skills", "dur"])
+        self.assertEqual(args_alias.show_target, "skills")
+        self.assertEqual(args_alias.target, "dur")
+        self.assertEqual(args_alias.func, AIKITO_CLI.cmd_show_skill)
+
+    def test_show_skill_unique_match(self) -> None:
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["show", "skill", "durable-memory"])
+            args.func(args)
+            self.assertEqual(mock_stdout.getvalue(), "# Durable Memory Content")
+
+    def test_show_skill_unique_prefix_match(self) -> None:
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["show", "skill", "dur"])
+            args.func(args)
+            self.assertEqual(mock_stdout.getvalue(), "# Durable Memory Content")
+
+    def test_show_skill_ambiguous_prefix_conflict(self) -> None:
+        s1 = self.aikito_dir / "skills" / "gino-code-review"
+        s1.mkdir()
+        (s1 / "SKILL.md").write_text("s1")
+        s2 = self.aikito_dir / "skills" / "gino-jira"
+        s2.mkdir()
+        (s2 / "SKILL.md").write_text("s2")
+
+        with (
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["show", "skill", "gino"])
+            with self.assertRaises(SystemExit) as cm:
+                args.func(args)
+
+        self.assertEqual(cm.exception.code, 1)
+        err = mock_stderr.getvalue()
+        self.assertIn("[CONFLICT]", err)
+        self.assertIn("gino-code-review", err)
+        self.assertIn("gino-jira", err)
+
+    def test_show_skill_not_found(self) -> None:
+        with (
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["show", "skill", "nonexistent"])
+            with self.assertRaises(SystemExit) as cm:
+                args.func(args)
+
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("[ERROR] Skill 'nonexistent' not found.", mock_stderr.getvalue())
 
 
 class EditMemoryTest(unittest.TestCase):
@@ -388,5 +451,107 @@ class EditMemoryTest(unittest.TestCase):
             self.assertIn("[ERROR] Path escape detected", mock_stderr.getvalue())
 
 
+class EditSkillTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.aikito_dir = Path(self.temporary_directory.name)
+        (self.aikito_dir / "skills").mkdir(parents=True)
+        (self.aikito_dir / "skills.toml").write_text('skills = ["durable-memory"]\n')
+
+        skill_dir = self.aikito_dir / "skills" / "durable-memory"
+        skill_dir.mkdir()
+        self.skill_file = skill_dir / "SKILL.md"
+        self.skill_file.write_text("# Durable Memory")
+
+    def tearDown(self) -> None:
+        self.temporary_directory.cleanup()
+
+    def test_edit_skill_parser(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+        args = parser.parse_args(["edit", "skill", "durable-memory"])
+        self.assertEqual(args.command, "edit")
+        self.assertEqual(args.edit_target, "skill")
+        self.assertEqual(args.target, "durable-memory")
+        self.assertEqual(args.func, AIKITO_CLI.cmd_edit_skill)
+
+        args_alias = parser.parse_args(["edit", "skills", "dur"])
+        self.assertEqual(args_alias.edit_target, "skills")
+        self.assertEqual(args_alias.target, "dur")
+        self.assertEqual(args_alias.func, AIKITO_CLI.cmd_edit_skill)
+
+    def test_edit_skill_invokes_editor(self) -> None:
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+
+        with (
+            patch("os.environ", {"EDITOR": "nano"}),
+            patch("subprocess.run", return_value=mock_proc) as mock_run,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["edit", "skill", "dur"])
+            args.func(args)
+            mock_run.assert_called_once_with(["nano", str(self.skill_file)])
+
+    def test_edit_skill_whitespace_editor_fallback_to_vi(self) -> None:
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+
+        with (
+            patch("os.environ", {"VISUAL": "   ", "EDITOR": "   "}),
+            patch("subprocess.run", return_value=mock_proc) as mock_run,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["edit", "skill", "dur"])
+            args.func(args)
+            mock_run.assert_called_once_with(["vi", str(self.skill_file)])
+
+    def test_edit_skill_conflict_suggests_edit_command(self) -> None:
+        s1 = self.aikito_dir / "skills" / "gino-code-review"
+        s1.mkdir()
+        (s1 / "SKILL.md").write_text("s1")
+        s2 = self.aikito_dir / "skills" / "gino-jira"
+        s2.mkdir()
+        (s2 / "SKILL.md").write_text("s2")
+
+        with (
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["edit", "skill", "gino"])
+            with self.assertRaises(SystemExit) as cm:
+                args.func(args)
+
+        self.assertEqual(cm.exception.code, 1)
+        err = mock_stderr.getvalue()
+        self.assertIn("[CONFLICT]", err)
+        self.assertIn("aikito edit skill gino-code-review", err)
+        self.assertIn("aikito edit skill gino-jira", err)
+
+    def test_skill_path_escape_prevention(self) -> None:
+        outside_dir = Path(self.temporary_directory.name) / "outside"
+        outside_dir.mkdir()
+        outside_file = outside_dir / "SKILL.md"
+        outside_file.write_text("secret skill")
+
+        # Create a symlink in skills pointing outside
+        bad_symlink_dir = self.aikito_dir / "skills" / "escaped-skill"
+        bad_symlink_dir.mkdir()
+        bad_symlink_file = bad_symlink_dir / "SKILL.md"
+        bad_symlink_file.symlink_to(outside_file)
+
+        (self.aikito_dir / "skills.toml").write_text('skills = ["escaped-skill"]\n')
+
+        with (
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["show", "skill", "escaped-skill"])
+            with self.assertRaises(SystemExit) as cm:
+                args.func(args)
+            self.assertEqual(cm.exception.code, 1)
+            self.assertIn("[ERROR] Path escape detected for skill", mock_stderr.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
+

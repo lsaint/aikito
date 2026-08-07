@@ -100,6 +100,9 @@ After reviewing changes:
 ```bash
 aikito sync global
 aikito status
+aikito status skills
+aikito show skill <target>
+aikito edit skill <target>
 ```
 
 Do not edit generated Agent-native instruction or skill entries as independent

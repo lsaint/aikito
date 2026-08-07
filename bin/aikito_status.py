@@ -9,6 +9,8 @@ import tomllib
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Set
 
+from aikito_link import classify_symlink, symlink_verdict_to_status, SymlinkVerdict
+
 
 from aikito_mcp import (
     load_agents,
@@ -24,6 +26,7 @@ from aikito_render import (
     MemoryNoteRow,
     MemoryStatusRow,
     OrphanSubagentFile,
+    SkillRow,
     StatusReportData,
     SubagentRow,
 )
@@ -76,20 +79,11 @@ def collect_agent_status_rows(
             target = definition.instruction_path
             if not target.parent.exists():
                 instructions_status = "SKIP"
-            elif target.is_symlink():
-                resolved_target = target.resolve(strict=False)
-                expected_source = global_instruction_source.resolve()
-                if resolved_target == expected_source:
-                    instructions_status = "OK"
-                else:
-                    instructions_status = "CONFLICT"
-                    agent_issues += 1
-            elif target.exists():
-                instructions_status = "CONFLICT"
-                agent_issues += 1
             else:
-                instructions_status = "MISSING"
-                agent_issues += 1
+                verdict = classify_symlink(target, global_instruction_source)
+                instructions_status = symlink_verdict_to_status(verdict)
+                if instructions_status != "OK":
+                    agent_issues += 1
 
         # 2. Skills Status
         skills_status = "SKIP"
@@ -97,18 +91,16 @@ def collect_agent_status_rows(
             skills_dir = definition.skills_path
             if not skills_dir.parent.exists():
                 skills_status = "SKIP"
-            elif not skills_dir.exists():
+            elif not skills_dir.exists() and not skills_dir.is_symlink():
                 skills_status = "MISSING"
                 agent_issues += 1
             else:
                 ok_skills = 0
                 for skill_name in global_skills:
                     skill_target = skills_dir / skill_name
-                    expected_source = (aikito_dir / "skills" / skill_name).resolve()
-                    if (
-                        skill_target.is_symlink()
-                        and skill_target.resolve(strict=False) == expected_source
-                    ):
+                    expected_source = aikito_dir / "skills" / skill_name
+                    verdict = classify_symlink(skill_target, expected_source)
+                    if verdict == SymlinkVerdict.OK:
                         ok_skills += 1
                 if ok_skills == total_global_skills and total_global_skills > 0:
                     skills_status = f"OK ({total_global_skills})"
@@ -510,3 +502,96 @@ def collect_memory_notes_rows(aikito_dir: Path, home: Path) -> List[MemoryNoteRo
                         )
 
     return rows
+
+
+def _parse_skill_description(skill_dir: Path) -> str:
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_md.is_file():
+        return "-"
+    try:
+        content = skill_md.read_text(encoding="utf-8", errors="ignore")
+        if content.startswith("---"):
+            parts = content.split("---", 2)
+            if len(parts) >= 3:
+                frontmatter = parts[1]
+                for line in frontmatter.splitlines():
+                    if line.startswith("description:"):
+                        desc = line.split("description:", 1)[1].strip()
+                        return desc
+    except Exception:
+        pass
+    return "-"
+
+
+def collect_skills_rows(aikito_dir: Path) -> List[SkillRow]:
+    global_skills = set(_get_skills_list(aikito_dir))
+
+    project_skills: Dict[str, Set[str]] = {}
+    projects_dir = aikito_dir / "projects"
+    if projects_dir.is_dir():
+        for proj_folder in sorted(projects_dir.iterdir()):
+            if proj_folder.is_dir():
+                agent_toml = proj_folder / "agent.toml"
+                if agent_toml.is_file():
+                    try:
+                        with open(agent_toml, "rb") as f:
+                            data = tomllib.load(f)
+                            p_skills = data.get("skills", [])
+                            if isinstance(p_skills, list):
+                                project_skills[proj_folder.name] = set(str(s) for s in p_skills)
+                    except (tomllib.TOMLDecodeError, OSError) as exc:
+                        print(f"[WARN] Failed to read {agent_toml}: {exc}", file=sys.stderr)
+
+    skills_dir = aikito_dir / "skills"
+    disk_skills = set()
+    if skills_dir.is_dir():
+        for item in skills_dir.iterdir():
+            if item.is_dir():
+                disk_skills.add(item.name)
+
+    all_skill_names = set(global_skills) | disk_skills
+    for p_skills in project_skills.values():
+        all_skill_names |= p_skills
+
+    rows: List[SkillRow] = []
+
+    for name in sorted(all_skill_names):
+        is_global = name in global_skills
+
+        proj_matches = [
+            p_name for p_name, p_skills in sorted(project_skills.items()) if name in p_skills
+        ]
+
+        if is_global:
+            scope = "Global"
+        elif proj_matches:
+            scope = ", ".join(proj_matches)
+        else:
+            scope = "Orphan"
+
+        s_dir = skills_dir / name
+        source_status = "OK" if s_dir.is_dir() else "MISSING"
+
+        desc = _parse_skill_description(s_dir) if source_status == "OK" else "-"
+
+        rows.append(
+            SkillRow(
+                skill_name=name,
+                scope=scope,
+                source_status=source_status,
+                description=desc,
+            )
+        )
+
+    # Sort rows by scope priority (Global -> Projects -> Orphan), then by skill_name
+    def scope_sort_key(r: SkillRow):
+        if r.scope == "Global":
+            return (0, "", r.skill_name)
+        elif r.scope == "Orphan":
+            return (2, "", r.skill_name)
+        else:
+            return (1, r.scope, r.skill_name)
+
+    rows.sort(key=scope_sort_key)
+    return rows
+

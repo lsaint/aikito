@@ -99,6 +99,14 @@ Also use the `aikito` skill when an existing project's memory link needs setup, 
 
 Search for existing or similar notes before writing. Prefer updating existing notes to avoid duplication; correct obsolete content directly, cleaning up indices and links as needed. Rely on Git for historical tracking rather than appending changelogs to notes.
 
+## Retirement
+
+Memory stays trustworthy only if invalidated knowledge leaves it. A note has outlived its value once current code contradicts it, the thing it describes is gone, a stated preference has been superseded, it has degraded into a trivially re-derivable fact, or another note states the same conclusion better. Judge this opportunistically while reading notes for the current task; do not sweep the whole store looking for work.
+
+Prefer the least destructive remedy that restores accuracy: rewrite when the topic still matters, merge when notes overlap, delete only when the topic itself stopped being worth remembering. Delete on your own once a note is plainly useless — its subject deleted, its claim disproven, its content absorbed by another note. Ask the user first when the judgment is genuinely uncertain, above all when the note records their own preference or decision, or when the conclusion might still hold in a context you cannot see.
+
+A retired note should leave nothing pointing at it: drop its index entry and repair inbound `[[wikilinks]]`. Keep no tombstones or deprecation stubs, since Git history already records what was removed.
+
 ## Commit & Version Control
 
-When memory changes, stage only the modified memory files and create a local Git commit in `~/aikito`. Never mix unrelated workspace code or config changes into memory commits.
+When memory changes, stage only the modified memory files and create a local Git commit in `~/aikito`. Deletions are staged the same way, together with the index and wikilink repairs they require, so the removal lands as one reviewable commit. Never mix unrelated workspace code or config changes into memory commits.

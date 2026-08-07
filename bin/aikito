@@ -6,6 +6,7 @@ Supports sync_mode: 'link' (symlinks) or 'copy' (file/directory copy).
 """
 
 import argparse
+import json
 import os
 import shutil
 import shlex
@@ -16,6 +17,7 @@ from pathlib import Path
 from typing import List
 
 from aikito_adopt import build_adopt_plan, execute_adoption
+from aikito_doctor import run_doctor
 from aikito_init import init_workspace
 from aikito_mcp import (
     MCPConfigError,
@@ -25,14 +27,19 @@ from aikito_mcp import (
 )
 
 from aikito_render import (
+    DoctorReport,
+    SkillRow,
+    render_doctor_report,
     render_mcp_status_table,
     render_memory_notes_table,
+    render_skills_table,
     render_status_report,
     render_subagents_status_table,
 )
 from aikito_status import (
     collect_mcp_matrix,
     collect_memory_notes_rows,
+    collect_skills_rows,
     collect_subagents_matrix,
     get_status_report_data,
 )
@@ -41,7 +48,7 @@ from aikito_subagent import (
     sync_subagent_configs,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 
 def get_aikito_dir() -> Path:
@@ -53,6 +60,21 @@ def get_aikito_dir() -> Path:
 
 def get_agents_dir() -> Path:
     return Path.home() / ".agents"
+
+
+def add_color_args(p: argparse.ArgumentParser) -> None:
+    """Add --color and --no-color flags to a subcommand parser."""
+    p.add_argument(
+        "--color",
+        choices=["auto", "always", "never"],
+        default="auto",
+        help="Controls color and table formatting mode (default: auto)",
+    )
+    p.add_argument(
+        "--no-color",
+        action="store_true",
+        help="Disable colorized output (equivalent to NO_COLOR=1)",
+    )
 
 
 def ensure_dir(path: Path) -> None:
@@ -476,6 +498,12 @@ def cmd_status(args: argparse.Namespace) -> None:
             sys.exit(1)
         return
 
+    if target in ("skills", "skill"):
+        skill_rows = collect_skills_rows(aikito_dir=aikito_dir)
+        table_str = render_skills_table(skill_rows, use_unicode, use_color)
+        print(table_str)
+        return
+
     if target == "memory":
         note_rows = collect_memory_notes_rows(aikito_dir=aikito_dir, home=home)
         table_str = render_memory_notes_table(note_rows, use_unicode, use_color)
@@ -574,28 +602,48 @@ def resolve_memory_target(aikito_dir: Path, target: str) -> Path:
     matched = []
     seen_paths = set()
 
-    def add_match(item: MemoryFileItem) -> None:
-        resolved_path = item.full_path.resolve()
-        global_mem = (aikito_dir / "memory").resolve()
-        projects_dir = (aikito_dir / "projects").resolve()
+def ensure_safe_path(target_path: Path, allowed_roots: List[Path], resource_label: str) -> Path:
+    resolved_path = target_path.resolve()
+    resolved_roots = [r.resolve() for r in allowed_roots]
 
-        is_safe = False
+    is_safe = False
+    for root in resolved_roots:
         try:
-            if resolved_path.is_relative_to(global_mem) or resolved_path.is_relative_to(
-                projects_dir
-            ):
+            if resolved_path.is_relative_to(root):
                 is_safe = True
+                break
         except AttributeError:
-            is_safe = str(resolved_path).startswith(str(global_mem)) or str(
-                resolved_path
-            ).startswith(str(projects_dir))
+            if str(resolved_path).startswith(str(root)):
+                is_safe = True
+                break
 
-        if not is_safe:
-            print(
-                f"[ERROR] Path escape detected for memory note: {item.full_path}",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+    if not is_safe:
+        print(
+            f"[ERROR] Path escape detected for {resource_label}: {target_path}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    return resolved_path
+
+
+def resolve_memory_target(aikito_dir: Path, target: str) -> Path:
+    target_raw = target.strip()
+    if target_raw.endswith("…"):
+        target_raw = target_raw[:-1]
+    target_norm = target_raw[:-3] if target_raw.endswith(".md") else target_raw
+
+    items = find_memory_files(aikito_dir)
+
+    matched = []
+    seen_paths = set()
+
+    def add_match(item: MemoryFileItem) -> None:
+        global_mem = aikito_dir / "memory"
+        projects_dir = aikito_dir / "projects"
+        resolved_path = ensure_safe_path(
+            item.full_path, [global_mem, projects_dir], "memory note"
+        )
 
         if resolved_path not in seen_paths:
             seen_paths.add(resolved_path)
@@ -647,6 +695,115 @@ def resolve_memory_target_for_command(
         sys.exit(1)
 
 
+class SkillTargetConflictError(Exception):
+    def __init__(self, target: str, candidates: list[SkillRow]):
+        super().__init__(f"Multiple skills match '{target}'")
+        self.target = target
+        self.candidates = candidates
+
+
+def resolve_skill_target(aikito_dir: Path, target: str) -> SkillRow:
+    target_norm = target.strip()
+    rows = collect_skills_rows(aikito_dir)
+
+    exact_matches = [r for r in rows if r.skill_name == target_norm]
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+
+    prefix_matches = [r for r in rows if r.skill_name.startswith(target_norm)]
+    if len(prefix_matches) == 1:
+        return prefix_matches[0]
+
+    if len(prefix_matches) > 1:
+        raise SkillTargetConflictError(target, prefix_matches)
+
+    print(f"[ERROR] Skill '{target}' not found.", file=sys.stderr)
+    print("Run 'aikito status skills' to view available skills.", file=sys.stderr)
+    sys.exit(1)
+
+
+def resolve_skill_target_for_command(
+    aikito_dir: Path, target: str, operation: str
+) -> Path:
+    try:
+        skill_row = resolve_skill_target(aikito_dir, target)
+    except SkillTargetConflictError as exc:
+        print(
+            f"[CONFLICT] Multiple skills match '{exc.target}':\n",
+            file=sys.stderr,
+        )
+        for item in exc.candidates:
+            print(f"  - {item.skill_name} ({item.scope})", file=sys.stderr)
+        print("\nPlease specify the exact skill name, e.g.:", file=sys.stderr)
+        for item in exc.candidates:
+            print(
+                f"  aikito {operation} skill {item.skill_name}",
+                file=sys.stderr,
+            )
+        sys.exit(1)
+
+    skills_root = aikito_dir / "skills"
+    skill_file = skills_root / skill_row.skill_name / "SKILL.md"
+
+    ensure_safe_path(skill_file, [skills_root], "skill")
+
+    if not skill_file.is_file():
+        print(
+            f"[ERROR] SKILL.md not found for skill '{skill_row.skill_name}' at {skill_file}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    return skill_file
+
+
+def cmd_show_skill(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    skill_file = resolve_skill_target_for_command(
+        aikito_dir, args.target, operation="show"
+    )
+
+    try:
+        print(skill_file.read_text(encoding="utf-8"), end="")
+    except Exception as e:
+        print(
+            f"[ERROR] Failed to read skill file {skill_file}: {e}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+def open_in_editor(target_file: Path) -> None:
+    editor_env = (os.environ.get("VISUAL") or "").strip() or (
+        os.environ.get("EDITOR") or ""
+    ).strip() or "vi"
+    editor_parts = shlex.split(editor_env)
+    if not editor_parts:
+        editor_parts = ["vi"]
+        editor_env = "vi"
+
+    cmd_args = editor_parts + [str(target_file)]
+
+    try:
+        res = subprocess.run(cmd_args)
+        if res.returncode != 0:
+            sys.exit(res.returncode)
+    except Exception as exc:
+        print(
+            f"[ERROR] Failed to launch editor '{editor_env}': {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+def cmd_edit_skill(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    skill_file = resolve_skill_target_for_command(
+        aikito_dir, args.target, operation="edit"
+    )
+    open_in_editor(skill_file)
+
+
 def cmd_show_memory(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
     target_file = resolve_memory_target_for_command(
@@ -668,20 +825,7 @@ def cmd_edit_memory(args: argparse.Namespace) -> None:
     target_file = resolve_memory_target_for_command(
         aikito_dir, args.target, operation="edit"
     )
-
-    editor_env = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
-    cmd_args = shlex.split(editor_env) + [str(target_file)]
-
-    try:
-        res = subprocess.run(cmd_args)
-        if res.returncode != 0:
-            sys.exit(res.returncode)
-    except Exception as exc:
-        print(
-            f"[ERROR] Failed to launch editor '{editor_env}': {exc}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    open_in_editor(target_file)
 
 
 def cmd_adopt(args: argparse.Namespace) -> None:
@@ -699,6 +843,47 @@ def cmd_adopt(args: argparse.Namespace) -> None:
             file=sys.stderr,
         )
         sys.exit(1)
+
+
+def cmd_doctor(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    home = Path.home()
+
+    is_tty = sys.stdout.isatty() if args.color == "auto" else (args.color == "always")
+    no_color = args.no_color or (
+        os.environ.get("NO_COLOR") is not None and os.environ.get("NO_COLOR") != ""
+    )
+
+    report = run_doctor(aikito_dir, home)
+
+    if getattr(args, "json", False):
+        def _report_to_dict(r: DoctorReport) -> dict:
+            return {
+                "sections": [
+                    {
+                        "name": s.name,
+                        "findings": [
+                            {
+                                "status": f.status,
+                                "message": f.message,
+                                "fix_hint": f.fix_hint,
+                            }
+                            for f in s.findings
+                        ],
+                    }
+                    for s in r.sections
+                ],
+                "fail_count": r.fail_count,
+                "warn_count": r.warn_count,
+            }
+
+        print(json.dumps(_report_to_dict(report), ensure_ascii=False, indent=2))
+    else:
+        print(render_doctor_report(report, is_tty=is_tty, no_color=no_color))
+
+    if report.fail_count > 0:
+        sys.exit(1)
+
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -769,33 +954,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show synchronization status dashboard or drill down into mcp, subagents, memory",
     )
 
-    p_status.add_argument(
-        "--color",
-        choices=["auto", "always", "never"],
-        default="auto",
-        help="Controls color and table formatting mode (default: auto)",
-    )
-    p_status.add_argument(
-        "--no-color",
-        action="store_true",
-        help="Disable colorized output (equivalent to NO_COLOR=1)",
-    )
+    add_color_args(p_status)
     p_status.set_defaults(func=cmd_status)
 
     status_subparsers = p_status.add_subparsers(dest="status_target", required=False)
-
-    def add_color_args(p: argparse.ArgumentParser) -> None:
-        p.add_argument(
-            "--color",
-            choices=["auto", "always", "never"],
-            default="auto",
-            help="Controls color and table formatting mode (default: auto)",
-        )
-        p.add_argument(
-            "--no-color",
-            action="store_true",
-            help="Disable colorized output (equivalent to NO_COLOR=1)",
-        )
 
     p_status_mcp = status_subparsers.add_parser(
         "mcp", help="Drill down into managed MCP server configs"
@@ -819,6 +981,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_color_args(p_status_memory)
     p_status_memory.set_defaults(func=cmd_status)
+
+    p_status_skills = status_subparsers.add_parser(
+        "skills", aliases=["skill"], help="Drill down into registered and project skills"
+    )
+    add_color_args(p_status_skills)
+    p_status_skills.set_defaults(func=cmd_status)
 
     # auth & drill-down subparsers
     p_auth = subparsers.add_parser(
@@ -924,6 +1092,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_show_memory.set_defaults(func=cmd_show_memory)
 
+    # show skill <target>
+    p_show_skill = show_subparsers.add_parser(
+        "skill",
+        aliases=["skills"],
+        help="Print raw SKILL.md content of a registered or project skill",
+    )
+    p_show_skill.add_argument(
+        "target",
+        help="Exact name or unique prefix of the skill (e.g. durable-memory, dur)",
+    )
+    p_show_skill.set_defaults(func=cmd_show_skill)
+
     # edit & drill-down subparsers
     p_edit = subparsers.add_parser(
         "edit",
@@ -941,6 +1121,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="Exact name, unique prefix, or path of the memory note (e.g. simplified-clean, global/example)",
     )
     p_edit_memory.set_defaults(func=cmd_edit_memory)
+
+    # edit skill <target>
+    p_edit_skill = edit_subparsers.add_parser(
+        "skill",
+        aliases=["skills"],
+        help="Open a registered or project skill's SKILL.md file in your configured editor",
+    )
+    p_edit_skill.add_argument(
+        "target",
+        help="Exact name or unique prefix of the skill (e.g. durable-memory, dur)",
+    )
+    p_edit_skill.set_defaults(func=cmd_edit_skill)
+
+    # doctor
+    p_doctor = subparsers.add_parser(
+        "doctor",
+        help="Run deep workspace diagnostics (broken links, orphans, drift, permissions)",
+    )
+    add_color_args(p_doctor)
+    p_doctor.add_argument(
+        "--json",
+        action="store_true",
+        help="Output structured JSON report instead of human-readable text",
+    )
+    p_doctor.set_defaults(func=cmd_doctor)
 
     return parser
 

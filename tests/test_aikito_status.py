@@ -13,10 +13,12 @@ from aikito_render import (  # noqa: E402
     MemoryNoteRow,
     MemoryStatusRow,
     OrphanSubagentFile,
+    SkillRow,
     StatusReportData,
     SubagentRow,
     render_mcp_status_table,
     render_memory_notes_table,
+    render_skills_table,
     render_status_report,
     render_subagents_status_table,
 )
@@ -24,6 +26,7 @@ from aikito_render import (  # noqa: E402
 from aikito_status import (  # noqa: E402
     collect_mcp_matrix,
     collect_memory_notes_rows,
+    collect_skills_rows,
     collect_subagents_matrix,
     get_status_report_data,
 )
@@ -294,10 +297,114 @@ agents = ["codex"]
         self.assertIsInstance(orphans, list)
         self.assertIsInstance(agents, list)
 
-    def test_collect_memory_notes_rows(self) -> None:
-        notes = collect_memory_notes_rows(self.aikito_dir, self.home)
-        self.assertIsInstance(notes, list)
+    def test_dangling_symlink_reports_conflict_in_agent_status(self) -> None:
+        from aikito_status import collect_agent_status_rows
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            home = root / "home"
+            aikito_dir = root / "aikito"
+            (home / ".codex").mkdir(parents=True)
+            (aikito_dir / "global").mkdir(parents=True)
+            aikito_dir.mkdir(exist_ok=True)
+
+            # Expected source does NOT exist
+            expected_global_agents = aikito_dir / "global" / "AGENTS.md"
+
+            (aikito_dir / "agents.toml").write_text("""
+[agents.codex]
+display_name = "Codex"
+instruction_path = ".codex/AGENTS.md"
+""".strip())
+            (aikito_dir / "skills.toml").write_text("skills = []\n")
+            (aikito_dir / "mcps.toml").write_text("[servers]\n")
+            (aikito_dir / "subagents.toml").write_text("[subagents]\n")
+
+            # Create dangling symlink pointing to expected_global_agents (which does not exist!)
+            target_link = home / ".codex" / "AGENTS.md"
+            target_link.symlink_to(expected_global_agents)
+
+            rows, issues, _, _ = collect_agent_status_rows(aikito_dir, home)
+            codex_row = next(r for r in rows if r.agent_name == "codex")
+
+            # With strict=True in classify_symlink, dangling symlink must be reported as CONFLICT
+            self.assertEqual(codex_row.instructions_status, "CONFLICT")
+            self.assertGreater(issues, 0)
+
+    def test_collect_skills_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            aikito_dir = root / "aikito"
+            aikito_dir.mkdir()
+            (aikito_dir / "skills.toml").write_text('skills = ["global-skill-1", "missing-skill"]\n')
+
+            skills_dir = aikito_dir / "skills"
+            skills_dir.mkdir()
+
+            g_skill = skills_dir / "global-skill-1"
+            g_skill.mkdir()
+            (g_skill / "SKILL.md").write_text("---\nname: global-skill-1\ndescription: Global skill description\n---\n")
+
+            orphan_skill = skills_dir / "orphan-skill"
+            orphan_skill.mkdir()
+            (orphan_skill / "SKILL.md").write_text("---\nname: orphan-skill\ndescription: Orphan description\n---\n")
+
+            projects_dir = aikito_dir / "projects" / "test-proj"
+            projects_dir.mkdir(parents=True)
+            (projects_dir / "agent.toml").write_text('name = "test-proj"\nskills = ["proj-skill"]\n')
+
+            p_skill = skills_dir / "proj-skill"
+            p_skill.mkdir()
+            (p_skill / "SKILL.md").write_text("---\nname: proj-skill\ndescription: Project skill description\n---\n")
+
+            rows = collect_skills_rows(aikito_dir)
+
+            self.assertEqual(len(rows), 4)
+
+            global_row = next(r for r in rows if r.skill_name == "global-skill-1")
+            self.assertEqual(global_row.scope, "Global")
+            self.assertEqual(global_row.source_status, "OK")
+            self.assertEqual(global_row.description, "Global skill description")
+
+            missing_row = next(r for r in rows if r.skill_name == "missing-skill")
+            self.assertEqual(missing_row.scope, "Global")
+            self.assertEqual(missing_row.source_status, "MISSING")
+            self.assertEqual(missing_row.description, "-")
+
+            proj_row = next(r for r in rows if r.skill_name == "proj-skill")
+            self.assertEqual(proj_row.scope, "test-proj")
+            self.assertEqual(proj_row.source_status, "OK")
+            self.assertEqual(proj_row.description, "Project skill description")
+
+            orphan_row = next(r for r in rows if r.skill_name == "orphan-skill")
+            self.assertEqual(orphan_row.scope, "Orphan")
+            self.assertEqual(orphan_row.source_status, "OK")
+            self.assertEqual(orphan_row.description, "Orphan description")
+
+    def test_render_skills_table(self) -> None:
+        rows = [
+            SkillRow(
+                skill_name="test-skill",
+                scope="Global",
+                source_status="OK",
+                description="Test description text",
+            ),
+            SkillRow(
+                skill_name="orphan-skill",
+                scope="Orphan",
+                source_status="MISSING",
+                description="-",
+            ),
+        ]
+        out = render_skills_table(rows, use_unicode=True, use_color=False)
+        self.assertIn("test-skill", out)
+        self.assertIn("Global", out)
+        self.assertIn("Test description text", out)
+        self.assertIn("orphan-skill", out)
+        self.assertIn("Orphan", out)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+

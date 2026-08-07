@@ -155,8 +155,8 @@ def load_agents(aikito_dir: Path, home: Path) -> dict[str, AgentDefinition]:
     if not config_path.exists():
         raise MCPConfigError(f"Agents config not found: {config_path}")
     try:
-        document = tomllib.loads(config_path.read_text())
-    except tomllib.TOMLDecodeError as exc:
+        document = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError) as exc:
         raise MCPConfigError(f"Invalid agents config {config_path}: {exc}") from exc
 
     agents = document.get("agents")
@@ -839,14 +839,14 @@ def evaluate_spec_status(spec: AgentSpec) -> str:
         return "MISSING"
 
     try:
-        content = spec.config_path.read_text()
+        content = spec.config_path.read_text(encoding="utf-8")
         current = read_entry(spec, content)
         if current == spec.desired:
             return "OK"
         if current is None:
             return "MISSING"
         return "DRIFT"
-    except (tomllib.TOMLDecodeError, ValueError, OSError):
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError, PermissionError, ValueError, OSError):
         return "ERROR"
     except Exception:
         return "ERROR"

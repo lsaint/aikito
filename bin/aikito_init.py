@@ -126,6 +126,7 @@ GITIGNORE_TEMPLATE = """# Aikito Git Ignore Rules
 /__pycache__/
 /*.pyc
 /.venv/
+/.local/
 """
 
 

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-07
+
+### Added
+
+- Added `aikito doctor` command for deep workspace diagnostics including orphan skill detection, broken symlink validation, empty directory cleanup hints, and auto-fix capabilities.
+- Added `aikito skills status`, `aikito skills show`, and `aikito skills edit` subcommands for interactive skill inspection and editing.
+- Added path escape guards for skill target resolution to enhance CLI security.
+- Added support for Python 3.12 and 3.13 compatibility in skill status row formatting.
+- Improved `VISUAL`/`EDITOR` fallback handling to handle whitespace-only environment variables safely.
+
 ## [0.1.0] - 2026-08-04
 
 ### Added
@@ -25,5 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/lsaint/aikito/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/lsaint/aikito/releases/tag/v0.1.0

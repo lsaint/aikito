@@ -51,7 +51,24 @@ The practical loop is:
 2. Perform the work and verify the conclusion.
 3. Update an existing note or create one focused note.
 4. Link it from the scope index when useful.
-5. Review the change and commit it with Git.
+5. Retire notes the work just invalidated.
+6. Review the change and commit it with Git.
+
+Step 5 is what keeps the store trustworthy. A note becomes a liability once
+current code contradicts it, the thing it describes is gone, a preference has
+been superseded, or a newer note states the same conclusion better. Rewrite the
+note when the topic still matters, merge overlapping notes into the more
+accurate one, and delete only when the topic itself stopped being worth
+remembering.
+
+An Agent may delete a note on its own when it is plainly useless — the subject
+gone, the claim disproven, the content absorbed elsewhere. It should ask you
+first when the call is genuinely uncertain, and especially when the note records
+one of your own preferences or decisions. Either way the removal takes its
+`index.md` entry and inbound `[[wikilinks]]` with it, so the scope never
+accumulates dangling links. Aikito keeps no tombstones or deprecation stubs —
+Git history is the record of what was removed, and every memory change is
+committed, so a deletion you disagree with is recoverable.
 
 The included `durable-memory` skill gives supported Agents the same
 heuristics used across Aikito workspaces.

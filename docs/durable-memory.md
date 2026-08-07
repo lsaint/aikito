@@ -55,6 +55,21 @@ The command opens the canonical note with `$VISUAL` or `$EDITOR`. Review and
 commit the resulting change in the Aikito workspace after verifying the
 conclusion.
 
+## Retire a Note
+
+There is no `delete` command. Removing a note is a deliberate manual edit in the
+canonical workspace, because it must stay consistent with the rest of the scope:
+
+```bash
+cd ~/aikito
+rm memory/notes/<note>.md      # or projects/<name>/memory/notes/<note>.md
+grep -rn '<note>' memory projects   # find the index entry and inbound wikilinks
+```
+
+Delete the `index.md` entry and repair every `[[wikilink]]` the grep reports,
+then commit the removal and its cleanups as one change. `aikito status memory`
+afterwards confirms the scope still lists what you expect.
+
 Memory has two scopes:
 
 - `memory/` for cross-project knowledge;

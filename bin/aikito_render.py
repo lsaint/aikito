@@ -66,12 +66,51 @@ class OrphanSubagentFile:
 
 
 @dataclass
+class SkillRow:
+    skill_name: str
+    scope: str
+    source_status: str
+    description: str
+
+
+@dataclass
 class MemoryNoteRow:
     scope_name: str
     note_name: str
     title: str
     is_indexed: bool
     link_status: str  # "OK", "DANGLING", "N/A"
+
+
+@dataclass
+class DoctorFinding:
+    status: str          # "OK" | "FAIL" | "WARN"
+    message: str         # Human-readable description
+    fix_hint: str = ""  # Suggested fix command (empty if none)
+
+
+@dataclass
+class DoctorSection:
+    name: str
+    findings: List["DoctorFinding"]
+
+
+@dataclass
+class DoctorReport:
+    sections: List["DoctorSection"]
+
+    @property
+    def fail_count(self) -> int:
+        return sum(
+            1 for s in self.sections for f in s.findings if f.status == "FAIL"
+        )
+
+    @property
+    def warn_count(self) -> int:
+        return sum(
+            1 for s in self.sections for f in s.findings if f.status == "WARN"
+        )
+
 
 
 # ANSI Colors
@@ -424,6 +463,38 @@ def render_memory_notes_table(
     )
 
 
+def render_skills_table(
+    skills: List[SkillRow],
+    use_unicode: bool,
+    use_color: bool,
+) -> str:
+    headers = ["Skill", "Scope", "Source", "Description"]
+
+    formatted_rows: List[Any] = []
+    last_scope = None
+
+    for s in skills:
+        if last_scope is not None and s.scope != last_scope:
+            formatted_rows.append("---SEPARATOR---")
+        last_scope = s.scope
+
+        source_badge = _format_status_badge(s.source_status, use_unicode, use_color)
+
+        formatted_rows.append(
+            [
+                s.skill_name,
+                s.scope,
+                source_badge,
+                s.description if s.description else "-",
+            ]
+        )
+
+    return _build_generic_table(
+        headers, formatted_rows, use_unicode, use_color, truncatable_cols=[3]
+    )
+
+
+
 def render_status_report(
     data: StatusReportData,
     *,
@@ -493,3 +564,91 @@ def render_status_report(
         output_sections.append(summary_line_notes)
 
     return "\n".join(output_sections)
+
+
+def render_doctor_report(
+    report: "DoctorReport",
+    *,
+    is_tty: bool = True,
+    no_color: bool = False,
+    use_unicode: bool = True,
+) -> str:
+    """Render a DoctorReport as grouped sections with box-drawing borders.
+
+    Each section is wrapped in a titled box. Findings are rendered as
+    individual lines with status symbols and right borders.
+    """
+    use_color = is_tty and not no_color
+
+    ok_sym = "✓" if use_unicode else "[OK]"
+    fail_sym = "✗" if use_unicode else "[FAIL]"
+    warn_sym = "⚠" if use_unicode else "[WARN]"
+
+    if use_unicode:
+        tl, tr, bl, br = "╭", "╮", "╰", "╯"
+        horiz, vert = "─", "│"
+    else:
+        tl = tr = bl = br = "+"
+        horiz = "-"
+        vert = "|"
+
+    output_blocks: List[str] = []
+    max_title_w = max(
+        (_get_display_width(s.name) for s in report.sections), default=10
+    )
+    box_inner_width = max_title_w + 3  # Dynamically fitted to longest section title + 3 chars
+
+    for section in report.sections:
+        lines: List[str] = []
+
+        # 1. Title box (uniform length across all section titles)
+        title_text = f" {section.name} "
+        title_w = _get_display_width(title_text)
+        pad_len = max(0, box_inner_width - title_w)
+
+        lines.append(f"{tl}{horiz * box_inner_width}{tr}")
+        lines.append(f"{vert}{_colorize(title_text, COLOR_BOLD, use_color)}{' ' * pad_len}{vert}")
+        lines.append(f"{bl}{horiz * box_inner_width}{br}")
+
+        # 2. Findings lines underneath title box
+        for finding in section.findings:
+            if finding.status == "OK":
+                sym_colored = _colorize(ok_sym, COLOR_GREEN, use_color)
+            elif finding.status == "FAIL":
+                sym_colored = _colorize(fail_sym, COLOR_RED, use_color)
+            else:
+                sym_colored = _colorize(warn_sym, COLOR_YELLOW, use_color)
+
+            lines.append(f"  {sym_colored} {finding.message}")
+
+            if finding.fix_hint:
+                hint_prefix = "    → " if use_unicode else "    -> "
+                hint_colored = _colorize(finding.fix_hint, COLOR_DIM, use_color)
+                lines.append(f"{hint_prefix}{hint_colored}")
+
+        output_blocks.append("\n".join(lines))
+
+    output_blocks.append("")
+
+    fail_count = report.fail_count
+    warn_count = report.warn_count
+
+    if fail_count == 0 and warn_count == 0:
+        summary = _colorize(
+            f"{ok_sym} All checks passed.", COLOR_GREEN, use_color
+        )
+    else:
+        parts = []
+        if fail_count:
+            issue_word = "issue" if fail_count == 1 else "issues"
+            parts.append(_colorize(f"{fail_count} {issue_word}", COLOR_RED, use_color))
+        if warn_count:
+            warn_word = "warning" if warn_count == 1 else "warnings"
+            parts.append(
+                _colorize(f"{warn_count} {warn_word}", COLOR_YELLOW, use_color)
+            )
+        summary = "Found " + ", ".join(parts) + "."
+
+    output_blocks.append(summary)
+    return "\n".join(output_blocks)
+
