@@ -1,6 +1,6 @@
 ---
 name: aikito
-description: Install, configure, and operate Aikito workspaces, including skills, memory, project resources, MCP servers, subagents, adoption, synchronization, and status verification.
+description: Install, configure, and operate Aikito workspaces, including memory, skills, project resources, MCP servers, subagents, adoption, synchronization, and status verification.
 ---
 
 # Aikito

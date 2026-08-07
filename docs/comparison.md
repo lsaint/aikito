@@ -1,114 +1,149 @@
 # Comparison and Design Boundaries
 
-Different approaches exist for managing configurations, context, and persistent knowledge for AI coding agents. This document compares **Manual Copy-Paste**, **Traditional Dotfiles**, **Agent-Specific Memory Systems**, and **Aikito** strictly on their **design goals, structural boundaries, and trade-offs**, without evaluating relative product quality.
+Different approaches exist for managing configurations, context, and persistent knowledge for AI coding agents. This document outlines where Aikito fits in the landscape, compares specific closest overlaps, explains core design choices, and helps you evaluate when to combine tools or when you may not need Aikito.
 
 ---
 
-## At a Glance
+## Where Aikito Fits
 
-| Dimension | Manual Copy-Paste | Traditional Dotfiles | Agent-Specific Memory Systems | Aikito |
-| --- | --- | --- | --- | --- |
-| **Primary Focus** | Ad-hoc sharing and quick trials | Filesystem-oriented system and CLI configuration | Context persistence within one agent ecosystem | Multi-agent workspace and resource synchronization |
-| **Source of Truth** | Scattered files, messages, or chat windows | Usually a Git-managed dotfiles repository | Agent-internal storage, database, or files | Canonical Git workspace, typically `~/aikito` |
-| **Multi-Agent Support** | Manual duplication per tool | User-defined scripts and templates | Usually tied to one agent | Capability-based translation across supported agents |
-| **Managed Resources** | Prompt snippets and individual files | Configuration files, links, and templates | Primarily memory and conversation context | Memory, skills, instructions, MCP servers, and subagents |
-| **Scope Model** | Manual placement and naming | Filesystem paths and user-defined profiles | Agent-dependent | Explicit global and project-level scopes |
-| **Review & Audit Model** | Manual inspection | Git diff and review | Tool-dependent | Explicit file review, Git history, and controlled adoption |
-| **Conflict Handling** | Manual replacement | Tool- or script-dependent | Tool-dependent | Adoption plans, fingerprint drift checks, and safety gates |
+| Category | Primary job | Typical state |
+| --- | --- | --- |
+| **Agent memory systems** | Preserve and retrieve past context | DB, index, Markdown, embeddings |
+| **Project-local sync tools** | Keep one project's Agent configs aligned | Project `.agents/` or equivalent |
+| **Skill managers** | Discover and install Agent skills | Registry + installed skills |
+| **Agent orchestration platforms** | Run and coordinate multiple agents | Tasks, workers, sessions, DB |
+| **Aikito** | **Govern reusable resources across agents and projects** | **Canonical Git workspace** |
 
----
-
-## Detailed Boundaries
-
-### 1. Manual Copy-Paste
-
-#### Design Intent
-Manual copying is the default entry point for experimenting with AI agents. Developers copy system prompts, custom instructions, or project rules directly into chat boxes or local config files (`CLAUDE.md`, `.cursorrules`, etc.).
-
-#### Characteristics
-* Zero overhead; no extra tools or dependencies required.
-* Ideal for isolated, one-off trials or temporary prompt variations.
-
-#### Boundaries & Trade-offs
-* **Scalability**: High manual effort as the number of agents and projects grows.
-* **Synchronization**: No automatic drift detection, version control, or synchronization across tools.
-* **Fragmentation**: Knowledge easily becomes stale or inconsistent across environments.
+These categories overlap. Aikito intentionally focuses on the workspace and resource-governance layer rather than replacing specialized memory, skill, or orchestration engines.
 
 ---
 
-### 2. Traditional Dotfiles
+## Closest Overlaps
 
-#### Design Intent
-Dotfiles repositories are primarily designed to version and deploy filesystem-oriented configurations (e.g., shell profiles, editor settings, terminal multiplexers) across machines.
+### 1. Aikito vs AgentSync
 
-#### Characteristics
-* Proven model for Unix tool management, versioned via Git, and highly customizable.
-* Dotfile managers primarily operate on files, paths, links, and templates.
+AgentSync focuses on aligning multi-agent configurations within an individual project directory, whereas Aikito establishes a personal canonical workspace for cross-project resource management.
 
-#### Boundaries & Trade-offs
-* **File-Centric vs. Resource-Centric**: Dotfiles track files at specific filesystem paths. They do not model higher-level agent concepts like MCP servers, subagents, or capability-based agent registries.
-* **No Built-in Resource Translation**: Basic dotfile managers sync exact file contents. Templates or custom scripts can translate formats, but users must design and maintain the agent resource model and conversion logic themselves.
-* **Safety & Conflict Detection**: Conflict behavior depends on the selected dotfile manager and custom deployment scripts; there is no shared safety model specific to agent-managed resources.
+| Dimension | Aikito | AgentSync |
+| --- | --- | --- |
+| **Center of gravity** | Personal AI workspace | Individual project |
+| **Canonical source** | `~/aikito` | Project `.agents/` |
+| **Cross-agent sync** | Yes | Yes |
+| **Cross-project reuse** | Core model | Secondary |
+| **Skills** | Yes | Yes |
+| **Instructions** | Yes | Yes |
+| **MCP** | Yes | Yes |
+| **Durable memory** | First-class resource | Not primary focus |
+| **Distribution** | Link or copy | Primarily symlink |
+| **Git model** | Workspace itself is Git-managed state | Project repository manages source |
+| **Main goal** | Reusable resources across tools and projects | Keep one project's Agent configs synchronized |
 
----
-
-### 3. Agent-Specific Memory Systems
-
-#### Design Intent
-Agent-specific memory features (e.g., built-in auto-memory in specific CLI agents, IDE extensions, or agent memory plugins) aim to provide frictionless context retention within a single tool's ecosystem.
-
-#### Characteristics
-* Seamless setup and native integration.
-* Automated memory capture during chat sessions within the supported agent environment.
-
-#### Boundaries & Trade-offs
-* **Limited Portability**: Plain-text memory may be readable by other tools, but agent-specific discovery, scope, metadata, and synchronization conventions are not generally portable.
-* **Resource Breadth**: Typically focused exclusively on conversation memory notes, leaving skills, MCP servers, subagents, and instruction files to be managed separately.
-* **Curation & Growth**: Automated memory accumulation may require separate curation policies to control duplication, staleness, and context growth over time.
+* **Choose AgentSync** when your primary problem is keeping one repository's Agent configuration synchronized across tools.
+* **Choose Aikito** when you want a personal canonical workspace whose resources can be reused and selectively exposed across many projects.
 
 ---
 
-### 4. Aikito
+### 2. Aikito vs agent-memory
 
-#### Design Intent
-Aikito is designed as a **canonical workspace and synchronization engine** for developers using multiple coding agents. It separates CLI tool execution from a Git-managed stateful workspace (typically `~/aikito`), centralizing durable memory, skills, instructions, MCP servers, and subagents in one place.
+agent-memory provides dedicated Markdown context persistence with hybrid search and context injection, whereas Aikito manages memory as one part of a broader file-based workspace.
 
-#### Characteristics
-* **Cross-Agent Normalization**: Translates canonical configurations into native runtime formats for supported agents (Codex, Claude Code, Antigravity `agy`, OpenCode). Support is capability-based, so resource coverage differs by agent; see the [architecture](architecture.md).
-* **Hierarchical Scope**: Explicitly manages global knowledge vs. project-specific `.agents/` context.
-* **Durable Memory Distillation**: Encourages atomic, versioned Markdown notes reviewed via Git, making uncurated memory growth visible and easier to limit.
-* **Safety-First Sync**: Includes adopt workflows, fingerprint drift detection, and credential isolation.
+| Dimension | Aikito | agent-memory |
+| --- | --- | --- |
+| **Primary focus** | Entire Agent workspace | Persistent memory |
+| **Memory storage** | Curated Markdown | Markdown |
+| **Search engine** | Native file search / agent-driven retrieval | `qmd` BM25 / vector / hybrid |
+| **Automatic injection** | No dedicated injection engine | Yes |
+| **Background indexing** | No | Optional `qmd` indexing |
+| **Skills / Instructions / MCP** | Managed resources | Outside core scope |
+| **Memory philosophy** | Small, curated, durable | Searchable persistent memory |
 
-#### Boundaries & Trade-offs
-* **Not a Real-time Vector DB / RAG System**: Aikito is an agent workspace and file-based context manager, not an in-memory vector database or semantic search server.
-* **Capability Asymmetry**: Supported agents do not expose identical resource models. Aikito normalizes only the capabilities available for each agent, so synchronization does not imply full feature parity across runtimes.
-* **File-Based Context Boundary**: Aikito manages durable files and configurations. It does not automatically decide which memory should be injected into every prompt or session; runtime context loading remains subject to each agent's behavior.
-* **POSIX Environment Dependency**: Relies on POSIX file permissions and symbolic links, requiring macOS, Linux, or WSL2.
-* **Requires Initial Setup**: Requires initializing a dedicated workspace directory (`~/aikito`) and maintaining a clean separation between source code and state.
+* **Choose agent-memory** when memory retrieval and automatic context injection are the main problem.
+* **Choose Aikito** when lightweight durable memory is one part of a broader reusable Agent workspace.
 
 ---
 
-## Scenario Guide
+### 3. Aikito vs claude-mem
 
-```mermaid
-flowchart TD
-    Start["What is your primary management goal?"]
+*claude-mem remembers agent activity. Aikito curates durable agent resources.*
 
-    Start --> Q1{"Managing operating system,<br/>shell, or editor configuration?"}
-    Q1 -- Yes --> Dotfiles["Use Traditional Dotfiles"]
+| Dimension | Aikito | claude-mem |
+| --- | --- | --- |
+| **Automatic capture** | No (manual distillation) | Yes (automated session capture) |
+| **Storage layer** | Ordinary Markdown files | SQLite & Chroma vector database |
+| **Vector search** | No | Yes |
+| **Automatic context injection** | No | Yes |
+| **Memory artifact** | Human-readable curated Markdown | Tool-generated observations and summaries |
+| **Resource breadth** | Memory, skills, instructions, MCP, subagents | Memory & conversation context |
+| **Git-native review** | Yes | Tool-managed DB |
 
-    Q1 -- No --> Q2{"Running a quick,<br/>one-off prompt experiment?"}
-    Q2 -- Yes --> Manual["Use Manual Copy-Paste"]
+* **Choose claude-mem** when you want automated session capture, background memory processing, and vector-based retrieval across supported agent workflows.
+* **Choose Aikito** when you prefer explicit, Git-versioned curation of durable memory alongside your other agent resources.
 
-    Q2 -- No --> Q3{"Working within one agent<br/>and preferring native memory?"}
-    Q3 -- Yes --> SingleAgent["Use an Agent-Specific Memory System"]
+---
 
-    Q3 -- No --> Q4{"Managing shared resources across<br/>multiple coding agents?"}
-    Q4 -- Yes --> Aikito["Use Aikito for a canonical,<br/>Git-managed agent workspace"]
-    Q4 -- No --> Combine["Combine approaches or evaluate other tools"]
-```
+### 4. Aikito vs CAS
 
-* **Choose Manual Copy-Paste** when conducting quick experiments or testing isolated prompt variations in a single session.
-* **Choose Traditional Dotfiles** when managing core operating system tools, shell aliases, and editor preferences across machines.
-* **Choose Agent-Specific Memory Systems** when working strictly within one vendor ecosystem and preferring automated, low-overhead context tracking.
-* **Choose Aikito** when using multiple coding agents across diverse projects, needing centralized Git control over instructions, skills, MCP servers, subagents, and versioned durable knowledge.
+*CAS runs the agents. Aikito prepares their workspace.*
+
+| Dimension | Aikito | CAS |
+| --- | --- | --- |
+| **Primary role** | Workspace / resource governance | Agent execution / orchestration |
+| **Runtime model** | Uses existing Agent runtimes | Runs and coordinates workers |
+| **State storage** | Plain-file state | Structured DB / context system |
+| **Execution pattern** | No supervisor | Supervisor / worker factory |
+| **Task scheduling** | No task scheduler | Task / dependency coordination |
+
+* **Choose CAS** when building an automated multi-agent execution pipeline or worker factory.
+* **Choose Aikito** when governing the workspace resources consumed by the coding agents you already run.
+
+---
+
+## Design Choices: Why These Boundaries Exist
+
+Aikito's boundaries are deliberate design choices aimed at keeping the system transparent, portable, and low-maintenance.
+
+### Plain files over a database
+Aikito prioritizes inspectability, Git history, and portability. Storing resources as plain Markdown, TOML, and JSON files ensures they remain human-readable and versionable without background daemons or database migrations.
+
+### Curated memory over automatic capture
+Aikito stores durable conclusions rather than attempting to retain every Agent event. Manual or semi-automated distillation prevents noise accumulation and keeps memory notes concise, reliable, and easy to review via Git diffs.
+
+### Existing agents over orchestration
+Aikito configures and supplies resources to Agent runtimes rather than replacing them. It leaves execution, reasoning, and prompt assembly to native coding agents like Codex, Claude Code, Antigravity `agy`, or OpenCode.
+
+### Central workspace over project-local ownership
+Reusable resources live once in `~/aikito`, and projects select what they need. This eliminates duplication while allowing projects to remain isolated when required.
+
+### Explicit scopes over implicit context
+Aikito separates global and project-specific resources explicitly instead of depending on an opaque retrieval layer to decide where context belongs.
+
+### Additional Engineering Considerations
+* **Capability Asymmetry**: Supported agents do not expose identical resource models. Aikito normalizes only the capabilities available for each agent runtime.
+* **File-Based Context Boundary**: Aikito manages durable files and configurations. It does not automatically decide which memory should be injected into every prompt; context loading remains subject to each agent's native behavior.
+
+### Platform Limitations
+* **macOS / Linux / WSL2**: Relies on POSIX file permissions and symbolic links; native Windows is currently unsupported.
+
+---
+
+## Which Tool Solves Which Problem?
+
+AI tooling is not mutually exclusive. Different tools address different layers of your development workflow:
+
+* **Need automatic conversation/history memory?** → Use a dedicated memory system (e.g., `claude-mem`, `agent-memory`).
+* **Need one project's Agent configs synchronized?** → Use a project-local sync tool (e.g., `AgentSync`).
+* **Need to run many coding agents in parallel?** → Use an orchestration platform (e.g., `CAS`).
+* **Need reusable resources shared across agents AND projects?** → Use **Aikito**.
+* **Need several of these?** → **Combine them.**
+
+---
+
+## When You May Not Need Aikito
+
+Aikito is designed for developers managing multiple agents and projects. You may not need Aikito if:
+
+* you use only one coding agent
+* you work mostly in a single project repository
+* you have only a few instructions or skills that rarely change
+* manual copy-paste is still sufficient for your workflow
+* you prefer your agent's built-in memory system without cross-tool sharing

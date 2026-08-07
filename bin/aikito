@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Aikito - Agent Workspace Resource Management CLI Tool
-Handles skills, memory, MCP configs, and .agents runtime directory synchronization.
+Handles memory, skills, MCP configs, and .agents runtime directory synchronization.
 Supports sync_mode: 'link' (symlinks) or 'copy' (file/directory copy).
 """
 

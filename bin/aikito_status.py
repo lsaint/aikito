@@ -1,6 +1,6 @@
 """
 Status aggregation module for aikito.
-Gathers synchronization status data across agents, instructions, skills, MCP, subagents, and memory.
+Gathers synchronization status data across agents, memory, instructions, skills, MCP, and subagents.
 """
 
 import re

@@ -15,43 +15,91 @@
 
 [简体中文](README.zh-CN.md) · [Documentation](docs/README.md)
 
-Aikito is a Git-managed workspace and CLI that turns valuable AI-agent
-experience into durable memory—versioned, searchable, and reusable across
-sessions and agents. It also centrally manages instructions, skills, MCP
-servers, and subagents, synchronizing one canonical source to the native
-configuration formats of Codex, Claude Code, Antigravity, and OpenCode.
+Aikito is a lightweight, Git-managed workspace for reusable AI-agent resources.
 
-## TL;DR
+Keep durable memory, skills, instructions, MCP servers, and subagents in one
+canonical workspace, then share the right resources across your agents and
+projects.
 
-Aikito keeps reusable memory and Agent resources in one Git-managed workspace,
-then makes them available across projects, sessions, and supported coding
-agents.
-
-<details>
-<summary>Copy this prompt to your coding agent</summary>
-
-> Set up Aikito from https://github.com/lsaint/aikito. Read the README,
-> `skills/aikito/SKILL.md`, and any linked documentation relevant to the setup,
-> then install the CLI with `brew install lsaint/tap/aikito`. Initialize the
-> `~/aikito` workspace, inspect the generated files, and preview any existing
-> Agent configuration before importing it. Show me the plan and all conflicts
-> before running `aikito adopt --apply` or any `aikito sync ...` command. Never
-> overwrite unmanaged configuration or expose credentials. After I approve the
-> changes, synchronize the global resources and verify the result with
-> `aikito status`.
-
-</details>
+Plain files. No database, daemon, vector store, or hosted service required.
 
 ## Why Aikito
 
-AI coding agents repeatedly lose useful context between sessions. Switching
-between agents compounds the problem because each tool has its own instruction,
-skill, MCP, and subagent formats.
+AI-agent resources become fragmented in three directions:
 
-Aikito treats accumulated experience as an asset worth versioning. One
-canonical workspace holds durable memory and Agent resources, then exposes the
-right context to each project and converts configuration into the native format
-each supported agent expects.
+- across tools, because every agent expects different configuration formats
+- across projects, because reusable knowledge, skills, and instructions are
+  repeatedly copied or maintained in multiple repositories
+- across time, because useful decisions and lessons disappear into old sessions
+
+Aikito keeps those resources in one personal Git workspace and exposes selected
+resources to each agent and project:
+
+```text
+~/aikito
+├── skills/                  reusable across projects
+├── memory/                  global durable knowledge
+├── global/                  shared instructions
+├── mcps.toml                shared MCP definitions
+├── subagents/               reusable subagent definitions
+└── projects/
+    ├── project-a/           selected project resources
+    └── project-b/
+```
+
+Each project selects the resources it needs from the workspace. It does not need to
+become the canonical home of every shared skill or memory note.
+
+```mermaid
+flowchart TD
+    Memory["Memory"] --> Engine["Aikito Sync Engine"]
+    Instructions["Instructions"] --> Engine
+    Skills["Skills"] --> Engine
+    MCPs["MCP"] --> Engine
+    Subagents["Subagents"] --> Engine
+
+    Engine --> Context["Selected Project Context"]
+
+    Context --> Codex["Codex"]
+    Context --> Claude["Claude Code"]
+    Context --> Agy["Antigravity (agy)"]
+    Context --> OpenCode["OpenCode"]
+```
+
+## What Aikito Manages
+
+| Resource | Canonical source | Synchronized destination |
+| --- | --- | --- |
+| Memory | `memory/`, `projects/<name>/memory/` | Global access and `<project>/.agents/memory/` |
+| Skills | `skills/<name>/` | Shared and project-level skill directories |
+| Instructions | `global/AGENTS.md`, `projects/<name>/AGENTS.md` | Agent-native and project runtime instructions |
+| MCP servers | `mcps.toml` | Native TOML, JSON, or JSONC configs |
+| Subagents | `subagents.toml`, `subagents/` | Native subagent definitions |
+
+The default registry includes Codex, Claude Code, Antigravity CLI (`agy`), and
+OpenCode. See the [architecture](docs/architecture.md) for the complete mental
+model and capability boundaries.
+
+### Share or isolate
+
+- `link` keeps a resource shared and immediately up to date
+- `copy` gives a project an isolated snapshot it can evolve independently
+- memory always remains linked to its canonical scope to preserve one canonical history
+
+## Lightweight by Design
+
+Aikito manages durable files, explicit scopes, and controlled synchronization. It does not require a database, vector store,
+embedding pipeline, daemon, MCP memory server, or hosted account.
+
+Memory is stored as ordinary Markdown. Skills and instructions remain ordinary
+files. Git provides history, review, rollback, and portability.
+
+Aikito leaves semantic reasoning to the coding agent you already use.
+
+## Durable Memory Workflow
+
+Memory follows the same model: curated Markdown notes live beside the rest of
+your agent resources and remain portable across tools.
 
 ```mermaid
 block-beta
@@ -74,20 +122,6 @@ block-beta
     D -- "Accumulate" --> A
 ```
 
-## What Aikito Manages
-
-| Resource | Canonical source | Synchronized destination |
-| --- | --- | --- |
-| Memory | `memory/`, `projects/<name>/memory/` | Global access and `<project>/.agents/memory/` |
-| Skills | `skills/<name>/` | Shared and project-level skill directories |
-| Instructions | `global/AGENTS.md`, `projects/<name>/AGENTS.md` | Agent-native and project runtime instructions |
-| MCP servers | `mcps.toml` | Native TOML, JSON, or JSONC configs |
-| Subagents | `subagents.toml`, `subagents/` | Native subagent definitions |
-
-The default registry includes Codex, Claude Code, Antigravity CLI (`agy`), and
-OpenCode. See the [architecture](docs/architecture.md) for the complete mental
-model and capability boundaries.
-
 ## Requirements
 
 - macOS or Linux; Windows users should use WSL2.
@@ -100,88 +134,17 @@ model.
 
 ## Quick Start
 
-### Option 1: Install via Homebrew (Recommended)
+Install the CLI, initialize your workspace, and synchronize global resources:
 
 ```bash
 brew install lsaint/tap/aikito
-```
 
-### Option 2: Run from Source
-
-Clone the CLI source separately from the workspace that will contain your data:
-
-```bash
-git clone https://github.com/lsaint/aikito.git "$HOME/aikito-src"
-export PATH="$HOME/aikito-src/bin:$PATH"
-```
-
-The `PATH` change applies to the current shell. Add the export to `~/.zshrc` or
-`~/.bashrc` to keep it across sessions, or invoke
-`$HOME/aikito-src/bin/aikito` directly.
-
-### Initialize Workspace
-
-Create a new Git-managed workspace and inspect it:
-
-```bash
 aikito init ~/aikito
-aikito status
-```
-
-When running from source, `~/aikito-src` is the CLI source checkout while
-`~/aikito` is your AI workspace; they must remain separate. Set `AIKITO_DIR` to
-use a different workspace path.
-
-A clean initial workspace reports the configured Agent registry with no active
-resources and an empty global memory scope:
-
-```text
-┌───────────────────────┬──────────────┬────────┬────────────┬───────────┐
-│ Agent                 │ Instructions │ Skills │ MCP Config │ Subagents │
-├───────────────────────┼──────────────┼────────┼────────────┼───────────┤
-│ Codex                 │ –            │ –      │ –          │ –         │
-│ Claude Code           │ –            │ –      │ –          │ –         │
-│ Antigravity CLI (agy) │ –            │ –      │ –          │ –         │
-│ OpenCode              │ –            │ –      │ –          │ –         │
-└───────────────────────┴──────────────┴────────┴────────────┴───────────┘
-
-Memory Resources
-┌───────────────┬───────┬───────┬─────────────────┬─────────────┐
-│ Memory Scope  │ Index │ Notes │ Link Target     │ Link Status │
-├───────────────┼───────┼───────┼─────────────────┼─────────────┤
-│ Global Memory │ ✓     │ 0     │ ~/aikito/memory │ –           │
-└───────────────┴───────┴───────┴─────────────────┴─────────────┘
-
-✓ all synced · 4 agents · 0 skills
-  0 notes across 1 scopes
-```
-
-### Optional: Adopt Existing Configuration
-
-`aikito adopt` is a read-only preview. Applying the reviewed plan creates
-timestamped backups under `~/.aikito/backups/adopt_<timestamp>` and imports
-detected instructions, MCP definitions, and subagents into the workspace. It
-does not overwrite the original Agent configuration files.
-
-```bash
-aikito adopt
-aikito adopt --apply
-```
-
-Resolve instruction conflicts before applying. Agent-native configuration
-changes only when you explicitly run an `aikito sync ...` command.
-
-### Activate Global Resources
-
-Review `global/AGENTS.md`, `skills.toml`, and `agents.toml`, then synchronize and
-verify them:
-
-```bash
 aikito sync global
 aikito status
 ```
 
-For example, a workspace with two enabled global skills may report:
+A synchronized workspace reports resource status across supported agents:
 
 ```text
 ┌───────────────────────┬──────────────┬────────┬────────────┬───────────┐
@@ -192,35 +155,37 @@ For example, a workspace with two enabled global skills may report:
 │ Antigravity CLI (agy) │ ✓            │ ✓ 2    │ –          │ –         │
 │ OpenCode              │ ✓            │ –      │ –          │ –         │
 └───────────────────────┴──────────────┴────────┴────────────┴───────────┘
+
+Memory Resources
+┌───────────────┬───────┬───────┬─────────────────┬─────────────┐
+│ Memory Scope  │ Index │ Notes │ Link Target     │ Link Status │
+├───────────────┼───────┼───────┼─────────────────┼─────────────┤
+│ Global Memory │ ✓     │ 0     │ ~/aikito/memory │ –           │
+└───────────────┴───────┴───────┴─────────────────┴─────────────┘
+
+✓ all synced · 4 agents · 2 skills · 0 notes across 1 scopes
 ```
 
-Resource counts depend on the workspace configuration. A check mark confirms
-that the configured resource is synchronized; a dash means that no resource is
-configured for that Agent or the capability is not supported.
+For building from source, custom installation paths, or advanced configuration options, see the [project setup guide](docs/project-setup.md).
 
-Synchronization may create symbolic links in detected Agent configuration
-directories. Existing unmanaged files are reported as conflicts and are not
-silently overwritten.
+## Migrating an Existing Setup
 
-## Optional Browser Companion: Chat Distiller
+If you already use coding agents with existing instructions, MCP definitions, or subagents, use `aikito adopt` to import them into your canonical workspace:
 
-[Chat Distiller](https://github.com/lsaint/chat-distiller) is Aikito's optional companion Chrome extension. It transforms long, unstructured browser AI conversations into concise, structured Markdown memory notes and saves them directly to your Aikito workspace's `inbox/`.
-
-Together, they support a flexible knowledge workflow—from immediate task usage to long-term memory accumulation (**Distill → Store / Use → Reuse**):
-
-```mermaid
-flowchart LR
-    A["Browser AI conversation"] -->|"Distill with Chat Distiller"| B["Aikito inbox/"]
-    B -->|"Review & Archive"| C["Git-Managed Memory"]
-    B -->|"Direct Use"| D["Coding Agents"]
-    C -->|"Reuse Context"| D
+```bash
+aikito adopt
+aikito adopt --apply
 ```
 
-- **Distill**: One click turns browser AI discussions into clean Markdown notes saved to `inbox/`.
-- **Store**: Review and organize verified notes into global or project memory scopes, tracked by Git for long-term reuse.
-- **Use & Reuse**: Read notes directly from `inbox/` for immediate tasks, or access Git-managed memory automatically across sessions and coding agents.
+`aikito adopt` runs a read-only preview first. Applying the plan creates timestamped backups under `~/.aikito/backups/adopt_<timestamp>` and imports detected configurations without overwriting original files. See the [safety guide](docs/safety.md) for complete backup, conflict, and migration details.
 
-Read [Capture Browser Conversations](docs/chat-distiller.md) for the complete staging and review workflow.
+## Companion: Chat Distiller
+
+[Chat Distiller](https://github.com/lsaint/chat-distiller) turns browser AI conversations into reviewable Markdown notes and saves them to your Aikito `inbox/`.
+
+Browser conversation → distilled note → review → durable memory
+
+See [capturing browser discussions](docs/chat-distiller.md) for the complete workflow.
 
 ## Safety First
 
@@ -235,31 +200,30 @@ detects managed-entry drift, converts MCP secrets to environment-variable
 references, and stops on unmanaged conflicts. Read the full [safety
 model](docs/safety.md) before synchronizing an existing setup.
 
+## Deliberate Boundaries
+
+To remain lightweight and portable, Aikito explicitly does not:
+
+- capture every agent action or conversation automatically
+- run a vector database or semantic memory service
+- inject context into every prompt through a background daemon
+- orchestrate supervisor and worker agents
+- replace the native runtime of your coding agent
+
+Aikito prepares and governs the workspace. Your chosen agent does the work.
+
 ## Comparison
 
-Aikito complements rather than replaces traditional dotfiles and agent-native memory systems. Each approach serves a different management boundary.
+Aikito complements rather than replaces dotfile managers, project-local Agent
+sync tools, memory systems, skill registries, and Agent runtimes. Each serves a
+different management boundary.
 
 See [Comparison and Design Boundaries](docs/comparison.md) for a neutral overview of manual workflows, dotfiles, agent-specific memory systems, and Aikito.
 
 ## Documentation
 
 Browse the [documentation index](docs/README.md) for concepts, operational
-guides, the CLI reference, safety details, the roadmap, and project background.
-
-## FAQ
-
-### Was Aikito written by AI?
-
-Aikito is developed with AI assistance, but it is not an AI-directed project.
-Its author, Ethan St Lee, has 20 years of experience as a software engineer,
-architect, and technology director. Aikito grew out of the real problems he
-encountered while using coding agents in daily work, including memory that did
-not carry across sessions and knowledge and configuration fragmented across agents. The
-workflow and tools were developed to solve those problems in practice. He
-defines the problems, product direction, architecture, and engineering
-trade-offs; understands what the AI is doing; reviews its output; and remains
-accountable for the result. AI is an engineering tool here, not a substitute
-for judgment.
+guides, the CLI reference, safety details, the roadmap, project background, and [FAQ](docs/faq.md).
 
 ## Contributing
 

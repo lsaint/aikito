@@ -32,6 +32,7 @@ model, an operational guide, or command details.
 - [CLI reference](cli-reference.md)
 - [Roadmap](roadmap.md)
 - [About Aikito](about.md)
+- [FAQ](faq.md)
 
 The detailed documentation is currently maintained in English. The
 [Simplified Chinese README](../README.zh-CN.md) contains the complete initial

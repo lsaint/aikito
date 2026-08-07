@@ -15,35 +15,82 @@
 
 [English](README.md) · [详细文档（英文）](docs/README.md)
 
-Aikito 是一套由 Git 管理的 AI Agent 工作区与 CLI，用于把真正值得保留的经验沉淀为
-可版本化、可检索、可跨会话、跨 Agent 复用的长期记忆。它还统一管理 instructions、
-skills、MCP server 和 subagent，并将唯一规范来源同步为 Codex、Claude Code、
-Antigravity 和 OpenCode 的原生配置格式。
+Aikito 是一套轻量级、由 Git 管理的 AI Agent 可复用资源工作区。
 
-## TL;DR
+将长期 memory、skill、instruction、MCP server 和 subagent 统一保存在一个规范工作区中，再将合适的资源共享到你的各个 Agent 与项目中。
 
-Aikito 把可复用的 memory 和 Agent 资源统一保存在一个由 Git 管理的工作区中，让它们能够
-跨项目、跨会话并在不同 Coding Agent 之间持续使用。
-
-<details>
-<summary>复制这段提示词给你的 Coding Agent</summary>
-
-> 从 https://github.com/lsaint/aikito 配置 Aikito。先阅读 README、
-> `skills/aikito/SKILL.md` 以及与配置任务相关的链接文档，然后使用
-> `brew install lsaint/tap/aikito` 安装 CLI。初始化 `~/aikito` 工作区、检查生成的文件，
-> 并在导入本机已有 Agent 配置前先进行预览。运行 `aikito adopt --apply` 或任何
-> `aikito sync ...` 命令之前，先向我展示执行计划和所有冲突。不要覆盖未受管理的配置，
-> 也不要暴露凭据。获得我的确认后，再同步全局资源，并使用 `aikito status` 验证结果。
-
-</details>
+纯文件架构。无需数据库、后台守护进程、向量数据库或托管服务。
 
 ## 为什么需要 Aikito？
 
-AI Coding Agent 会在会话之间反复丢失有价值的上下文。切换 Agent 会进一步放大这个问题，
-因为每种工具都有自己的 instruction、skill、MCP 和 subagent 格式。
+AI Agent 资源会在三个方向上变得碎片化：
 
-Aikito 把积累下来的经验视为值得版本化的资产。一个规范工作区保存长期 memory 和 Agent
-资源，再把正确的上下文提供给各个项目，并转换为每种受支持 Agent 需要的原生配置格式。
+- 跨工具维度：每种 Agent 都需要不同的配置格式
+- 跨项目维度：可复用的知识、skill 与 instruction 在多个仓库中被重复复制或维护
+- 跨时间维度：有价值的决策与经验教训随时间消失在旧会话中
+
+Aikito 将这些资源集中在一个个人 Git 工作区中，并将选定的资源暴露给各个 Agent 和项目：
+
+```text
+~/aikito
+├── skills/                  跨项目复用的 skill
+├── memory/                  全局长期知识
+├── global/                  共享指令
+├── mcps.toml                共享 MCP 定义
+├── subagents/               可复用 subagent 定义
+└── projects/
+    ├── project-a/           选定的项目资源
+    └── project-b/
+```
+
+每个项目按需从工作区中选择所需资源，不需要成为每个共享 skill 或 memory 笔记的规范存放地。
+
+```mermaid
+flowchart TD
+    Memory["Memory"] --> Engine["Aikito 同步引擎"]
+    Instructions["Instruction"] --> Engine
+    Skills["Skill"] --> Engine
+    MCPs["MCP"] --> Engine
+    Subagents["Subagent"] --> Engine
+
+    Engine --> Context["选定的项目上下文"]
+
+    Context --> Codex["Codex"]
+    Context --> Claude["Claude Code"]
+    Context --> Agy["Antigravity (agy)"]
+    Context --> OpenCode["OpenCode"]
+```
+
+## Aikito 管理什么？
+
+| 资源 | 规范来源 | 同步目标 |
+| --- | --- | --- |
+| Memory | `memory/`、`projects/<name>/memory/` | 全局读取及 `<project>/.agents/memory/` |
+| Skills | `skills/<name>/` | 全局和项目 skill 目录 |
+| Instructions | `global/AGENTS.md`、`projects/<name>/AGENTS.md` | Agent 原生及项目运行时指令 |
+| MCP server | `mcps.toml` | Agent 原生 TOML、JSON 或 JSONC 配置 |
+| Subagent | `subagents.toml`、`subagents/` | Agent 原生 subagent 定义 |
+
+默认注册表包含 Codex、Claude Code、Antigravity CLI（`agy`）和 OpenCode。完整心智模型和
+能力边界见[架构文档](docs/architecture.md)。
+
+### 共享或隔离
+
+- `link` 保持资源共享并实时同步更新
+- `copy` 为项目提供可独立演进的隔离快照
+- memory 始终与其规范作用域保持链接，以维护统一的规范历史
+
+## 轻量化设计
+
+Aikito 管理持久化文件、显式作用域与可控同步。它不需要数据库、向量数据库、embedding 管线、后台守护进程、MCP memory server 或托管账号。
+
+Memory 以普通 Markdown 格式存储。Skill 和 instruction 保持为普通文件。Git 提供历史记录、审查、回滚和可移植性。
+
+Aikito 将语义推理交给你在使用的 Coding Agent 本身处理。
+
+## 长期 Memory 工作流
+
+Memory 也遵循同样的模型：精心提炼的 Markdown 笔记与其余 Agent 资源存放在一起，在不同工具之间保持可移植。
 
 ```mermaid
 block-beta
@@ -66,19 +113,6 @@ block-beta
     D -- "积累" --> A
 ```
 
-## Aikito 管理什么？
-
-| 资源 | 规范来源 | 同步目标 |
-| --- | --- | --- |
-| Memory | `memory/`、`projects/<name>/memory/` | 全局读取及 `<project>/.agents/memory/` |
-| Skills | `skills/<name>/` | 全局和项目 skill 目录 |
-| Instructions | `global/AGENTS.md`、`projects/<name>/AGENTS.md` | Agent 原生及项目运行时指令 |
-| MCP server | `mcps.toml` | Agent 原生 TOML、JSON 或 JSONC 配置 |
-| Subagent | `subagents.toml`、`subagents/` | Agent 原生 subagent 定义 |
-
-默认注册表包含 Codex、Claude Code、Antigravity CLI（`agy`）和 OpenCode。完整心智模型和
-能力边界见[架构文档](docs/architecture.md)。
-
 ## 环境要求
 
 - macOS 或 Linux；Windows 用户使用 WSL2。
@@ -89,83 +123,17 @@ Aikito 的同步和凭据安全模型依赖软链接及 POSIX 文件权限，因
 
 ## 快速开始
 
-### 方式一：通过 Homebrew 安装（推荐）
+安装 CLI、初始化工作区并同步全局资源：
 
 ```bash
 brew install lsaint/tap/aikito
-```
 
-### 方式二：从源码运行
-
-将 CLI 源码与保存用户数据的工作区分别放置：
-
-```bash
-git clone https://github.com/lsaint/aikito.git "$HOME/aikito-src"
-export PATH="$HOME/aikito-src/bin:$PATH"
-```
-
-`PATH` 设置只对当前 shell 生效。需要跨会话使用时，请将该 export 写入 `~/.zshrc` 或
-`~/.bashrc`，也可以直接运行 `$HOME/aikito-src/bin/aikito`。
-
-### 初始化工作区
-
-创建由 Git 管理的工作区并检查状态：
-
-```bash
 aikito init ~/aikito
-aikito status
-```
-
-源码运行时，`~/aikito-src` 是 CLI 源码目录，`~/aikito` 是 AI 工作区，两者必须保持
-分离。可以通过 `AIKITO_DIR` 指定其他工作区路径。
-
-全新工作区会显示已经识别的 Agent 注册表、尚未激活的资源，以及空的全局 memory：
-
-```text
-┌───────────────────────┬──────────────┬────────┬────────────┬───────────┐
-│ Agent                 │ Instructions │ Skills │ MCP Config │ Subagents │
-├───────────────────────┼──────────────┼────────┼────────────┼───────────┤
-│ Codex                 │ –            │ –      │ –          │ –         │
-│ Claude Code           │ –            │ –      │ –          │ –         │
-│ Antigravity CLI (agy) │ –            │ –      │ –          │ –         │
-│ OpenCode              │ –            │ –      │ –          │ –         │
-└───────────────────────┴──────────────┴────────┴────────────┴───────────┘
-
-Memory Resources
-┌───────────────┬───────┬───────┬─────────────────┬─────────────┐
-│ Memory Scope  │ Index │ Notes │ Link Target     │ Link Status │
-├───────────────┼───────┼───────┼─────────────────┼─────────────┤
-│ Global Memory │ ✓     │ 0     │ ~/aikito/memory │ –           │
-└───────────────┴───────┴───────┴─────────────────┴─────────────┘
-
-✓ all synced · 4 agents · 0 skills
-  0 notes across 1 scopes
-```
-
-### 可选：导入已有配置
-
-`aikito adopt` 仅做只读预览。执行已检查的计划时，Aikito 会在
-`~/.aikito/backups/adopt_<timestamp>` 下创建带时间戳的备份，并将检测到的
-instructions、MCP 定义和 subagents 导入工作区；它不会覆盖原始 Agent 配置文件。
-
-```bash
-aikito adopt
-aikito adopt --apply
-```
-
-执行前必须处理 instruction 冲突。只有显式运行 `aikito sync ...`，才会变更 Agent 的
-原生配置。
-
-### 激活全局资源
-
-检查 `global/AGENTS.md`、`skills.toml` 和 `agents.toml`，然后同步并验证：
-
-```bash
 aikito sync global
 aikito status
 ```
 
-例如，启用了两个全局 skill 的工作区可能显示：
+同步完成后，状态面板会展示各个受支持 Agent 的资源状态：
 
 ```text
 ┌───────────────────────┬──────────────┬────────┬────────────┬───────────┐
@@ -176,33 +144,37 @@ aikito status
 │ Antigravity CLI (agy) │ ✓            │ ✓ 2    │ –          │ –         │
 │ OpenCode              │ ✓            │ –      │ –          │ –         │
 └───────────────────────┴──────────────┴────────┴────────────┴───────────┘
+
+Memory Resources
+┌───────────────┬───────┬───────┬─────────────────┬─────────────┐
+│ Memory Scope  │ Index │ Notes │ Link Target     │ Link Status │
+├───────────────┼───────┼───────┼─────────────────┼─────────────┤
+│ Global Memory │ ✓     │ 0     │ ~/aikito/memory │ –           │
+└───────────────┴───────┴───────┴─────────────────┴─────────────┘
+
+✓ all synced · 4 agents · 2 skills · 0 notes across 1 scopes
 ```
 
-资源数量取决于工作区配置。勾号表示已配置的资源完成同步；短横线表示该 Agent 未配置对应
-资源，或尚不支持该能力。
+如需从源码构建、使用自定义安装路径或查看高级参数，请参阅[项目配置指南（英文）](docs/project-setup.md)。
 
-同步可能在检测到的 Agent 配置目录中创建软链接。遇到未受管理的既有文件时，Aikito 会报告
-冲突，不会静默覆盖。
+## 迁移现有配置
 
-## （可选）浏览器端配套工具：Chat Distiller
+如果你已经在使用 Coding Agent 并存有已有的 instruction、MCP 定义或 subagent，可以使用 `aikito adopt` 将它们导入规范工作区：
 
-[Chat Distiller](https://github.com/lsaint/chat-distiller) 是 Aikito 的浏览器端配套 Chrome 插件。它可以将浏览器中漫长、未结构化的 AI 对话转化为简洁、结构化的 Markdown 记忆笔记，并直接保存到 Aikito 工作区的 `inbox/` 目录。
-
-两者组合支持了灵活的知识工作流——既可用于当前任务的即时消费，也可用于长期记忆的沉淀复用（**Distill → Store / Use → Reuse**）：
-
-```mermaid
-flowchart LR
-    A["浏览器 AI 对话"] -->|"Chat Distiller 提炼"| B["Aikito inbox/"]
-    B -->|"审阅与沉淀"| C["Git 管理的持久记忆"]
-    B -->|"直接使用"| D["Coding Agents"]
-    C -->|"跨 Agent 复用"| D
+```bash
+aikito adopt
+aikito adopt --apply
 ```
 
-- **Distill（提炼）**：一键将浏览器 AI 对话提炼为结构化 Markdown 笔记，保存到工作区的 `inbox/` 暂存区。
-- **Store（保存与归档）**：审阅后将笔记沉淀至全局或项目 `memory/` 作用域，正式由 Git 进行版本管理。
-- **Use & Reuse（使用与复用）**：可直接读取 `inbox/` 应对当前任务，也可通过 Git 托管的持久记忆在不同会话及 Coding Agent 之间跨项目复用。
+`aikito adopt` 会先进行只读预览。应用计划会在 `~/.aikito/backups/adopt_<timestamp>` 下创建带时间戳的备份，并导入检测到的配置，不会覆盖原有文件。详细的备份、冲突与迁移机制见[安全指南（英文）](docs/safety.md)。
 
-完整的审阅与归档工作流请参阅[捕捉浏览器 AI 对话](docs/chat-distiller.md)。
+## 配套工具：Chat Distiller
+
+[Chat Distiller](https://github.com/lsaint/chat-distiller) 可将浏览器中的 AI 对话提炼为可审阅的 Markdown 笔记，并直接保存至 Aikito 的 `inbox/` 目录。
+
+浏览器 AI 对话 → 提炼笔记 → 审阅归档 → 长期 Memory
+
+完整工作流请参阅[捕捉浏览器 AI 对话（英文）](docs/chat-distiller.md)。
 
 ## 安全优先
 
@@ -213,27 +185,28 @@ flowchart LR
 Aikito 默认预览配置接管、接管前生成备份、检测受管理条目漂移、将 MCP 密钥转换为环境变量
 引用，并在遇到未受管理冲突时停止。同步现有环境前，请阅读完整的[安全模型](docs/safety.md)。
 
-## 设计边界与对比
+## 设计边界
 
-Aikito 是对传统 dotfiles 和 Agent 原生记忆系统的补充而非替代，不同方案服务于不同的管理边界。
+为了保持轻量与可移植性，Aikito 明确选择不进行以下操作：
+
+- 自动捕获每一个 Agent 操作或对话
+- 运行向量数据库或语义检索服务
+- 通过后台守护进程向每个 prompt 注入上下文
+- 编排 supervisor 与 worker agent 节点
+- 替代你所使用的 Coding Agent 的原生运行时
+
+Aikito 负责准备与管控工作区，具体工作由你选定的 Agent 完成。
+
+## 方案对比
+
+Aikito 是对 dotfile 管理工具、单项目 Agent 同步工具、记忆系统、skill 注册表与 Agent 运行时的补充而非替代，不同方案服务于不同的管理边界。
 
 请参阅[设计边界与对比](docs/comparison.md)查看关于手工复制、dotfiles、Agent 专属记忆系统与 Aikito 的中立对比概览。
 
 ## 文档
 
 详细文档首版以英文作为规范来源。通过[文档索引](docs/README.md)查看核心概念、操作指南、
-CLI 参考、安全模型、路线图和项目背景。
-
-## 常见问题
-
-### Aikito 是 AI 写的吗？
-
-Aikito 使用 AI 辅助开发，但不是由 AI 主导的项目。作者 Ethan St Lee 拥有 20 年软件行业
-经验，经历涵盖程序员、架构师和技术总监。Aikito 来自他在日常工作中实际使用 Coding Agent 时
-遇到的痛点，包括记忆无法跨会话保留，以及知识和配置散落在不同 Agent 之间。这套工作流和
-工具正是在持续解决这些实际问题的过程中形成的。他明确知道自己要解决什么问题，也理解 AI
-正在做什么；问题定义、产品方向、架构设计和工程取舍由作者决定，AI 的产出会经过审查，
-最终结果也由作者负责。AI 在这里是工程工具，而不是判断力的替代品。
+CLI 参考、安全模型、路线图、项目背景和[常见问题解答（FAQ，英文）](docs/faq.md)。
 
 ## 关注作者
 
