@@ -206,6 +206,6 @@ python3 -m unittest discover -s tests
 
 安全漏洞请按[安全策略](SECURITY.md)私下报告。
 
-## 许可证
+## 支持
 
-Aikito 使用 [MIT License](LICENSE)。
+如果你觉得 Aikito 对你有帮助，可以[支持它的开发](https://lsaint.github.io/donation/)。

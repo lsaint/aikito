@@ -215,6 +215,6 @@ python3 -m unittest discover -s tests
 
 Report vulnerabilities privately according to the [Security Policy](SECURITY.md).
 
-## License
+## Support
 
-Aikito is licensed under the [MIT License](LICENSE).
+If you find Aikito useful, you can [support its development](https://lsaint.github.io/donation/).
