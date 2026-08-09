@@ -630,7 +630,7 @@ def sync_subagent_configs(
                 )
             normalized_force.add(ft)
 
-    plan, _ = build_plan(aikito_dir, home)
+    plan, _ = build_plan(aikito_dir, home, allow_empty=True)
 
     has_errors = any(item.action == "ERROR" for item in plan)
     has_unforced_conflicts = any(

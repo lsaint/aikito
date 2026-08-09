@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-09
+
+### Added
+
+- Added Memory health diagnostics for unindexed notes, missing index targets, dangling cross-note wikilinks, and notes whose Git history indicates they may need freshness review.
+
+### Fixed
+
+- Made `aikito sync subagents` treat an empty `[subagents]` table as a successful no-op, so a freshly initialized workspace passes the documented synchronization flow and CI smoke test.
+
 ## [0.3.0] - 2026-08-09
 
 ### Added
@@ -51,7 +61,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/lsaint/aikito/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/lsaint/aikito/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/lsaint/aikito/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/lsaint/aikito/releases/tag/v0.1.0
