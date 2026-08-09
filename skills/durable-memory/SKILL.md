@@ -9,6 +9,8 @@ description: Git-versioned memory stored in the Aikito workspace, separate from 
 
 Reduce redundant investigation and repeated pitfalls using a minimal, trustworthy, and searchable memory store.
 
+Memory is a decision-support layer, not a transcript or activity log. Optimize for future decision value rather than completeness, and prefer omission over low-confidence memory.
+
 Autonomously decide when to retrieve, follow related knowledge, or persist memory based on the current task. Do not treat this skill as a rigid step-by-step procedure, nor perform low-value reads or writes just for compliance.
 
 ## Scope & Single Source of Truth
@@ -30,28 +32,23 @@ Standard storage layout:
 ~/aikito/
 ├── memory/                         # Global memory
 │   ├── index.md                    # Global memory navigation entry
-│   ├── notes/                      # Global atomic notes
-│   └── README.md                   # Optional description
+│   └── notes/                      # Global atomic notes
 └── projects/
     └── <project-name>/
         ├── agent.toml              # Project Agent configuration
         ├── AGENTS.md               # Project-specific rules
         └── memory/
             ├── index.md            # Project memory navigation entry
-            ├── notes/              # Project atomic notes
-            └── README.md           # Optional description
+            └── notes/              # Project atomic notes
 ```
 
 ## Decision Principles
 
 Proactively retrieve memory when historical knowledge could materially affect judgment (e.g., tasks involving familiar modules, recurring issues, user preferences, architecture constraints, or past decisions). Read only content relevant to the current task and avoid loading all memories by default.
 
-Knowledge worth persisting typically exhibits all of the following traits:
+Knowledge is usually worth persisting when it is likely to matter again, changes future judgment, and is not trivial to recover from the current environment.
 
-- Likely to be useful in future tasks.
-- Verified through code, tests, configuration, or explicit user confirmation.
-- Alters future Agent judgment or action.
-- Difficult to re-derive from simple search or inspection alone.
+Prefer verified knowledge. Explicit user decisions and preferences count as authoritative for their own scope.
 
 Do **NOT** record:
 
@@ -64,12 +61,12 @@ Persist memory at natural work milestones when knowledge stabilizes. Do not wait
 
 ## Retrieval
 
-Choose appropriate entry points based on task keywords:
+Choose retrieval entry points based on the task's likely scope and relevance:
 
 - **Global entry**: `~/aikito/memory/index.md`
 - **Project entry**: `.agents/memory/index.md` (when present)
 
-Indices are for navigation only. Search filenames, headings, body text, and `[[wikilinks]]` as needed, following links to related notes when necessary. When memory conflicts with current code, tests, or configuration, ground decisions in current code facts and update stale memory accordingly.
+Indices are for navigation only. Search the memory store using the most efficient available method. Use filenames, headings, body text, wikilinks, or other available retrieval mechanisms when useful. Follow links to related notes when necessary. When memory conflicts with current code, tests, or configuration, ground decisions in current code facts and update stale memory accordingly.
 
 ## Ownership & Persistence
 
@@ -77,36 +74,32 @@ Select storage scope based on knowledge applicability:
 
 - Write cross-project knowledge to global memory.
 - Write project-dependent knowledge to project memory.
-- Refrain from writing when ownership is ambiguous.
+- When scope is genuinely ambiguous, prefer not to persist until the ambiguity is resolved.
 
-Global memory remains fully operational when a project is not registered in Aikito. If project-unique knowledge emerges:
+Project-specific knowledge belongs in project memory. Never place it in global memory merely because the project is unregistered.
 
-- Do **NOT** downgrade it into global memory.
-- Ask the user if they wish to register the project in Aikito and link `.agents/memory/`.
-- With user consent, use the `aikito` skill to register the project and verify its `.agents/memory/` link before persisting project-specific knowledge.
-- If the user declines, do not persist the project-specific knowledge.
-
-Prompt the user only when genuinely project-unique knowledge needs saving. Avoid routine prompts solely because a project is unregistered.
-Also use the `aikito` skill when an existing project's memory link needs setup, repair, or adjustment.
+If worthwhile project-specific knowledge cannot be stored because project memory is unavailable, ask whether the user wants the project registered in Aikito. Use the `aikito` skill for registration or link repair when needed; otherwise avoid prompting merely because a project is unregistered.
 
 ## Formatting & Organization
 
-- Express exactly one standalone concept per note.
+- Prefer one durable, independently reusable concept per note.
 - Use lowercase kebab-case filenames that remain stable (e.g., `payment-idempotency.md`).
-- Title notes with clear, definitive conclusions, explaining scope, rationale, and actionable guidance in the body.
+- Use titles that state the durable idea clearly and make the note easy to recognize from search results or wikilinks. Explain scope, rationale, and actionable guidance in the body.
 - Use Obsidian-style wikilinks for references: `[[note-name]]` or `[[note-name|Display Text]]`.
 - Keep `index.md` strictly as a categorized index of links without expanding full note contents.
 
-Search for existing or similar notes before writing. Prefer updating existing notes to avoid duplication; correct obsolete content directly, cleaning up indices and links as needed. Rely on Git for historical tracking rather than appending changelogs to notes.
+When duplication is plausible, check for related notes first and prefer updating or consolidating existing knowledge over creating another note. Correct obsolete content directly, cleaning up indices and links as needed. Rely on Git for historical tracking rather than appending changelogs to notes.
 
 ## Retirement
 
-Memory stays trustworthy only if invalidated knowledge leaves it. A note has outlived its value once current code contradicts it, the thing it describes is gone, a stated preference has been superseded, it has degraded into a trivially re-derivable fact, or another note states the same conclusion better. Judge this opportunistically while reading notes for the current task; do not sweep the whole store looking for work.
+Memory stays trustworthy only if invalidated knowledge leaves it. A note has outlived its value when it is no longer accurate, useful, distinctive, or costly to re-derive. Judge this opportunistically while reading notes for the current task; do not sweep the whole store looking for work.
 
-Prefer the least destructive remedy that restores accuracy: rewrite when the topic still matters, merge when notes overlap, delete only when the topic itself stopped being worth remembering. Delete on your own once a note is plainly useless — its subject deleted, its claim disproven, its content absorbed by another note. Ask the user first when the judgment is genuinely uncertain, above all when the note records their own preference or decision, or when the conclusion might still hold in a context you cannot see.
+Prefer the least destructive remedy that restores accuracy: rewrite when the topic still matters, merge when notes overlap, delete only when the topic itself stopped being worth remembering.
+
+Act autonomously when retirement is clear; ask only when the note may still encode a valid user preference, decision, or context you cannot verify.
 
 A retired note should leave nothing pointing at it: drop its index entry and repair inbound `[[wikilinks]]`. Keep no tombstones or deprecation stubs, since Git history already records what was removed.
 
 ## Commit & Version Control
 
-When memory changes, stage only the modified memory files and create a local Git commit in `~/aikito`. Deletions are staged the same way, together with the index and wikilink repairs they require, so the removal lands as one reviewable commit. Never mix unrelated workspace code or config changes into memory commits.
+When memory changes, stage only files directly required by that memory change and create a local Git commit in `~/aikito`. Deletions are staged the same way, together with the index and wikilink repairs they require, so the removal lands as one reviewable commit. Keep memory commits narrowly scoped and reviewable.

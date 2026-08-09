@@ -2,7 +2,7 @@
 
 ## Core Rules
 
-- Code comments and log output should be written in clear English.
+- Less is more.
 
 ## Persistent Memory
 

@@ -24,3 +24,75 @@ jobs:
       - name: Run unit tests
         run: |
           python3 -m unittest discover -s tests
+
+  smoke-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: aikito --help
+        run: python3 bin/aikito --help
+
+      - name: aikito version
+        run: python3 bin/aikito version
+
+      - name: aikito subcommand --help
+        run: |
+          python3 bin/aikito init --help
+          python3 bin/aikito adopt --help
+          python3 bin/aikito status --help
+          python3 bin/aikito sync --help
+          python3 bin/aikito show --help
+          python3 bin/aikito doctor --help
+
+      # Simulate installed agents so sync/doctor exercise real logic instead of skipping.
+      # Paths mirror the instruction_path / skills_path parent dirs from agents.toml template.
+      - name: Create mock agent directories
+        run: |
+          mkdir -p \
+            ~/.codex \
+            ~/.claude \
+            ~/.copilot/agents \
+            ~/.gemini/antigravity-cli \
+            ~/.config/opencode
+
+      - name: aikito init (fresh workspace)
+        run: |
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito init ${{ runner.temp }}/aikito-ws
+
+      # README Quick Start: aikito init → aikito sync global → aikito status
+      - name: aikito sync global
+        run: |
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito sync global
+
+      - name: aikito sync MCP and subagents
+        run: |
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito sync mcp
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito sync subagents
+
+      - name: aikito status
+        run: |
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito status
+
+      # doctor should report all symlinks OK after sync
+      - name: aikito doctor
+        run: |
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito doctor
+
+      # README Migration: aikito adopt (dry-run, no --apply)
+      - name: aikito adopt (dry-run)
+        run: |
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito adopt

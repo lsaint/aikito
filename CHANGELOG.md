@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-09
+
+### Added
+
+- Registered GitHub Copilot CLI (`github-copilot`) as a supported agent for global instructions, skills (`~/.agents/skills`), MCP servers (`.copilot/mcp-config.json`), and custom agents (`.copilot/agents/*.agent.md`).
+- Added support for `copilot_json` MCP format and `copilot_markdown` subagent format with typed frontmatter fields (`tools`, boolean flags).
+- Added GitHub Copilot CLI scanning to `aikito adopt` and diagnostics to `aikito doctor`.
+- Enhanced `aikito status` skills rendering to indicate symbolic link depth (`›` for direct `~/.agents/skills`, `»` for agent-specific paths).
+- Added same-path short-circuit in `aikito sync global` to handle direct `~/.agents/skills` target paths without conflict.
+- Enabled OpenCode to consume global Skills directly from its native `~/.agents/skills` compatibility path.
+
+### Fixed
+
+- Preserved typed GitHub Copilot custom-agent options and safe MCP headers during adoption.
+- Distinguished missing, drifted, and conflicting managed subagents in `status` and `doctor` diagnostics.
+
 ## [0.2.0] - 2026-08-07
 
 ### Added
@@ -35,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/lsaint/aikito/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/lsaint/aikito/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/lsaint/aikito/releases/tag/v0.1.0

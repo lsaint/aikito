@@ -47,6 +47,22 @@ def _get_skills_list(aikito_dir: Path) -> List[str]:
     return []
 
 
+def _summarize_subagent_status(actions: List[str]) -> str:
+    total = len(actions)
+    ok_count = actions.count("OK")
+    if ok_count == total:
+        return f"OK ({total})"
+    if "ERROR" in actions:
+        return f"ERROR ({ok_count}/{total})"
+    if "CONFLICT" in actions:
+        return f"CONFLICT ({ok_count}/{total})"
+    if any(action in ("UPDATE", "FORCE UPDATE") for action in actions):
+        return f"DRIFT ({ok_count}/{total})"
+    if "CREATE" in actions:
+        return f"MISSING ({ok_count}/{total})"
+    return f"CONFLICT ({ok_count}/{total})"
+
+
 def collect_agent_status_rows(
     aikito_dir: Path, home: Path
 ) -> tuple[List[AgentStatusRow], int, int, int]:
@@ -153,13 +169,19 @@ def collect_agent_status_rows(
         ]
         active_items = [i for i in agent_subagent_items if i.action != "SKIP"]
         if active_items:
-            total_sub = len(active_items)
-            ok_sub = sum(1 for i in active_items if i.action == "OK")
-            if ok_sub == total_sub:
-                subagent_status = f"OK ({total_sub})"
-            else:
-                subagent_status = f"CONFLICT ({ok_sub}/{total_sub})"
+            subagent_status = _summarize_subagent_status(
+                [item.action for item in active_items]
+            )
+            if not subagent_status.startswith("OK"):
                 agent_issues += 1
+
+        shared_skills_path = home / ".agents" / "skills"
+        if definition.skills_path is None:
+            skills_link_depth = None
+        elif definition.skills_path == shared_skills_path:
+            skills_link_depth = 1
+        else:
+            skills_link_depth = 2
 
         rows.append(
             AgentStatusRow(
@@ -167,6 +189,7 @@ def collect_agent_status_rows(
                 display_name=definition.display_name,
                 instructions_status=instructions_status,
                 skills_status=skills_status,
+                skills_link_depth=skills_link_depth,
                 mcp_status=mcp_status,
                 subagent_status=subagent_status,
             )
@@ -538,9 +561,14 @@ def collect_skills_rows(aikito_dir: Path) -> List[SkillRow]:
                             data = tomllib.load(f)
                             p_skills = data.get("skills", [])
                             if isinstance(p_skills, list):
-                                project_skills[proj_folder.name] = set(str(s) for s in p_skills)
+                                project_skills[proj_folder.name] = set(
+                                    str(s) for s in p_skills
+                                )
                     except (tomllib.TOMLDecodeError, OSError) as exc:
-                        print(f"[WARN] Failed to read {agent_toml}: {exc}", file=sys.stderr)
+                        print(
+                            f"[WARN] Failed to read {agent_toml}: {exc}",
+                            file=sys.stderr,
+                        )
 
     skills_dir = aikito_dir / "skills"
     disk_skills = set()
@@ -559,7 +587,9 @@ def collect_skills_rows(aikito_dir: Path) -> List[SkillRow]:
         is_global = name in global_skills
 
         proj_matches = [
-            p_name for p_name, p_skills in sorted(project_skills.items()) if name in p_skills
+            p_name
+            for p_name, p_skills in sorted(project_skills.items())
+            if name in p_skills
         ]
 
         if is_global:
@@ -594,4 +624,3 @@ def collect_skills_rows(aikito_dir: Path) -> List[SkillRow]:
 
     rows.sort(key=scope_sort_key)
     return rows
-

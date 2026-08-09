@@ -37,6 +37,7 @@ AGENTS_TOML_TEMPLATE = """# Aikito Agents Config
 [agents.codex]
 display_name = "Codex"
 instruction_path = ".codex/AGENTS.md"
+skills_path = ".agents/skills"
 
 [agents.codex.subagents]
 config_path = ".codex/agents"
@@ -82,6 +83,7 @@ name_style = "verbatim"
 [agents.opencode]
 display_name = "OpenCode"
 instruction_path = ".config/opencode/AGENTS.md"
+skills_path = ".agents/skills"
 
 [agents.opencode.mcp]
 config_path = ".config/opencode/opencode.jsonc"
@@ -89,6 +91,21 @@ config_format = "jsonc"
 name_style = "verbatim"
 live_command = ["opencode", "mcp", "list"]
 auth_command = ["opencode", "mcp", "auth", "{target}"]
+
+[agents.github-copilot]
+display_name = "GitHub Copilot CLI"
+instruction_path = ".copilot/copilot-instructions.md"
+skills_path = ".agents/skills"
+
+[agents.github-copilot.subagents]
+config_path = ".copilot/agents"
+config_format = "copilot_markdown"
+
+[agents.github-copilot.mcp]
+config_path = ".copilot/mcp-config.json"
+config_format = "copilot_json"
+name_style = "verbatim"
+live_command = ["copilot", "mcp", "list"]
 """
 
 MCPS_TOML_TEMPLATE = """# Aikito MCP Config
@@ -135,6 +152,7 @@ def _detect_existing_agents(home: Path) -> List[Tuple[str, Path]]:
         ("Claude Code", home / ".claude"),
         ("Codex", home / ".codex"),
         ("Antigravity (AGY)", home / ".gemini" / "config"),
+        ("GitHub Copilot CLI", home / ".copilot"),
         ("Agents Runtime", home / ".agents"),
     ]
     detected = []

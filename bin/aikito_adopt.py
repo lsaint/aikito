@@ -16,6 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from aikito_subagent import has_aikito_marker
+
 
 def collect_source_files_for_backup(plan: AdoptPlan) -> List[Path]:
     files = set()
@@ -40,6 +42,10 @@ def collect_source_files_for_backup(plan: AdoptPlan) -> List[Path]:
     codex_toml = plan.home / ".codex" / "config.toml"
     if codex_toml.is_file():
         files.add(codex_toml)
+
+    copilot_mcp = plan.home / ".copilot" / "mcp-config.json"
+    if copilot_mcp.is_file():
+        files.add(copilot_mcp)
 
     if plan.subagents:
         for sub in plan.subagents:
@@ -107,6 +113,7 @@ class SubagentAdoption:
     system_prompt: str
     target_agents: List[str]
     source_file: Path
+    platform_configs: Dict[str, Dict[str, Any]]
 
 
 @dataclass
@@ -128,6 +135,7 @@ def scan_instructions(aikito_dir: Path, home: Path) -> InstructionsAdoption:
         ("codex", home / ".codex" / "AGENTS.md"),
         ("claude-code", home / ".claude" / "CLAUDE.md"),
         ("agy", home / ".gemini" / "config" / "AGENTS.md"),
+        ("github-copilot", home / ".copilot" / "copilot-instructions.md"),
     ]
 
     target_path = aikito_dir / "global" / "AGENTS.md"
@@ -191,6 +199,23 @@ def _sanitize_mcp_env(
                 f"[SECURITY] Converted plaintext secret in env key '{k}' to environment variable reference '${{{k}}}'"
             )
     return sanitized, warnings
+
+
+def _sanitize_mcp_headers(headers: Dict[str, Any], server_name: str) -> Dict[str, str]:
+    sanitized = {}
+    sensitive_fragments = ("authorization", "api-key", "api_key", "token", "secret")
+    safe_server_name = "".join(
+        char if char.isalnum() else "_" for char in server_name.upper()
+    )
+    for key, value in headers.items():
+        value_text = str(value)
+        is_reference = "${" in value_text or value_text.startswith("$")
+        is_sensitive = any(fragment in key.lower() for fragment in sensitive_fragments)
+        if is_sensitive and not is_reference:
+            safe_key = "".join(char if char.isalnum() else "_" for char in key.upper())
+            value_text = f"${{AIKITO_{safe_server_name}_{safe_key}}}"
+        sanitized[key] = value_text
+    return sanitized
 
 
 def scan_mcp_servers(aikito_dir: Path, home: Path) -> List[MCPServerAdoption]:
@@ -283,10 +308,71 @@ def scan_mcp_servers(aikito_dir: Path, home: Path) -> List[MCPServerAdoption]:
                 file=sys.stderr,
             )
 
+    # 3. GitHub Copilot CLI (~/.copilot/mcp-config.json)
+    copilot_mcp_config = home / ".copilot" / "mcp-config.json"
+    if copilot_mcp_config.is_file():
+        try:
+            with open(copilot_mcp_config, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                mcp_servers = data.get("mcpServers", {})
+                if isinstance(mcp_servers, dict):
+                    for s_name, s_cfg in mcp_servers.items():
+                        if isinstance(s_cfg, dict):
+                            s_cfg_copy = dict(s_cfg)
+                            if "env" in s_cfg_copy and isinstance(
+                                s_cfg_copy["env"], dict
+                            ):
+                                sanitized_env, _ = _sanitize_mcp_env(s_cfg_copy["env"])
+                                s_cfg_copy["env"] = sanitized_env
+                            if "headers" in s_cfg_copy and isinstance(
+                                s_cfg_copy["headers"], dict
+                            ):
+                                sanitized_headers = _sanitize_mcp_headers(
+                                    s_cfg_copy["headers"], s_name
+                                )
+                                s_cfg_copy["headers"] = sanitized_headers
+
+                            server_type = s_cfg_copy.get("type", "http")
+                            if server_type != "http" or not isinstance(
+                                s_cfg_copy.get("url"), str
+                            ):
+                                print(
+                                    f"[WARN] Skipping unsupported local Copilot MCP server '{s_name}'",
+                                    file=sys.stderr,
+                                )
+                                continue
+                            s_cfg_copy["transport"] = "remote"
+
+                            if s_name in adopted_servers:
+                                if (
+                                    "github-copilot"
+                                    not in adopted_servers[s_name].agents
+                                ):
+                                    adopted_servers[s_name].agents.append(
+                                        "github-copilot"
+                                    )
+                            else:
+                                adopted_servers[s_name] = MCPServerAdoption(
+                                    server_name=s_name,
+                                    agents=["github-copilot"],
+                                    config_data=s_cfg_copy,
+                                    source_agent="github-copilot",
+                                )
+        except json.JSONDecodeError as e:
+            print(
+                f"[WARN] Failed to parse JSON in '{copilot_mcp_config}': {e}",
+                file=sys.stderr,
+            )
+        except (PermissionError, OSError) as e:
+            print(
+                f"[WARN] Failed to read MCP config file '{copilot_mcp_config}': {e}",
+                file=sys.stderr,
+            )
+
     return list(adopted_servers.values())
 
 
-def _parse_markdown_frontmatter(content: str) -> Tuple[Dict[str, str], str]:
+def _parse_markdown_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
     content = content.strip()
     if not content.startswith("---"):
         return {}, content
@@ -298,12 +384,25 @@ def _parse_markdown_frontmatter(content: str) -> Tuple[Dict[str, str], str]:
     frontmatter_raw = parts[1].strip()
     body = parts[2].strip()
 
-    meta = {}
+    meta: Dict[str, Any] = {}
     for line in frontmatter_raw.splitlines():
         line = line.strip()
         if ":" in line and not line.startswith("#"):
             k, v = line.split(":", 1)
-            meta[k.strip()] = v.strip().strip("\"'")
+            key = k.strip()
+            val_str = v.strip()
+            if val_str.startswith("[") and val_str.endswith("]"):
+                try:
+                    parsed_val = json.loads(val_str)
+                except json.JSONDecodeError:
+                    parsed_val = val_str
+            elif val_str.lower() == "true":
+                parsed_val = True
+            elif val_str.lower() == "false":
+                parsed_val = False
+            else:
+                parsed_val = val_str.strip("\"'")
+            meta[key] = parsed_val
 
     return meta, body
 
@@ -315,6 +414,8 @@ def scan_subagents(aikito_dir: Path, home: Path) -> List[SubagentAdoption]:
     claude_agents_dir = home / ".claude" / "agents"
     if claude_agents_dir.is_dir():
         for agent_file in sorted(claude_agents_dir.glob("*.md")):
+            if has_aikito_marker(agent_file):
+                continue
             s_name = agent_file.stem
             try:
                 raw_content = agent_file.read_text(encoding="utf-8")
@@ -326,13 +427,69 @@ def scan_subagents(aikito_dir: Path, home: Path) -> List[SubagentAdoption]:
                 subagents.append(
                     SubagentAdoption(
                         subagent_name=s_name,
-                        description=desc,
+                        description=str(desc),
                         role=s_name.capitalize(),
                         system_prompt=body,
                         target_agents=["claude-code"],
                         source_file=agent_file,
+                        platform_configs={},
                     )
                 )
+            except (PermissionError, OSError) as e:
+                print(
+                    f"[WARN] Failed to read subagent file '{agent_file}': {e}",
+                    file=sys.stderr,
+                )
+
+    # GitHub Copilot CLI Subagents
+    copilot_agents_dir = home / ".copilot" / "agents"
+    if copilot_agents_dir.is_dir():
+        for agent_file in sorted(copilot_agents_dir.glob("*.agent.md")):
+            if has_aikito_marker(agent_file):
+                continue
+            s_name = (
+                agent_file.name[:-9]
+                if agent_file.name.endswith(".agent.md")
+                else agent_file.stem
+            )
+            try:
+                raw_content = agent_file.read_text(encoding="utf-8")
+                meta, body = _parse_markdown_frontmatter(raw_content)
+                desc = meta.get(
+                    "description", f"Adopted subagent {s_name} from GitHub Copilot CLI"
+                )
+                platform_config = {
+                    key: meta[key]
+                    for key in (
+                        "name",
+                        "model",
+                        "tools",
+                        "target",
+                        "disable-model-invocation",
+                        "user-invocable",
+                    )
+                    if key in meta
+                }
+
+                existing = next(
+                    (s for s in subagents if s.subagent_name == s_name), None
+                )
+                if existing:
+                    if "github-copilot" not in existing.target_agents:
+                        existing.target_agents.append("github-copilot")
+                    existing.platform_configs["github-copilot"] = platform_config
+                else:
+                    subagents.append(
+                        SubagentAdoption(
+                            subagent_name=s_name,
+                            description=str(desc),
+                            role=s_name.capitalize(),
+                            system_prompt=body,
+                            target_agents=["github-copilot"],
+                            source_file=agent_file,
+                            platform_configs={"github-copilot": platform_config},
+                        )
+                    )
             except (PermissionError, OSError) as e:
                 print(
                     f"[WARN] Failed to read subagent file '{agent_file}': {e}",
@@ -437,6 +594,15 @@ def execute_adoption(
         if not dry_run and new_subs_content != existing_subs:
             sub_toml_path.write_text(new_subs_content, encoding="utf-8")
             print(f"[WRITE FILE] Updated {sub_toml_path}")
+            instructions_dir = plan.aikito_dir / "subagents"
+            instructions_dir.mkdir(parents=True, exist_ok=True)
+            for sub in plan.subagents:
+                instructions_path = instructions_dir / f"{sub.subagent_name}.md"
+                if not instructions_path.exists():
+                    instructions_path.write_text(
+                        sub.system_prompt.rstrip() + "\n", encoding="utf-8"
+                    )
+                    print(f"[WRITE FILE] Created {instructions_path}")
 
     if dry_run:
         print("\n[DRY-RUN SUMMARY] Preview complete. No files were modified.")
@@ -567,11 +733,14 @@ def render_subagents_block(
         sub_lines = [
             f"\n{header}",
             f"description = {_format_toml_value(sub.description)}",
-            f"role = {_format_toml_value(sub.role)}",
-            f"target_agents = {_format_toml_value(sub.target_agents)}",
+            f"agents = {_format_toml_value(sub.target_agents)}",
         ]
-        if sub.system_prompt:
-            sub_lines.append(f"system_prompt = {_format_toml_value(sub.system_prompt)}")
+        for agent_name, options in sorted(sub.platform_configs.items()):
+            sub_lines.append(f"\n[{header[1:-1]}.{_format_toml_key(agent_name)}]")
+            for key, value in sorted(options.items()):
+                sub_lines.append(
+                    f"{_format_toml_key(key)} = {_format_toml_value(value)}"
+                )
 
         sub_block = "\n".join(sub_lines) + "\n"
 

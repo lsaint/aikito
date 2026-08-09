@@ -60,7 +60,7 @@ review requirements to match your environment.
 
 Integrations are capability-based. An Agent may participate in instructions,
 skills, MCP, or subagent synchronization independently. The default registry
-contains Codex, Claude Code, Antigravity CLI (`agy`), and OpenCode.
+contains Codex, Claude Code, Antigravity CLI (`agy`), OpenCode, and GitHub Copilot CLI.
 
 ## Project Runtime Directory
 

@@ -16,6 +16,7 @@ from aikito_mcp import (  # noqa: E402
     MCPConfigError,
     authenticate_mcp,
     get_claude_json_server,
+    get_copilot_json_server,
     get_jsonc_server,
     get_agy_json_server,
     get_toml_server,
@@ -23,6 +24,7 @@ from aikito_mcp import (  # noqa: E402
     load_agents,
     sync_mcp_configs,
     update_claude_json_server,
+    update_copilot_json_server,
     update_jsonc_server,
     update_agy_json_server,
     update_toml_server,
@@ -542,6 +544,26 @@ class AgentSpecTest(unittest.TestCase):
         )
 
         self.assertEqual(spec.state_key, "codex:managed")
+
+    def test_copilot_json_get_and_update(self) -> None:
+        source = """{
+  "mcpServers": {
+    "existing": {
+      "type": "http",
+      "url": "https://mcp.example.com"
+    }
+  }
+}
+"""
+        desired = {
+            "type": "http",
+            "url": "https://context7.com/mcp",
+            "tools": ["*"],
+        }
+        updated = update_copilot_json_server(source, "context7", desired)
+        server = get_copilot_json_server(updated, "context7")
+        self.assertEqual(server, desired)
+        self.assertEqual(get_copilot_json_server(updated, "existing")["url"], "https://mcp.example.com")
 
 
 if __name__ == "__main__":

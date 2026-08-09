@@ -18,8 +18,9 @@ class AgentStatusRow:
     display_name: str
     instructions_status: str
     skills_status: str
-    mcp_status: str
-    subagent_status: str
+    skills_link_depth: Optional[int] = None
+    mcp_status: str = "SKIP"
+    subagent_status: str = "SKIP"
 
 
 @dataclass
@@ -336,6 +337,30 @@ def _build_generic_table(
     return "\n".join(lines)
 
 
+def _format_skills_badge(
+    status_str: str,
+    link_depth: Optional[int],
+    use_unicode: bool,
+    use_color: bool,
+) -> str:
+    if link_depth is None or status_str in ("SKIP", "N/A"):
+        return _format_status_badge("SKIP", use_unicode, use_color)
+
+    if status_str.startswith("OK"):
+        m = re.search(r"\((\d+)\)", status_str)
+        count_str = m.group(1) if m else "0"
+        if link_depth == 1:
+            sym = "›" if use_unicode else ">"
+        elif link_depth == 2:
+            sym = "»" if use_unicode else ">>"
+        else:
+            sym = ""
+        text = f"{count_str} {sym}".strip() if sym else count_str
+        return _colorize(text, COLOR_GREEN, use_color)
+
+    return _format_status_badge(status_str, use_unicode, use_color)
+
+
 def render_agents_table(
     rows: List[AgentStatusRow], use_unicode: bool, use_color: bool
 ) -> str:
@@ -347,7 +372,9 @@ def render_agents_table(
             [
                 r.display_name,
                 _format_status_badge(r.instructions_status, use_unicode, use_color),
-                _format_status_badge(r.skills_status, use_unicode, use_color),
+                _format_skills_badge(
+                    r.skills_status, r.skills_link_depth, use_unicode, use_color
+                ),
                 _format_status_badge(r.mcp_status, use_unicode, use_color),
                 _format_status_badge(r.subagent_status, use_unicode, use_color),
             ]

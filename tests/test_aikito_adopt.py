@@ -7,7 +7,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
 
-from aikito_adopt import build_adopt_plan, execute_adoption
+from aikito_adopt import build_adopt_plan, execute_adoption  # noqa: E402
+from aikito_mcp import load_agent_specs  # noqa: E402
+from aikito_subagent import load_subagent_definitions  # noqa: E402
 
 
 class AikitoAdoptTest(unittest.TestCase):
@@ -203,10 +205,115 @@ class AikitoAdoptTest(unittest.TestCase):
             "aikito_adopt.create_adopt_backup",
             side_effect=RuntimeError("Simulated backup storage failure"),
         ):
-            with patch("sys.stderr.write") as mock_stderr:
+            with patch("sys.stderr.write"):
                 with self.assertRaises(SystemExit) as cm:
                     execute_adoption(plan, dry_run=False)
                 self.assertEqual(cm.exception.code, 1)
+
+    def test_adopt_copilot_cli_resources(self) -> None:
+        copilot_dir = self.fake_home / ".copilot"
+        copilot_dir.mkdir(parents=True)
+
+        (copilot_dir / "copilot-instructions.md").write_text(
+            "Shared Copilot Instructions", encoding="utf-8"
+        )
+        (copilot_dir / "mcp-config.json").write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "copilot_server": {
+                            "type": "http",
+                            "url": "https://mcp.copilot.example.com",
+                            "headers": {
+                                "Accept": "application/json",
+                                "Authorization": "Bearer ${COPILOT_TOKEN}",
+                            },
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        agents_dir = copilot_dir / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "formatter.agent.md").write_text(
+            "---\nname: formatter\ndescription: Copilot Formatter Agent\n"
+            'tools: ["read", "search"]\nuser-invocable: false\n---\nCopilot prompt',
+            encoding="utf-8",
+        )
+
+        (self.target_path / "agents.toml").write_text(
+            (ROOT / "agents.toml").read_text(encoding="utf-8"), encoding="utf-8"
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        self.assertTrue(
+            any(ag == "github-copilot" for ag, _, _ in plan.instructions.sources)
+        )
+        self.assertTrue(
+            any(s.server_name == "copilot_server" for s in plan.mcp_servers)
+        )
+        self.assertTrue(
+            any(
+                sub.subagent_name == "formatter"
+                and "github-copilot" in sub.target_agents
+                for sub in plan.subagents
+            )
+        )
+
+        execute_adoption(plan, dry_run=False)
+
+        specs = load_agent_specs(self.target_path, self.fake_home)
+        copilot_spec = next(
+            spec
+            for spec in specs
+            if spec.server == "copilot_server" and spec.agent == "github-copilot"
+        )
+        self.assertEqual(copilot_spec.desired["headers"]["Accept"], "application/json")
+        self.assertEqual(
+            copilot_spec.desired["headers"]["Authorization"],
+            "Bearer ${COPILOT_TOKEN}",
+        )
+
+        definitions = load_subagent_definitions(self.target_path)
+        formatter = definitions["formatter"]
+        self.assertEqual(formatter.agents, ["github-copilot"])
+        self.assertEqual(formatter.instructions, "Copilot prompt")
+        self.assertEqual(
+            formatter.platform_configs["github-copilot"]["tools"],
+            ["read", "search"],
+        )
+        self.assertFalse(formatter.platform_configs["github-copilot"]["user-invocable"])
+
+    def test_adopt_copilot_plaintext_authorization_header_is_sanitized(self) -> None:
+        copilot_dir = self.fake_home / ".copilot"
+        copilot_dir.mkdir(parents=True)
+        (copilot_dir / "mcp-config.json").write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "private-api": {
+                            "type": "http",
+                            "url": "https://example.com/mcp",
+                            "headers": {
+                                "Authorization": "Bearer plaintext-secret",
+                                "X-API-Version": "2026-08-09",
+                            },
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        server = build_adopt_plan(self.target_path, self.fake_home).mcp_servers[0]
+
+        self.assertEqual(
+            server.config_data["headers"]["Authorization"],
+            "${AIKITO_PRIVATE_API_AUTHORIZATION}",
+        )
+        self.assertEqual(server.config_data["headers"]["X-API-Version"], "2026-08-09")
 
 
 if __name__ == "__main__":

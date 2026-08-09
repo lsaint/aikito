@@ -24,6 +24,7 @@ from aikito_render import (  # noqa: E402
 )
 
 from aikito_status import (  # noqa: E402
+    _summarize_subagent_status,
     collect_mcp_matrix,
     collect_memory_notes_rows,
     collect_skills_rows,
@@ -126,6 +127,11 @@ class AikitoStatusRenderTest(unittest.TestCase):
 
         self.assertIn("  27 notes across 1 scopes", rendered)
 
+    def test_subagent_status_distinguishes_missing_drift_and_conflict(self) -> None:
+        self.assertEqual(_summarize_subagent_status(["CREATE"]), "MISSING (0/1)")
+        self.assertEqual(_summarize_subagent_status(["UPDATE"]), "DRIFT (0/1)")
+        self.assertEqual(_summarize_subagent_status(["CONFLICT"]), "CONFLICT (0/1)")
+
     def test_render_mcp_status_table(self) -> None:
         server_rows = [
             MCPServerRow(
@@ -177,7 +183,6 @@ class AikitoStatusRenderTest(unittest.TestCase):
         self.assertEqual(_truncate_display_text("中文测试标题", 7), "中文测…")
 
     def test_render_memory_notes_table(self) -> None:
-
         notes = [
             MemoryNoteRow(
                 scope_name="Global",
@@ -311,11 +316,13 @@ agents = ["codex"]
             # Expected source does NOT exist
             expected_global_agents = aikito_dir / "global" / "AGENTS.md"
 
-            (aikito_dir / "agents.toml").write_text("""
+            (aikito_dir / "agents.toml").write_text(
+                """
 [agents.codex]
 display_name = "Codex"
 instruction_path = ".codex/AGENTS.md"
-""".strip())
+""".strip()
+            )
             (aikito_dir / "skills.toml").write_text("skills = []\n")
             (aikito_dir / "mcps.toml").write_text("[servers]\n")
             (aikito_dir / "subagents.toml").write_text("[subagents]\n")
@@ -336,26 +343,36 @@ instruction_path = ".codex/AGENTS.md"
             root = Path(tmp_dir)
             aikito_dir = root / "aikito"
             aikito_dir.mkdir()
-            (aikito_dir / "skills.toml").write_text('skills = ["global-skill-1", "missing-skill"]\n')
+            (aikito_dir / "skills.toml").write_text(
+                'skills = ["global-skill-1", "missing-skill"]\n'
+            )
 
             skills_dir = aikito_dir / "skills"
             skills_dir.mkdir()
 
             g_skill = skills_dir / "global-skill-1"
             g_skill.mkdir()
-            (g_skill / "SKILL.md").write_text("---\nname: global-skill-1\ndescription: Global skill description\n---\n")
+            (g_skill / "SKILL.md").write_text(
+                "---\nname: global-skill-1\ndescription: Global skill description\n---\n"
+            )
 
             orphan_skill = skills_dir / "orphan-skill"
             orphan_skill.mkdir()
-            (orphan_skill / "SKILL.md").write_text("---\nname: orphan-skill\ndescription: Orphan description\n---\n")
+            (orphan_skill / "SKILL.md").write_text(
+                "---\nname: orphan-skill\ndescription: Orphan description\n---\n"
+            )
 
             projects_dir = aikito_dir / "projects" / "test-proj"
             projects_dir.mkdir(parents=True)
-            (projects_dir / "agent.toml").write_text('name = "test-proj"\nskills = ["proj-skill"]\n')
+            (projects_dir / "agent.toml").write_text(
+                'name = "test-proj"\nskills = ["proj-skill"]\n'
+            )
 
             p_skill = skills_dir / "proj-skill"
             p_skill.mkdir()
-            (p_skill / "SKILL.md").write_text("---\nname: proj-skill\ndescription: Project skill description\n---\n")
+            (p_skill / "SKILL.md").write_text(
+                "---\nname: proj-skill\ndescription: Project skill description\n---\n"
+            )
 
             rows = collect_skills_rows(aikito_dir)
 
@@ -403,8 +420,58 @@ instruction_path = ".codex/AGENTS.md"
         self.assertIn("orphan-skill", out)
         self.assertIn("Orphan", out)
 
+    def test_render_skills_depth_symbols(self) -> None:
+        from aikito_render import render_agents_table
+
+        rows = [
+            AgentStatusRow(
+                agent_name="codex",
+                display_name="Codex",
+                instructions_status="OK",
+                skills_status="OK (2)",
+                skills_link_depth=1,
+                mcp_status="OK (1)",
+                subagent_status="SKIP",
+            ),
+            AgentStatusRow(
+                agent_name="github-copilot",
+                display_name="GitHub Copilot CLI",
+                instructions_status="OK",
+                skills_status="OK (2)",
+                skills_link_depth=1,
+                mcp_status="OK (1)",
+                subagent_status="SKIP",
+            ),
+            AgentStatusRow(
+                agent_name="claude-code",
+                display_name="Claude Code",
+                instructions_status="OK",
+                skills_status="OK (2)",
+                skills_link_depth=2,
+                mcp_status="OK (1)",
+                subagent_status="SKIP",
+            ),
+            AgentStatusRow(
+                agent_name="opencode",
+                display_name="OpenCode",
+                instructions_status="OK",
+                skills_status="OK (2)",
+                skills_link_depth=1,
+                mcp_status="OK (1)",
+                subagent_status="SKIP",
+            ),
+        ]
+
+        rendered_unicode = render_agents_table(rows, use_unicode=True, use_color=False)
+        self.assertIn("2 ›", rendered_unicode)
+        self.assertIn("2 »", rendered_unicode)
+        self.assertIn("–", rendered_unicode)
+
+        rendered_ascii = render_agents_table(rows, use_unicode=False, use_color=False)
+        self.assertIn("2 >", rendered_ascii)
+        self.assertIn("2 >>", rendered_ascii)
+        self.assertIn("-", rendered_ascii)
+
 
 if __name__ == "__main__":
     unittest.main()
-
-

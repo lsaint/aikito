@@ -53,6 +53,15 @@ class AikitoInitTest(unittest.TestCase):
 
         agents = load_agents(self.target_path, self.fake_home)
         self.assertIn("codex", agents)
+        self.assertIn("github-copilot", agents)
+        self.assertEqual(
+            agents["github-copilot"].skills_path,
+            self.fake_home / ".agents/skills",
+        )
+        self.assertEqual(
+            agents["opencode"].skills_path,
+            self.fake_home / ".agents/skills",
+        )
         self.assertEqual(
             agents["agy"].skills_path,
             self.fake_home / ".gemini/antigravity-cli/skills",

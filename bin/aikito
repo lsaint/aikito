@@ -48,7 +48,7 @@ from aikito_subagent import (
     sync_subagent_configs,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 
 def get_aikito_dir() -> Path:
@@ -146,6 +146,10 @@ def sync_global_entry(
     """
     if not target.parent.exists():
         print(f"[SKIP] {agent_name} not detected: {target.parent}")
+        return True
+
+    if target.resolve(strict=False) == source.resolve(strict=False):
+        print(f"[OK] {agent_name} {resource_name}: shared path {source}")
         return True
 
     expected_source = source.resolve()

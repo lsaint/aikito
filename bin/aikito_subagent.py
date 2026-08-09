@@ -26,12 +26,22 @@ KNOWN_PLATFORM_FIELDS = {
     "codex": {"model", "model_reasoning_effort"},
     "claude-code": {"model", "effort"},
     "agy": set(),
+    "github-copilot": {
+        "name",
+        "description",
+        "model",
+        "tools",
+        "target",
+        "disable-model-invocation",
+        "user-invocable",
+    },
 }
 
 FORMAT_EXTENSIONS = {
     "codex_toml": ".toml",
     "claude_markdown": ".md",
     "agy_markdown": ".md",
+    "copilot_markdown": ".agent.md",
 }
 
 
@@ -52,7 +62,7 @@ class SubagentDefinition:
     name: str
     description: str
     agents: list[str]
-    platform_configs: dict[str, dict[str, str]]
+    platform_configs: dict[str, dict[str, Any]]
     instructions: str
 
 
@@ -194,7 +204,7 @@ def load_subagent_definitions(
             )
 
         # Load platform specific configs
-        platform_configs: dict[str, dict[str, str]] = {}
+        platform_configs: dict[str, dict[str, Any]] = {}
         for key, val in subagent_info.items():
             if key in ("description", "agents"):
                 continue
@@ -215,22 +225,72 @@ def load_subagent_definitions(
 
 def validate_platform_opts(
     agent_name: str, subagent_name: str, platform_opts: dict[str, Any]
-) -> dict[str, str]:
+) -> dict[str, Any]:
     allowed = KNOWN_PLATFORM_FIELDS.get(agent_name, set())
-    validated: dict[str, str] = {}
+    validated: dict[str, Any] = {}
 
     for k, v in platform_opts.items():
         if k not in allowed:
             raise SubagentConfigError(
                 f"Subagent '{subagent_name}' contains unknown field '{k}' for platform '{agent_name}'. Allowed: {sorted(allowed)}"
             )
-        if not isinstance(v, str) or not v.strip():
-            raise SubagentConfigError(
-                f"Subagent '{subagent_name}' field '{k}' for platform '{agent_name}' must be a non-empty string"
-            )
+        if agent_name == "github-copilot":
+            if k == "tools":
+                if isinstance(v, str):
+                    v = [v]
+                if not isinstance(v, list) or not all(
+                    isinstance(x, str) and x.strip() for x in v
+                ):
+                    raise SubagentConfigError(
+                        f"Subagent '{subagent_name}' field 'tools' for platform '{agent_name}' must be a string or non-empty list of strings"
+                    )
+            elif k in ("disable-model-invocation", "user-invocable"):
+                if not isinstance(v, bool):
+                    raise SubagentConfigError(
+                        f"Subagent '{subagent_name}' field '{k}' for platform '{agent_name}' must be a boolean"
+                    )
+            else:
+                if not isinstance(v, str) or not v.strip():
+                    raise SubagentConfigError(
+                        f"Subagent '{subagent_name}' field '{k}' for platform '{agent_name}' must be a non-empty string"
+                    )
+        else:
+            if not isinstance(v, str) or not v.strip():
+                raise SubagentConfigError(
+                    f"Subagent '{subagent_name}' field '{k}' for platform '{agent_name}' must be a non-empty string"
+                )
         validated[k] = v
 
     return validated
+
+
+def render_copilot_markdown(
+    name: str, description: str, platform_opts: dict[str, Any], instructions: str
+) -> str:
+    marker = get_marker_text(name)
+    lines = ["---"]
+
+    opts = dict(platform_opts)
+    if "name" not in opts:
+        opts["name"] = name
+    opts["description"] = description
+
+    for k in sorted(opts.keys()):
+        val = opts[k]
+        if isinstance(val, bool):
+            lines.append(f"{k}: {'true' if val else 'false'}")
+        elif isinstance(val, list):
+            encoded_list = json.dumps(val, ensure_ascii=False)
+            lines.append(f"{k}: {encoded_list}")
+        else:
+            lines.append(f"{k}: {json.dumps(val, ensure_ascii=False)}")
+
+    lines.append("---")
+    lines.append(f"<!-- {marker} -->")
+    lines.append("")
+    lines.append(instructions)
+    lines.append("")
+    return "\n".join(lines)
 
 
 def render_claude_markdown(
@@ -329,6 +389,13 @@ def render_subagent(
         )
     elif agent_config.config_format == "codex_toml":
         return render_codex_toml(
+            definition.name,
+            definition.description,
+            platform_opts,
+            definition.instructions,
+        )
+    elif agent_config.config_format == "copilot_markdown":
+        return render_copilot_markdown(
             definition.name,
             definition.description,
             platform_opts,

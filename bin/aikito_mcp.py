@@ -123,7 +123,10 @@ class BasicTokenAuth:
     authorization_env: str
 
     def authorization_header(self) -> str:
-        token = os.environ.get(self.token_env) or "placeholder-token-set-environment-variable"
+        token = (
+            os.environ.get(self.token_env)
+            or "placeholder-token-set-environment-variable"
+        )
         credentials = f"{self.account_email}:{token}".encode()
         return f"Basic {base64.b64encode(credentials).decode()}"
 
@@ -388,6 +391,10 @@ def get_claude_json_server(text: str, server_name: str) -> dict[str, Any] | None
     return get_mcp_json_server(text, server_name, "Claude Code")
 
 
+def get_copilot_json_server(text: str, server_name: str) -> dict[str, Any] | None:
+    return get_mcp_json_server(text, server_name, "GitHub Copilot CLI")
+
+
 def get_mcp_json_server(
     text: str, server_name: str, config_name: str
 ) -> dict[str, Any] | None:
@@ -420,6 +427,12 @@ def update_claude_json_server(
     text: str, server_name: str, desired: dict[str, Any]
 ) -> str:
     return update_mcp_json_server(text, server_name, desired, "Claude Code")
+
+
+def update_copilot_json_server(
+    text: str, server_name: str, desired: dict[str, Any]
+) -> str:
+    return update_mcp_json_server(text, server_name, desired, "GitHub Copilot CLI")
 
 
 def update_mcp_json_server(
@@ -632,6 +645,7 @@ def _build_desired(
     url: str,
     override: dict[str, Any],
     authentication: BasicTokenAuth | None,
+    headers: dict[str, str] | None = None,
 ) -> tuple[dict[str, Any], bool]:
     """Construct the format-bound MCP payload for a target config."""
     if config_format == "toml":
@@ -671,6 +685,21 @@ def _build_desired(
                 "Authorization": f"${{{authentication.authorization_env}}}"
             }
         return desired, False
+    if config_format == "copilot_json":
+        desired = {
+            "type": "http",
+            "url": url,
+            "tools": ["*"],
+        }
+        if headers:
+            desired["headers"] = headers
+        elif authentication:
+            desired["headers"] = {
+                "Authorization": f"${{{authentication.authorization_env}}}"
+            }
+        else:
+            desired["headers"] = {}
+        return desired, False
     # Unsupported formats never get written; payload is informational only.
     return {}, False
 
@@ -708,6 +737,17 @@ def load_agent_specs(aikito_dir: Path, home: Path) -> list[AgentSpec]:
         if not isinstance(overrides, dict):
             raise MCPConfigError(f"Server '{server_name}' overrides must be a table")
         authentication = _load_basic_token_auth(server_name, server)
+        headers = server.get("headers")
+        if headers is not None and (
+            not isinstance(headers, dict)
+            or not all(
+                isinstance(key, str) and isinstance(value, str)
+                for key, value in headers.items()
+            )
+        ):
+            raise MCPConfigError(
+                f"Server '{server_name}' headers must be a string-to-string table"
+            )
 
         for agent in agents:
             definition = registry.get(agent)
@@ -755,6 +795,7 @@ def load_agent_specs(aikito_dir: Path, home: Path) -> list[AgentSpec]:
                 url,
                 override,
                 authentication,
+                headers,
             )
             specs.append(
                 AgentSpec(
@@ -818,6 +859,8 @@ def read_entry(spec: AgentSpec, text: str) -> dict[str, Any] | None:
         return get_agy_json_server(text, spec.target_name)
     if spec.config_format == "claude_json":
         return get_claude_json_server(text, spec.target_name)
+    if spec.config_format == "copilot_json":
+        return get_copilot_json_server(text, spec.target_name)
     raise MCPConfigError(f"Unsupported config format: {spec.config_format}")
 
 
@@ -842,7 +885,13 @@ def evaluate_spec_status(spec: AgentSpec) -> str:
         if current is None:
             return "MISSING"
         return "DRIFT"
-    except (tomllib.TOMLDecodeError, UnicodeDecodeError, PermissionError, ValueError, OSError):
+    except (
+        tomllib.TOMLDecodeError,
+        UnicodeDecodeError,
+        PermissionError,
+        ValueError,
+        OSError,
+    ):
         return "ERROR"
     except Exception:
         return "ERROR"
@@ -857,6 +906,8 @@ def _update_entry(spec: AgentSpec, text: str) -> str:
         return update_agy_json_server(text, spec.target_name, spec.desired)
     if spec.config_format == "claude_json":
         return update_claude_json_server(text, spec.target_name, spec.desired)
+    if spec.config_format == "copilot_json":
+        return update_copilot_json_server(text, spec.target_name, spec.desired)
     raise MCPConfigError(f"Unsupported config format: {spec.config_format}")
 
 

@@ -12,7 +12,9 @@ import re
 import shutil
 import shlex
 import stat
+import subprocess
 import sys
+import time
 import tomllib
 from pathlib import Path
 from typing import List
@@ -31,6 +33,7 @@ def _has_user_files(directory: Path) -> bool:
         return True
     return False
 
+
 from aikito_link import SymlinkVerdict, classify_symlink
 from aikito_mcp import (
     MCPConfigError,
@@ -43,6 +46,7 @@ from aikito_render import DoctorFinding, DoctorReport, DoctorSection
 from aikito_status import collect_subagents_matrix
 from aikito_subagent import (
     SubagentConfigError,
+    build_plan,
     validate_platform_opts,
     load_subagent_definitions,
 )
@@ -51,6 +55,7 @@ from aikito_subagent import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _ok(message: str) -> DoctorFinding:
     return DoctorFinding(status="OK", message=message)
@@ -74,6 +79,7 @@ def _home_rel(path: Path, home: Path) -> str:
 # ---------------------------------------------------------------------------
 # §1 Symlinks
 # ---------------------------------------------------------------------------
+
 
 def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
     """Check all managed symlinks for dangling, wrong-target, or missing."""
@@ -147,6 +153,7 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
 
     skills_fail_count = 0
     skills_checked_count = 0
+    seen_skill_targets: set[Path] = set()
     for name, definition in agents.items():
         if definition.skills_path is None:
             continue
@@ -155,6 +162,9 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
             continue
         for skill_name in global_skills:
             skill_target = skills_dir / skill_name
+            if skill_target in seen_skill_targets:
+                continue
+            seen_skill_targets.add(skill_target)
             expected = aikito_dir / "skills" / skill_name
             verdict = classify_symlink(skill_target, expected)
             display = _home_rel(skill_target, home)
@@ -253,6 +263,7 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
 # ---------------------------------------------------------------------------
 # §2 Orphans & Unmanaged Files
 # ---------------------------------------------------------------------------
+
 
 def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
     """Detect orphan and unmanaged files across subagents, skills, and MCP."""
@@ -363,7 +374,10 @@ def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
 
         agents = load_agents(aikito_dir, home)
         for agent_name, definition in agents.items():
-            if definition.mcp_config_path is None or not definition.mcp_config_path.exists():
+            if (
+                definition.mcp_config_path is None
+                or not definition.mcp_config_path.exists()
+            ):
                 continue
             cfg = definition.mcp_config_path
             try:
@@ -379,7 +393,7 @@ def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
 
             existing_servers: set[str] = set()
             fmt = definition.mcp_config_format
-            if fmt in ("agy_json", "claude_json"):
+            if fmt in ("agy_json", "claude_json", "copilot_json"):
                 try:
                     doc = json.loads(text)
                     existing_servers = set(doc.get("mcpServers", {}).keys())
@@ -420,8 +434,166 @@ def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
 
 
 # ---------------------------------------------------------------------------
-# §3 Config Syntax & Schema
+# §3 Memory Integrity & Freshness
 # ---------------------------------------------------------------------------
+
+STALE_MEMORY_DAYS = 30
+
+
+def _memory_scope_dirs(aikito_dir: Path) -> List[tuple]:
+    """Return [(scope_dir, scope_label)] for global memory plus every
+    registered project's memory directory."""
+    scope_dirs = [(aikito_dir / "memory", "Global")]
+    projects_dir = aikito_dir / "projects"
+    if projects_dir.is_dir():
+        for p in sorted(projects_dir.iterdir()):
+            if p.is_dir():
+                scope_dirs.append((p / "memory", f"Project:{p.name}"))
+    return scope_dirs
+
+
+def _git_last_commit_epoch(repo_dir: Path, file_path: Path) -> int | None:
+    """Return the Unix epoch of the last commit touching file_path, or None
+    if the file has no commit history (e.g. untracked, or git is unavailable).
+    """
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo_dir),
+                "log",
+                "-1",
+                "--format=%ct",
+                "--",
+                str(file_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    output = result.stdout.strip()
+    if result.returncode != 0 or not output:
+        return None
+    try:
+        return int(output)
+    except ValueError:
+        return None
+
+
+def check_memory_integrity(aikito_dir: Path, home: Path) -> DoctorSection:
+    """Validate durable memory notes: index/link consistency and staleness.
+
+    This is separate from Configuration because it inspects memory *content*
+    (index completeness, cross-note wikilinks, edit recency) rather than
+    config file syntax. Memory is curated knowledge, not a config file, and
+    its health signals are different: a dangling [[wikilink]] or a note that
+    has not been touched in months is a curation gap, not a parse error.
+    """
+    findings: List[DoctorFinding] = []
+    scope_dirs = _memory_scope_dirs(aikito_dir)
+
+    # Index completeness: notes not referenced from index.md, and index.md
+    # entries pointing at notes that no longer exist.
+    for scope_dir, scope_label in scope_dirs:
+        index_file = scope_dir / "index.md"
+        notes_dir = scope_dir / "notes"
+        if not index_file.exists():
+            continue
+        content = index_file.read_text(encoding="utf-8", errors="ignore")
+        indexed_stems = {
+            m.group(1).strip()
+            for m in re.finditer(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]", content)
+        }
+        if notes_dir.is_dir():
+            for note_file in sorted(notes_dir.glob("*.md")):
+                stem = note_file.stem
+                if stem not in indexed_stems:
+                    findings.append(
+                        _warn(
+                            f"{scope_label} note '{stem}' exists but is not referenced in index.md",
+                            f"Add [[{stem}]] to {scope_label}'s index.md, or delete the note if it's obsolete",
+                        )
+                    )
+            for stem in sorted(indexed_stems):
+                note_path = notes_dir / f"{stem}.md"
+                if not note_path.exists():
+                    findings.append(
+                        _fail(
+                            f"{scope_label} index.md references [[{stem}]] but file not found",
+                            f"Remove the [[{stem}]] entry from index.md, or restore notes/{stem}.md",
+                        )
+                    )
+
+    # Cross-note wikilinks: notes reference each other via [[note-name]] in
+    # their body, not just from index.md. A dangling reference here is
+    # invisible to index-only checks and rots silently.
+    for scope_dir, scope_label in scope_dirs:
+        notes_dir = scope_dir / "notes"
+        if not notes_dir.is_dir():
+            continue
+        note_stems = {p.stem for p in notes_dir.glob("*.md")}
+        for note_file in sorted(notes_dir.glob("*.md")):
+            body = note_file.read_text(encoding="utf-8", errors="ignore")
+            referenced = {
+                m.group(1).strip()
+                for m in re.finditer(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]", body)
+            }
+            for target_stem in sorted(referenced):
+                if target_stem not in note_stems:
+                    findings.append(
+                        _fail(
+                            f"{scope_label} note '{note_file.stem}' links to "
+                            f"[[{target_stem}]] but that note does not exist",
+                            f"Write notes/{target_stem}.md if the topic is still worth keeping, "
+                            f"or edit {note_file.stem}.md to drop the [[{target_stem}]] link",
+                        )
+                    )
+
+    # Freshness: notes untouched in Git for a long time. Age is read from Git
+    # history rather than filesystem mtime, since mtime changes on
+    # checkout/clone/sync and does not reflect real edit recency. Staleness
+    # is a prompt to review, not a verdict — some notes (stable architecture
+    # constraints) are legitimately old and still correct.
+    now = int(time.time())
+    threshold = STALE_MEMORY_DAYS * 86400
+    checked_any = False
+    stale_found = False
+    for scope_dir, scope_label in scope_dirs:
+        notes_dir = scope_dir / "notes"
+        if not notes_dir.is_dir():
+            continue
+        for note_file in sorted(notes_dir.glob("*.md")):
+            checked_any = True
+            last_commit = _git_last_commit_epoch(aikito_dir, note_file)
+            if last_commit is None:
+                continue
+            age_days = (now - last_commit) // 86400
+            if now - last_commit > threshold:
+                stale_found = True
+                findings.append(
+                    _warn(
+                        f"{scope_label} note '{note_file.stem}' has not been updated "
+                        f"in {age_days} days — worth a re-read to confirm it still holds",
+                        f"Re-read notes/{note_file.stem}.md; rewrite if it drifted, "
+                        "or leave it if it's still accurate",
+                    )
+                )
+
+    if checked_any and not stale_found:
+        findings.append(_ok(f"No memory notes older than {STALE_MEMORY_DAYS} days"))
+    elif not checked_any:
+        findings.append(_ok("No memory notes found"))
+
+    return DoctorSection(name="Memory", findings=findings)
+
+
+# ---------------------------------------------------------------------------
+# §4 Config Syntax & Schema
+# ---------------------------------------------------------------------------
+
 
 def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
     """Validate syntax of all TOML/JSON workspace config files."""
@@ -490,17 +662,32 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
             display = _home_rel(cfg, home)
             try:
                 text = cfg.read_text(encoding="utf-8")
-                if fmt in ("agy_json", "claude_json"):
+                if fmt in ("agy_json", "claude_json", "copilot_json"):
                     json.loads(text)
-                    findings.append(_ok(f"{definition.display_name} config: valid JSON ({display})"))
+                    findings.append(
+                        _ok(f"{definition.display_name} config: valid JSON ({display})")
+                    )
                 elif fmt == "toml":
                     tomllib.loads(text)
-                    findings.append(_ok(f"{definition.display_name} config: valid TOML ({display})"))
+                    findings.append(
+                        _ok(f"{definition.display_name} config: valid TOML ({display})")
+                    )
                 elif fmt == "jsonc":
                     # Basic parse via our internal parser
                     _parse_jsonc(text)
-                    findings.append(_ok(f"{definition.display_name} config: valid JSONC ({display})"))
-            except (json.JSONDecodeError, tomllib.TOMLDecodeError, MCPConfigError, UnicodeDecodeError, PermissionError, OSError) as exc:
+                    findings.append(
+                        _ok(
+                            f"{definition.display_name} config: valid JSONC ({display})"
+                        )
+                    )
+            except (
+                json.JSONDecodeError,
+                tomllib.TOMLDecodeError,
+                MCPConfigError,
+                UnicodeDecodeError,
+                PermissionError,
+                OSError,
+            ) as exc:
                 findings.append(
                     _fail(
                         f"{definition.display_name} config: read/parse error — {exc} ({display})"
@@ -525,53 +712,13 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
     except SubagentConfigError as exc:
         findings.append(_fail(f"subagents.toml: {exc}"))
 
-    # 3e. Memory index completeness
-    projects_dir_check = aikito_dir / "projects"
-    project_scope_dirs = []
-    if projects_dir_check.is_dir():
-        for p in projects_dir_check.iterdir():
-            if p.is_dir():
-                project_scope_dirs.append(
-                    (aikito_dir / "projects" / p.name / "memory", f"Project:{p.name}")
-                )
-
-    for scope_dir, scope_label in [
-        (aikito_dir / "memory", "Global"),
-        *project_scope_dirs,
-    ]:
-        index_file = scope_dir / "index.md"
-        notes_dir = scope_dir / "notes"
-        if not index_file.exists():
-            continue
-        content = index_file.read_text(encoding="utf-8", errors="ignore")
-        indexed_stems = {
-            m.group(1).strip()
-            for m in re.finditer(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]", content)
-        }
-        if notes_dir.is_dir():
-            for note_file in sorted(notes_dir.glob("*.md")):
-                stem = note_file.stem
-                if stem not in indexed_stems:
-                    findings.append(
-                        _warn(
-                            f"{scope_label} note '{stem}' exists but is not referenced in index.md",
-                        )
-                    )
-            for stem in sorted(indexed_stems):
-                note_path = notes_dir / f"{stem}.md"
-                if not note_path.exists():
-                    findings.append(
-                        _fail(
-                            f"{scope_label} index.md references [[{stem}]] but file not found",
-                        )
-                    )
-
     return DoctorSection(name="Configuration", findings=findings)
 
 
 # ---------------------------------------------------------------------------
-# §4 Fingerprint Drift
+# §5 Fingerprint Drift
 # ---------------------------------------------------------------------------
+
 
 def check_drift(aikito_dir: Path, home: Path) -> DoctorSection:
     """Check MCP managed-section fingerprint drift via evaluate_spec_status."""
@@ -622,12 +769,64 @@ def check_drift(aikito_dir: Path, home: Path) -> DoctorSection:
     elif checked == 0:
         findings.append(_ok("No managed MCP entries to check"))
 
+    try:
+        subagent_plan, _ = build_plan(aikito_dir, home, allow_empty=True)
+    except SubagentConfigError as exc:
+        findings.append(_fail(f"Cannot build subagent synchronization plan: {exc}"))
+        return DoctorSection(name="Drift", findings=findings)
+
+    subagent_checked = 0
+    subagent_issues = 0
+    for item in subagent_plan:
+        if item.action in ("SKIP", "ORPHAN") or item.subagent_name == "*":
+            continue
+        subagent_checked += 1
+        target = _home_rel(item.target_path, home)
+        if item.action == "CREATE":
+            subagent_issues += 1
+            findings.append(
+                _fail(
+                    f"{item.agent_name}/{item.subagent_name}: managed subagent missing ({target})",
+                    "aikito sync subagents",
+                )
+            )
+        elif item.action in ("UPDATE", "FORCE UPDATE"):
+            subagent_issues += 1
+            findings.append(
+                _fail(
+                    f"{item.agent_name}/{item.subagent_name}: managed subagent drift ({target})",
+                    "aikito sync subagents",
+                )
+            )
+        elif item.action == "CONFLICT":
+            subagent_issues += 1
+            findings.append(
+                _fail(
+                    f"{item.agent_name}/{item.subagent_name}: unmanaged target conflict ({target})",
+                    f"aikito sync subagents --force {item.agent_name}/{item.subagent_name}",
+                )
+            )
+        elif item.action == "ERROR":
+            subagent_issues += 1
+            findings.append(
+                _fail(
+                    f"{item.agent_name}/{item.subagent_name}: {item.reason}",
+                    "Review subagents.toml and the target agent configuration",
+                )
+            )
+
+    if subagent_checked == 0:
+        findings.append(_ok("No managed subagent entries to check"))
+    elif subagent_issues == 0:
+        findings.append(_ok(f"Subagent managed files OK ({subagent_checked} entries)"))
+
     return DoctorSection(name="Drift", findings=findings)
 
 
 # ---------------------------------------------------------------------------
-# §5 Security & Permissions
+# §6 Security & Permissions
 # ---------------------------------------------------------------------------
+
 
 def check_security(aikito_dir: Path, home: Path) -> DoctorSection:
     """Check file permissions and security-sensitive configurations."""
@@ -692,8 +891,9 @@ def check_security(aikito_dir: Path, home: Path) -> DoctorSection:
 
 
 # ---------------------------------------------------------------------------
-# §6 Runtime Environment
+# §7 Runtime Environment
 # ---------------------------------------------------------------------------
+
 
 def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
     """Check runtime environment: AIKITO_DIR, interpreter consistency, agent CLIs."""
@@ -749,6 +949,7 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
         "claude": "claude",
         "agy": "agy",
         "opencode": "opencode",
+        "copilot": "copilot",
     }
     for label, binary in cli_map.items():
         if shutil.which(binary):
@@ -763,14 +964,18 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
 # Entry point
 # ---------------------------------------------------------------------------
 
+
 def run_doctor(aikito_dir: Path, home: Path) -> DoctorReport:
     """Run all diagnostic checks and return a structured DoctorReport."""
     sections = [
         check_symlinks(aikito_dir, home),
         check_orphans(aikito_dir, home),
+        check_memory_integrity(aikito_dir, home),
         check_drift(aikito_dir, home),
         check_security(aikito_dir, home),
         check_environment(aikito_dir, home),
+        # Keep check_config_syntax last: it's the slowest section (parses every
+        # workspace config file), so cheaper checks report first.
         check_config_syntax(aikito_dir, home),
     ]
     return DoctorReport(sections=sections)
