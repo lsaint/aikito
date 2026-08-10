@@ -7,7 +7,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
 
-from aikito_init import init_workspace  # noqa: E402
+from aikito_init import init_project, init_workspace  # noqa: E402
 from aikito_mcp import load_agent_specs, load_agents  # noqa: E402
 from aikito_status import get_status_report_data  # noqa: E402
 
@@ -123,6 +123,57 @@ class AikitoInitTest(unittest.TestCase):
         self.assertFalse(success)
         self.assertEqual(existing_file.read_text(encoding="utf-8"), "Keep me\n")
         self.assertFalse((self.target_path / "agents.toml").exists())
+
+    def test_init_project_creates_canonical_skeleton(self) -> None:
+        init_workspace(self.target_path, self.fake_home)
+        project_path = Path(self.tmp_dir.name) / "example"
+        project_path.mkdir()
+
+        with patch("pathlib.Path.home", return_value=self.fake_home):
+            project_name = init_project(self.target_path, project_path)
+
+        self.assertEqual(project_name, "example")
+        project_dir = self.target_path / "projects" / "example"
+        self.assertTrue((project_dir / "AGENTS.md").is_file())
+        self.assertTrue((project_dir / "memory" / "index.md").is_file())
+        self.assertTrue((project_dir / "memory" / "notes").is_dir())
+        config = (project_dir / "agent.toml").read_text(encoding="utf-8")
+        self.assertIn('name = "example"', config)
+        self.assertIn('sync_mode = "link"', config)
+
+    def test_init_project_is_idempotent(self) -> None:
+        init_workspace(self.target_path, self.fake_home)
+        project_path = Path(self.tmp_dir.name) / "example"
+        project_path.mkdir()
+
+        self.assertEqual(init_project(self.target_path, project_path), "example")
+        agents_md = self.target_path / "projects" / "example" / "AGENTS.md"
+        agents_md.write_text("# Custom\n", encoding="utf-8")
+
+        self.assertEqual(init_project(self.target_path, project_path), "example")
+        self.assertEqual(agents_md.read_text(encoding="utf-8"), "# Custom\n")
+
+    def test_init_project_rejects_same_name_for_different_path(self) -> None:
+        init_workspace(self.target_path, self.fake_home)
+        first_path = Path(self.tmp_dir.name) / "first"
+        second_path = Path(self.tmp_dir.name) / "second"
+        first_path.mkdir()
+        second_path.mkdir()
+
+        self.assertEqual(
+            init_project(self.target_path, first_path, "example"), "example"
+        )
+        self.assertIsNone(init_project(self.target_path, second_path, "example"))
+
+    def test_init_project_rejects_unmanaged_runtime_resources(self) -> None:
+        init_workspace(self.target_path, self.fake_home)
+        project_path = Path(self.tmp_dir.name) / "example"
+        unmanaged_memory = project_path / ".agents" / "memory"
+        unmanaged_memory.mkdir(parents=True)
+        (unmanaged_memory / "note.md").write_text("Keep me\n", encoding="utf-8")
+
+        self.assertIsNone(init_project(self.target_path, project_path))
+        self.assertFalse((self.target_path / "projects" / "example").exists())
 
 
 if __name__ == "__main__":

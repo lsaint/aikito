@@ -45,6 +45,8 @@ jobs:
       - name: aikito subcommand --help
         run: |
           python3 bin/aikito init --help
+          python3 bin/aikito init workspace --help
+          python3 bin/aikito init project --help
           python3 bin/aikito adopt --help
           python3 bin/aikito status --help
           python3 bin/aikito sync --help
@@ -62,16 +64,26 @@ jobs:
             ~/.gemini/antigravity-cli \
             ~/.config/opencode
 
-      - name: aikito init (fresh workspace)
+      - name: aikito init workspace (fresh workspace)
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito init ${{ runner.temp }}/aikito-ws
+            python3 bin/aikito init workspace ${{ runner.temp }}/aikito-ws
 
-      # README Quick Start: aikito init → aikito sync global → aikito status
+      # README Quick Start: init workspace → sync global → init project → status
       - name: aikito sync global
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito sync global
+
+      - name: aikito init project (fresh and idempotent)
+        run: |
+          mkdir -p ${{ runner.temp }}/example-project
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito init project example ${{ runner.temp }}/example-project
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito init project example ${{ runner.temp }}/example-project
+          test -L ${{ runner.temp }}/example-project/.agents/AGENTS.md
+          test -L ${{ runner.temp }}/example-project/.agents/memory/index.md
 
       - name: aikito sync MCP and subagents
         run: |

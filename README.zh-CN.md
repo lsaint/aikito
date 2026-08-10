@@ -130,10 +130,23 @@ Aikito 的同步和凭据安全模型依赖软链接及 POSIX 文件权限，因
 ```bash
 brew install lsaint/tap/aikito
 
-aikito init ~/aikito
+aikito init workspace ~/aikito
 aikito sync global
 aikito status
 ```
+
+Workspace 是 Aikito 所有资源的 Git 管理中心。通常每个用户或每台机器只需初始化一份。
+
+需要项目专属 instruction、skill 或 memory 时，在对应代码目录中注册 project：
+
+```bash
+cd ~/code/example
+aikito init project
+```
+
+该命令会在 `~/aikito/projects/example/` 创建项目的规范资源，并连接到当前目录的
+`./.agents/`。一份 workspace 可以管理多个 project；project 代表一个代码目录及其专属
+Agent 资源，不保存项目源码本身。
 
 `aikito status` 会展示各个受支持 Agent 的资源状态：
 
@@ -177,9 +190,9 @@ aikito adopt --apply
 
 ## 安全优先
 
-`aikito init` 创建的是本地 Git 仓库，不会自动将其设为私有，也不代表它可以安全公开。
-添加远端或推送前，请检查 memory 和配置中是否包含凭据、客户数据、内部地址、私密源码等
-敏感信息。后续删除一次提交并不能从 Git 历史中清除秘密。
+`aikito init workspace` 创建的是本地 Git 仓库，不会自动将其设为私有，也不代表它可以
+安全公开。添加远端或推送前，请检查 memory 和配置中是否包含凭据、客户数据、内部地址、
+私密源码等敏感信息。后续删除一次提交并不能从 Git 历史中清除秘密。
 
 同步现有环境前，请阅读完整的[安全模型（英文）](docs/safety.md)。
 

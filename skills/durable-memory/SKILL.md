@@ -78,14 +78,20 @@ Select storage scope based on knowledge applicability:
 
 Project-specific knowledge belongs in project memory. Never place it in global memory merely because the project is unregistered.
 
-If worthwhile project-specific knowledge cannot be stored because project memory is unavailable, ask whether the user wants the project registered in Aikito. Use the `aikito` skill for registration or link repair when needed; otherwise avoid prompting merely because a project is unregistered.
+If worthwhile project-specific knowledge cannot be stored because project
+memory is unavailable, ask whether the user wants the project registered in
+Aikito. After confirmation, use the `aikito` skill and `aikito init project` to
+create the canonical project scope and runtime links before writing the memory.
+Do not register a project for global memory, and otherwise avoid prompting
+merely because a project is unregistered.
 
 ## Formatting & Organization
 
 - Prefer one durable, independently reusable concept per note.
-- Use lowercase kebab-case filenames that remain stable (e.g., `payment-idempotency.md`).
+- Use stable lowercase kebab-case note names (filename stems) of at most 50 characters (e.g., `payment-idempotency`).
 - Use titles that state the durable idea clearly and make the note easy to recognize from search results or wikilinks. Explain scope, rationale, and actionable guidance in the body.
-- Use Obsidian-style wikilinks for references: `[[note-name]]` or `[[note-name|Display Text]]`.
+- In note, Use Obsidian-style wikilinks for references: `[[note-name]]` or `[[note-name|Display Text]]`.
+- In `index.md`, always use `[[note-name|Display Text]]` without a trailing description.
 - Keep `index.md` strictly as a categorized index of links without expanding full note contents.
 
 When duplication is plausible, check for related notes first and prefer updating or consolidating existing knowledge over creating another note. Correct obsolete content directly, cleaning up indices and links as needed. Rely on Git for historical tracking rather than appending changelogs to notes.

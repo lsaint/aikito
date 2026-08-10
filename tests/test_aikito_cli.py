@@ -106,6 +106,61 @@ class SyncSubcommandParserTest(unittest.TestCase):
         self.assertEqual(args_alias.func, AIKITO_CLI.cmd_subagent_sync)
 
 
+class InitSubcommandParserTest(unittest.TestCase):
+    def test_init_workspace_and_project_subcommands(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+
+        workspace_args = parser.parse_args(["init", "workspace", "~/aikito"])
+        self.assertEqual(workspace_args.init_target, "workspace")
+        self.assertEqual(workspace_args.workspace_path, "~/aikito")
+        self.assertEqual(workspace_args.func, AIKITO_CLI.cmd_init)
+
+        project_args = parser.parse_args(["init", "project"])
+        self.assertEqual(project_args.init_target, "project")
+        self.assertIsNone(project_args.project_name)
+        self.assertIsNone(project_args.project_path)
+        self.assertEqual(project_args.func, AIKITO_CLI.cmd_init_project)
+
+        explicit_args = parser.parse_args(
+            ["init", "project", "example", "~/code/example"]
+        )
+        self.assertEqual(explicit_args.project_name, "example")
+        self.assertEqual(explicit_args.project_path, "~/code/example")
+
+    def test_legacy_init_syntax_is_rejected(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["init", "~/aikito"])
+
+    def test_init_project_command_creates_runtime_and_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            workspace = root / "workspace"
+            project = root / "example"
+            project.mkdir()
+            AIKITO_CLI.init_workspace(workspace, root)
+
+            args = AIKITO_CLI.build_parser().parse_args(["init", "project"])
+            with (
+                patch.object(AIKITO_CLI, "get_aikito_dir", return_value=workspace),
+                patch.object(AIKITO_CLI.Path, "cwd", return_value=project),
+            ):
+                args.func(args)
+                args.func(args)
+
+            canonical = workspace / "projects" / "example"
+            runtime = project / ".agents"
+            self.assertEqual(
+                (runtime / "AGENTS.md").resolve(),
+                (canonical / "AGENTS.md").resolve(),
+            )
+            self.assertEqual(
+                (runtime / "memory" / "index.md").resolve(),
+                (canonical / "memory" / "index.md").resolve(),
+            )
+
+
 class AuthSubcommandParserTest(unittest.TestCase):
     def test_auth_mcp_subcommand(self) -> None:
         parser = AIKITO_CLI.build_parser()
@@ -247,7 +302,9 @@ class ShowMemoryTest(unittest.TestCase):
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
         ):
-            args = AIKITO_CLI.build_parser().parse_args(["show", "memory", "global/notes/conflict"])
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "memory", "global/notes/conflict"]
+            )
             args.func(args)
             self.assertEqual(mock_stdout.getvalue(), "# Global Conflict Content")
 
@@ -255,13 +312,19 @@ class ShowMemoryTest(unittest.TestCase):
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
         ):
-            args = AIKITO_CLI.build_parser().parse_args(["show", "memory", "doxturbo/notes/conflict"])
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "memory", "doxturbo/notes/conflict"]
+            )
             args.func(args)
             self.assertEqual(mock_stdout.getvalue(), "# Project Conflict Content")
 
     def test_show_memory_same_scope_conflict(self) -> None:
-        (self.aikito_dir / "memory" / "notes" / "release-checklist.md").write_text("# Checklist")
-        (self.aikito_dir / "memory" / "notes" / "release-process.md").write_text("# Process")
+        (self.aikito_dir / "memory" / "notes" / "release-checklist.md").write_text(
+            "# Checklist"
+        )
+        (self.aikito_dir / "memory" / "notes" / "release-process.md").write_text(
+            "# Process"
+        )
 
         with (
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
@@ -282,12 +345,16 @@ class ShowMemoryTest(unittest.TestCase):
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
         ):
-            args = AIKITO_CLI.build_parser().parse_args(["show", "memory", "nonexistent"])
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "memory", "nonexistent"]
+            )
             with self.assertRaises(SystemExit) as cm:
                 args.func(args)
 
         self.assertEqual(cm.exception.code, 1)
-        self.assertIn("[ERROR] Memory note 'nonexistent' not found.", mock_stderr.getvalue())
+        self.assertIn(
+            "[ERROR] Memory note 'nonexistent' not found.", mock_stderr.getvalue()
+        )
 
 
 class ShowSkillTest(unittest.TestCase):
@@ -296,7 +363,9 @@ class ShowSkillTest(unittest.TestCase):
         self.aikito_dir = Path(self.temporary_directory.name)
         (self.aikito_dir / "skills").mkdir(parents=True)
 
-        (self.aikito_dir / "skills.toml").write_text('skills = ["durable-memory", "agent-browser"]\n')
+        (self.aikito_dir / "skills.toml").write_text(
+            'skills = ["durable-memory", "agent-browser"]\n'
+        )
 
         g_skill = self.aikito_dir / "skills" / "durable-memory"
         g_skill.mkdir()
@@ -327,7 +396,9 @@ class ShowSkillTest(unittest.TestCase):
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
         ):
-            args = AIKITO_CLI.build_parser().parse_args(["show", "skill", "durable-memory"])
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "skill", "durable-memory"]
+            )
             args.func(args)
             self.assertEqual(mock_stdout.getvalue(), "# Durable Memory Content")
 
@@ -367,7 +438,9 @@ class ShowSkillTest(unittest.TestCase):
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
         ):
-            args = AIKITO_CLI.build_parser().parse_args(["show", "skill", "nonexistent"])
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "skill", "nonexistent"]
+            )
             with self.assertRaises(SystemExit) as cm:
                 args.func(args)
 
@@ -545,13 +618,16 @@ class EditSkillTest(unittest.TestCase):
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
         ):
-            args = AIKITO_CLI.build_parser().parse_args(["show", "skill", "escaped-skill"])
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "skill", "escaped-skill"]
+            )
             with self.assertRaises(SystemExit) as cm:
                 args.func(args)
             self.assertEqual(cm.exception.code, 1)
-            self.assertIn("[ERROR] Path escape detected for skill", mock_stderr.getvalue())
+            self.assertIn(
+                "[ERROR] Path escape detected for skill", mock_stderr.getvalue()
+            )
 
 
 if __name__ == "__main__":
     unittest.main()
-

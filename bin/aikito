@@ -18,7 +18,7 @@ from typing import List
 
 from aikito_adopt import build_adopt_plan, execute_adoption
 from aikito_doctor import run_doctor
-from aikito_init import init_workspace
+from aikito_init import init_project, init_workspace
 from aikito_mcp import (
     MCPConfigError,
     authenticate_mcp,
@@ -48,7 +48,7 @@ from aikito_subagent import (
     sync_subagent_configs,
 )
 
-__version__ = "0.3.1"
+__version__ = "1.0.0"
 
 
 def get_aikito_dir() -> Path:
@@ -525,11 +525,25 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 
 def cmd_init(args: argparse.Namespace) -> None:
-    target = Path(args.target) if args.target else get_aikito_dir()
+    target = Path(args.workspace_path) if args.workspace_path else get_aikito_dir()
     home = Path.home()
     success = init_workspace(target, home, force=args.force)
     if not success:
         sys.exit(1)
+
+
+def cmd_init_project(args: argparse.Namespace) -> None:
+    project_path = Path(args.project_path) if args.project_path else Path.cwd()
+    project_name = init_project(get_aikito_dir(), project_path, args.project_name)
+    if not project_name:
+        sys.exit(1)
+
+    cmd_project_sync(
+        argparse.Namespace(
+            project_name=project_name,
+            project_path=str(project_path),
+        )
+    )
 
 
 class MemoryFileItem:
@@ -606,7 +620,10 @@ def resolve_memory_target(aikito_dir: Path, target: str) -> Path:
     matched = []
     seen_paths = set()
 
-def ensure_safe_path(target_path: Path, allowed_roots: List[Path], resource_label: str) -> Path:
+
+def ensure_safe_path(
+    target_path: Path, allowed_roots: List[Path], resource_label: str
+) -> Path:
     resolved_path = target_path.resolve()
     resolved_roots = [r.resolve() for r in allowed_roots]
 
@@ -778,9 +795,11 @@ def cmd_show_skill(args: argparse.Namespace) -> None:
 
 
 def open_in_editor(target_file: Path) -> None:
-    editor_env = (os.environ.get("VISUAL") or "").strip() or (
-        os.environ.get("EDITOR") or ""
-    ).strip() or "vi"
+    editor_env = (
+        (os.environ.get("VISUAL") or "").strip()
+        or (os.environ.get("EDITOR") or "").strip()
+        or "vi"
+    )
     editor_parts = shlex.split(editor_env)
     if not editor_parts:
         editor_parts = ["vi"]
@@ -861,6 +880,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     report = run_doctor(aikito_dir, home)
 
     if getattr(args, "json", False):
+
         def _report_to_dict(r: DoctorReport) -> dict:
             return {
                 "sections": [
@@ -889,7 +909,6 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="aikito",
@@ -912,22 +931,43 @@ def build_parser() -> argparse.ArgumentParser:
     p_version.set_defaults(func=lambda args: print(f"aikito {__version__}"))
 
     # init
-    p_init = subparsers.add_parser(
-        "init",
-        help="Initialize Aikito user data workspace (creates directory skeleton, templates, .gitignore, and git repo)",
+    p_init = subparsers.add_parser("init", help="Initialize a workspace or project")
+    init_subparsers = p_init.add_subparsers(dest="init_target", required=True)
+
+    p_init_workspace = init_subparsers.add_parser(
+        "workspace",
+        help="Create an Aikito workspace skeleton and initialize Git",
     )
-    p_init.add_argument(
-        "target",
+    p_init_workspace.add_argument(
+        "workspace_path",
         nargs="?",
         default=None,
         help="Target directory for Aikito workspace (default: ~/aikito or $AIKITO_DIR)",
     )
-    p_init.add_argument(
+    p_init_workspace.add_argument(
         "--force",
         action="store_true",
         help="Overwrite template files if they already exist",
     )
-    p_init.set_defaults(func=cmd_init)
+    p_init_workspace.set_defaults(func=cmd_init)
+
+    p_init_project = init_subparsers.add_parser(
+        "project",
+        help="Register a code project and synchronize its .agents runtime",
+    )
+    p_init_project.add_argument(
+        "project_name",
+        nargs="?",
+        default=None,
+        help="Project name (default: project directory name)",
+    )
+    p_init_project.add_argument(
+        "project_path",
+        nargs="?",
+        default=None,
+        help="Code project directory (default: current directory)",
+    )
+    p_init_project.set_defaults(func=cmd_init_project)
 
     # adopt
     p_adopt = subparsers.add_parser(
@@ -987,7 +1027,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_status_memory.set_defaults(func=cmd_status)
 
     p_status_skills = status_subparsers.add_parser(
-        "skills", aliases=["skill"], help="Drill down into registered and project skills"
+        "skills",
+        aliases=["skill"],
+        help="Drill down into registered and project skills",
     )
     add_color_args(p_status_skills)
     p_status_skills.set_defaults(func=cmd_status)

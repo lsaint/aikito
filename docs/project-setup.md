@@ -9,19 +9,22 @@ project-specific memory.
 - The target project already exists.
 - Every selected skill exists under the workspace `skills/` directory.
 
-## Configure the Project
+## Register the Project
 
-Create `~/aikito/projects/example/agent.toml`:
+From the existing code project directory:
 
-```toml
-name = "example"
-path = "~/code/example"
-sync_mode = "link"
-skills = ["durable-memory"]
-memory = []
+```bash
+cd ~/code/example
+aikito init project
 ```
 
-Add optional instructions and memory:
+This uses the directory name as the project name. To specify both explicitly:
+
+```bash
+aikito init project example ~/code/example
+```
+
+The command creates and synchronizes:
 
 ```text
 projects/example/
@@ -30,6 +33,23 @@ projects/example/
 └── memory/
     ├── index.md
     └── notes/
+```
+
+It is safe to run again and preserves existing canonical files. A project name
+already registered to another path, or unmanaged resources under the target
+`.agents/`, is reported as a conflict instead of being overwritten.
+
+## Configure Project Resources
+
+Edit the generated `~/aikito/projects/example/agent.toml` to select shared
+resources:
+
+```toml
+name = "example"
+path = "~/code/example"
+sync_mode = "link"
+skills = ["durable-memory"]
+memory = []
 ```
 
 The project name identifies its workspace configuration. The `path` points to

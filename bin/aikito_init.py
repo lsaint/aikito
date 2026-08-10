@@ -3,10 +3,13 @@ Workspace initialization module for Aikito.
 Creates workspace skeleton, configuration templates, .gitignore, and initializes git repo.
 """
 
+import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
+
+import tomllib
 
 
 CLI_SOURCE_ROOT = Path(__file__).resolve().parents[1]
@@ -135,6 +138,16 @@ skills = []
 GLOBAL_AGENTS_TEMPLATE = """# Global Agent Directives
 
 Add shared instructions for your coding agents here.
+"""
+
+PROJECT_AGENTS_TEMPLATE = """# Project Agent Directives
+
+Add project-specific instructions here.
+"""
+
+PROJECT_MEMORY_INDEX_TEMPLATE = """# Project Memory Index
+
+## Notes
 """
 
 GITIGNORE_TEMPLATE = """# Aikito Git Ignore Rules
@@ -294,3 +307,137 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
         )
 
     return True
+
+
+def _display_path(path: Path, home: Path) -> str:
+    try:
+        return f"~/{path.relative_to(home)}"
+    except ValueError:
+        return str(path)
+
+
+def _validate_project_name(project_name: str) -> Optional[str]:
+    if not project_name or not re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9._-]*", project_name
+    ):
+        return (
+            "Project name must start with a letter or digit and contain only "
+            "letters, digits, dots, underscores, or hyphens."
+        )
+    return None
+
+
+def _project_validation_error(
+    aikito_dir: Path, project_name: str, project_path: Path
+) -> Optional[str]:
+    name_error = _validate_project_name(project_name)
+    if name_error:
+        return name_error
+
+    if not project_path.exists():
+        return f"Project path does not exist: {project_path}"
+    if not project_path.is_dir():
+        return f"Project path is not a directory: {project_path}"
+
+    if _target_validation_error(aikito_dir):
+        return f"Aikito workspace is not initialized: {aikito_dir}"
+
+    config_path = aikito_dir / "projects" / project_name / "agent.toml"
+    config_data = None
+    if config_path.exists():
+        try:
+            with open(config_path, "rb") as config_file:
+                config_data = tomllib.load(config_file)
+                saved_path = config_data.get("path")
+        except (OSError, tomllib.TOMLDecodeError) as exc:
+            return f"Failed to read existing project config {config_path}: {exc}"
+
+        if saved_path:
+            resolved_saved_path = Path(saved_path).expanduser().resolve()
+            if resolved_saved_path != project_path:
+                return (
+                    f"Project '{project_name}' is already registered to "
+                    f"{resolved_saved_path}, not {project_path}."
+                )
+
+    agents_dir = project_path / ".agents"
+    agents_file = agents_dir / "AGENTS.md"
+    if agents_file.exists() and not agents_file.is_symlink():
+        return f"Unmanaged project instructions already exist: {agents_file}"
+
+    expected_entries = {"skills": set(), "memory": set()}
+    if config_data is not None:
+        expected_entries["skills"].update(config_data.get("skills", []))
+        expected_entries["memory"].update(config_data.get("memory", []))
+        project_memory = aikito_dir / "projects" / project_name / "memory"
+        if project_memory.is_dir():
+            expected_entries["memory"].update(
+                item.name for item in project_memory.iterdir()
+            )
+
+    for managed_dir_name, allowed_entries in expected_entries.items():
+        managed_dir = agents_dir / managed_dir_name
+        if managed_dir.is_symlink() or not managed_dir.exists():
+            continue
+        if not managed_dir.is_dir():
+            return f"Unmanaged project resources already exist: {managed_dir}"
+        unexpected_entries = {
+            item.name for item in managed_dir.iterdir()
+        } - allowed_entries
+        if unexpected_entries:
+            return (
+                f"Unmanaged project resources already exist in {managed_dir}: "
+                f"{', '.join(sorted(unexpected_entries))}"
+            )
+
+    return None
+
+
+def init_project(
+    aikito_dir: Path, project_path: Path, project_name: Optional[str] = None
+) -> Optional[str]:
+    """Create an idempotent canonical project definition and return its name."""
+    aikito_dir = aikito_dir.expanduser().resolve()
+    project_path = project_path.expanduser().resolve()
+    resolved_name = project_name or project_path.name
+
+    validation_error = _project_validation_error(
+        aikito_dir, resolved_name, project_path
+    )
+    if validation_error:
+        print(f"[ERROR] {validation_error}", file=sys.stderr)
+        return None
+
+    project_dir = aikito_dir / "projects" / resolved_name
+    memory_dir = project_dir / "memory"
+    notes_dir = memory_dir / "notes"
+    notes_dir.mkdir(parents=True, exist_ok=True)
+
+    config_path = project_dir / "agent.toml"
+    if not config_path.exists():
+        display_path = _display_path(project_path, Path.home())
+        config_path.write_text(
+            f'name = "{resolved_name}"\n'
+            f'path = "{display_path}"\n'
+            'sync_mode = "link"\n'
+            "skills = []\n"
+            "memory = []\n",
+            encoding="utf-8",
+        )
+        print(f"[CREATE FILE] {config_path}")
+    else:
+        print(f"[SKIP FILE] {config_path} (Already exists)")
+
+    files_to_create = (
+        (project_dir / "AGENTS.md", PROJECT_AGENTS_TEMPLATE),
+        (memory_dir / "index.md", PROJECT_MEMORY_INDEX_TEMPLATE),
+    )
+    for file_path, content in files_to_create:
+        if file_path.exists():
+            print(f"[SKIP FILE] {file_path} (Already exists)")
+            continue
+        file_path.write_text(content, encoding="utf-8")
+        print(f"[CREATE FILE] {file_path}")
+
+    print(f"[SUCCESS] Project '{resolved_name}' initialized in Aikito workspace.")
+    return resolved_name

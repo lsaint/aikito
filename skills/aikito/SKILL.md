@@ -56,13 +56,14 @@ Do not overwrite an existing checkout without the user's direction.
 Initialize and inspect a workspace:
 
 ```bash
-aikito init ~/aikito
+aikito init workspace ~/aikito
 aikito status
 ```
 
-`aikito init` refuses the CLI source tree, another source checkout, and an
-unrecognized non-empty directory. Do not try to bypass these guards. After
-initialization, inspect the generated files before synchronizing anything.
+`aikito init workspace` refuses the CLI source tree, another source checkout,
+and an unrecognized non-empty directory. Do not try to bypass these guards.
+After initialization, inspect the generated files before synchronizing
+anything.
 
 ## Safety Protocol
 
@@ -123,6 +124,29 @@ cross-runtime migration rather than a directory-only edit:
   intentionally overrides or copies it.
 
 ### Projects
+
+A workspace is the central source of truth and normally exists once. A project
+registration represents one code directory and its project-specific Agent
+resources. When a requested instruction, skill selection, or memory is
+project-specific and the current code directory is not registered, ask whether
+the user wants to register it. Do not register a project for a global resource.
+
+After confirmation, initialize the project from its code directory:
+
+```bash
+aikito init project
+```
+
+The directory name and current path are the defaults. Use explicit arguments
+when needed:
+
+```bash
+aikito init project <name> <path>
+```
+
+This command creates the canonical project skeleton and synchronizes its
+`.agents/` runtime. Treat existing unmanaged runtime resources or a project
+name bound to another path as conflicts for the user; do not bypass them.
 
 Project configuration belongs under:
 

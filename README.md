@@ -139,10 +139,26 @@ permissions for synchronization and credential safety.
 ```bash
 brew install lsaint/tap/aikito
 
-aikito init ~/aikito
+aikito init workspace ~/aikito
 aikito sync global
 aikito status
 ```
+
+The workspace is the single Git-managed home for all Aikito resources. You
+normally initialize one workspace per user or machine.
+
+Register each code project that needs project-specific instructions, skills,
+or memory. From the project directory:
+
+```bash
+cd ~/code/example
+aikito init project
+```
+
+This creates the project's canonical resources under
+`~/aikito/projects/example/` and connects them to `./.agents/`. One workspace
+can manage many projects; a project registration represents one code directory
+and its project-specific Agent resources, not the project source code itself.
 
 `aikito status` reports resource state across supported agents:
 
@@ -189,10 +205,11 @@ See [capturing browser discussions](docs/chat-distiller.md) for the workflow.
 
 ## Safety First
 
-`aikito init` creates a local Git repository; it does not make that repository
-private or safe to publish. Before adding a remote or pushing, review memory and
-configuration for credentials, customer data, internal addresses, and private
-code. Deleting a later commit does not remove a secret from Git history.
+`aikito init workspace` creates a local Git repository; it does not make that
+repository private or safe to publish. Before adding a remote or pushing,
+review memory and configuration for credentials, customer data, internal
+addresses, and private code. Deleting a later commit does not remove a secret
+from Git history.
 
 Read the [safety model](docs/safety.md) before synchronizing an existing setup.
 

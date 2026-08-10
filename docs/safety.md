@@ -6,8 +6,9 @@ remove the user's responsibility to review sensitive data and planned changes.
 
 ## Git and Memory Privacy
 
-`aikito init` creates a local Git repository. It does not configure a remote,
-make the repository private, or certify the contents as safe to publish.
+`aikito init workspace` creates a local Git repository. It does not configure a
+remote, make the repository private, or certify the contents as safe to
+publish.
 
 Before adding a remote or pushing, inspect memory and configuration for:
 
@@ -22,9 +23,9 @@ history.
 
 ## Initialization Write Boundaries
 
-`aikito init` refuses to write into the CLI source tree, another directory that
-looks like an Aikito source checkout, or an unrecognized non-empty directory.
-Keep the CLI checkout and user workspace separate:
+`aikito init workspace` refuses to write into the CLI source tree, another
+directory that looks like an Aikito source checkout, or an unrecognized
+non-empty directory. Keep the CLI checkout and user workspace separate:
 
 ```text
 ~/aikito-src   CLI source checkout
@@ -34,6 +35,10 @@ Keep the CLI checkout and user workspace separate:
 This guard applies before workspace files are written. `--force` can refresh
 templates in a recognized Aikito workspace, but it does not bypass these
 directory safety checks.
+
+`aikito init project` refuses to replace unmanaged `.agents/AGENTS.md`, skill,
+or memory resources. It also refuses to bind an existing project name to a
+different code directory.
 
 ## Adoption
 
