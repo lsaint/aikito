@@ -208,4 +208,4 @@ python3 -m unittest discover -s tests
 
 ## 支持
 
-如果你觉得 Aikito 对你有帮助，可以[支持它的开发](https://lsaint.github.io/donation/)。
+如果你觉得 Aikito 对你有帮助，可以[支持它的开发](https://lsaint.github.io/donation/?utm_source=github&utm_medium=readme&utm_campaign=aikito)。

@@ -217,4 +217,4 @@ Report vulnerabilities privately according to the [Security Policy](SECURITY.md)
 
 ## Support
 
-If you find Aikito useful, you can [support its development](https://lsaint.github.io/donation/).
+If you find Aikito useful, you can [support its development](https://lsaint.github.io/donation/?utm_source=github&utm_medium=readme&utm_campaign=aikito).
