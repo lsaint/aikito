@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-11
+
+### Added
+
+- Added workspace configuration support via `config.toml` for customizing global settings like `[memory] stale_days`.
+- Added project-level memory staleness threshold override in `agent.toml`.
+- Registered Antigravity CLI (`agy`) as a supported subagent target (`.gemini/config/agents/<name>/agent.md`).
+
+### Changed
+
+- Refactored CLI command hierarchy: migrated `status` subcommands (`mcp`, `subagents`, `skills`, `memory`) to `show` (`show mcp`, `show subagents`, `show skills`, `show memory`). Restricted `aikito status` strictly to the top-level workspace synchronization dashboard.
+
+### Fixed
+
+- Fixed memory staleness threshold description formatting in `aikito doctor` when project-specific staleness overrides are used.
+
 ## [1.0.0] - 2026-08-10
 
 ### Added
@@ -71,7 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/lsaint/aikito/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/lsaint/aikito/compare/v0.3.1...v1.0.0
 [0.3.1]: https://github.com/lsaint/aikito/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/lsaint/aikito/compare/v0.2.0...v0.3.0
