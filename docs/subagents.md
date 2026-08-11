@@ -9,7 +9,7 @@ Review the canonical definition and preview the rendering plan:
 
 ```bash
 aikito sync subagents --dry-run
-aikito status subagents
+aikito show subagents
 ```
 
 The plan identifies creates, updates, unsupported capabilities, or unmanaged
@@ -19,14 +19,14 @@ target conflicts.
 
 ```bash
 aikito sync subagents
-aikito status subagents
+aikito show subagents
 ```
 
 Managed files are updated from the canonical definition. An existing file
 without an Aikito marker is treated as unmanaged and will not be overwritten by
 default.
 
-Example `aikito status subagents` output from a configured workspace:
+Example `aikito show subagents` output from a configured workspace:
 
 ```text
 ┌───────────┬───────┬─────────────┬───────────────────────┬──────────┐

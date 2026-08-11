@@ -17,7 +17,30 @@ import sys
 import time
 import tomllib
 from pathlib import Path
-from typing import List
+from typing import List, Optional
+
+
+from aikito_config import (
+    get_project_memory_stale_days,
+    get_workspace_config_path,
+    load_workspace_config,
+)
+from aikito_link import SymlinkVerdict, classify_symlink
+from aikito_mcp import (
+    MCPConfigError,
+    _parse_jsonc,
+    evaluate_spec_status,
+    load_agent_specs,
+    load_agents,
+)
+from aikito_render import DoctorFinding, DoctorReport, DoctorSection
+from aikito_status import collect_subagents_matrix
+from aikito_subagent import (
+    SubagentConfigError,
+    build_plan,
+    load_subagent_definitions,
+    validate_platform_opts,
+)
 
 
 def _has_user_files(directory: Path) -> bool:
@@ -32,24 +55,6 @@ def _has_user_files(directory: Path) -> bool:
     except OSError:
         return True
     return False
-
-
-from aikito_link import SymlinkVerdict, classify_symlink
-from aikito_mcp import (
-    MCPConfigError,
-    _parse_jsonc,
-    evaluate_spec_status,
-    load_agent_specs,
-    load_agents,
-)
-from aikito_render import DoctorFinding, DoctorReport, DoctorSection
-from aikito_status import collect_subagents_matrix
-from aikito_subagent import (
-    SubagentConfigError,
-    build_plan,
-    validate_platform_opts,
-    load_subagent_definitions,
-)
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +271,7 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
 
 
 def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
-    """Detect orphan and unmanaged files across subagents, skills, and MCP."""
+    """Check for orphan subagent config files and unused skill directories."""
     findings: List[DoctorFinding] = []
 
     # 2a. Subagent orphans — reuse collect_subagents_matrix output
@@ -437,18 +442,16 @@ def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
 # §3 Memory Integrity & Freshness
 # ---------------------------------------------------------------------------
 
-STALE_MEMORY_DAYS = 30
-
 
 def _memory_scope_dirs(aikito_dir: Path) -> List[tuple]:
-    """Return [(scope_dir, scope_label)] for global memory plus every
+    """Return [(scope_dir, scope_label, proj_folder)] for global memory plus every
     registered project's memory directory."""
-    scope_dirs = [(aikito_dir / "memory", "Global")]
+    scope_dirs: List[tuple] = [(aikito_dir / "memory", "Global", None)]
     projects_dir = aikito_dir / "projects"
     if projects_dir.is_dir():
         for p in sorted(projects_dir.iterdir()):
             if p.is_dir():
-                scope_dirs.append((p / "memory", f"Project:{p.name}"))
+                scope_dirs.append((p / "memory", f"Project:{p.name}", p))
     return scope_dirs
 
 
@@ -483,7 +486,9 @@ def _git_last_commit_epoch(repo_dir: Path, file_path: Path) -> int | None:
         return None
 
 
-def check_memory_integrity(aikito_dir: Path, home: Path) -> DoctorSection:
+def check_memory_integrity(
+    aikito_dir: Path, home: Path, stale_days_override: Optional[int] = None
+) -> DoctorSection:
     """Validate durable memory notes: index/link consistency and staleness.
 
     This is separate from Configuration because it inspects memory *content*
@@ -494,10 +499,17 @@ def check_memory_integrity(aikito_dir: Path, home: Path) -> DoctorSection:
     """
     findings: List[DoctorFinding] = []
     scope_dirs = _memory_scope_dirs(aikito_dir)
+    ws_config = load_workspace_config(aikito_dir)
+
+    global_stale_days = (
+        stale_days_override
+        if (stale_days_override is not None and stale_days_override > 0)
+        else ws_config.memory.stale_days
+    )
 
     # Index completeness: notes not referenced from index.md, and index.md
     # entries pointing at notes that no longer exist.
-    for scope_dir, scope_label in scope_dirs:
+    for scope_dir, scope_label, _proj_folder in scope_dirs:
         index_file = scope_dir / "index.md"
         notes_dir = scope_dir / "notes"
         if not index_file.exists():
@@ -530,7 +542,7 @@ def check_memory_integrity(aikito_dir: Path, home: Path) -> DoctorSection:
     # Cross-note wikilinks: notes reference each other via [[note-name]] in
     # their body, not just from index.md. A dangling reference here is
     # invisible to index-only checks and rots silently.
-    for scope_dir, scope_label in scope_dirs:
+    for scope_dir, scope_label, _proj_folder in scope_dirs:
         notes_dir = scope_dir / "notes"
         if not notes_dir.is_dir():
             continue
@@ -558,13 +570,27 @@ def check_memory_integrity(aikito_dir: Path, home: Path) -> DoctorSection:
     # is a prompt to review, not a verdict — some notes (stable architecture
     # constraints) are legitimately old and still correct.
     now = int(time.time())
-    threshold = STALE_MEMORY_DAYS * 86400
     checked_any = False
     stale_found = False
-    for scope_dir, scope_label in scope_dirs:
+    stale_days_used = set()
+
+    for scope_dir, scope_label, proj_folder in scope_dirs:
         notes_dir = scope_dir / "notes"
         if not notes_dir.is_dir():
             continue
+
+        if stale_days_override is not None and stale_days_override > 0:
+            scope_stale_days = stale_days_override
+        elif proj_folder is not None:
+            scope_stale_days = get_project_memory_stale_days(
+                proj_folder, default_stale_days=global_stale_days
+            )
+        else:
+            scope_stale_days = global_stale_days
+
+        stale_days_used.add(scope_stale_days)
+        threshold = scope_stale_days * 86400
+
         for note_file in sorted(notes_dir.glob("*.md")):
             checked_any = True
             last_commit = _git_last_commit_epoch(aikito_dir, note_file)
@@ -576,14 +602,18 @@ def check_memory_integrity(aikito_dir: Path, home: Path) -> DoctorSection:
                 findings.append(
                     _warn(
                         f"{scope_label} note '{note_file.stem}' has not been updated "
-                        f"in {age_days} days — worth a re-read to confirm it still holds",
+                        f"in {age_days} days (threshold: {scope_stale_days}d) — worth a re-read to confirm it still holds",
                         f"Re-read notes/{note_file.stem}.md; rewrite if it drifted, "
                         "or leave it if it's still accurate",
                     )
                 )
 
     if checked_any and not stale_found:
-        findings.append(_ok(f"No memory notes older than {STALE_MEMORY_DAYS} days"))
+        if len(stale_days_used) == 1:
+            stale_desc = f"{next(iter(stale_days_used))} days"
+        else:
+            stale_desc = f"configured thresholds ({', '.join(str(d) for d in sorted(stale_days_used))} days)"
+        findings.append(_ok(f"No memory notes older than {stale_desc}"))
     elif not checked_any:
         findings.append(_ok("No memory notes found"))
 
@@ -598,6 +628,16 @@ def check_memory_integrity(aikito_dir: Path, home: Path) -> DoctorSection:
 def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
     """Validate syntax of all TOML/JSON workspace config files."""
     findings: List[DoctorFinding] = []
+
+    # Optional workspace config (config.toml)
+    cfg_path = get_workspace_config_path(aikito_dir)
+    if cfg_path:
+        try:
+            with open(cfg_path, "rb") as f:
+                tomllib.load(f)
+            findings.append(_ok(f"{cfg_path.name}: valid TOML"))
+        except tomllib.TOMLDecodeError as exc:
+            findings.append(_fail(f"{cfg_path.name}: TOML parse error — {exc}"))
 
     # 3a. Four canonical TOML files
     for filename in ("agents.toml", "skills.toml", "mcps.toml", "subagents.toml"):
@@ -939,7 +979,7 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
             else:
                 findings.append(_ok(f"Interpreter consistent: {path_python3}"))
         except Exception:
-            findings.append(_warn(f"Cannot compare interpreter paths"))
+            findings.append(_warn("Cannot compare interpreter paths"))
     else:
         findings.append(_warn("python3 not found in $PATH"))
 
@@ -965,12 +1005,14 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
 # ---------------------------------------------------------------------------
 
 
-def run_doctor(aikito_dir: Path, home: Path) -> DoctorReport:
+def run_doctor(
+    aikito_dir: Path, home: Path, stale_days: Optional[int] = None
+) -> DoctorReport:
     """Run all diagnostic checks and return a structured DoctorReport."""
     sections = [
         check_symlinks(aikito_dir, home),
         check_orphans(aikito_dir, home),
-        check_memory_integrity(aikito_dir, home),
+        check_memory_integrity(aikito_dir, home, stale_days_override=stale_days),
         check_drift(aikito_dir, home),
         check_security(aikito_dir, home),
         check_environment(aikito_dir, home),

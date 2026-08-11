@@ -11,17 +11,15 @@ version.
 | `aikito adopt [path]` | Preview existing local configuration adoption |
 | `aikito adopt --apply` | Apply the reviewed adoption plan |
 | `aikito status` | Show the synchronization dashboard |
-| `aikito status mcp` | Inspect managed MCP state |
-| `aikito status subagents` | Inspect subagent rendering state |
-| `aikito status memory` | List memory scopes and notes |
-| `aikito status skills` | Drill down into registered and project skills |
 | `aikito sync global` | Synchronize global instructions and skills |
 | `aikito sync project <name>` | Synchronize a project's `.agents/` directory |
 | `aikito sync mcp` | Synchronize MCP entries |
 | `aikito sync subagents` | Render and synchronize subagents |
 | `aikito auth mcp <agent> <server>` | Authenticate a configured MCP server |
-| `aikito show memory <target>` | Print a memory note |
-| `aikito show skill <target>` | Print a skill's SKILL.md file |
+| `aikito show mcp` | Inspect managed MCP state across agents |
+| `aikito show subagents` | Inspect subagent rendering state across agents |
+| `aikito show memory [target]` | Print a memory note, or list all memory notes if target is omitted |
+| `aikito show skill [target]` | Print a skill's SKILL.md file, or list all skills if target is omitted |
 | `aikito edit memory <target>` | Open a memory note in `$VISUAL` or `$EDITOR` |
 | `aikito edit skill <target>` | Open a skill's SKILL.md in `$VISUAL` or `$EDITOR` |
 | `aikito doctor` | Run deep workspace diagnostics |

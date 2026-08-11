@@ -135,6 +135,13 @@ SKILLS_TOML_TEMPLATE = """# Global skills enabled for all supported agents.
 skills = []
 """
 
+CONFIG_TOML_TEMPLATE = """# Aikito Workspace Configuration
+
+[memory]
+# Number of days after which an untouched durable memory note is flagged as stale.
+stale_days = 30
+"""
+
 GLOBAL_AGENTS_TEMPLATE = """# Global Agent Directives
 
 Add shared instructions for your coding agents here.
@@ -242,6 +249,7 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
 
     # 2. Write configuration templates & files
     files_to_create = [
+        (target_dir / "config.toml", CONFIG_TOML_TEMPLATE, "Workspace config template"),
         (target_dir / "agents.toml", AGENTS_TOML_TEMPLATE, "Agents config template"),
         (target_dir / "mcps.toml", MCPS_TOML_TEMPLATE, "MCP config template"),
         (target_dir / "skills.toml", SKILLS_TOML_TEMPLATE, "Global skills config"),

@@ -73,7 +73,7 @@ for the full design trade-off.
 ```bash
 aikito sync project example
 aikito status
-aikito status memory
+aikito show memory
 ```
 
 Inspect the target project's `.agents/` directory and resolve any reported

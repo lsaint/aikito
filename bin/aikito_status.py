@@ -7,16 +7,15 @@ import re
 import sys
 import tomllib
 from pathlib import Path
-from typing import List, Dict, Any, Tuple, Set
+from typing import Dict, List, Set, Tuple
 
-from aikito_link import classify_symlink, symlink_verdict_to_status, SymlinkVerdict
+from aikito_link import SymlinkVerdict, classify_symlink, symlink_verdict_to_status
 
 
 from aikito_mcp import (
     load_agents,
     load_agent_specs,
     evaluate_spec_status,
-    AgentDefinition,
     run_live_mcp_commands,
 )
 from aikito_subagent import build_plan
@@ -294,7 +293,7 @@ def collect_memory_status_rows(
 
                 rows.append(
                     MemoryStatusRow(
-                        name=f"Project ({proj_folder.name})",
+                        name=proj_folder.name,
                         scope="Project",
                         index_status=proj_index_status,
                         notes_count=proj_notes_count,

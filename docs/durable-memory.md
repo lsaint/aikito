@@ -14,7 +14,7 @@ and write behavior match your workflow.
 ## List Memory
 
 ```bash
-aikito status memory
+aikito show memory
 ```
 
 The output lists global and project scopes, note identifiers, index state, and
@@ -67,7 +67,7 @@ grep -rn '<note>' memory projects   # find the index entry and inbound wikilinks
 ```
 
 Delete the `index.md` entry and repair every `[[wikilink]]` the grep reports,
-then commit the removal and its cleanups as one change. `aikito status memory`
+then commit the removal and its cleanups as one change. `aikito show memory`
 afterwards confirms the scope still lists what you expect.
 
 Memory has two scopes:

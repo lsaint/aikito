@@ -15,7 +15,7 @@ managed entries in each supported Agent's native configuration.
 
 ```bash
 aikito sync mcp --dry-run
-aikito status mcp
+aikito show mcp
 ```
 
 The preview shows planned writes and conflicts without applying them.
@@ -24,14 +24,14 @@ The preview shows planned writes and conflicts without applying them.
 
 ```bash
 aikito sync mcp
-aikito status mcp
-aikito status mcp --live
+aikito show mcp
+aikito show mcp --live
 ```
 
-The normal status command compares canonical definitions with managed Agent
+The normal show command compares canonical definitions with managed Agent
 configuration. Live status performs additional runtime checks where supported.
 
-Example `aikito status mcp` output from a configured workspace:
+Example `aikito show mcp` output from a configured workspace:
 
 ```text
 ┌─────────────┬───────┬─────────────┬───────────────────────┬──────────┐

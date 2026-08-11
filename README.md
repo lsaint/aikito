@@ -28,6 +28,13 @@ You author the resources, agents maintain the memory, Aikito decides who sees wh
 
 No database, daemon, vector store, or hosted service required.
 
+<p align="center">
+  <img src="docs/assets/aikito-overview-1.png" alt="Aikito overview diagram 1">
+</p>
+<p align="center">
+  <img src="docs/assets/aikito-overview-2.png" alt="Aikito overview diagram 2">
+</p>
+
 ## Why Aikito
 
 AI agent resources fragment in three directions:
@@ -91,7 +98,7 @@ The notes are ordinary Markdown, so Git gives you history, review, rollback, and
 portability — and the memory an agent wrote in Claude Code yesterday is the same
 memory Codex reads tomorrow.
 
-`aikito status memory` lists what has accumulated, grouped by scope. A typical
+`aikito show memory` lists what has accumulated, grouped by scope. A typical
 example looks like this:
 
 ```text

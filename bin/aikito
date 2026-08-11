@@ -77,6 +77,18 @@ def add_color_args(p: argparse.ArgumentParser) -> None:
     )
 
 
+def resolve_color_flags(args: argparse.Namespace) -> tuple[bool, bool]:
+    """Resolve (use_unicode, use_color) flags from CLI arguments and environment."""
+    color_opt = getattr(args, "color", "auto")
+    is_tty = sys.stdout.isatty() if color_opt == "auto" else (color_opt == "always")
+    no_color = getattr(args, "no_color", False) or (
+        os.environ.get("NO_COLOR") is not None and os.environ.get("NO_COLOR") != ""
+    )
+    use_unicode = is_tty
+    use_color = is_tty and not no_color
+    return use_unicode, use_color
+
+
 def ensure_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
@@ -462,64 +474,14 @@ def cmd_subagent_sync(args: argparse.Namespace) -> None:
 def cmd_status(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
     home = Path.home()
-    target = getattr(args, "status_target", None)
-
-    is_tty = sys.stdout.isatty() if args.color == "auto" else (args.color == "always")
-    no_color = args.no_color or (
-        os.environ.get("NO_COLOR") is not None and os.environ.get("NO_COLOR") != ""
-    )
-    use_unicode = is_tty
-    use_color = is_tty and not no_color
-
-    if target == "mcp":
-        try:
-            server_rows, agent_names = collect_mcp_matrix(
-                aikito_dir=aikito_dir,
-                home=home,
-                live=getattr(args, "live", False),
-            )
-            table_str = render_mcp_status_table(
-                server_rows, agent_names, use_unicode, use_color
-            )
-            print(table_str)
-        except MCPConfigError as exc:
-            print(f"[ERROR] {exc}", file=sys.stderr)
-            sys.exit(1)
-        return
-
-    if target in ("subagents", "subagent"):
-        try:
-            subagent_rows, orphan_files, agent_names = collect_subagents_matrix(
-                aikito_dir=aikito_dir,
-                home=home,
-            )
-            table_str = render_subagents_status_table(
-                subagent_rows, orphan_files, agent_names, use_unicode, use_color
-            )
-            print(table_str)
-        except SubagentConfigError as exc:
-            print(f"[ERROR] {exc}", file=sys.stderr)
-            sys.exit(1)
-        return
-
-    if target in ("skills", "skill"):
-        skill_rows = collect_skills_rows(aikito_dir=aikito_dir)
-        table_str = render_skills_table(skill_rows, use_unicode, use_color)
-        print(table_str)
-        return
-
-    if target == "memory":
-        note_rows = collect_memory_notes_rows(aikito_dir=aikito_dir, home=home)
-        table_str = render_memory_notes_table(note_rows, use_unicode, use_color)
-        print(table_str)
-        return
+    use_unicode, use_color = resolve_color_flags(args)
 
     # Top-level Dashboard report
     report_data = get_status_report_data(aikito_dir, home)
     rendered = render_status_report(
         report_data,
-        is_tty=is_tty,
-        no_color=no_color,
+        is_tty=use_unicode,
+        no_color=not use_color,
     )
     print(rendered)
 
@@ -609,18 +571,6 @@ def find_memory_files(aikito_dir: Path) -> List[MemoryFileItem]:
     return items
 
 
-def resolve_memory_target(aikito_dir: Path, target: str) -> Path:
-    target_raw = target.strip()
-    if target_raw.endswith("…"):
-        target_raw = target_raw[:-1]
-    target_norm = target_raw[:-3] if target_raw.endswith(".md") else target_raw
-
-    items = find_memory_files(aikito_dir)
-
-    matched = []
-    seen_paths = set()
-
-
 def ensure_safe_path(
     target_path: Path, allowed_roots: List[Path], resource_label: str
 ) -> Path:
@@ -691,7 +641,7 @@ def resolve_memory_target(aikito_dir: Path, target: str) -> Path:
         raise MemoryTargetConflictError(target, matched)
 
     print(f"[ERROR] Memory note '{target}' not found.", file=sys.stderr)
-    print("Run 'aikito status memory' to view available memory files.", file=sys.stderr)
+    print("Run 'aikito show memory' to view available memory files.", file=sys.stderr)
     sys.exit(1)
 
 
@@ -739,7 +689,7 @@ def resolve_skill_target(aikito_dir: Path, target: str) -> SkillRow:
         raise SkillTargetConflictError(target, prefix_matches)
 
     print(f"[ERROR] Skill '{target}' not found.", file=sys.stderr)
-    print("Run 'aikito status skills' to view available skills.", file=sys.stderr)
+    print("Run 'aikito show skills' to view available skills.", file=sys.stderr)
     sys.exit(1)
 
 
@@ -780,9 +730,16 @@ def resolve_skill_target_for_command(
 
 def cmd_show_skill(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
-    skill_file = resolve_skill_target_for_command(
-        aikito_dir, args.target, operation="show"
-    )
+    target = getattr(args, "target", None)
+
+    if not target:
+        use_unicode, use_color = resolve_color_flags(args)
+        skill_rows = collect_skills_rows(aikito_dir=aikito_dir)
+        table_str = render_skills_table(skill_rows, use_unicode, use_color)
+        print(table_str)
+        return
+
+    skill_file = resolve_skill_target_for_command(aikito_dir, target, operation="show")
 
     try:
         print(skill_file.read_text(encoding="utf-8"), end="")
@@ -827,10 +784,59 @@ def cmd_edit_skill(args: argparse.Namespace) -> None:
     open_in_editor(skill_file)
 
 
+def cmd_show_mcp(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    home = Path.home()
+    use_unicode, use_color = resolve_color_flags(args)
+
+    try:
+        server_rows, agent_names = collect_mcp_matrix(
+            aikito_dir=aikito_dir,
+            home=home,
+            live=getattr(args, "live", False),
+        )
+        table_str = render_mcp_status_table(
+            server_rows, agent_names, use_unicode, use_color
+        )
+        print(table_str)
+    except MCPConfigError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_show_subagents(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    home = Path.home()
+    use_unicode, use_color = resolve_color_flags(args)
+
+    try:
+        subagent_rows, orphan_files, agent_names = collect_subagents_matrix(
+            aikito_dir=aikito_dir,
+            home=home,
+        )
+        table_str = render_subagents_status_table(
+            subagent_rows, orphan_files, agent_names, use_unicode, use_color
+        )
+        print(table_str)
+    except SubagentConfigError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_show_memory(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
+    home = Path.home()
+    target = getattr(args, "target", None)
+
+    if not target:
+        use_unicode, use_color = resolve_color_flags(args)
+        note_rows = collect_memory_notes_rows(aikito_dir=aikito_dir, home=home)
+        table_str = render_memory_notes_table(note_rows, use_unicode, use_color)
+        print(table_str)
+        return
+
     target_file = resolve_memory_target_for_command(
-        aikito_dir, args.target, operation="show"
+        aikito_dir, target, operation="show"
     )
 
     try:
@@ -872,12 +878,10 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
     home = Path.home()
 
-    is_tty = sys.stdout.isatty() if args.color == "auto" else (args.color == "always")
-    no_color = args.no_color or (
-        os.environ.get("NO_COLOR") is not None and os.environ.get("NO_COLOR") != ""
-    )
+    use_unicode, use_color = resolve_color_flags(args)
 
-    report = run_doctor(aikito_dir, home)
+    stale_days = getattr(args, "stale_days", None)
+    report = run_doctor(aikito_dir, home, stale_days=stale_days)
 
     if getattr(args, "json", False):
 
@@ -903,7 +907,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
 
         print(json.dumps(_report_to_dict(report), ensure_ascii=False, indent=2))
     else:
-        print(render_doctor_report(report, is_tty=is_tty, no_color=no_color))
+        print(render_doctor_report(report, is_tty=use_unicode, no_color=not use_color))
 
     if report.fail_count > 0:
         sys.exit(1)
@@ -992,47 +996,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_adopt.set_defaults(func=cmd_adopt)
 
-    # status & drill-down subparsers
+    # status
     p_status = subparsers.add_parser(
         "status",
-        help="Show synchronization status dashboard or drill down into mcp, subagents, memory",
+        help="Show top-level synchronization status dashboard",
     )
 
     add_color_args(p_status)
     p_status.set_defaults(func=cmd_status)
-
-    status_subparsers = p_status.add_subparsers(dest="status_target", required=False)
-
-    p_status_mcp = status_subparsers.add_parser(
-        "mcp", help="Drill down into managed MCP server configs"
-    )
-    p_status_mcp.add_argument(
-        "--live",
-        action="store_true",
-        help="Also invoke each agent's MCP status command",
-    )
-    add_color_args(p_status_mcp)
-    p_status_mcp.set_defaults(func=cmd_status)
-
-    p_status_subagents = status_subparsers.add_parser(
-        "subagents", help="Drill down into subagent definitions"
-    )
-    add_color_args(p_status_subagents)
-    p_status_subagents.set_defaults(func=cmd_status)
-
-    p_status_memory = status_subparsers.add_parser(
-        "memory", help="Drill down into memory links and notes"
-    )
-    add_color_args(p_status_memory)
-    p_status_memory.set_defaults(func=cmd_status)
-
-    p_status_skills = status_subparsers.add_parser(
-        "skills",
-        aliases=["skill"],
-        help="Drill down into registered and project skills",
-    )
-    add_color_args(p_status_skills)
-    p_status_skills.set_defaults(func=cmd_status)
 
     # auth & drill-down subparsers
     p_auth = subparsers.add_parser(
@@ -1123,31 +1094,59 @@ def build_parser() -> argparse.ArgumentParser:
     # show & drill-down subparsers
     p_show = subparsers.add_parser(
         "show",
-        help="Display raw contents of managed resources",
+        help="Display managed resources, matrices, and note/skill content",
     )
     show_subparsers = p_show.add_subparsers(dest="show_target", required=True)
 
-    # show memory <target>
+    # show mcp
+    p_show_mcp = show_subparsers.add_parser(
+        "mcp",
+        help="Inspect managed MCP server configs across agents",
+    )
+    p_show_mcp.add_argument(
+        "--live",
+        action="store_true",
+        help="Also invoke each agent's MCP status command",
+    )
+    add_color_args(p_show_mcp)
+    p_show_mcp.set_defaults(func=cmd_show_mcp)
+
+    # show subagents (and alias subagent)
+    p_show_subagents = show_subparsers.add_parser(
+        "subagents",
+        aliases=["subagent"],
+        help="Inspect subagent definitions across agents",
+    )
+    add_color_args(p_show_subagents)
+    p_show_subagents.set_defaults(func=cmd_show_subagents)
+
+    # show memory [target]
     p_show_memory = show_subparsers.add_parser(
         "memory",
-        help="Print raw markdown content of a global or project memory file",
+        help="Print raw markdown content of a memory note, or list all memory notes if target is omitted",
     )
     p_show_memory.add_argument(
         "target",
+        nargs="?",
+        default=None,
         help="Exact name, unique prefix, or path of the memory note (e.g. simplified-clean, global/example)",
     )
+    add_color_args(p_show_memory)
     p_show_memory.set_defaults(func=cmd_show_memory)
 
-    # show skill <target>
+    # show skill [target]
     p_show_skill = show_subparsers.add_parser(
         "skill",
         aliases=["skills"],
-        help="Print raw SKILL.md content of a registered or project skill",
+        help="Print raw SKILL.md content of a registered or project skill, or list all skills if target is omitted",
     )
     p_show_skill.add_argument(
         "target",
+        nargs="?",
+        default=None,
         help="Exact name or unique prefix of the skill (e.g. durable-memory, dur)",
     )
+    add_color_args(p_show_skill)
     p_show_skill.set_defaults(func=cmd_show_skill)
 
     # edit & drill-down subparsers
@@ -1190,6 +1189,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="Output structured JSON report instead of human-readable text",
+    )
+    p_doctor.add_argument(
+        "--stale-days",
+        "--memory-stale-days",
+        type=int,
+        default=None,
+        dest="stale_days",
+        help="Override memory freshness stale threshold in days (default: read from config or 30)",
     )
     p_doctor.set_defaults(func=cmd_doctor)
 

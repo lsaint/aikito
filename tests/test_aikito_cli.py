@@ -355,6 +355,25 @@ class ShowMemoryTest(unittest.TestCase):
         self.assertIn(
             "[ERROR] Memory note 'nonexistent' not found.", mock_stderr.getvalue()
         )
+        self.assertIn(
+            "Run 'aikito show memory' to view available memory files.",
+            mock_stderr.getvalue(),
+        )
+
+    def test_show_memory_omitted_target_renders_notes_table(self) -> None:
+        global_note = self.aikito_dir / "memory" / "notes" / "global-note.md"
+        global_note.write_text("# Global Note")
+
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["show", "memory"])
+            args.func(args)
+            output = mock_stdout.getvalue()
+            self.assertIn("global-note", output)
+            self.assertIn("Scope", output)
+            self.assertIn("Note File", output)
 
 
 class ShowSkillTest(unittest.TestCase):
@@ -627,6 +646,75 @@ class EditSkillTest(unittest.TestCase):
             self.assertIn(
                 "[ERROR] Path escape detected for skill", mock_stderr.getvalue()
             )
+
+
+class ShowSubcommandsTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.aikito_dir = Path(self.temporary_directory.name)
+        (self.aikito_dir / "agents.toml").write_text(
+            '[agents.codex]\ndisplay_name = "Codex"\n[agents.codex.subagents]\nconfig_path = ".codex/agents"\nconfig_format = "codex_toml"\n'
+        )
+        (self.aikito_dir / "mcps.toml").write_text(
+            '[servers.managed]\ntransport = "remote"\nurl = "http://ex.com"\nagents = ["codex"]\n'
+        )
+        (self.aikito_dir / "subagents.toml").write_text(
+            '[subagents.formatter]\ndescription = "Format"\nagents = ["codex"]\n'
+        )
+        (self.aikito_dir / "subagents").mkdir()
+        (self.aikito_dir / "subagents" / "formatter.md").write_text(
+            "# Formatter Instructions"
+        )
+        (self.aikito_dir / "memory" / "notes").mkdir(parents=True)
+        (self.aikito_dir / "memory" / "index.md").write_text("# Global Memory Index")
+
+    def tearDown(self) -> None:
+        self.temporary_directory.cleanup()
+
+    def test_show_mcp(self) -> None:
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["show", "mcp"])
+            args.func(args)
+            output = mock_stdout.getvalue()
+            self.assertIn("MCP Server", output)
+            self.assertIn("managed", output)
+
+    def test_show_subagents(self) -> None:
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["show", "subagents"])
+            args.func(args)
+            output = mock_stdout.getvalue()
+            self.assertIn("Subagent", output)
+            self.assertIn("formatter", output)
+
+    def test_status_has_no_subcommands(self) -> None:
+        with (
+            patch("sys.stderr", new_callable=io.StringIO),
+        ):
+            with self.assertRaises(SystemExit) as cm:
+                AIKITO_CLI.build_parser().parse_args(["status", "mcp"])
+            self.assertEqual(cm.exception.code, 2)
+
+    def test_resolve_color_flags(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+
+        args = parser.parse_args(["show", "mcp", "--color", "always"])
+        use_unicode, use_color = AIKITO_CLI.resolve_color_flags(args)
+        self.assertTrue(use_unicode)
+        self.assertTrue(use_color)
+
+        args_no_color = parser.parse_args(
+            ["show", "mcp", "--color", "always", "--no-color"]
+        )
+        use_unicode, use_color = AIKITO_CLI.resolve_color_flags(args_no_color)
+        self.assertTrue(use_unicode)
+        self.assertFalse(use_color)
 
 
 if __name__ == "__main__":

@@ -28,6 +28,13 @@ Aikito 是一套轻量级、由 Git 管理的 AI Agent 可复用资源工作区�
 
 无需数据库、后台守护进程、向量数据库或托管服务。
 
+<p align="center">
+  <img src="docs/assets/aikito-overview-1.png" alt="Aikito 概览图 1">
+</p>
+<p align="center">
+  <img src="docs/assets/aikito-overview-2.png" alt="Aikito 概览图 2">
+</p>
+
 ## 为什么需要 Aikito？
 
 AI Agent 资源会在三个方向上变得碎片化：
@@ -85,7 +92,7 @@ GitHub Copilot CLI。完整心智模型和
 笔记就是普通 Markdown，所以 Git 直接提供了历史、审查、回滚和可移植性——而 Agent 昨天在
 Claude Code 里写下的 memory，明天 Codex 读到的是同一份。
 
-`aikito status memory` 按作用域列出已经沉淀下来的笔记，典型示例如下：
+`aikito show memory` 按作用域列出已经沉淀下来的笔记，典型示例如下：
 
 ```text
 ┌────────┬───────────────────────┬─────────────────────────────────────┬───────┬──────┐

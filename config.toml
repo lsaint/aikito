@@ -1,0 +1,5 @@
+# Aikito Workspace Configuration
+
+[memory]
+# Number of days after which an untouched durable memory note is flagged as stale.
+stale_days = 30

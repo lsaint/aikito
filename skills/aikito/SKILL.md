@@ -101,7 +101,7 @@ After reviewing changes:
 ```bash
 aikito sync global
 aikito status
-aikito status skills
+aikito show skills
 aikito show skill <target>
 aikito edit skill <target>
 ```
@@ -161,7 +161,7 @@ Synchronize and verify with:
 ```bash
 aikito sync project <name>
 aikito status
-aikito status memory
+aikito show memory
 ```
 
 Project instructions and memory remain linked to canonical sources. Project
@@ -186,10 +186,10 @@ Preview, apply, and verify:
 ```bash
 aikito sync mcp --dry-run
 aikito sync mcp
-aikito status mcp
+aikito show mcp
 ```
 
-Use `aikito status mcp --live` only when live Agent checks are useful. Use
+Use `aikito show mcp --live` only when live Agent checks are useful. Use
 `aikito auth mcp <agent> <server>` for supported authentication flows. Never
 print, persist, or commit captured credentials.
 
@@ -207,7 +207,7 @@ Preview, apply, and verify:
 ```bash
 aikito sync subagents --dry-run
 aikito sync subagents
-aikito status subagents
+aikito show subagents
 ```
 
 Review orphaned managed files before using `--prune`. Never force an unmanaged
@@ -219,8 +219,7 @@ Global memory belongs under `~/aikito/memory/`. Project-specific memory belongs
 under `~/aikito/projects/<name>/memory/`.
 
 ```bash
-aikito status memory
-aikito show memory <target>
+aikito show memory [target]
 aikito edit memory <target>
 ```
 

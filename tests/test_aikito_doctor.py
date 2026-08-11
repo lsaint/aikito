@@ -1,7 +1,6 @@
 """Tests for aikito_link and aikito_doctor modules."""
 
 import json
-import stat
 import sys
 import tempfile
 import unittest
@@ -21,12 +20,12 @@ from aikito_doctor import (  # noqa: E402
     check_symlinks,
     run_doctor,
 )
-from aikito_render import (
+from aikito_render import (  # noqa: E402
     DoctorFinding,
     DoctorReport,
     DoctorSection,
     render_doctor_report,
-)  # noqa: E402
+)
 from aikito_subagent import PlanItem  # noqa: E402
 
 
@@ -167,11 +166,11 @@ class RenderDoctorReportTest(unittest.TestCase):
         lines = rendered.splitlines()
         # Find all title box header lines (starting with ╭, │, or ╰)
         box_lines = [
-            l
-            for l in lines
-            if l.startswith("╭") or l.startswith("│") or l.startswith("╰")
+            line
+            for line in lines
+            if line.startswith("╭") or line.startswith("│") or line.startswith("╰")
         ]
-        widths = [len(l) for l in box_lines]
+        widths = [len(line) for line in box_lines]
         # All title box header lines across ALL sections must have identical width (max_title_w + 5)!
         self.assertEqual(
             len(set(widths)),
@@ -181,8 +180,10 @@ class RenderDoctorReportTest(unittest.TestCase):
         self.assertEqual(
             widths[0], 16
         )  # len("Environment") = 11 -> inner 14 -> total 16
-        for l in box_lines:
-            self.assertTrue(l.endswith("╮") or l.endswith("│") or l.endswith("╯"))
+        for line in box_lines:
+            self.assertTrue(
+                line.endswith("╮") or line.endswith("│") or line.endswith("╯")
+            )
 
     def test_use_unicode_defaults_to_true_even_if_not_tty(self) -> None:
         report = self._make_report()
@@ -244,7 +245,7 @@ class CheckConfigSyntaxTest(unittest.TestCase):
         fails = [f for f in section.findings if f.status == "FAIL"]
         self.assertTrue(
             any("agents.toml" in f.message for f in fails),
-            msg=f"Expected agents.toml missing failure",
+            msg="Expected agents.toml missing failure",
         )
 
 
@@ -275,7 +276,6 @@ skills_path = ".claude/skills"
     def test_missing_skill_symlink_reports_fail(self) -> None:
         (self.home / ".claude" / "skills").mkdir(parents=True)
 
-        from aikito_doctor import check_symlinks
 
         section = check_symlinks(self.aikito_dir, self.home)
         fail_findings = [f for f in section.findings if f.status == "FAIL"]
@@ -588,7 +588,6 @@ agents = ["claude-code"]
 
     def test_check_security_runs_cleanly(self) -> None:
         (self.aikito_dir / ".gitignore").write_text("/.local/\n")
-        from aikito_doctor import check_security
 
         section = check_security(self.aikito_dir, self.home)
         self.assertEqual(section.name, "Security")
@@ -820,6 +819,54 @@ class CheckMemoryFreshnessTest(unittest.TestCase):
         section = check_memory_integrity(self.aikito_dir, self.home)
         warns = [f for f in section.findings if f.status == "WARN"]
         self.assertEqual(warns, [])
+
+    def test_fresh_note_project_override_uses_actual_stale_days(self) -> None:
+        import shutil
+        import subprocess as sp
+
+        shutil.rmtree(self.notes_dir, ignore_errors=True)
+
+        sp.run(["git", "init", str(self.aikito_dir)], check=True, capture_output=True)
+        sp.run(
+            [
+                "git",
+                "-C",
+                str(self.aikito_dir),
+                "config",
+                "user.email",
+                "t@example.com",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        sp.run(
+            ["git", "-C", str(self.aikito_dir), "config", "user.name", "t"],
+            check=True,
+            capture_output=True,
+        )
+
+        proj_dir = self.aikito_dir / "projects" / "p1"
+        proj_notes = proj_dir / "memory" / "notes"
+        proj_notes.mkdir(parents=True)
+        (proj_dir / "agent.toml").write_text("[memory]\nstale_days = 7\n")
+        (proj_notes / "proj-note.md").write_text("content")
+
+        sp.run(
+            ["git", "-C", str(self.aikito_dir), "add", "projects/p1"],
+            check=True,
+            capture_output=True,
+        )
+        sp.run(
+            ["git", "-C", str(self.aikito_dir), "commit", "-m", "add proj note"],
+            check=True,
+            capture_output=True,
+        )
+
+        from aikito_doctor import check_memory_integrity
+
+        section = check_memory_integrity(self.aikito_dir, self.home)
+        ok_messages = [f.message for f in section.findings if f.status == "OK"]
+        self.assertIn("No memory notes older than 7 days", ok_messages)
 
 
 class DoctorJsonSerialisableTest(unittest.TestCase):

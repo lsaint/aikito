@@ -68,6 +68,7 @@ jobs:
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito init workspace ${{ runner.temp }}/aikito-ws
+          test -f ${{ runner.temp }}/aikito-ws/config.toml
 
       # README Quick Start: init workspace → sync global → init project → status
       - name: aikito sync global
@@ -97,9 +98,23 @@ jobs:
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito status
 
-      # doctor should report all symlinks OK after sync
+      # doctor should report all symlinks and config.toml OK after sync
       - name: aikito doctor
         run: |
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito doctor
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito doctor --stale-days 14
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito doctor --json
+
+      - name: Verify workspace config customization in CI
+        run: |
+          cat << 'EOF' > ${{ runner.temp }}/aikito-ws/config.toml
+          # Workspace custom test config
+          [memory]
+          stale_days = 14
+          EOF
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito doctor
 
@@ -108,3 +123,4 @@ jobs:
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito adopt
+
