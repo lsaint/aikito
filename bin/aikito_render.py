@@ -4,6 +4,7 @@ Formats StatusReportData into TTY Unicode Box tables or ASCII fallback tables wi
 """
 
 import re
+import json
 import shutil
 import sys
 import unicodedata
@@ -85,8 +86,8 @@ class MemoryNoteRow:
 
 @dataclass
 class DoctorFinding:
-    status: str          # "OK" | "FAIL" | "WARN"
-    message: str         # Human-readable description
+    status: str  # "OK" | "FAIL" | "WARN"
+    message: str  # Human-readable description
     fix_hint: str = ""  # Suggested fix command (empty if none)
 
 
@@ -102,16 +103,11 @@ class DoctorReport:
 
     @property
     def fail_count(self) -> int:
-        return sum(
-            1 for s in self.sections for f in s.findings if f.status == "FAIL"
-        )
+        return sum(1 for s in self.sections for f in s.findings if f.status == "FAIL")
 
     @property
     def warn_count(self) -> int:
-        return sum(
-            1 for s in self.sections for f in s.findings if f.status == "WARN"
-        )
-
+        return sum(1 for s in self.sections for f in s.findings if f.status == "WARN")
 
 
 # ANSI Colors
@@ -145,8 +141,10 @@ def _format_badge_text(status_str: str, use_unicode: bool) -> Tuple[str, str]:
     if status_str.startswith("OK ("):
         count_part = status_str[4:-1]
         return f"{ok_sym} {count_part}", "ok"
-    if status_str == "SKIP" or status_str == "N/A":
+    if status_str in ("SKIP", "N/A"):
         return f"{skip_sym}", "skip"
+    if status_str == "PRESENT":
+        return "P", "skip"
 
     prefix_map = {
         "CONFLICT": "C",
@@ -419,6 +417,112 @@ def render_mcp_status_table(
     return _build_generic_table(headers, formatted_rows, use_unicode, use_color)
 
 
+def render_agent_mcp_table(rows: List[Any], use_unicode: bool, use_color: bool) -> str:
+    formatted_rows = [
+        [
+            row.server_name,
+            row.source.capitalize(),
+            _format_status_badge(row.status, use_unicode, use_color),
+        ]
+        for row in rows
+    ]
+    return _build_generic_table(
+        ["MCP Server", "Source", "Status"],
+        formatted_rows,
+        use_unicode,
+        use_color,
+    )
+
+
+def _render_title_box(
+    title: str, *, use_unicode: bool, use_color: bool, inner_width: int | None = None
+) -> str:
+    if use_unicode:
+        tl, tr, bl, br, horiz, vert = "╭", "╮", "╰", "╯", "─", "│"
+    else:
+        tl = tr = bl = br = "+"
+        horiz, vert = "-", "|"
+    title_text = f" {title} "
+    width = inner_width or _get_display_width(title_text) + 3
+    padding = " " * max(0, width - _get_display_width(title_text))
+    return "\n".join(
+        [
+            f"{tl}{horiz * width}{tr}",
+            f"{vert}{_colorize(title_text, COLOR_BOLD, use_color)}{padding}{vert}",
+            f"{bl}{horiz * width}{br}",
+        ]
+    )
+
+
+def render_mcp_details(
+    rows: List[Any], canonical_path: str, use_unicode: bool, use_color: bool
+) -> str:
+    blocks = [
+        f"MCP Server: {rows[0].server_name}",
+        f"Canonical source: {canonical_path}",
+    ]
+    for row in rows:
+        entry = (
+            json.dumps(row.entry, ensure_ascii=False, indent=2)
+            if row.entry is not None
+            else "<missing>"
+        )
+        blocks.append(
+            "\n".join(
+                [
+                    _render_title_box(
+                        row.agent_display_name,
+                        use_unicode=use_unicode,
+                        use_color=use_color,
+                    ),
+                    f"Agent key: {row.agent_name}",
+                    f"Status: {'synced' if row.status == 'OK' else row.status.lower()}",
+                    f"Config: {row.config_path}",
+                    f"Format: {row.config_format}",
+                    "",
+                    "Managed entry:",
+                    entry,
+                ]
+            )
+        )
+    return "\n".join(blocks[:2]) + "\n\n" + "\n\n".join(blocks[2:])
+
+
+def render_instruction_agent_status(
+    rows: List[tuple[str, str, str]],
+    project_rows: List[tuple[str, str]],
+    use_unicode: bool,
+    use_color: bool,
+) -> str:
+    blocks = ["Instructions"]
+    for display_name, target, status in rows:
+        blocks.append(
+            "\n".join(
+                [
+                    _render_title_box(
+                        display_name,
+                        use_unicode=use_unicode,
+                        use_color=use_color,
+                    ),
+                    f"Status: {status}",
+                    f"Target: {target}",
+                ]
+            )
+        )
+    if project_rows:
+        blocks.append(
+            "\n".join(
+                [
+                    _render_title_box(
+                        "Projects", use_unicode=use_unicode, use_color=use_color
+                    ),
+                    *(f"{name}: {status}" for name, status in project_rows),
+                ]
+            )
+        )
+    return "\n\n".join(blocks)
+
+
 def render_subagents_status_table(
     subagent_rows: List[SubagentRow],
     orphan_files: List[OrphanSubagentFile],
@@ -521,7 +625,6 @@ def render_skills_table(
     )
 
 
-
 def render_status_report(
     data: StatusReportData,
     *,
@@ -611,31 +714,24 @@ def render_doctor_report(
     fail_sym = "✗" if use_unicode else "[FAIL]"
     warn_sym = "⚠" if use_unicode else "[WARN]"
 
-    if use_unicode:
-        tl, tr, bl, br = "╭", "╮", "╰", "╯"
-        horiz, vert = "─", "│"
-    else:
-        tl = tr = bl = br = "+"
-        horiz = "-"
-        vert = "|"
-
     output_blocks: List[str] = []
-    max_title_w = max(
-        (_get_display_width(s.name) for s in report.sections), default=10
-    )
-    box_inner_width = max_title_w + 3  # Dynamically fitted to longest section title + 3 chars
+    max_title_w = max((_get_display_width(s.name) for s in report.sections), default=10)
+    box_inner_width = (
+        max_title_w + 3
+    )  # Dynamically fitted to longest section title + 3 chars
 
     for section in report.sections:
         lines: List[str] = []
 
         # 1. Title box (uniform length across all section titles)
-        title_text = f" {section.name} "
-        title_w = _get_display_width(title_text)
-        pad_len = max(0, box_inner_width - title_w)
-
-        lines.append(f"{tl}{horiz * box_inner_width}{tr}")
-        lines.append(f"{vert}{_colorize(title_text, COLOR_BOLD, use_color)}{' ' * pad_len}{vert}")
-        lines.append(f"{bl}{horiz * box_inner_width}{br}")
+        lines.append(
+            _render_title_box(
+                section.name,
+                use_unicode=use_unicode,
+                use_color=use_color,
+                inner_width=box_inner_width,
+            )
+        )
 
         # 2. Findings lines underneath title box
         for finding in section.findings:
@@ -661,9 +757,7 @@ def render_doctor_report(
     warn_count = report.warn_count
 
     if fail_count == 0 and warn_count == 0:
-        summary = _colorize(
-            f"{ok_sym} All checks passed.", COLOR_GREEN, use_color
-        )
+        summary = _colorize(f"{ok_sym} All checks passed.", COLOR_GREEN, use_color)
     else:
         parts = []
         if fail_count:
@@ -678,4 +772,3 @@ def render_doctor_report(
 
     output_blocks.append(summary)
     return "\n".join(output_blocks)
-

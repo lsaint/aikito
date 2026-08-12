@@ -136,6 +136,7 @@ class AikitoInitTest(unittest.TestCase):
         self.assertEqual(project_name, "example")
         project_dir = self.target_path / "projects" / "example"
         self.assertTrue((project_dir / "AGENTS.md").is_file())
+        self.assertEqual((project_dir / "AGENTS.md").read_text(encoding="utf-8"), "")
         self.assertTrue((project_dir / "memory" / "index.md").is_file())
         self.assertTrue((project_dir / "memory" / "notes").is_dir())
         config = (project_dir / "agent.toml").read_text(encoding="utf-8")
@@ -149,6 +150,7 @@ class AikitoInitTest(unittest.TestCase):
 
         self.assertEqual(init_project(self.target_path, project_path), "example")
         agents_md = self.target_path / "projects" / "example" / "AGENTS.md"
+        self.assertEqual(agents_md.read_text(encoding="utf-8"), "")
         agents_md.write_text("# Custom\n", encoding="utf-8")
 
         self.assertEqual(init_project(self.target_path, project_path), "example")

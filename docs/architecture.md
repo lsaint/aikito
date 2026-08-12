@@ -58,6 +58,9 @@ review requirements to match your environment.
 | Subagents | `subagents.toml`, `subagents/` | Cross-Agent specialist definitions |
 | Agent registry | `agents.toml` | Integration paths and supported capabilities |
 
+Aikito calls the resource “instructions” while retaining the ecosystem-standard
+`AGENTS.md` filename for its canonical content.
+
 Integrations are capability-based. An Agent may participate in instructions,
 skills, MCP, or subagent synchronization independently. The default registry
 contains Codex, Claude Code, Antigravity CLI (`agy`), OpenCode, and GitHub Copilot CLI.

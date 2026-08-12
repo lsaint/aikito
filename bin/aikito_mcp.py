@@ -26,6 +26,7 @@ STATE_FILE = Path(".local/state/aikito/mcp-state.json")
 BACKUP_DIR = Path(".local/state/aikito/backups")
 URL_PATTERN = re.compile(r"https?://[^\s<>\"']+")
 SENSITIVE_URL_PARAMETERS = {"code", "access_token", "refresh_token", "id_token"}
+LEGACY_PLACEHOLDER_TOKEN = "placeholder-token-set-environment-variable"
 BROWSER_HELPER = """#!/usr/bin/env python3
 import os
 import shutil
@@ -88,6 +89,7 @@ class AgentSpec:
     live_command: tuple[str, ...] = ()
     auth_command: tuple[str, ...] = ()
     contains_secret: bool = False
+    missing_credential_env: str = ""
 
     @property
     def state_key(self) -> str:
@@ -123,10 +125,12 @@ class BasicTokenAuth:
     authorization_env: str
 
     def authorization_header(self) -> str:
-        token = (
-            os.environ.get(self.token_env)
-            or "placeholder-token-set-environment-variable"
-        )
+        token = os.environ.get(self.token_env)
+        if not token:
+            raise MCPConfigError(
+                f"Required MCP credential environment variable is missing: "
+                f"{self.token_env}"
+            )
         credentials = f"{self.account_email}:{token}".encode()
         return f"Basic {base64.b64encode(credentials).decode()}"
 
@@ -366,10 +370,48 @@ def _format_json_value(value: dict[str, Any], indent: str) -> str:
     return lines[0] + "".join(f"\n{indent}{line}" for line in lines[1:])
 
 
+_CONFIG_FORMAT_JSON_NAMES = {
+    "agy_json": "agy",
+    "claude_json": "Claude Code",
+    "copilot_json": "GitHub Copilot CLI",
+}
+
+
+def _load_document(config_format: str, text: str) -> dict[str, Any]:
+    """Parse raw configuration text into a document dictionary for the given format."""
+    if not text.strip():
+        return {}
+
+    if config_format == "toml":
+        try:
+            document = tomllib.loads(text)
+        except tomllib.TOMLDecodeError as exc:
+            raise MCPConfigError(f"Invalid Codex TOML config: {exc}") from exc
+        if not isinstance(document, dict):
+            raise MCPConfigError("Codex TOML config root must be an object")
+        return document
+
+    if config_format == "jsonc":
+        document = _parse_jsonc(text)
+        if not isinstance(document, dict):
+            raise MCPConfigError("OpenCode config root must be an object")
+        return document
+
+    if config_format in _CONFIG_FORMAT_JSON_NAMES:
+        config_name = _CONFIG_FORMAT_JSON_NAMES[config_format]
+        try:
+            document = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise MCPConfigError(f"Invalid {config_name} JSON config: {exc}") from exc
+        if not isinstance(document, dict):
+            raise MCPConfigError(f"{config_name} config root must be an object")
+        return document
+
+    raise MCPConfigError(f"Unsupported config format: {config_format}")
+
+
 def get_jsonc_server(text: str, server_name: str) -> dict[str, Any] | None:
-    document = _parse_jsonc(text)
-    if not isinstance(document, dict):
-        raise MCPConfigError("OpenCode config root must be an object")
+    document = _load_document("jsonc", text)
     mcp = document.get("mcp")
     if mcp is None:
         return None
@@ -384,28 +426,21 @@ def get_jsonc_server(text: str, server_name: str) -> dict[str, Any] | None:
 
 
 def get_agy_json_server(text: str, server_name: str) -> dict[str, Any] | None:
-    return get_mcp_json_server(text, server_name, "agy")
+    return get_mcp_json_server(text, server_name, "agy_json", "agy")
 
 
 def get_claude_json_server(text: str, server_name: str) -> dict[str, Any] | None:
-    return get_mcp_json_server(text, server_name, "Claude Code")
+    return get_mcp_json_server(text, server_name, "claude_json", "Claude Code")
 
 
 def get_copilot_json_server(text: str, server_name: str) -> dict[str, Any] | None:
-    return get_mcp_json_server(text, server_name, "GitHub Copilot CLI")
+    return get_mcp_json_server(text, server_name, "copilot_json", "GitHub Copilot CLI")
 
 
 def get_mcp_json_server(
-    text: str, server_name: str, config_name: str
+    text: str, server_name: str, config_format: str, config_name: str
 ) -> dict[str, Any] | None:
-    if not text.strip():
-        return None
-    try:
-        document = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise MCPConfigError(f"Invalid {config_name} JSON config: {exc}") from exc
-    if not isinstance(document, dict):
-        raise MCPConfigError(f"{config_name} config root must be an object")
+    document = _load_document(config_format, text)
     servers = document.get("mcpServers", {})
     if not isinstance(servers, dict):
         raise MCPConfigError(f"{config_name} 'mcpServers' must be an object")
@@ -420,36 +455,33 @@ def get_mcp_json_server(
 
 
 def update_agy_json_server(text: str, server_name: str, desired: dict[str, Any]) -> str:
-    return update_mcp_json_server(text, server_name, desired, "agy")
+    return update_mcp_json_server(text, server_name, desired, "agy_json", "agy")
 
 
 def update_claude_json_server(
     text: str, server_name: str, desired: dict[str, Any]
 ) -> str:
-    return update_mcp_json_server(text, server_name, desired, "Claude Code")
+    return update_mcp_json_server(
+        text, server_name, desired, "claude_json", "Claude Code"
+    )
 
 
 def update_copilot_json_server(
     text: str, server_name: str, desired: dict[str, Any]
 ) -> str:
-    return update_mcp_json_server(text, server_name, desired, "GitHub Copilot CLI")
+    return update_mcp_json_server(
+        text, server_name, desired, "copilot_json", "GitHub Copilot CLI"
+    )
 
 
 def update_mcp_json_server(
     text: str,
     server_name: str,
     desired: dict[str, Any],
+    config_format: str,
     config_name: str,
 ) -> str:
-    if text.strip():
-        try:
-            document = json.loads(text)
-        except json.JSONDecodeError as exc:
-            raise MCPConfigError(f"Invalid {config_name} JSON config: {exc}") from exc
-    else:
-        document = {}
-    if not isinstance(document, dict):
-        raise MCPConfigError(f"{config_name} config root must be an object")
+    document = _load_document(config_format, text)
     servers = document.setdefault("mcpServers", {})
     if not isinstance(servers, dict):
         raise MCPConfigError(f"{config_name} 'mcpServers' must be an object")
@@ -515,12 +547,7 @@ def update_jsonc_server(text: str, server_name: str, desired: dict[str, Any]) ->
 
 
 def get_toml_server(text: str, server_name: str) -> dict[str, Any] | None:
-    if not text.strip():
-        return None
-    try:
-        document = tomllib.loads(text)
-    except tomllib.TOMLDecodeError as exc:
-        raise MCPConfigError(f"Invalid Codex TOML config: {exc}") from exc
+    document = _load_document("toml", text)
     server = document.get("mcp_servers", {}).get(server_name)
     if server is None:
         return None
@@ -646,7 +673,7 @@ def _build_desired(
     override: dict[str, Any],
     authentication: BasicTokenAuth | None,
     headers: dict[str, str] | None = None,
-) -> tuple[dict[str, Any], bool]:
+) -> tuple[dict[str, Any], bool, str]:
     """Construct the format-bound MCP payload for a target config."""
     if config_format == "toml":
         desired: dict[str, Any] = {"url": url}
@@ -655,7 +682,7 @@ def _build_desired(
             desired["env_http_headers"] = {
                 "Authorization": authentication.authorization_env
             }
-        return desired, False
+        return desired, False, ""
     if config_format == "jsonc":
         desired = {
             "type": "remote",
@@ -668,23 +695,26 @@ def _build_desired(
             desired["headers"] = {
                 "Authorization": f"{{env:{authentication.authorization_env}}}"
             }
-        return desired, False
+        return desired, False, ""
     if config_format == "agy_json":
         desired = {"serverUrl": url}
         if authentication:
             # agy 1.1.8 accepts headers but does not document environment
             # interpolation, so only its generated runtime config contains this.
-            desired["headers"] = {
-                "Authorization": authentication.authorization_header()
-            }
-        return desired, authentication is not None
+            if os.environ.get(authentication.token_env):
+                desired["headers"] = {
+                    "Authorization": authentication.authorization_header()
+                }
+            else:
+                return desired, True, authentication.token_env
+        return desired, authentication is not None, ""
     if config_format == "claude_json":
         desired = {"type": "http", "url": url}
         if authentication:
             desired["headers"] = {
                 "Authorization": f"${{{authentication.authorization_env}}}"
             }
-        return desired, False
+        return desired, False, ""
     if config_format == "copilot_json":
         desired = {
             "type": "http",
@@ -699,9 +729,9 @@ def _build_desired(
             }
         else:
             desired["headers"] = {}
-        return desired, False
+        return desired, False, ""
     # Unsupported formats never get written; payload is informational only.
-    return {}, False
+    return {}, False, ""
 
 
 def load_agent_specs(aikito_dir: Path, home: Path) -> list[AgentSpec]:
@@ -790,7 +820,7 @@ def load_agent_specs(aikito_dir: Path, home: Path) -> list[AgentSpec]:
             name_style = definition.mcp_name_style
             default_target = _target_name(name_style, server_name)
             target_name = str(override.get("name", default_target))
-            desired, contains_secret = _build_desired(
+            desired, contains_secret, missing_credential_env = _build_desired(
                 definition.mcp_config_format,
                 url,
                 override,
@@ -816,6 +846,7 @@ def load_agent_specs(aikito_dir: Path, home: Path) -> list[AgentSpec]:
                         else _render_command(definition.mcp_auth_command, target_name)
                     ),
                     contains_secret=contains_secret,
+                    missing_credential_env=missing_credential_env,
                 )
             )
     return specs
@@ -864,6 +895,85 @@ def read_entry(spec: AgentSpec, text: str) -> dict[str, Any] | None:
     raise MCPConfigError(f"Unsupported config format: {spec.config_format}")
 
 
+def read_all_entries(config_format: str, text: str) -> dict[str, dict[str, Any]]:
+    """Read only the MCP server map from an Agent-native configuration."""
+    document = _load_document(config_format, text)
+    if config_format == "toml":
+        servers = document.get("mcp_servers", {})
+    elif config_format == "jsonc":
+        servers = document.get("mcp", {})
+    else:
+        servers = document.get("mcpServers", {})
+    if not isinstance(servers, dict):
+        raise MCPConfigError("Agent MCP server collection must be an object")
+    return {name: entry for name, entry in servers.items() if isinstance(entry, dict)}
+
+
+_SENSITIVE_KEY_FRAGMENTS = (
+    "authorization",
+    "token",
+    "secret",
+    "password",
+    "credential",
+    "bearer",
+    "api-key",
+    "api_key",
+    "apikey",
+)
+
+_SENSITIVE_PARAM_PATTERN = re.compile(
+    r"([?&](?:token|secret|key|api_key|api-key|password|credential|bearer|pat)=)[^&]+",
+    re.IGNORECASE,
+)
+
+
+def redact_mcp_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    """Return a display-safe MCP entry without exposing runtime credentials."""
+
+    def redact(value: Any, key: str = "", parent: str = "") -> Any:
+        if isinstance(value, dict):
+            return {
+                item_key: redact(item, item_key, key)
+                for item_key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [redact(item, key, parent) for item in value]
+        if not isinstance(value, str):
+            return value
+
+        # Do not redact environment variable references like ${VAR} or {env:VAR}
+        if (value.startswith("${") and value.endswith("}")) or (
+            value.startswith("{env:") and value.endswith("}")
+        ):
+            return value
+
+        # env_http_headers stores environment variable names rather than secret values.
+        if parent == "env_http_headers":
+            return value
+
+        # Redact all string values inside headers containers (e.g. headers, http_headers)
+        if parent in ("headers", "http_headers") or parent.endswith("headers"):
+            return "<redacted>"
+
+        # Redact values associated with sensitive key names
+        key_lower = key.lower()
+        sensitive_key = (
+            any(fragment in key_lower for fragment in _SENSITIVE_KEY_FRAGMENTS)
+            or key_lower in ("key", "pat")
+            or key_lower.endswith(("_key", "-key", "_pat", "-pat"))
+        )
+        if sensitive_key:
+            return "<redacted>"
+
+        # Sanitize sensitive query parameters inside URLs or string values
+        if "?" in value and "=" in value:
+            return _SENSITIVE_PARAM_PATTERN.sub(r"\1<redacted>", value)
+
+        return value
+
+    return redact(entry)
+
+
 _read_entry = read_entry
 
 
@@ -880,7 +990,7 @@ def evaluate_spec_status(spec: AgentSpec) -> str:
     try:
         content = spec.config_path.read_text(encoding="utf-8")
         current = read_entry(spec, content)
-        if current == spec.desired:
+        if _entry_matches_desired(spec, current):
             return "OK"
         if current is None:
             return "MISSING"
@@ -895,6 +1005,31 @@ def evaluate_spec_status(spec: AgentSpec) -> str:
         return "ERROR"
     except Exception:
         return "ERROR"
+
+
+def _entry_matches_desired(spec: AgentSpec, current: dict[str, Any] | None) -> bool:
+    if current is None:
+        return False
+    if not spec.missing_credential_env:
+        return current == spec.desired
+
+    headers = current.get("headers")
+    authorization = headers.get("Authorization") if isinstance(headers, dict) else None
+    if not isinstance(authorization, str) or not authorization.startswith("Basic "):
+        return False
+
+    try:
+        decoded_authorization = base64.b64decode(
+            authorization.removeprefix("Basic "), validate=True
+        ).decode()
+    except (ValueError, UnicodeDecodeError):
+        return False
+    if decoded_authorization.endswith(f":{LEGACY_PLACEHOLDER_TOKEN}"):
+        return False
+
+    without_headers = dict(current)
+    without_headers.pop("headers", None)
+    return without_headers == spec.desired
 
 
 def _update_entry(spec: AgentSpec, text: str) -> str:
@@ -983,7 +1118,7 @@ def authenticate_mcp(
     if not _agent_detected(spec) or not spec.config_path.exists():
         raise MCPConfigError(f"{agent} is not configured; run 'aikito sync mcp' first")
     current = _read_entry(spec, spec.config_path.read_text())
-    if current != spec.desired:
+    if not _entry_matches_desired(spec, current):
         raise MCPConfigError(
             f"{agent}/{server} config is missing or has drifted; "
             "run 'aikito sync mcp' first"
@@ -1077,6 +1212,19 @@ def sync_mcp_configs(
     output: Callable[[str], None] = print,
 ) -> bool:
     specs = load_agent_specs(aikito_dir, home)
+    missing_credentials = [
+        spec
+        for spec in specs
+        if spec.enabled and _agent_detected(spec) and spec.missing_credential_env
+    ]
+    if missing_credentials:
+        for spec in missing_credentials:
+            output(
+                f"[ERROR] {spec.agent}/{spec.server}: required MCP credential "
+                f"environment variable is missing: {spec.missing_credential_env}"
+            )
+        return False
+
     state = _load_state(home)
     entries = state["entries"]
     success = True
@@ -1096,7 +1244,7 @@ def sync_mcp_configs(
         current_fingerprint = _fingerprint(current) if current is not None else None
         desired_fingerprint = _fingerprint(spec.desired)
 
-        if current == spec.desired:
+        if _entry_matches_desired(spec, current):
             output(f"[OK] {spec.agent}/{spec.server}: already synchronized")
             if not dry_run:
                 entries[spec.state_key] = {
@@ -1181,8 +1329,13 @@ def status_mcp_configs(
             continue
 
         current = _read_entry(spec, spec.config_path.read_text())
-        if current == spec.desired:
-            output(f"[OK] {spec.agent}/{spec.server}: config matches")
+        if _entry_matches_desired(spec, current):
+            suffix = (
+                f"; {spec.missing_credential_env} unavailable, preserved managed header"
+                if spec.missing_credential_env
+                else ""
+            )
+            output(f"[OK] {spec.agent}/{spec.server}: config matches{suffix}")
             if live and spec.live_command:
                 live_commands[spec.agent] = spec.live_command
         elif current is None:

@@ -151,6 +151,15 @@ aikito sync global
 aikito status
 ```
 
+Installing via Homebrew automatically sets up Tab completion for Zsh, Bash,
+and Fish — no extra configuration needed.
+
+For manual installs, add one line to `~/.zshrc`:
+
+```zsh
+eval "$(aikito completion zsh)"
+```
+
 The workspace is the single Git-managed home for all Aikito resources. You
 normally initialize one workspace per user or machine.
 

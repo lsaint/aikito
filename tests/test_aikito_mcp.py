@@ -15,6 +15,7 @@ from aikito_mcp import (  # noqa: E402
     AgentSpec,
     MCPConfigError,
     authenticate_mcp,
+    evaluate_spec_status,
     get_claude_json_server,
     get_copilot_json_server,
     get_jsonc_server,
@@ -22,6 +23,8 @@ from aikito_mcp import (  # noqa: E402
     get_toml_server,
     load_agent_specs,
     load_agents,
+    read_all_entries,
+    redact_mcp_entry,
     sync_mcp_configs,
     update_claude_json_server,
     update_copilot_json_server,
@@ -315,6 +318,69 @@ reason = "Unsupported test agent"
         self.assertEqual(codex_config.read_text(), 'model = "gpt"\n')
         self.assertFalse((self.home / STATE_FILE).exists())
 
+    def test_missing_agy_token_aborts_before_writing_any_config(self) -> None:
+        (self.aikito_dir / "mcps.toml").write_text(
+            """
+[servers.managed]
+transport = "remote"
+url = "https://example.com/mcp"
+agents = ["codex", "agy"]
+
+[servers.managed.authentication]
+method = "basic_api_token"
+account_email = "user@example.com"
+token_env = "TEST_MCP_TOKEN"
+authorization_env = "TEST_MCP_AUTHORIZATION"
+""".lstrip()
+        )
+        codex_config = self.home / ".codex/config.toml"
+        agy_config = self.home / ".gemini/config/mcp_config.json"
+        codex_config.write_text('model = "keep-me"\n')
+        existing_header = base64.b64encode(b"user@example.com:valid-token").decode()
+        agy_config.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "managed": {
+                            "serverUrl": "https://example.com/mcp",
+                            "headers": {"Authorization": f"Basic {existing_header}"},
+                        }
+                    }
+                }
+            )
+        )
+        previous = os.environ.pop("TEST_MCP_TOKEN", None)
+        output: list[str] = []
+        try:
+            result = sync_mcp_configs(
+                aikito_dir=self.aikito_dir,
+                home=self.home,
+                output=output.append,
+            )
+            agy_spec = next(
+                spec
+                for spec in load_agent_specs(self.aikito_dir, self.home)
+                if spec.agent == "agy"
+            )
+        finally:
+            if previous is not None:
+                os.environ["TEST_MCP_TOKEN"] = previous
+
+        self.assertFalse(result)
+        self.assertEqual(codex_config.read_text(), 'model = "keep-me"\n')
+        self.assertIn(existing_header, agy_config.read_text())
+        self.assertFalse((self.home / STATE_FILE).exists())
+        self.assertEqual(evaluate_spec_status(agy_spec), "OK")
+        self.assertTrue(any("TEST_MCP_TOKEN" in line for line in output))
+
+        placeholder_header = base64.b64encode(
+            b"user@example.com:placeholder-token-set-environment-variable"
+        ).decode()
+        agy_config.write_text(
+            agy_config.read_text().replace(existing_header, placeholder_header)
+        )
+        self.assertEqual(evaluate_spec_status(agy_spec), "DRIFT")
+
     def test_auth_captures_browser_url_and_redacts_callback(self) -> None:
         (self.home / ".codex/config.toml").write_text(
             '[mcp_servers.managed]\nurl = "https://example.com/mcp"\n'
@@ -563,7 +629,104 @@ class AgentSpecTest(unittest.TestCase):
         updated = update_copilot_json_server(source, "context7", desired)
         server = get_copilot_json_server(updated, "context7")
         self.assertEqual(server, desired)
-        self.assertEqual(get_copilot_json_server(updated, "existing")["url"], "https://mcp.example.com")
+        self.assertEqual(
+            get_copilot_json_server(updated, "existing")["url"],
+            "https://mcp.example.com",
+        )
+
+
+class ReadAllEntriesTest(unittest.TestCase):
+    def test_read_all_entries_valid(self) -> None:
+        toml_content = '[mcp_servers.srv1]\nurl = "https://example.com"\n'
+        entries = read_all_entries("toml", toml_content)
+        self.assertIn("srv1", entries)
+        self.assertEqual(entries["srv1"]["url"], "https://example.com")
+
+        json_content = '{"mcpServers": {"srv2": {"serverUrl": "https://example.com"}}}'
+        entries = read_all_entries("agy_json", json_content)
+        self.assertIn("srv2", entries)
+
+    def test_read_all_entries_syntax_errors_raise_mcp_config_error(self) -> None:
+        invalid_toml = '[mcp_servers.srv1\nurl = "unclosed"'
+        with self.assertRaises(MCPConfigError) as ctx:
+            read_all_entries("toml", invalid_toml)
+        self.assertIn("Invalid Codex TOML config", str(ctx.exception))
+
+        invalid_json = '{"mcpServers": { invalid json'
+        with self.assertRaises(MCPConfigError) as ctx:
+            read_all_entries("agy_json", invalid_json)
+        self.assertIn("Invalid agy JSON config", str(ctx.exception))
+
+    def test_read_all_entries_non_dict_servers(self) -> None:
+        invalid_collection = '{"mcpServers": "not a dict"}'
+        with self.assertRaises(MCPConfigError) as ctx:
+            read_all_entries("agy_json", invalid_collection)
+        self.assertIn(
+            "Agent MCP server collection must be an object", str(ctx.exception)
+        )
+
+
+class RedactMCPEntryTest(unittest.TestCase):
+    def test_redact_headers_container(self) -> None:
+        entry = {
+            "headers": {
+                "Authorization": "Bearer secret123",
+                "X-Custom": "custom-value",
+                "EnvHeader": "${MY_ENV}",
+            }
+        }
+        redacted = redact_mcp_entry(entry)
+        self.assertEqual(redacted["headers"]["Authorization"], "<redacted>")
+        self.assertEqual(redacted["headers"]["X-Custom"], "<redacted>")
+        self.assertEqual(redacted["headers"]["EnvHeader"], "${MY_ENV}")
+
+    def test_redact_env_http_headers_exemption(self) -> None:
+        entry = {"env_http_headers": {"Authorization": "CODEX_AUTH_TOKEN"}}
+        redacted = redact_mcp_entry(entry)
+        self.assertEqual(
+            redacted["env_http_headers"]["Authorization"], "CODEX_AUTH_TOKEN"
+        )
+
+    def test_redact_sensitive_url_query_params(self) -> None:
+        entry = {
+            "serverUrl": "https://example.com/mcp?token=secret123&mode=read",
+            "normal_url": "https://example.com/mcp?mode=read",
+        }
+        redacted = redact_mcp_entry(entry)
+        self.assertEqual(
+            redacted["serverUrl"], "https://example.com/mcp?token=<redacted>&mode=read"
+        )
+        self.assertEqual(redacted["normal_url"], "https://example.com/mcp?mode=read")
+
+    def test_redact_sensitive_keys(self) -> None:
+        entry = {
+            "password": "my_password",
+            "user_pat": "ghp_12345",
+            "api_key": "sk-12345",
+            "command": "npx",
+        }
+        redacted = redact_mcp_entry(entry)
+        self.assertEqual(redacted["password"], "<redacted>")
+        self.assertEqual(redacted["user_pat"], "<redacted>")
+        self.assertEqual(redacted["api_key"], "<redacted>")
+        self.assertEqual(redacted["command"], "npx")
+
+    def test_pat_substring_not_misidentified(self) -> None:
+        entry = {
+            "path": "/usr/local/bin",
+            "patch": "v1.0",
+            "pattern": "*.py",
+            "compatibility": "full",
+            "pat": "ghp_secret",
+            "my_pat": "ghp_secret2",
+        }
+        redacted = redact_mcp_entry(entry)
+        self.assertEqual(redacted["path"], "/usr/local/bin")
+        self.assertEqual(redacted["patch"], "v1.0")
+        self.assertEqual(redacted["pattern"], "*.py")
+        self.assertEqual(redacted["compatibility"], "full")
+        self.assertEqual(redacted["pat"], "<redacted>")
+        self.assertEqual(redacted["my_pat"], "<redacted>")
 
 
 if __name__ == "__main__":

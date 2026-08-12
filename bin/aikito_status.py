@@ -6,16 +6,18 @@ Gathers synchronization status data across agents, memory, instructions, skills,
 import re
 import sys
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 from aikito_link import SymlinkVerdict, classify_symlink, symlink_verdict_to_status
-
-
 from aikito_mcp import (
     load_agents,
     load_agent_specs,
     evaluate_spec_status,
+    read_all_entries,
+    read_entry,
+    redact_mcp_entry,
     run_live_mcp_commands,
 )
 from aikito_subagent import build_plan
@@ -29,6 +31,102 @@ from aikito_render import (
     StatusReportData,
     SubagentRow,
 )
+
+
+@dataclass(frozen=True)
+class MCPDetailRow:
+    server_name: str
+    target_name: str
+    agent_name: str
+    agent_display_name: str
+    source: str
+    status: str
+    config_path: Path
+    config_format: str
+    entry: dict[str, Any] | None
+
+
+def _resolve_name(target: str, names: list[str], resource: str) -> str:
+    if target in names:
+        return target
+    matches = [name for name in names if name.startswith(target)]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise ValueError(
+            f"Unknown {resource} '{target}'; available: {', '.join(names)}"
+        )
+    raise ValueError(f"Ambiguous {resource} '{target}'; matches: {', '.join(matches)}")
+
+
+def collect_mcp_details(
+    aikito_dir: Path,
+    home: Path,
+    server_target: str | None = None,
+    agent_target: str | None = None,
+) -> list[MCPDetailRow]:
+    agents = load_agents(aikito_dir, home)
+    specs = load_agent_specs(aikito_dir, home)
+    server_names = sorted({spec.server for spec in specs if spec.enabled})
+    server_name = (
+        _resolve_name(server_target, server_names, "MCP server")
+        if server_target
+        else None
+    )
+    agent_name = (
+        _resolve_name(agent_target, sorted(agents), "agent") if agent_target else None
+    )
+
+    rows: list[MCPDetailRow] = []
+    managed_targets: dict[str, set[str]] = {}
+    for spec in specs:
+        if not spec.enabled or (server_name and spec.server != server_name):
+            continue
+        if agent_name and spec.agent != agent_name:
+            continue
+        definition = agents[spec.agent]
+        current = None
+        if spec.config_path.is_file():
+            current = read_entry(spec, spec.config_path.read_text(encoding="utf-8"))
+        rows.append(
+            MCPDetailRow(
+                server_name=spec.server,
+                target_name=spec.target_name,
+                agent_name=spec.agent,
+                agent_display_name=definition.display_name,
+                source="managed",
+                status=evaluate_spec_status(spec),
+                config_path=spec.config_path,
+                config_format=spec.config_format,
+                entry=redact_mcp_entry(current) if current is not None else None,
+            )
+        )
+        managed_targets.setdefault(spec.agent, set()).add(spec.target_name)
+
+    if agent_name and not server_name:
+        definition = agents[agent_name]
+        path = definition.mcp_config_path
+        if path and path.is_file():
+            entries = read_all_entries(
+                definition.mcp_config_format, path.read_text(encoding="utf-8")
+            )
+            for target_name in sorted(
+                entries.keys() - managed_targets.get(agent_name, set())
+            ):
+                rows.append(
+                    MCPDetailRow(
+                        server_name=target_name,
+                        target_name=target_name,
+                        agent_name=agent_name,
+                        agent_display_name=definition.display_name,
+                        source="unmanaged",
+                        status="PRESENT",
+                        config_path=path,
+                        config_format=definition.mcp_config_format,
+                        entry=None,
+                    )
+                )
+    return rows
 
 
 def _get_skills_list(aikito_dir: Path) -> List[str]:

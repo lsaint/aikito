@@ -26,6 +26,9 @@ The preview shows planned writes and conflicts without applying them.
 aikito sync mcp
 aikito show mcp
 aikito show mcp --live
+aikito show mcp <server>
+aikito show mcp --agent <agent>
+aikito show mcp <server> --agent <agent>
 ```
 
 The normal show command compares canonical definitions with managed Agent
@@ -44,6 +47,19 @@ Example `aikito show mcp` output from a configured workspace:
 
 `✓` means the managed entry is synchronized; `–` means that integration is not
 selected for the server.
+
+## Detail Views
+
+`show mcp` supports both dimensions of the MCP registry. A server target shows
+where one canonical MCP definition is installed. `--agent` lists the managed
+and unmanaged MCP entries present in one Agent's native configuration. Combining
+them shows one server/Agent intersection, including its configuration path,
+format, status, and managed entry.
+
+Detail views never print an Agent's entire configuration file. Header values,
+secret tokens, and password fields in managed entries are redacted, while environment
+variable references remain visible for diagnostics. Unmanaged entries are listed
+by name and status without printing their content.
 
 ## Authentication
 

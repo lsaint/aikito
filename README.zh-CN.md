@@ -142,6 +142,14 @@ aikito sync global
 aikito status
 ```
 
+通过 Homebrew 安装后，Zsh、Bash、Fish 的 Tab 补全会自动配置，无需额外操作。
+
+手动安装时，在 `~/.zshrc` 中添加一行：
+
+```zsh
+eval "$(aikito completion zsh)"
+```
+
 Workspace 是 Aikito 所有资源的 Git 管理中心。通常每个用户或每台机器只需初始化一份。
 
 需要项目专属 instruction、skill 或 memory 时，在对应代码目录中注册 project：

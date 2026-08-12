@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-12
+
+### Added
+
+- Added detail inspection subcommands `aikito show mcp <name>` and `aikito show agents <name>` for viewing detailed MCP server configurations and Agent definitions.
+- Added `aikito diff` command for inspecting full diffs of drifted workspace resources (instructions, MCP servers, subagents, skills).
+- Added global and project instruction management commands: `aikito show instructions` and `aikito edit instructions`.
+- Added shell completion command `aikito completion` supporting `zsh`, `bash`, and `fish`.
+
+### Fixed
+
+- Protected AGY MCP configuration loading when authentication tokens are absent.
+- Improved credential-dependent MCP drift diagnostics in status and health checks.
+
 ## [1.1.0] - 2026-08-11
 
 ### Added
@@ -87,7 +101,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/lsaint/aikito/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/lsaint/aikito/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/lsaint/aikito/compare/v0.3.1...v1.0.0
 [0.3.1]: https://github.com/lsaint/aikito/compare/v0.3.0...v0.3.1

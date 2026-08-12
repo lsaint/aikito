@@ -52,6 +52,8 @@ jobs:
           python3 bin/aikito sync --help
           python3 bin/aikito show --help
           python3 bin/aikito doctor --help
+          python3 bin/aikito completion --help
+          python3 bin/aikito completion candidates --help
 
       # Simulate installed agents so sync/doctor exercise real logic instead of skipping.
       # Paths mirror the instruction_path / skills_path parent dirs from agents.toml template.
@@ -123,4 +125,17 @@ jobs:
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito adopt
+
+      - name: aikito completion scripts and dynamic candidates
+        run: |
+          python3 bin/aikito completion zsh
+          python3 bin/aikito completion bash
+          python3 bin/aikito completion fish
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito completion candidates memories
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito completion candidates skills
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito completion candidates projects
+
 

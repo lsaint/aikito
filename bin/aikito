@@ -17,8 +17,18 @@ from pathlib import Path
 from typing import List
 
 from aikito_adopt import build_adopt_plan, execute_adoption
+from aikito_diff import collect_drift_diffs, render_drift_diffs
 from aikito_doctor import run_doctor
 from aikito_init import init_project, init_workspace
+from aikito_link import classify_symlink, symlink_verdict_to_status
+from aikito_memory import (
+    MemoryFileItem,
+    MemoryTargetConflictError,
+    ensure_safe_path,
+    find_memory_files,
+    resolve_memory_target,
+    resolve_memory_target_for_command,
+)
 from aikito_mcp import (
     MCPConfigError,
     authenticate_mcp,
@@ -30,6 +40,9 @@ from aikito_render import (
     DoctorReport,
     SkillRow,
     render_doctor_report,
+    render_agent_mcp_table,
+    render_mcp_details,
+    render_instruction_agent_status,
     render_mcp_status_table,
     render_memory_notes_table,
     render_skills_table,
@@ -38,6 +51,7 @@ from aikito_render import (
 )
 from aikito_status import (
     collect_mcp_matrix,
+    collect_mcp_details,
     collect_memory_notes_rows,
     collect_skills_rows,
     collect_subagents_matrix,
@@ -47,8 +61,9 @@ from aikito_subagent import (
     SubagentConfigError,
     sync_subagent_configs,
 )
+from aikito_completion import generate_bash, generate_fish, generate_zsh, get_candidates
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 
 def get_aikito_dir() -> Path:
@@ -486,6 +501,11 @@ def cmd_status(args: argparse.Namespace) -> None:
     print(rendered)
 
 
+def cmd_diff(args: argparse.Namespace) -> None:
+    diffs = collect_drift_diffs(get_aikito_dir(), Path.home())
+    print(render_drift_diffs(diffs))
+
+
 def cmd_init(args: argparse.Namespace) -> None:
     target = Path(args.workspace_path) if args.workspace_path else get_aikito_dir()
     home = Path.home()
@@ -506,164 +526,6 @@ def cmd_init_project(args: argparse.Namespace) -> None:
             project_path=str(project_path),
         )
     )
-
-
-class MemoryFileItem:
-    def __init__(self, scope: str, rel_path: Path, full_path: Path):
-        self.scope = scope
-        self.rel_path = rel_path
-        self.full_path = full_path
-
-    @property
-    def stem(self) -> str:
-        return self.full_path.stem
-
-    @property
-    def short_identifier(self) -> str:
-        return f"{self.scope}/{self.stem}"
-
-    @property
-    def full_identifier(self) -> str:
-        rel_no_ext = str(self.rel_path.with_suffix(""))
-        return f"{self.scope}/{rel_no_ext}"
-
-
-class MemoryTargetConflictError(Exception):
-    def __init__(self, target: str, candidates: list[MemoryFileItem]):
-        super().__init__(f"Multiple memory notes match '{target}'")
-        self.target = target
-        self.candidates = candidates
-
-
-def find_memory_files(aikito_dir: Path) -> List[MemoryFileItem]:
-    items = []
-
-    # 1. Global memory
-    global_mem = aikito_dir / "memory"
-    if global_mem.is_dir():
-        for file_path in global_mem.rglob("*.md"):
-            if file_path.is_file():
-                rel_path = file_path.relative_to(global_mem)
-                items.append(
-                    MemoryFileItem(
-                        scope="global", rel_path=rel_path, full_path=file_path
-                    )
-                )
-
-    # 2. Project memory
-    projects_dir = aikito_dir / "projects"
-    if projects_dir.is_dir():
-        for proj_folder in sorted(projects_dir.iterdir()):
-            if proj_folder.is_dir():
-                proj_mem = proj_folder / "memory"
-                if proj_mem.is_dir():
-                    for file_path in proj_mem.rglob("*.md"):
-                        if file_path.is_file():
-                            rel_path = file_path.relative_to(proj_mem)
-                            items.append(
-                                MemoryFileItem(
-                                    scope=proj_folder.name,
-                                    rel_path=rel_path,
-                                    full_path=file_path,
-                                )
-                            )
-
-    return items
-
-
-def ensure_safe_path(
-    target_path: Path, allowed_roots: List[Path], resource_label: str
-) -> Path:
-    resolved_path = target_path.resolve()
-    resolved_roots = [r.resolve() for r in allowed_roots]
-
-    is_safe = False
-    for root in resolved_roots:
-        try:
-            if resolved_path.is_relative_to(root):
-                is_safe = True
-                break
-        except AttributeError:
-            if str(resolved_path).startswith(str(root)):
-                is_safe = True
-                break
-
-    if not is_safe:
-        print(
-            f"[ERROR] Path escape detected for {resource_label}: {target_path}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    return resolved_path
-
-
-def resolve_memory_target(aikito_dir: Path, target: str) -> Path:
-    target_raw = target.strip()
-    if target_raw.endswith("…"):
-        target_raw = target_raw[:-1]
-    target_norm = target_raw[:-3] if target_raw.endswith(".md") else target_raw
-
-    items = find_memory_files(aikito_dir)
-
-    matched = []
-    seen_paths = set()
-
-    def add_match(item: MemoryFileItem) -> None:
-        global_mem = aikito_dir / "memory"
-        projects_dir = aikito_dir / "projects"
-        resolved_path = ensure_safe_path(
-            item.full_path, [global_mem, projects_dir], "memory note"
-        )
-
-        if resolved_path not in seen_paths:
-            seen_paths.add(resolved_path)
-            matched.append(item)
-
-    def match_keys(item: MemoryFileItem) -> tuple[str, ...]:
-        if "/" in target_norm:
-            return (item.short_identifier, item.full_identifier)
-        return (item.stem,)
-
-    exact_matches = [item for item in items if target_norm in match_keys(item)]
-    candidates = exact_matches or [
-        item
-        for item in items
-        if any(key.startswith(target_norm) for key in match_keys(item))
-    ]
-    for item in candidates:
-        add_match(item)
-
-    if len(matched) == 1:
-        return matched[0].full_path
-
-    if len(matched) > 1:
-        raise MemoryTargetConflictError(target, matched)
-
-    print(f"[ERROR] Memory note '{target}' not found.", file=sys.stderr)
-    print("Run 'aikito show memory' to view available memory files.", file=sys.stderr)
-    sys.exit(1)
-
-
-def resolve_memory_target_for_command(
-    aikito_dir: Path, target: str, operation: str
-) -> Path:
-    try:
-        return resolve_memory_target(aikito_dir, target)
-    except MemoryTargetConflictError as exc:
-        print(
-            f"[CONFLICT] Multiple memory notes match '{exc.target}':\n",
-            file=sys.stderr,
-        )
-        for item in exc.candidates:
-            print(f"  - {item.full_identifier}", file=sys.stderr)
-        print("\nPlease specify the full identifier, e.g.:", file=sys.stderr)
-        for item in exc.candidates:
-            print(
-                f"  aikito {operation} memory {item.full_identifier}",
-                file=sys.stderr,
-            )
-        sys.exit(1)
 
 
 class SkillTargetConflictError(Exception):
@@ -751,6 +613,147 @@ def cmd_show_skill(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def find_instruction_sources(
+    aikito_dir: Path, home: Path
+) -> list[tuple[str, Path, Path | None]]:
+    """Return instruction target, source file, and registered project path."""
+    sources = [("global", aikito_dir / "global" / "AGENTS.md", None)]
+    projects_dir = aikito_dir / "projects"
+    if not projects_dir.is_dir():
+        return sources
+
+    for project_dir in sorted(projects_dir.iterdir()):
+        config_path = project_dir / "agent.toml"
+        instructions_path = project_dir / "AGENTS.md"
+        if not project_dir.is_dir() or not config_path.is_file():
+            continue
+        try:
+            config = tomllib.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError) as exc:
+            print(f"[WARN] Failed to read {config_path}: {exc}", file=sys.stderr)
+            continue
+        raw_path = config.get("path")
+        project_path = None
+        if isinstance(raw_path, str) and raw_path:
+            project_path = (
+                home / raw_path[2:]
+                if raw_path.startswith("~/")
+                else Path(raw_path).expanduser()
+            ).resolve()
+        sources.append((project_dir.name, instructions_path, project_path))
+    return sources
+
+
+def resolve_instruction_target(
+    aikito_dir: Path, home: Path, target: str, cwd: Path
+) -> tuple[str, Path]:
+    sources = find_instruction_sources(aikito_dir, home)
+    if target == ".":
+        current = cwd.resolve()
+        matches = [
+            source
+            for source in sources
+            if source[2] is not None
+            and (current == source[2] or current.is_relative_to(source[2]))
+        ]
+        if matches:
+            name, instructions_path, _ = max(
+                matches, key=lambda source: len(source[2].parts)
+            )
+            return name, instructions_path
+        print(
+            f"[ERROR] Current directory is not inside a registered project: {current}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    for name, instructions_path, _ in sources:
+        if name == target:
+            return name, instructions_path
+
+    print(f"[ERROR] Instructions target '{target}' not found.", file=sys.stderr)
+    print("Run 'aikito show instructions' to view available targets.", file=sys.stderr)
+    sys.exit(1)
+
+
+def collect_instruction_agent_status(
+    aikito_dir: Path, home: Path
+) -> list[tuple[str, str, str]]:
+    source = aikito_dir / "global" / "AGENTS.md"
+    rows = []
+    status_names = {
+        "OK": "linked",
+        "MISSING": "missing",
+        "CONFLICT": "conflict",
+        "SKIP": "skipped",
+    }
+    for definition in load_agents(aikito_dir, home).values():
+        target = definition.instruction_path
+        if target is None or not target.parent.exists():
+            status = "SKIP"
+        else:
+            status = symlink_verdict_to_status(classify_symlink(target, source))
+        if target is None:
+            target_display = "-"
+        else:
+            try:
+                target_display = f"~/{target.relative_to(home)}"
+            except ValueError:
+                target_display = str(target)
+        rows.append(
+            (definition.display_name, target_display, status_names.get(status, status))
+        )
+    return rows
+
+
+def collect_project_instruction_status(
+    aikito_dir: Path, home: Path
+) -> list[tuple[str, str]]:
+    rows = []
+    status_names = {"OK": "linked", "MISSING": "missing", "CONFLICT": "conflict"}
+    for name, source, project_path in find_instruction_sources(aikito_dir, home)[1:]:
+        try:
+            has_content = source.is_file() and bool(
+                source.read_text(encoding="utf-8").strip()
+            )
+        except OSError:
+            has_content = False
+        if not has_content or project_path is None:
+            rows.append((name, "-"))
+            continue
+        target = project_path / ".agents" / "AGENTS.md"
+        status = symlink_verdict_to_status(classify_symlink(target, source))
+        rows.append((name, status_names.get(status, status.lower())))
+    return rows
+
+
+def cmd_show_instructions(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    target = getattr(args, "target", None)
+    if not target:
+        use_unicode, use_color = resolve_color_flags(args)
+        rows = collect_instruction_agent_status(aikito_dir, Path.home())
+        project_rows = collect_project_instruction_status(aikito_dir, Path.home())
+        print(
+            render_instruction_agent_status(rows, project_rows, use_unicode, use_color)
+        )
+        return
+
+    name, instructions_path = resolve_instruction_target(
+        aikito_dir, Path.home(), target, Path.cwd()
+    )
+    if not instructions_path.is_file():
+        print(
+            f"[ERROR] Instructions file not found: {instructions_path}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    print(instructions_path.read_text(encoding="utf-8"), end="")
+    if target == "." and name != "global":
+        print("\nAlso active: global instructions", file=sys.stderr)
+        print("View with: aikito show instructions global", file=sys.stderr)
+
+
 def open_in_editor(target_file: Path) -> None:
     editor_env = (
         (os.environ.get("VISUAL") or "").strip()
@@ -776,6 +779,14 @@ def open_in_editor(target_file: Path) -> None:
         sys.exit(1)
 
 
+def cmd_edit_instructions(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    _, instructions_path = resolve_instruction_target(
+        aikito_dir, Path.home(), args.target, Path.cwd()
+    )
+    open_in_editor(instructions_path)
+
+
 def cmd_edit_skill(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
     skill_file = resolve_skill_target_for_command(
@@ -790,6 +801,53 @@ def cmd_show_mcp(args: argparse.Namespace) -> None:
     use_unicode, use_color = resolve_color_flags(args)
 
     try:
+        target = getattr(args, "target", None)
+        agent = getattr(args, "agent", None)
+        if getattr(args, "live", False) and (target or agent):
+            print(
+                "[ERROR] --live is only supported by the MCP matrix view",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        if target or agent:
+            try:
+                rows = collect_mcp_details(
+                    aikito_dir=aikito_dir,
+                    home=home,
+                    server_target=target,
+                    agent_target=agent,
+                )
+            except ValueError as exc:
+                raise MCPConfigError(str(exc)) from exc
+            if not rows:
+                selection = "/".join(value for value in (agent, target) if value)
+                raise MCPConfigError(f"No MCP configuration found for '{selection}'")
+            if agent and not target:
+                first = rows[0]
+                managed = [row for row in rows if row.source == "managed"]
+                synced = sum(row.status == "OK" for row in managed)
+                drifted = sum(row.status == "DRIFT" for row in managed)
+                unmanaged = sum(row.source == "unmanaged" for row in rows)
+                print(f"Agent: {first.agent_display_name}")
+                print(f"Agent key: {first.agent_name}")
+                print(f"Config: {first.config_path}")
+                print(f"Format: {first.config_format}")
+                print(
+                    f"MCP Servers: {len(managed)} managed, {synced} synced, "
+                    f"{drifted} drifted, {unmanaged} unmanaged\n"
+                )
+                print(render_agent_mcp_table(rows, use_unicode, use_color))
+            else:
+                print(
+                    render_mcp_details(
+                        rows,
+                        str(aikito_dir / "mcps.toml"),
+                        use_unicode,
+                        use_color,
+                    )
+                )
+            return
+
         server_rows, agent_names = collect_mcp_matrix(
             aikito_dir=aikito_dir,
             home=home,
@@ -913,6 +971,28 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+
+def cmd_completion(args: argparse.Namespace) -> None:
+    """Handle 'aikito completion <shell>' and 'aikito completion candidates <category>'."""
+    target = args.shell_or_sub
+    if target == "candidates":
+        try:
+            items = get_candidates(args.category, get_aikito_dir())
+            for item in items:
+                print(item)
+        except ValueError as exc:
+            print(f"[ERROR] {exc}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        parser = build_parser()
+        if target == "zsh":
+            print(generate_zsh(parser), end="")
+        elif target == "bash":
+            print(generate_bash(parser), end="")
+        elif target == "fish":
+            print(generate_fish(parser), end="")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="aikito",
@@ -1004,6 +1084,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     add_color_args(p_status)
     p_status.set_defaults(func=cmd_status)
+
+    # diff
+    p_diff = subparsers.add_parser(
+        "diff",
+        help="Show unified diffs for all drifted managed resources",
+    )
+    p_diff.set_defaults(func=cmd_diff)
 
     # auth & drill-down subparsers
     p_auth = subparsers.add_parser(
@@ -1104,6 +1191,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Inspect managed MCP server configs across agents",
     )
     p_show_mcp.add_argument(
+        "target",
+        nargs="?",
+        help="MCP server name or unique prefix to inspect",
+    )
+    p_show_mcp.add_argument(
+        "--agent",
+        help="Show MCP servers for one Agent, or narrow a server detail view",
+    )
+    p_show_mcp.add_argument(
         "--live",
         action="store_true",
         help="Also invoke each agent's MCP status command",
@@ -1119,6 +1215,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_color_args(p_show_subagents)
     p_show_subagents.set_defaults(func=cmd_show_subagents)
+
+    # show instructions [target]
+    p_show_instructions = show_subparsers.add_parser(
+        "instructions",
+        help="List global and project instructions, or print one target",
+    )
+    p_show_instructions.add_argument(
+        "target",
+        nargs="?",
+        default=None,
+        help="global, a project name, or . for the current project",
+    )
+    add_color_args(p_show_instructions)
+    p_show_instructions.set_defaults(func=cmd_show_instructions)
 
     # show memory [target]
     p_show_memory = show_subparsers.add_parser(
@@ -1167,6 +1277,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_edit_memory.set_defaults(func=cmd_edit_memory)
 
+    # edit instructions <target>
+    p_edit_instructions = edit_subparsers.add_parser(
+        "instructions",
+        help="Open global or project instructions in your configured editor",
+    )
+    p_edit_instructions.add_argument(
+        "target",
+        help="global, a project name, or . for the current project",
+    )
+    p_edit_instructions.set_defaults(func=cmd_edit_instructions)
+
     # edit skill <target>
     p_edit_skill = edit_subparsers.add_parser(
         "skill",
@@ -1199,6 +1320,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override memory freshness stale threshold in days (default: read from config or 30)",
     )
     p_doctor.set_defaults(func=cmd_doctor)
+
+    # completion
+    p_completion = subparsers.add_parser(
+        "completion",
+        help="Output shell completion script or list dynamic candidates",
+    )
+    completion_subparsers = p_completion.add_subparsers(
+        dest="shell_or_sub", required=True
+    )
+
+    for _shell in ("zsh", "bash", "fish"):
+        _p = completion_subparsers.add_parser(
+            _shell,
+            help=f"Output {_shell.capitalize()} completion script",
+        )
+        _p.set_defaults(func=cmd_completion, shell_or_sub=_shell)
+
+    p_completion_candidates = completion_subparsers.add_parser(
+        "candidates",
+        help="List dynamic completion candidates for a given category",
+    )
+    p_completion_candidates.add_argument(
+        "category",
+        choices=["projects", "skills", "memories"],
+        help="Category of candidates to list",
+    )
+    p_completion_candidates.set_defaults(func=cmd_completion, shell_or_sub="candidates")
 
     return parser
 

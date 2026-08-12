@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
 
 from aikito_link import SymlinkVerdict, classify_symlink, symlink_verdict_to_status  # noqa: E402
+from aikito_mcp import AgentSpec  # noqa: E402
 from aikito_doctor import (  # noqa: E402
     check_config_syntax,
     check_drift,
@@ -275,7 +276,6 @@ skills_path = ".claude/skills"
 
     def test_missing_skill_symlink_reports_fail(self) -> None:
         (self.home / ".claude" / "skills").mkdir(parents=True)
-
 
         section = check_symlinks(self.aikito_dir, self.home)
         fail_findings = [f for f in section.findings if f.status == "FAIL"]
@@ -615,6 +615,37 @@ agents = ["claude-code"]
                 and finding.fix_hint == "aikito sync subagents"
                 for finding in failures
             )
+        )
+
+    def test_missing_mcp_credential_suggests_refreshing_shell(self) -> None:
+        spec = AgentSpec(
+            agent="agy",
+            server="atlassian-rovo",
+            config_path=self.home / ".gemini/config/mcp_config.json",
+            config_format="agy_json",
+            target_name="atlassian-rovo",
+            desired={"headers": {}},
+            missing_credential_env="ATLASSIAN_ROVO_TOKEN",
+        )
+
+        with (
+            patch("aikito_doctor.load_agent_specs", return_value=[spec]),
+            patch("aikito_doctor.evaluate_spec_status", return_value="DRIFT"),
+            patch("aikito_doctor.build_plan", return_value=([], {})),
+        ):
+            section = check_drift(self.aikito_dir, self.home)
+
+        warnings = [finding for finding in section.findings if finding.status == "WARN"]
+        self.assertTrue(
+            any(
+                "credential-dependent MCP config differs" in finding.message
+                and "ATLASSIAN_ROVO_TOKEN" in finding.message
+                and finding.fix_hint == "open a new shell and run: aikito doctor"
+                for finding in warnings
+            )
+        )
+        self.assertFalse(
+            any(finding.fix_hint == "aikito sync mcp" for finding in warnings)
         )
 
 

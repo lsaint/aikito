@@ -783,12 +783,21 @@ def check_drift(aikito_dir: Path, home: Path) -> DoctorSection:
             pass
         elif st == "DRIFT":
             drift_count += 1
-            findings.append(
-                _fail(
-                    f"{spec.agent} × {spec.server}: fingerprint drift (manual edit detected)",
-                    "aikito sync mcp --force",
+            if spec.missing_credential_env:
+                findings.append(
+                    _warn(
+                        f"{spec.agent} × {spec.server}: credential-dependent MCP config differs; "
+                        f"current shell may have stale or missing {spec.missing_credential_env}",
+                        "open a new shell and run: aikito doctor",
+                    )
                 )
-            )
+            else:
+                findings.append(
+                    _fail(
+                        f"{spec.agent} × {spec.server}: managed MCP config differs",
+                        "aikito sync mcp",
+                    )
+                )
         elif st == "MISSING":
             findings.append(
                 _fail(

@@ -147,10 +147,7 @@ GLOBAL_AGENTS_TEMPLATE = """# Global Agent Directives
 Add shared instructions for your coding agents here.
 """
 
-PROJECT_AGENTS_TEMPLATE = """# Project Agent Directives
-
-Add project-specific instructions here.
-"""
+PROJECT_AGENTS_TEMPLATE = ""
 
 PROJECT_MEMORY_INDEX_TEMPLATE = """# Project Memory Index
 

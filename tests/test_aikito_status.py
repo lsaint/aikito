@@ -25,8 +25,8 @@ from aikito_render import (  # noqa: E402
 
 from aikito_status import (  # noqa: E402
     _summarize_subagent_status,
+    collect_mcp_details,
     collect_mcp_matrix,
-    collect_memory_notes_rows,
     collect_skills_rows,
     collect_subagents_matrix,
     get_status_report_data,
@@ -248,6 +248,55 @@ class AikitoStatusCollectorTest(unittest.TestCase):
         rows, agents = collect_mcp_matrix(self.aikito_dir, self.home)
         self.assertIsInstance(rows, list)
         self.assertIsInstance(agents, list)
+
+    def test_collect_mcp_details_lists_unmanaged_and_redacts_authorization(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            home = root / "home"
+            aikito_dir = root / "aikito"
+            config_dir = home / ".gemini/config"
+            config_dir.mkdir(parents=True)
+            aikito_dir.mkdir()
+            (aikito_dir / "agents.toml").write_text(
+                """
+[agents.agy]
+display_name = "Antigravity CLI (agy)"
+
+[agents.agy.mcp]
+config_path = ".gemini/config/mcp_config.json"
+config_format = "agy_json"
+name_style = "verbatim"
+""".lstrip()
+            )
+            (aikito_dir / "mcps.toml").write_text(
+                """
+[servers.managed]
+transport = "remote"
+url = "https://example.com/mcp"
+agents = ["agy"]
+""".lstrip()
+            )
+            (config_dir / "mcp_config.json").write_text(
+                """{
+  "mcpServers": {
+    "managed": {
+      "serverUrl": "https://example.com/mcp",
+      "headers": {"Authorization": "Basic sensitive"}
+    },
+    "custom": {"serverUrl": "https://custom.example.com"}
+  }
+}
+"""
+            )
+
+            rows = collect_mcp_details(aikito_dir, home, agent_target="agy")
+
+            self.assertEqual([row.server_name for row in rows], ["managed", "custom"])
+            self.assertEqual(rows[0].entry["headers"]["Authorization"], "<redacted>")
+            self.assertEqual(rows[1].source, "unmanaged")
+            self.assertIsNone(rows[1].entry)
 
     def test_collect_mcp_matrix_marks_successful_live_checks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

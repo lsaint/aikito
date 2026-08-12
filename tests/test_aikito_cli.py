@@ -58,6 +58,14 @@ class GlobalEntrySyncTest(unittest.TestCase):
 
 
 class SyncSubcommandParserTest(unittest.TestCase):
+    def test_diff_command(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+
+        args = parser.parse_args(["diff"])
+
+        self.assertEqual(args.command, "diff")
+        self.assertEqual(args.func, AIKITO_CLI.cmd_diff)
+
     def test_sync_subcommands(self) -> None:
         parser = AIKITO_CLI.build_parser()
 
@@ -543,6 +551,52 @@ class EditMemoryTest(unittest.TestCase):
             self.assertIn("[ERROR] Path escape detected", mock_stderr.getvalue())
 
 
+class EditInstructionsTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.aikito_dir = Path(self.temporary_directory.name)
+        self.home = self.aikito_dir / "home"
+        self.project_path = self.aikito_dir / "project-code"
+        project_dir = self.aikito_dir / "projects" / "doxturbo"
+        project_dir.mkdir(parents=True)
+        self.instructions_file = project_dir / "AGENTS.md"
+        self.instructions_file.write_text("", encoding="utf-8")
+        (project_dir / "agent.toml").write_text(
+            f'name = "doxturbo"\npath = "{self.project_path}"\n',
+            encoding="utf-8",
+        )
+
+    def tearDown(self) -> None:
+        self.temporary_directory.cleanup()
+
+    def test_edit_instructions_parser(self) -> None:
+        args = AIKITO_CLI.build_parser().parse_args(
+            ["edit", "instructions", "doxturbo"]
+        )
+
+        self.assertEqual(args.command, "edit")
+        self.assertEqual(args.edit_target, "instructions")
+        self.assertEqual(args.target, "doxturbo")
+        self.assertEqual(args.func, AIKITO_CLI.cmd_edit_instructions)
+
+    def test_edit_instructions_invokes_editor(self) -> None:
+        mock_proc = MagicMock(returncode=0)
+        with (
+            patch("os.environ", {"EDITOR": "code --wait"}),
+            patch("subprocess.run", return_value=mock_proc) as mock_run,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["edit", "instructions", "doxturbo"]
+            )
+            args.func(args)
+
+        mock_run.assert_called_once_with(
+            ["code", "--wait", str(self.instructions_file)]
+        )
+
+
 class EditSkillTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
@@ -652,8 +706,23 @@ class ShowSubcommandsTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.aikito_dir = Path(self.temporary_directory.name)
+        self.home = self.aikito_dir / "home"
+        (self.home / ".codex").mkdir(parents=True)
         (self.aikito_dir / "agents.toml").write_text(
-            '[agents.codex]\ndisplay_name = "Codex"\n[agents.codex.subagents]\nconfig_path = ".codex/agents"\nconfig_format = "codex_toml"\n'
+            """
+[agents.codex]
+display_name = "Codex"
+instruction_path = ".codex/AGENTS.md"
+
+[agents.codex.subagents]
+config_path = ".codex/agents"
+config_format = "codex_toml"
+
+[agents.codex.mcp]
+config_path = ".codex/config.toml"
+config_format = "toml"
+name_style = "verbatim"
+""".lstrip()
         )
         (self.aikito_dir / "mcps.toml").write_text(
             '[servers.managed]\ntransport = "remote"\nurl = "http://ex.com"\nagents = ["codex"]\n'
@@ -667,6 +736,15 @@ class ShowSubcommandsTest(unittest.TestCase):
         )
         (self.aikito_dir / "memory" / "notes").mkdir(parents=True)
         (self.aikito_dir / "memory" / "index.md").write_text("# Global Memory Index")
+        (self.home / ".codex/config.toml").write_text(
+            """
+[mcp_servers.managed]
+url = "http://ex.com"
+
+[mcp_servers.custom]
+url = "http://custom.example.com"
+""".lstrip()
+        )
 
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
@@ -682,6 +760,43 @@ class ShowSubcommandsTest(unittest.TestCase):
             self.assertIn("MCP Server", output)
             self.assertIn("managed", output)
 
+    def test_show_mcp_agent_view_lists_managed_and_unmanaged(self) -> None:
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "mcp", "--agent", "codex", "--color", "never"]
+            )
+            args.func(args)
+
+        output = mock_stdout.getvalue()
+        self.assertIn("Agent: Codex", output)
+        self.assertIn(str(self.home / ".codex/config.toml"), output)
+        self.assertIn("1 managed", output)
+        self.assertIn("1 unmanaged", output)
+        self.assertIn("custom", output)
+
+    def test_show_mcp_intersection_displays_managed_entry(self) -> None:
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "mcp", "man", "--agent", "codex"]
+            )
+            args.func(args)
+
+        output = mock_stdout.getvalue()
+        self.assertIn("MCP Server: managed", output)
+        self.assertEqual(output.count("MCP Server: managed"), 1)
+        self.assertIn("| Codex", output)
+        self.assertNotIn("Agent: Codex", output)
+        self.assertIn("Managed entry:", output)
+        self.assertIn('"url": "http://ex.com"', output)
+
     def test_show_subagents(self) -> None:
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
@@ -692,6 +807,92 @@ class ShowSubcommandsTest(unittest.TestCase):
             output = mock_stdout.getvalue()
             self.assertIn("Subagent", output)
             self.assertIn("formatter", output)
+
+    def test_show_instructions_lists_and_reads_targets(self) -> None:
+        project_path = self.aikito_dir / "project-code"
+        project_dir = self.aikito_dir / "projects" / "example"
+        project_dir.mkdir(parents=True)
+        (self.aikito_dir / "global").mkdir()
+        (self.aikito_dir / "global" / "AGENTS.md").write_text("global rules\n")
+        (self.home / ".codex" / "AGENTS.md").symlink_to(
+            self.aikito_dir / "global" / "AGENTS.md"
+        )
+        (project_dir / "AGENTS.md").write_text("project rules\n")
+        (project_dir / "agent.toml").write_text(
+            f'name = "example"\npath = "{project_path}"\n'
+        )
+        (project_path / ".agents").mkdir(parents=True)
+        (project_path / ".agents" / "AGENTS.md").symlink_to(project_dir / "AGENTS.md")
+        empty_project_dir = self.aikito_dir / "projects" / "empty"
+        empty_project_dir.mkdir()
+        (empty_project_dir / "AGENTS.md").write_text("\n")
+        (empty_project_dir / "agent.toml").write_text(
+            f'name = "empty"\npath = "{self.aikito_dir / "empty-code"}"\n'
+        )
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "instructions", "--color", "always", "--no-color"]
+            )
+            args.func(args)
+        listing = mock_stdout.getvalue()
+        self.assertIn("╭", listing)
+        self.assertIn("│ Codex", listing)
+        self.assertIn("Status: linked", listing)
+        self.assertIn("Target: ~/.codex/AGENTS.md", listing)
+        self.assertIn("│ Projects", listing)
+        self.assertIn("example: linked", listing)
+        self.assertIn("empty: -", listing)
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "instructions", "global"]
+            )
+            args.func(args)
+        self.assertEqual(mock_stdout.getvalue(), "global rules\n")
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "instructions", "example"]
+            )
+            args.func(args)
+        self.assertEqual(mock_stdout.getvalue(), "project rules\n")
+
+    def test_show_instructions_dot_resolves_current_project(self) -> None:
+        project_path = self.aikito_dir / "project-code"
+        nested_path = project_path / "src"
+        project_dir = self.aikito_dir / "projects" / "example"
+        nested_path.mkdir(parents=True)
+        project_dir.mkdir(parents=True)
+        (project_dir / "AGENTS.md").write_text("project rules\n")
+        (project_dir / "agent.toml").write_text(
+            f'name = "example"\npath = "{project_path}"\n'
+        )
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch.object(Path, "cwd", return_value=nested_path),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["show", "instructions", "."])
+            args.func(args)
+
+        self.assertEqual(mock_stdout.getvalue(), "project rules\n")
+        self.assertIn("Also active: global instructions", mock_stderr.getvalue())
 
     def test_status_has_no_subcommands(self) -> None:
         with (
