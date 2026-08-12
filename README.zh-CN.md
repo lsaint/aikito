@@ -15,16 +15,15 @@
 
 [English](README.md) · [详细文档（英文）](docs/README.md)
 
-Aikito 是一套轻量级、由 Git 管理的 AI Agent 可复用资源工作区。
+Aikito 是由 Git 管理的 AI Agent 上下文与长期记忆治理工作区。
 
 ```text
    Aikito  =  Agent 资源治理   ×   长期记忆沉淀
-              (同步 / 分发)        (检索 / 提炼 / 留存)
 ```
 
-两者共享同一底座：Git 工作区、纯文件、显式作用域。
+纯文件定义唯一事实来源，显式作用域定义谁能看到什么，Git 保留完整历史。
 
-资源由你定义，memory 由 Agent 维护，Aikito 决定它们对谁可见。
+资源由你定义，memory 由 Agent 维护，Aikito 治理整个工作区。
 
 无需数据库、后台守护进程、向量数据库或托管服务。
 

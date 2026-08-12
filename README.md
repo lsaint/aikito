@@ -15,16 +15,15 @@
 
 [简体中文](README.zh-CN.md) · [Documentation](docs/README.md)
 
-Aikito is a lightweight, Git-managed workspace for reusable AI-agent resources.
+Aikito is a Git-managed workspace for governing AI-agent context and durable memory.
 
 ```text
    Aikito  =  governing agent resources  ×  curating durable memory
-                 (sync / distribute)        (retrieve / distill / persist)
 ```
 
-Both sit on one foundation: a Git workspace, plain files, explicit scopes.
+Plain files define the source of truth, explicit scopes define who sees what, and Git keeps the history.
 
-You author the resources, agents maintain the memory, Aikito decides who sees what.
+You author the resources, agents maintain the memory, Aikito governs the workspace.
 
 No database, daemon, vector store, or hosted service required.
 
@@ -64,8 +63,7 @@ resources to each agent and project:
             └── notes/
 ```
 
-Each project selects what it needs. It does not have to become the canonical
-home of every shared skill or memory note.
+Each project selects what it needs. It does not have to become the canonical home of every shared skill or memory note.
 
 ## What Aikito Manages
 
