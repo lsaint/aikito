@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-08-13
+
+### Added
+
+- Added basename-prefix path completion across the Aikito workspace and registered projects.
+- Collapsed duplicate memory completion identifiers into one scope-labelled candidate per note.
+
 ## [1.2.0] - 2026-08-12
 
 ### Added
@@ -101,7 +108,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/lsaint/aikito/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/lsaint/aikito/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/lsaint/aikito/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/lsaint/aikito/compare/v0.3.1...v1.0.0

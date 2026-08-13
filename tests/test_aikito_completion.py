@@ -24,6 +24,8 @@ from aikito_completion import (
     generate_zsh,
     get_candidates,
     list_memories,
+    list_memory_completions,
+    list_paths,
     list_projects,
     list_skills,
 )
@@ -91,6 +93,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("--apply", zsh)
         self.assertIn("--prune", zsh)
         self.assertIn("_files -/", zsh)
+        self.assertIn("completion candidates paths", zsh)
 
         bash = generate_bash(parser)
         self.assertIn("skills", bash)
@@ -99,6 +102,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("--apply", bash)
         self.assertIn("--prune", bash)
         self.assertIn("compgen -d", bash)
+        self.assertIn("completion candidates paths", bash)
 
         fish = generate_fish(parser)
         self.assertIn("skills", fish)
@@ -107,6 +111,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("-l apply", fish)
         self.assertIn("-l prune", fish)
         self.assertIn("-F", fish)
+        self.assertIn("completion candidates paths", fish)
 
 
 class AikitoCompletionTest(unittest.TestCase):
@@ -146,6 +151,26 @@ class AikitoCompletionTest(unittest.TestCase):
         ])
         self.assertEqual(candidates, expected)
 
+    def test_list_memory_completions_collapses_identifiers_and_shows_scope(
+        self,
+    ) -> None:
+        global_notes = self.aikito_dir / "memory" / "notes"
+        global_notes.mkdir(parents=True)
+        (global_notes / "unique.md").write_text("# Unique", encoding="utf-8")
+        (global_notes / "shared.md").write_text("# Shared", encoding="utf-8")
+        project_notes = self.aikito_dir / "projects" / "aikito" / "memory" / "notes"
+        project_notes.mkdir(parents=True)
+        (project_notes / "shared.md").write_text("# Shared", encoding="utf-8")
+
+        self.assertEqual(
+            list_memory_completions(self.aikito_dir),
+            [
+                "aikito/shared\t(aikito)",
+                "global/shared\t(global)",
+                "unique\t(global)",
+            ],
+        )
+
     def test_list_skills_includes_global_disk_and_project_registered_skills(
         self,
     ) -> None:
@@ -181,6 +206,30 @@ class AikitoCompletionTest(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             get_candidates("unknown_cat", self.aikito_dir)
+
+    def test_list_paths_matches_basename_across_registered_projects(self) -> None:
+        workspace_match = self.aikito_dir / "skills" / "agent-global"
+        workspace_match.mkdir(parents=True)
+        project_root = self.aikito_dir / "external-project"
+        project_match = project_root / "docs" / "agent-skill-authoring"
+        project_match.mkdir(parents=True)
+        project_config = self.aikito_dir / "projects" / "example" / "agent.toml"
+        project_config.parent.mkdir(parents=True)
+        project_config.write_text(
+            f'name = "example"\npath = "{project_root}"\n', encoding="utf-8"
+        )
+
+        self.assertEqual(
+            list_paths(self.aikito_dir, "agent"),
+            sorted(
+                [
+                    str(workspace_match.resolve()),
+                    str(project_match.resolve()),
+                    str(project_config.resolve()),
+                ]
+            ),
+        )
+        self.assertEqual(get_candidates("paths", self.aikito_dir, "missing"), [])
 
 
 class AikitoMemoryTest(unittest.TestCase):

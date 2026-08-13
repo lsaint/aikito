@@ -11,7 +11,9 @@ Design principle: stdlib-only, no third-party dependencies.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+import tomllib
 from pathlib import Path
 from typing import List
 
@@ -53,13 +55,92 @@ def list_memories(aikito_dir: Path) -> List[str]:
     return sorted(cands)
 
 
-def get_candidates(category: str, aikito_dir: Path) -> List[str]:
+def list_memory_completions(aikito_dir: Path) -> List[str]:
+    """Return one executable candidate and display label per memory note."""
+    items = find_memory_files(aikito_dir)
+    stem_counts: dict[str, int] = {}
+    short_counts: dict[str, int] = {}
+    for item in items:
+        stem_counts[item.stem] = stem_counts.get(item.stem, 0) + 1
+        short_counts[item.short_identifier] = (
+            short_counts.get(item.short_identifier, 0) + 1
+        )
+
+    completions = []
+    for item in items:
+        if item.stem != "index" and stem_counts[item.stem] == 1:
+            candidate = item.stem
+        elif short_counts[item.short_identifier] == 1:
+            candidate = item.short_identifier
+        else:
+            candidate = item.full_identifier
+        completions.append(f"{candidate}\t({item.scope})")
+    return sorted(set(completions))
+
+
+def _registered_search_roots(aikito_dir: Path) -> List[Path]:
+    """Return existing workspace and registered project roots without duplicates."""
+    roots = [aikito_dir.resolve()]
+    projects_dir = aikito_dir / "projects"
+    if projects_dir.is_dir():
+        for config_path in sorted(projects_dir.glob("*/agent.toml")):
+            try:
+                config = tomllib.loads(config_path.read_text(encoding="utf-8"))
+            except (OSError, tomllib.TOMLDecodeError):
+                continue
+            raw_path = config.get("path")
+            if not isinstance(raw_path, str) or not raw_path:
+                continue
+            project_path = Path(raw_path).expanduser().resolve()
+            if project_path.is_dir() and project_path not in roots:
+                roots.append(project_path)
+    return roots
+
+
+def list_paths(aikito_dir: Path, prefix: str) -> List[str]:
+    """Find basename-prefix matches below registered projects and the workspace."""
+    prefix = prefix.strip()
+    if not prefix or "/" in prefix:
+        return []
+
+    ignored_dirs = {
+        ".git",
+        ".hg",
+        ".svn",
+        ".tox",
+        ".venv",
+        "__pycache__",
+        "node_modules",
+        "target",
+        "vendor",
+    }
+    matches: set[str] = set()
+    for root in _registered_search_roots(aikito_dir):
+        for current, dirnames, filenames in os.walk(root):
+            dirnames[:] = [
+                name for name in dirnames
+                if name not in ignored_dirs and not name.startswith(".")
+            ]
+            for name in (*dirnames, *filenames):
+                if name.startswith(prefix):
+                    matches.add(str((Path(current) / name).resolve()))
+                    if len(matches) >= 100:
+                        return sorted(matches)
+    return sorted(matches)
+
+
+def get_candidates(
+    category: str, aikito_dir: Path, query: str | None = None
+) -> List[str]:
     """Dispatch to the correct candidate lister by category name."""
     dispatch = {
         "projects": list_projects,
         "skills": list_skills,
         "memories": list_memories,
+        "memory-completions": list_memory_completions,
     }
+    if category == "paths":
+        return list_paths(aikito_dir, query or "")
     fn = dispatch.get(category)
     if fn is None:
         raise ValueError(
@@ -201,6 +282,11 @@ _aikito() {{
 {cmd_subs_str}
                     (adopt|init)
                         _files -/
+                        if [[ -n $cur && $cur != */* ]]; then
+                            local -a cands
+                            cands=(${{(f)"$(aikito completion candidates paths "$cur" 2>/dev/null)"}})
+                            (( ${{#cands}} )) && compadd -U -a cands
+                        fi
                         ;;
                 esac
             fi
@@ -215,9 +301,13 @@ _aikito() {{
             else
                 case "$cmd $sub" in
                     (show\\ memory|edit\\ memory)
-                        local cands
-                        cands=(${{(f)"$(aikito completion candidates memories 2>/dev/null)"}})
-                        compadd -a cands
+                        local line
+                        local -a cands displays
+                        for line in ${{(f)"$(aikito completion candidates memory-completions 2>/dev/null)"}}; do
+                            cands+=("${{line%%$'\\t'*}}")
+                            displays+=("${{line%%$'\\t'*}}${{line#*$'\\t'}}")
+                        done
+                        compadd -d displays -a cands
                         ;;
                     (show\\ skill|show\\ skills|edit\\ skill|edit\\ skills)
                         local cands
@@ -249,6 +339,11 @@ _aikito() {{
             case "$cmd $sub" in
                 (sync\\ project|init\\ project)
                     _files -/
+                    if [[ -n $cur && $cur != */* ]]; then
+                        local -a cands
+                        cands=(${{(f)"$(aikito completion candidates paths "$cur" 2>/dev/null)"}})
+                        (( ${{#cands}} )) && compadd -U -a cands
+                    fi
                     ;;
             esac
             ;;
@@ -356,6 +451,11 @@ _aikito_completion() {{
 {cmd_subs_str}
                 adopt|init)
                     COMPREPLY=( $(compgen -d -- "$cur") )
+                    if [[ -n $cur && $cur != */* ]]; then
+                        while IFS= read -r candidate; do
+                            [[ -n $candidate ]] && COMPREPLY+=("$candidate")
+                        done < <(aikito completion candidates paths "$cur" 2>/dev/null)
+                    fi
                     return 0
                     ;;
             esac
@@ -376,9 +476,10 @@ _aikito_completion() {{
 
         case "$cmd $sub" in
             show\\ memory|edit\\ memory)
-                local candidates
-                candidates=$(aikito completion candidates memories 2>/dev/null)
-                COMPREPLY=( $(compgen -W "$candidates" -- "$cur") )
+                local candidate display
+                while IFS=$'\\t' read -r candidate display; do
+                    [[ $candidate == "$cur"* ]] && COMPREPLY+=("$candidate")
+                done < <(aikito completion candidates memory-completions 2>/dev/null)
                 return 0
                 ;;
             show\\ skill|show\\ skills|edit\\ skill|edit\\ skills)
@@ -400,17 +501,32 @@ _aikito_completion() {{
                     COMPREPLY=( $(compgen -W "$candidates" -- "$cur") )
                 elif [[ $COMP_CWORD -eq 4 ]]; then
                     COMPREPLY=( $(compgen -d -- "$cur") )
+                    if [[ -n $cur && $cur != */* ]]; then
+                        while IFS= read -r candidate; do
+                            [[ -n $candidate ]] && COMPREPLY+=("$candidate")
+                        done < <(aikito completion candidates paths "$cur" 2>/dev/null)
+                    fi
                 fi
                 return 0
                 ;;
             init\\ project)
                 if [[ $COMP_CWORD -eq 4 ]]; then
                     COMPREPLY=( $(compgen -d -- "$cur") )
+                    if [[ -n $cur && $cur != */* ]]; then
+                        while IFS= read -r candidate; do
+                            [[ -n $candidate ]] && COMPREPLY+=("$candidate")
+                        done < <(aikito completion candidates paths "$cur" 2>/dev/null)
+                    fi
                 fi
                 return 0
                 ;;
             init\\ workspace)
                 COMPREPLY=( $(compgen -d -- "$cur") )
+                if [[ -n $cur && $cur != */* ]]; then
+                    while IFS= read -r candidate; do
+                        [[ -n $candidate ]] && COMPREPLY+=("$candidate")
+                    done < <(aikito completion candidates paths "$cur" 2>/dev/null)
+                fi
                 return 0
                 ;;
             completion\\ candidates)
@@ -472,7 +588,7 @@ def generate_fish(parser: argparse.ArgumentParser | None = None) -> str:
     dyn_lines = [
         "# Dynamic candidates & positionals",
         "complete -c aikito -f -n '__fish_seen_subcommand_from show edit; and __fish_seen_subcommand_from memory' "
-        "-a '(aikito completion candidates memories 2>/dev/null)'",
+        "-a '(aikito completion candidates memory-completions 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from show edit; and __fish_seen_subcommand_from skill skills' "
         "-a '(aikito completion candidates skills 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from show edit; and __fish_seen_subcommand_from instructions' "
@@ -484,6 +600,17 @@ def generate_fish(parser: argparse.ArgumentParser | None = None) -> str:
         "complete -c aikito -F -n '__fish_seen_subcommand_from init; and __fish_seen_subcommand_from workspace project'",
         "complete -c aikito -F -n '__fish_seen_subcommand_from sync; and __fish_seen_subcommand_from project'",
         "complete -c aikito -F -n '__fish_seen_subcommand_from adopt'",
+        "complete -c aikito -f -n '__fish_seen_subcommand_from adopt; "
+        "and test (count (commandline -opc)) -eq 2' "
+        "-a '(aikito completion candidates paths (commandline -ct) 2>/dev/null)'",
+        "complete -c aikito -f -n '__fish_seen_subcommand_from init; "
+        "and __fish_seen_subcommand_from workspace; "
+        "and test (count (commandline -opc)) -eq 3' "
+        "-a '(aikito completion candidates paths (commandline -ct) 2>/dev/null)'",
+        "complete -c aikito -f -n '__fish_seen_subcommand_from init sync; "
+        "and __fish_seen_subcommand_from project; "
+        "and test (count (commandline -opc)) -eq 4' "
+        "-a '(aikito completion candidates paths (commandline -ct) 2>/dev/null)'",
     ]
 
     parts = (

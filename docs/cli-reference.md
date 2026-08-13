@@ -27,7 +27,7 @@ version.
 | `aikito edit skill <target>` | Open a skill's SKILL.md in `$VISUAL` or `$EDITOR` |
 | `aikito doctor` | Run deep workspace diagnostics |
 | `aikito completion zsh\|bash\|fish` | Print a shell completion script |
-| `aikito completion candidates projects\|skills\|memories` | List dynamic completion candidates |
+| `aikito completion candidates projects\|skills\|memories\|paths [prefix]` | List dynamic completion candidates |
 | `aikito version` | Print the CLI version |
 
 ## Discovery
@@ -151,7 +151,13 @@ files with no network requests or expensive diagnostics:
 aikito completion candidates projects
 aikito completion candidates skills
 aikito completion candidates memories
+aikito completion candidates paths agent
 ```
+
+Path arguments combine normal local filesystem completion with basename-prefix
+matches from the Aikito workspace and registered project roots. Hidden and
+generated dependency directories are skipped, and ambiguous matches remain
+visible for explicit selection.
 
 Installation via `brew install lsaint/tap/aikito` automatically installs
 Zsh and Bash completions without modifying `~/.zshrc`.

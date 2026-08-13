@@ -63,7 +63,7 @@ from aikito_subagent import (
 )
 from aikito_completion import generate_bash, generate_fish, generate_zsh, get_candidates
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 
 def get_aikito_dir() -> Path:
@@ -977,7 +977,9 @@ def cmd_completion(args: argparse.Namespace) -> None:
     target = args.shell_or_sub
     if target == "candidates":
         try:
-            items = get_candidates(args.category, get_aikito_dir())
+            items = get_candidates(
+                args.category, get_aikito_dir(), getattr(args, "query", None)
+            )
             for item in items:
                 print(item)
         except ValueError as exc:
@@ -1343,8 +1345,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_completion_candidates.add_argument(
         "category",
-        choices=["projects", "skills", "memories"],
+        choices=[
+            "projects",
+            "skills",
+            "memories",
+            "memory-completions",
+            "paths",
+        ],
         help="Category of candidates to list",
+    )
+    p_completion_candidates.add_argument(
+        "query",
+        nargs="?",
+        default=None,
+        help="Optional basename prefix used by path completion",
     )
     p_completion_candidates.set_defaults(func=cmd_completion, shell_or_sub="candidates")
 

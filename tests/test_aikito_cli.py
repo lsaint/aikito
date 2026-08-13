@@ -905,17 +905,18 @@ url = "http://custom.example.com"
     def test_resolve_color_flags(self) -> None:
         parser = AIKITO_CLI.build_parser()
 
-        args = parser.parse_args(["show", "mcp", "--color", "always"])
-        use_unicode, use_color = AIKITO_CLI.resolve_color_flags(args)
-        self.assertTrue(use_unicode)
-        self.assertTrue(use_color)
+        with patch.dict(AIKITO_CLI.os.environ, {"NO_COLOR": ""}):
+            args = parser.parse_args(["show", "mcp", "--color", "always"])
+            use_unicode, use_color = AIKITO_CLI.resolve_color_flags(args)
+            self.assertTrue(use_unicode)
+            self.assertTrue(use_color)
 
-        args_no_color = parser.parse_args(
-            ["show", "mcp", "--color", "always", "--no-color"]
-        )
-        use_unicode, use_color = AIKITO_CLI.resolve_color_flags(args_no_color)
-        self.assertTrue(use_unicode)
-        self.assertFalse(use_color)
+            args_no_color = parser.parse_args(
+                ["show", "mcp", "--color", "always", "--no-color"]
+            )
+            use_unicode, use_color = AIKITO_CLI.resolve_color_flags(args_no_color)
+            self.assertTrue(use_unicode)
+            self.assertFalse(use_color)
 
 
 if __name__ == "__main__":

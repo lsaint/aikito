@@ -100,6 +100,8 @@ When duplication is plausible, check for related notes first and prefer updating
 
 Memory stays trustworthy only if invalidated knowledge leaves it. A note has outlived its value when it is no longer accurate, useful, distinctive, or costly to re-derive. Judge this opportunistically while reading notes for the current task; do not sweep the whole store looking for work.
 
+When substantially relying on or modifying a note, evaluate whether the whole note still has value.
+
 Prefer the least destructive remedy that restores accuracy: rewrite when the topic still matters, merge when notes overlap, delete only when the topic itself stopped being worth remembering.
 
 Act autonomously when retirement is clear; ask only when the note may still encode a valid user preference, decision, or context you cannot verify.
