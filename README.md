@@ -25,7 +25,7 @@ Plain files define the source of truth, explicit scopes define who sees what, an
 
 You author the resources, agents maintain the memory, Aikito governs the workspace.
 
-No database, daemon, vector store, or hosted service required.
+One workspace keeps your AI workflow consistent across agents and machines.
 
 <p align="center">
   <img src="docs/assets/aikito-overview-1.png" alt="Aikito overview diagram 1">
@@ -44,8 +44,9 @@ AI agent resources fragment in three directions:
 - Across time: valuable decisions and hard-won lessons disappear into old
   sessions
 
-Aikito keeps all of it in one personal Git workspace and exposes selected
-resources to each agent and project:
+Aikito keeps all of it in one personal Git workspace and exposes selected resources to each agent and project.
+
+No database, daemon, vector store, or hosted service required.
 
 ```text
 ~/aikito

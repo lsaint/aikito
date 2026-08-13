@@ -25,7 +25,7 @@ Aikito 是由 Git 管理的 AI Agent 上下文与长期记忆治理工作区。
 
 资源由你定义，memory 由 Agent 维护，Aikito 治理整个工作区。
 
-无需数据库、后台守护进程、向量数据库或托管服务。
+单个工作区即可让你的 AI 工作流在不同 Agent 与机器间保持一致。
 
 <p align="center">
   <img src="docs/assets/aikito-overview-1.png" alt="Aikito 概览图 1">
@@ -42,7 +42,9 @@ AI Agent 资源会在三个方向上变得碎片化：
 * 跨项目维度：可复用的知识、skill 与 instruction 在多个仓库中被重复复制或维护
 * 跨时间维度：有价值的决策与经验教训随时间消失在旧会话中
 
-Aikito 将这些资源集中在一个个人 Git 工作区中，并将选定的资源暴露给各个 Agent 和项目：
+Aikito 将这些资源集中在一个个人 Git 工作区中，并将选定的资源暴露给各个 Agent 和项目。
+
+无需数据库、后台守护进程、向量数据库或托管服务。
 
 ```text
 ~/aikito
