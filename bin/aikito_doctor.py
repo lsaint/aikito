@@ -639,8 +639,8 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
         except tomllib.TOMLDecodeError as exc:
             findings.append(_fail(f"{cfg_path.name}: TOML parse error — {exc}"))
 
-    # 3a. Four canonical TOML files
-    for filename in ("agents.toml", "skills.toml", "mcps.toml", "subagents.toml"):
+    # 3a. Canonical TOML files and mcps directory
+    for filename in ("agents.toml", "skills.toml", "subagents.toml"):
         path = aikito_dir / filename
         if not path.exists():
             findings.append(_fail(f"{filename}: file not found"))
@@ -651,6 +651,25 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
             findings.append(_ok(f"{filename}: valid TOML"))
         except tomllib.TOMLDecodeError as exc:
             findings.append(_fail(f"{filename}: TOML parse error — {exc}"))
+
+    mcps_dir = aikito_dir / "mcps"
+    if not mcps_dir.exists():
+        findings.append(_fail("mcps: directory not found"))
+    elif not mcps_dir.is_dir():
+        findings.append(_fail("mcps: path is not a directory"))
+    else:
+        toml_files = sorted(mcps_dir.glob("*.toml"))
+        if not toml_files:
+            findings.append(_ok("mcps: directory present (empty)"))
+        for toml_path in toml_files:
+            try:
+                with open(toml_path, "rb") as f:
+                    tomllib.load(f)
+                findings.append(_ok(f"mcps/{toml_path.name}: valid TOML"))
+            except tomllib.TOMLDecodeError as exc:
+                findings.append(
+                    _fail(f"mcps/{toml_path.name}: TOML parse error — {exc}")
+                )
 
     # 3b. Project agent.toml files
     projects_dir = aikito_dir / "projects"

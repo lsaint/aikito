@@ -45,6 +45,37 @@ def list_skills(aikito_dir: Path) -> List[str]:
     return sorted(set(r.skill_name for r in rows))
 
 
+def list_subagents(aikito_dir: Path) -> List[str]:
+    """Return sorted list of subagent names defined in subagents.toml or subagents/."""
+    subagents_toml = aikito_dir / "subagents.toml"
+    names: set[str] = set()
+    if subagents_toml.is_file():
+        try:
+            data = tomllib.loads(subagents_toml.read_text(encoding="utf-8"))
+            sub_table = data.get("subagents", {})
+            if isinstance(sub_table, dict):
+                names.update(sub_table.keys())
+        except (OSError, tomllib.TOMLDecodeError):
+            pass
+    subagents_dir = aikito_dir / "subagents"
+    if subagents_dir.is_dir():
+        for p in subagents_dir.glob("*.md"):
+            if p.is_file() and not p.name.startswith("."):
+                names.add(p.stem)
+    return sorted(names)
+
+
+def list_mcps(aikito_dir: Path) -> List[str]:
+    """Return sorted list of MCP server names defined in mcps/*.toml."""
+    mcps_dir = aikito_dir / "mcps"
+    names: set[str] = set()
+    if mcps_dir.is_dir():
+        for p in mcps_dir.glob("*.toml"):
+            if p.is_file() and not p.name.startswith("."):
+                names.add(p.stem)
+    return sorted(names)
+
+
 def list_memories(aikito_dir: Path) -> List[str]:
     """Return sorted list of memory identifiers (stem, short_identifier, full_identifier)."""
     items = find_memory_files(aikito_dir)
@@ -139,6 +170,9 @@ def get_candidates(
     dispatch = {
         "projects": list_projects,
         "skills": list_skills,
+        "subagents": list_subagents,
+        "mcps": list_mcps,
+        "mcp": list_mcps,
         "memories": list_memories,
         "memory-completions": list_memory_completions,
     }
@@ -325,6 +359,16 @@ _aikito() {{
                         cands=(${{(f)"$(aikito completion candidates skills 2>/dev/null)"}})
                         compadd -a cands
                         ;;
+                    (show\\ subagent|show\\ subagents|edit\\ subagent|edit\\ subagents)
+                        local cands
+                        cands=(${{(f)"$(aikito completion candidates subagents 2>/dev/null)"}})
+                        compadd -a cands
+                        ;;
+                    (show\\ mcp|show\\ mcps|edit\\ mcp|edit\\ mcps)
+                        local cands
+                        cands=(${{(f)"$(aikito completion candidates mcps 2>/dev/null)"}})
+                        compadd -a cands
+                        ;;
                     (show\\ instructions|edit\\ instructions)
                         local cands
                         cands=(global . ${{(f)"$(aikito completion candidates projects 2>/dev/null)"}})
@@ -344,7 +388,7 @@ _aikito() {{
                         _files -/
                         ;;
                     (completion\\ candidates)
-                        compadd projects skills memories
+                        compadd projects skills memories subagents mcps
                         ;;
                 esac
             fi
@@ -504,6 +548,18 @@ _aikito_completion() {{
                 COMPREPLY=( $(compgen -W "$candidates" -- "$cur") )
                 return 0
                 ;;
+            show\\ subagent|show\\ subagents|edit\\ subagent|edit\\ subagents)
+                local candidates
+                candidates=$(aikito completion candidates subagents 2>/dev/null)
+                COMPREPLY=( $(compgen -W "$candidates" -- "$cur") )
+                return 0
+                ;;
+            show\\ mcp|show\\ mcps|edit\\ mcp|edit\\ mcps)
+                local candidates
+                candidates=$(aikito completion candidates mcps 2>/dev/null)
+                COMPREPLY=( $(compgen -W "$candidates" -- "$cur") )
+                return 0
+                ;;
             show\\ instructions|edit\\ instructions)
                 local projects
                 projects=$(aikito completion candidates projects 2>/dev/null)
@@ -552,7 +608,7 @@ _aikito_completion() {{
                 return 0
                 ;;
             completion\\ candidates)
-                COMPREPLY=( $(compgen -W "projects skills memories" -- "$cur") )
+                COMPREPLY=( $(compgen -W "projects skills memories subagents mcps" -- "$cur") )
                 return 0
                 ;;
         esac
@@ -619,6 +675,10 @@ def generate_fish(parser: argparse.ArgumentParser | None = None) -> str:
         "-a '(aikito completion candidates memory-completions 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from show edit; and __fish_seen_subcommand_from skill skills' "
         "-a '(aikito completion candidates skills 2>/dev/null)'",
+        "complete -c aikito -f -n '__fish_seen_subcommand_from show edit; and __fish_seen_subcommand_from subagent subagents' "
+        "-a '(aikito completion candidates subagents 2>/dev/null)'",
+        "complete -c aikito -f -n '__fish_seen_subcommand_from show edit; and __fish_seen_subcommand_from mcp mcps' "
+        "-a '(aikito completion candidates mcps 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from show edit; and __fish_seen_subcommand_from instructions' "
         "-a 'global . (aikito completion candidates projects 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from show; and __fish_seen_subcommand_from project projects' "
@@ -626,7 +686,7 @@ def generate_fish(parser: argparse.ArgumentParser | None = None) -> str:
         "complete -c aikito -f -n '__fish_seen_subcommand_from sync; and __fish_seen_subcommand_from project' "
         "-a '(aikito completion candidates projects 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from completion; and __fish_seen_subcommand_from candidates' "
-        "-a 'projects skills memories'",
+        "-a 'projects skills memories subagents mcps'",
         "complete -c aikito -F -n '__fish_seen_subcommand_from init; and __fish_seen_subcommand_from workspace project'",
         "complete -c aikito -F -n '__fish_seen_subcommand_from sync; and __fish_seen_subcommand_from project'",
         "complete -c aikito -F -n '__fish_seen_subcommand_from adopt'",

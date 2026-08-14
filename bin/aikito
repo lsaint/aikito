@@ -71,6 +71,7 @@ from aikito_status import (
 )
 from aikito_subagent import (
     SubagentConfigError,
+    load_subagent_definitions,
     sync_subagent_configs,
 )
 from aikito_completion import generate_bash, generate_fish, generate_zsh, get_candidates
@@ -725,6 +726,112 @@ def resolve_skill_target_for_command(
     return skill_file
 
 
+def resolve_subagent_target_for_command(
+    aikito_dir: Path, target: str, operation: str
+) -> Path:
+    try:
+        definitions = load_subagent_definitions(aikito_dir, allow_empty=True)
+    except SubagentConfigError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    target_norm = target.strip()
+    names = sorted(definitions.keys())
+
+    exact_matches = [name for name in names if name == target_norm]
+    if len(exact_matches) == 1:
+        matched_name = exact_matches[0]
+    else:
+        prefix_matches = [name for name in names if name.startswith(target_norm)]
+        if len(prefix_matches) == 1:
+            matched_name = prefix_matches[0]
+        elif len(prefix_matches) > 1:
+            print(
+                f"[CONFLICT] Multiple subagents match '{target}':\n",
+                file=sys.stderr,
+            )
+            for name in prefix_matches:
+                print(f"  - {name}", file=sys.stderr)
+            print("\nPlease specify the exact subagent name, e.g.:", file=sys.stderr)
+            for name in prefix_matches:
+                print(
+                    f"  aikito {operation} subagent {name}",
+                    file=sys.stderr,
+                )
+            sys.exit(1)
+        else:
+            print(f"[ERROR] Subagent '{target}' not found.", file=sys.stderr)
+            print("Run 'aikito show subagents' to view available subagents.", file=sys.stderr)
+            sys.exit(1)
+
+    subagents_root = aikito_dir / "subagents"
+    subagent_file = subagents_root / f"{matched_name}.md"
+
+    ensure_safe_path(subagent_file, [subagents_root], "subagent")
+
+    if not subagent_file.is_file():
+        print(
+            f"[ERROR] Instructions file for subagent '{matched_name}' not found at {subagent_file}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    return subagent_file
+
+
+def resolve_mcp_target_for_command(
+    aikito_dir: Path, target: str, operation: str
+) -> Path:
+    mcps_dir = aikito_dir / "mcps"
+    if not mcps_dir.is_dir():
+        print(f"[ERROR] MCP directory not found at {mcps_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    target_norm = target.strip()
+    files = sorted(mcps_dir.glob("*.toml"))
+    names = [f.stem for f in files if f.is_file() and not f.name.startswith(".")]
+
+    exact_matches = [name for name in names if name == target_norm]
+    if len(exact_matches) == 1:
+        matched_name = exact_matches[0]
+    else:
+        prefix_matches = [name for name in names if name.startswith(target_norm)]
+        if len(prefix_matches) == 1:
+            matched_name = prefix_matches[0]
+        elif len(prefix_matches) > 1:
+            print(
+                f"[CONFLICT] Multiple MCP servers match '{target}':\n",
+                file=sys.stderr,
+            )
+            for name in prefix_matches:
+                print(f"  - {name}", file=sys.stderr)
+            print("\nPlease specify the exact MCP server name, e.g.:", file=sys.stderr)
+            for name in prefix_matches:
+                print(
+                    f"  aikito {operation} mcp {name}",
+                    file=sys.stderr,
+                )
+            sys.exit(1)
+        else:
+            print(f"[ERROR] MCP server '{target}' not found.", file=sys.stderr)
+            print(
+                "Run 'aikito show mcp' to view available MCP servers.", file=sys.stderr
+            )
+            sys.exit(1)
+
+    mcp_file = mcps_dir / f"{matched_name}.toml"
+    ensure_safe_path(mcp_file, [mcps_dir], "mcp")
+
+    if not mcp_file.is_file():
+        print(
+            f"[ERROR] Config file for MCP server '{matched_name}' not found at {mcp_file}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    return mcp_file
+
+
 def cmd_show_project(args: argparse.Namespace) -> None:
     projects = collect_project_summaries(get_aikito_dir(), Path.home())
     target = getattr(args, "target", None)
@@ -955,6 +1062,14 @@ def cmd_edit_skill(args: argparse.Namespace) -> None:
     open_in_editor(skill_file)
 
 
+def cmd_edit_subagent(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    subagent_file = resolve_subagent_target_for_command(
+        aikito_dir, args.target, operation="edit"
+    )
+    open_in_editor(subagent_file)
+
+
 def cmd_show_mcp(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
     home = Path.home()
@@ -962,27 +1077,35 @@ def cmd_show_mcp(args: argparse.Namespace) -> None:
 
     try:
         target = getattr(args, "target", None)
-        agent = getattr(args, "agent", None)
-        if getattr(args, "live", False) and (target or agent):
+        raw_agent = getattr(args, "agent", None)
+        agent_flag_passed = raw_agent is not None
+        agent_target = None if raw_agent is True else raw_agent
+
+        if getattr(args, "live", False) and (target or agent_flag_passed):
             print(
                 "[ERROR] --live is only supported by the MCP matrix view",
                 file=sys.stderr,
             )
             sys.exit(2)
-        if target or agent:
+
+        # 1. Detail / Agent view across agents when --agent is passed
+        # - show mcp <target> --agent: detail view of <target> across all agents
+        # - show mcp <target> --agent <agent>: detail view of <target> for specific agent
+        # - show mcp --agent <agent>: list of MCP servers on specific agent
+        if (agent_target is not None) or (target and agent_flag_passed):
             try:
                 rows = collect_mcp_details(
                     aikito_dir=aikito_dir,
                     home=home,
                     server_target=target,
-                    agent_target=agent,
+                    agent_target=agent_target,
                 )
             except ValueError as exc:
                 raise MCPConfigError(str(exc)) from exc
             if not rows:
-                selection = "/".join(value for value in (agent, target) if value)
+                selection = "/".join(value for value in (agent_target, target) if value)
                 raise MCPConfigError(f"No MCP configuration found for '{selection}'")
-            if agent and not target:
+            if agent_target and not target:
                 first = rows[0]
                 managed = [row for row in rows if row.source == "managed"]
                 synced = sum(row.status == "OK" for row in managed)
@@ -1001,13 +1124,29 @@ def cmd_show_mcp(args: argparse.Namespace) -> None:
                 print(
                     render_mcp_details(
                         rows,
-                        str(aikito_dir / "mcps.toml"),
+                        str(aikito_dir / "mcps" / f"{rows[0].server_name}.toml"),
                         use_unicode,
                         use_color,
                     )
                 )
             return
 
+        # 2. Raw file view when target is specified without --agent
+        if target:
+            mcp_file = resolve_mcp_target_for_command(
+                aikito_dir, target, operation="show"
+            )
+            try:
+                print(mcp_file.read_text(encoding="utf-8"), end="")
+            except Exception as e:
+                print(
+                    f"[ERROR] Failed to read MCP config file {mcp_file}: {e}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            return
+
+        # 3. Default matrix view
         server_rows, agent_names = collect_mcp_matrix(
             aikito_dir=aikito_dir,
             home=home,
@@ -1022,22 +1161,45 @@ def cmd_show_mcp(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_edit_mcp(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    mcp_file = resolve_mcp_target_for_command(
+        aikito_dir, args.target, operation="edit"
+    )
+    open_in_editor(mcp_file)
+
+
 def cmd_show_subagents(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
     home = Path.home()
-    use_unicode, use_color = resolve_color_flags(args)
+    target = getattr(args, "target", None)
 
+    if not target:
+        use_unicode, use_color = resolve_color_flags(args)
+        try:
+            subagent_rows, orphan_files, agent_names = collect_subagents_matrix(
+                aikito_dir=aikito_dir,
+                home=home,
+            )
+            table_str = render_subagents_status_table(
+                subagent_rows, orphan_files, agent_names, use_unicode, use_color
+            )
+            print(table_str)
+        except SubagentConfigError as exc:
+            print(f"[ERROR] {exc}", file=sys.stderr)
+            sys.exit(1)
+        return
+
+    subagent_file = resolve_subagent_target_for_command(
+        aikito_dir, target, operation="show"
+    )
     try:
-        subagent_rows, orphan_files, agent_names = collect_subagents_matrix(
-            aikito_dir=aikito_dir,
-            home=home,
+        print(subagent_file.read_text(encoding="utf-8"), end="")
+    except Exception as e:
+        print(
+            f"[ERROR] Failed to read subagent file {subagent_file}: {e}",
+            file=sys.stderr,
         )
-        table_str = render_subagents_status_table(
-            subagent_rows, orphan_files, agent_names, use_unicode, use_color
-        )
-        print(table_str)
-    except SubagentConfigError as exc:
-        print(f"[ERROR] {exc}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -1345,7 +1507,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_sync_subagent.add_argument(
         "--force",
         nargs="*",
-        help="Force overwrite of specific conflict target(s), e.g. --force claude-code/formatter",
+        help="Force overwrite of specific conflict target(s), e.g. --force claude-code/verifier",
     )
     p_sync_subagent.add_argument(
         "--prune",
@@ -1364,16 +1526,20 @@ def build_parser() -> argparse.ArgumentParser:
     # show mcp
     p_show_mcp = show_subparsers.add_parser(
         "mcp",
-        help="Inspect managed MCP server configs across agents",
+        aliases=["mcps"],
+        help="Inspect managed MCP server configs across agents, or print one MCP server's config",
     )
     p_show_mcp.add_argument(
         "target",
         nargs="?",
-        help="MCP server name or unique prefix to inspect",
+        help="MCP server name or unique prefix to view its config file",
     )
     p_show_mcp.add_argument(
         "--agent",
-        help="Show MCP servers for one Agent, or narrow a server detail view",
+        nargs="?",
+        const=True,
+        default=None,
+        help="Show MCP details across all agents, or narrow to a specific agent",
     )
     p_show_mcp.add_argument(
         "--live",
@@ -1387,7 +1553,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_show_subagents = show_subparsers.add_parser(
         "subagents",
         aliases=["subagent"],
-        help="Inspect subagent definitions across agents",
+        help="Inspect subagent definitions across agents, or print one subagent's instructions",
+    )
+    p_show_subagents.add_argument(
+        "target",
+        nargs="?",
+        default=None,
+        help="Exact subagent name or unique prefix (e.g. verifier, jira)",
     )
     add_color_args(p_show_subagents)
     p_show_subagents.set_defaults(func=cmd_show_subagents)
@@ -1491,6 +1663,30 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_edit_skill.set_defaults(func=cmd_edit_skill)
 
+    # edit subagent <target>
+    p_edit_subagent = edit_subparsers.add_parser(
+        "subagent",
+        aliases=["subagents"],
+        help="Open a subagent's instruction markdown file in your configured editor",
+    )
+    p_edit_subagent.add_argument(
+        "target",
+        help="Exact name or unique prefix of the subagent (e.g. verifier, jira)",
+    )
+    p_edit_subagent.set_defaults(func=cmd_edit_subagent)
+
+    # edit mcp <target>
+    p_edit_mcp = edit_subparsers.add_parser(
+        "mcp",
+        aliases=["mcps"],
+        help="Open an MCP server configuration file in your configured editor",
+    )
+    p_edit_mcp.add_argument(
+        "target",
+        help="Exact name or unique prefix of the MCP server (e.g. atlassian-rovo, atl)",
+    )
+    p_edit_mcp.set_defaults(func=cmd_edit_mcp)
+
     # doctor
     p_doctor = subparsers.add_parser(
         "doctor",
@@ -1537,6 +1733,9 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[
             "projects",
             "skills",
+            "subagents",
+            "mcps",
+            "mcp",
             "memories",
             "memory-completions",
             "paths",

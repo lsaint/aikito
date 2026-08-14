@@ -25,8 +25,8 @@ The workspace contains the sources of truth:
 ~/aikito/
 ├── agents.toml
 ├── skills.toml
-├── mcps.toml
 ├── subagents.toml
+├── mcps/
 ├── global/AGENTS.md
 ├── skills/
 ├── memory/
@@ -185,7 +185,7 @@ project synchronization. Do not store unrelated files there.
 Canonical source:
 
 ```text
-~/aikito/mcps.toml
+~/aikito/mcps/*.toml
 ```
 
 Preview, apply, and verify:
@@ -215,6 +215,8 @@ Preview, apply, and verify:
 aikito sync subagents --dry-run
 aikito sync subagents
 aikito show subagents
+aikito show subagent <target>
+aikito edit subagent <target>
 ```
 
 Review orphaned managed files before using `--prune`. Never force an unmanaged

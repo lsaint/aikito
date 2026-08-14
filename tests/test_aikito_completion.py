@@ -17,7 +17,7 @@ AIKITO_CLI = importlib.util.module_from_spec(SPEC)
 LOADER.exec_module(AIKITO_CLI)
 sys.modules["aikito_cli"] = AIKITO_CLI
 
-from aikito_completion import (
+from aikito_completion import (  # noqa: E402
     extract_cli_schema,
     generate_bash,
     generate_fish,
@@ -29,9 +29,7 @@ from aikito_completion import (
     list_projects,
     list_skills,
 )
-from aikito_memory import (
-    MemoryFileItem,
-    MemoryTargetConflictError,
+from aikito_memory import (  # noqa: E402
     find_memory_files,
     resolve_memory_target,
 )
@@ -62,6 +60,8 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         edit_subs = schema["commands"]["edit"]["subcommands"]
         self.assertIn("skill", edit_subs)
         self.assertIn("skills", edit_subs)  # Alias of skill
+        self.assertIn("subagent", edit_subs)
+        self.assertIn("subagents", edit_subs)  # Alias of subagent
 
         # Flags per command & subcommand
         adopt_flags = schema["commands"]["adopt"]["flags"]
@@ -98,6 +98,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn('if [[ "$funcstack[1]" == *"_aikito"* ]]; then', zsh)
         self.assertIn("skills", zsh)
         self.assertIn("subagent", zsh)
+        self.assertIn("show\\ mcp", zsh)
         self.assertIn("show\\ project", zsh)
         self.assertIn("--dry-run", zsh)
         self.assertIn("--apply", zsh)
@@ -108,6 +109,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         bash = generate_bash(parser)
         self.assertIn("skills", bash)
         self.assertIn("subagent", bash)
+        self.assertIn("show\\ mcp", bash)
         self.assertIn("show\\ project", bash)
         self.assertIn("--dry-run", bash)
         self.assertIn("--apply", bash)
@@ -118,6 +120,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         fish = generate_fish(parser)
         self.assertIn("skills", fish)
         self.assertIn("subagent", fish)
+        self.assertIn("mcp mcps", fish)
         self.assertIn("project projects", fish)
         self.assertIn("-l dry-run", fish)
         self.assertIn("-l apply", fish)
@@ -217,6 +220,37 @@ class AikitoCompletionTest(unittest.TestCase):
     def test_get_candidates_dispatch(self) -> None:
         (self.aikito_dir / "projects" / "p1").mkdir(parents=True, exist_ok=True)
         self.assertEqual(get_candidates("projects", self.aikito_dir), ["p1"])
+
+        # Subagents
+        subagents_dir = self.aikito_dir / "subagents"
+        subagents_dir.mkdir(parents=True)
+        (subagents_dir / "verifier.md").write_text("# Verifier", encoding="utf-8")
+        (subagents_dir / "jira.md").write_text("# Jira", encoding="utf-8")
+        (self.aikito_dir / "subagents.toml").write_text(
+            '[subagents.verifier]\ndescription = "v"\nagents = ["codex"]\n'
+            '[subagents.jira]\ndescription = "j"\nagents = ["codex"]\n',
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            get_candidates("subagents", self.aikito_dir),
+            ["jira", "verifier"],
+        )
+
+        # MCPs
+        mcps_dir = self.aikito_dir / "mcps"
+        mcps_dir.mkdir(parents=True)
+        (mcps_dir / "atlassian-rovo.toml").write_text(
+            'url = "http://a"\n', encoding="utf-8"
+        )
+        (mcps_dir / "github.toml").write_text('url = "http://g"\n', encoding="utf-8")
+        self.assertEqual(
+            get_candidates("mcps", self.aikito_dir),
+            ["atlassian-rovo", "github"],
+        )
+        self.assertEqual(
+            get_candidates("mcp", self.aikito_dir),
+            ["atlassian-rovo", "github"],
+        )
 
         with self.assertRaises(ValueError):
             get_candidates("unknown_cat", self.aikito_dir)

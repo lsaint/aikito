@@ -9,7 +9,7 @@
 # An agent without an [agents.<name>.mcp] section (or with
 # config_format = "unsupported") does not participate in MCP synchronization.
 #
-# mcps.toml's `agents = [...]` values must reference keys defined here.
+# mcps/*.toml's `agents = [...]` values must reference keys defined here.
 
 # =============================================================================
 # Codex CLI

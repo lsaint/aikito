@@ -11,11 +11,11 @@ from pathlib import Path
 
 
 class SymlinkVerdict(Enum):
-    OK = "OK"                     # is_symlink, target exists, resolves to expected
-    DANGLING = "DANGLING"         # is_symlink, target does not exist
-    WRONG_TARGET = "WRONG_TARGET" # is_symlink, target exists but resolves elsewhere
-    NOT_SYMLINK = "NOT_SYMLINK"   # path exists but is a regular file or directory
-    MISSING = "MISSING"           # path does not exist at all and is not a symlink
+    OK = "OK"  # is_symlink, target exists, resolves to expected
+    DANGLING = "DANGLING"  # is_symlink, target does not exist
+    WRONG_TARGET = "WRONG_TARGET"  # is_symlink, target exists but resolves elsewhere
+    NOT_SYMLINK = "NOT_SYMLINK"  # path exists but is a regular file or directory
+    MISSING = "MISSING"  # path does not exist at all and is not a symlink
 
 
 def classify_symlink(path: Path, expected_source: Path) -> SymlinkVerdict:

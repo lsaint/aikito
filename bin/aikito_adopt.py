@@ -551,27 +551,25 @@ def execute_adoption(
                     inst.target_path.write_text(inst.merged_content, encoding="utf-8")
                     print(f"[WRITE FILE] Updated {inst.target_path}")
 
-    # 2. MCP Servers Adoption (Pre-render in memory)
+    # 2. MCP Servers Adoption
     if plan.mcp_servers:
         print("\n--- MCP Servers Adoption ---")
-        mcps_toml_path = plan.aikito_dir / "mcps.toml"
-        existing_mcps = (
-            mcps_toml_path.read_text(encoding="utf-8")
-            if mcps_toml_path.exists()
-            else ""
-        )
+        mcps_dir = plan.aikito_dir / "mcps"
+        if not dry_run:
+            mcps_dir.mkdir(parents=True, exist_ok=True)
 
-        new_mcps_content, mcp_logs = render_mcp_servers_block(
-            existing_mcps, plan.mcp_servers
-        )
-        for _, log_msg in mcp_logs:
+        for srv in plan.mcp_servers:
+            server_file = mcps_dir / f"{srv.server_name}.toml"
+            if server_file.exists():
+                print(f"[SKIP MCP] Server '{srv.server_name}' already present")
+                continue
+            content, log_msg = render_mcp_server_file(srv)
             if dry_run and log_msg.startswith("[ADOPT MCP]"):
                 log_msg = log_msg.replace("[ADOPT MCP]", "[DRY-RUN MCP] Would import")
             print(log_msg)
-
-        if not dry_run and new_mcps_content != existing_mcps:
-            mcps_toml_path.write_text(new_mcps_content, encoding="utf-8")
-            print(f"[WRITE FILE] Updated {mcps_toml_path}")
+            if not dry_run and content is not None:
+                server_file.write_text(content, encoding="utf-8")
+                print(f"[WRITE FILE] Created {server_file}")
 
     # 3. Subagents Adoption (Pre-render in memory)
     if plan.subagents:
@@ -645,66 +643,31 @@ def _format_toml_value(val: Any) -> str:
         return json.dumps(str(val), ensure_ascii=False)
 
 
-def render_mcp_servers_block(
-    existing_content: str, mcp_servers: List[MCPServerAdoption]
-) -> Tuple[str, List[Tuple[str, str]]]:
+def render_mcp_server_file(
+    srv: MCPServerAdoption,
+) -> Tuple[Optional[str], str]:
     """
-    Renders valid TOML appended block for MCP servers in memory.
-    Returns (new_complete_toml_content, status_logs)
+    Renders valid TOML content for an individual MCP server.
+    Returns (toml_content_or_none, log_message)
     """
-    lines = []
-    status_logs: List[Tuple[str, str]] = []
+    cfg = srv.config_data
+    lines = [f"agents = {_format_toml_value(srv.agents)}"]
 
-    for srv in mcp_servers:
-        safe_key = _format_toml_key(srv.server_name)
-        header_1 = f"[servers.{safe_key}]"
-        header_2 = f"[mcp_servers.{safe_key}]"
+    for key in ("command", "url", "args", "env", "transport", "headers"):
+        if key in cfg and cfg[key] is not None:
+            lines.append(f"{key} = {_format_toml_value(cfg[key])}")
 
-        if header_1 in existing_content or header_2 in existing_content:
-            status_logs.append(
-                (
-                    srv.server_name,
-                    f"[SKIP MCP] Server '{srv.server_name}' already present",
-                )
-            )
-            continue
+    srv_block = "\n".join(lines) + "\n"
 
-        cfg = srv.config_data
-        srv_lines = [f"\n{header_1}"]
-        srv_lines.append(f"agents = {_format_toml_value(srv.agents)}")
-
-        for key in ("command", "url", "args", "env", "transport", "headers"):
-            if key in cfg and cfg[key] is not None:
-                srv_lines.append(f"{key} = {_format_toml_value(cfg[key])}")
-
-        srv_block = "\n".join(srv_lines) + "\n"
-
-        # Validate syntax of this single block
-        try:
-            tomllib.loads("test = true\n" + srv_block)
-            lines.append(srv_block)
-            ag_str = ", ".join(srv.agents)
-            status_logs.append(
-                (
-                    srv.server_name,
-                    f"[ADOPT MCP] Server '{srv.server_name}' (agents: [{ag_str}])",
-                )
-            )
-        except Exception as exc:
-            status_logs.append(
-                (
-                    srv.server_name,
-                    f"[SKIP MCP] Skipping invalid server name or config '{srv.server_name}': {exc}",
-                )
-            )
-
-    new_content = existing_content
-    if lines:
-        if not new_content.endswith("\n"):
-            new_content += "\n"
-        new_content += "".join(lines)
-
-    return new_content, status_logs
+    try:
+        tomllib.loads(srv_block)
+        ag_str = ", ".join(srv.agents)
+        return srv_block, f"[ADOPT MCP] Server '{srv.server_name}' (agents: [{ag_str}])"
+    except Exception as exc:
+        return (
+            None,
+            f"[SKIP MCP] Skipping invalid server name or config '{srv.server_name}': {exc}",
+        )
 
 
 def render_subagents_block(

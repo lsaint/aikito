@@ -202,17 +202,17 @@ class SynchronizationTest(unittest.TestCase):
         (self.home / ".config/opencode").mkdir(parents=True)
         (self.home / ".gemini/config").mkdir(parents=True)
         (self.aikito_dir / "agents.toml").write_text(AGENTS_TOML)
-        (self.aikito_dir / "mcps.toml").write_text(
+        (self.aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
+        (self.aikito_dir / "mcps/managed.toml").write_text(
             """
-[servers.managed]
 transport = "remote"
 url = "https://example.com/mcp"
 agents = ["codex", "claude-code", "opencode", "agy"]
 
-[servers.managed.overrides.opencode]
+[overrides.opencode]
 timeout = 30000
 
-[servers.managed.overrides.agy]
+[overrides.agy]
 enabled = false
 reason = "Unsupported test agent"
 """.lstrip()
@@ -319,14 +319,13 @@ reason = "Unsupported test agent"
         self.assertFalse((self.home / STATE_FILE).exists())
 
     def test_missing_agy_token_aborts_before_writing_any_config(self) -> None:
-        (self.aikito_dir / "mcps.toml").write_text(
+        (self.aikito_dir / "mcps/managed.toml").write_text(
             """
-[servers.managed]
 transport = "remote"
 url = "https://example.com/mcp"
 agents = ["codex", "agy"]
 
-[servers.managed.authentication]
+[authentication]
 method = "basic_api_token"
 account_email = "user@example.com"
 token_env = "TEST_MCP_TOKEN"
@@ -455,7 +454,8 @@ class AgentRegistryTest(unittest.TestCase):
         self.temporary_directory.cleanup()
 
     def write_servers(self, body: str) -> None:
-        (self.aikito_dir / "mcps.toml").write_text(body.lstrip())
+        (self.aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
+        (self.aikito_dir / "mcps/managed.toml").write_text(body.lstrip())
 
     def test_load_agents_parses_registry(self) -> None:
         agents = load_agents(self.aikito_dir, self.home)

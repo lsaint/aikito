@@ -20,6 +20,8 @@ target conflicts.
 ```bash
 aikito sync subagents
 aikito show subagents
+aikito show subagent verifier
+aikito edit subagent verifier
 ```
 
 Managed files are updated from the canonical definition. An existing file
@@ -32,7 +34,7 @@ Example `aikito show subagents` output from a configured workspace:
 ┌───────────┬───────┬─────────────┬───────────────────────┬──────────┐
 │ Subagent  │ Codex │ Claude Code │ Antigravity CLI (agy) │ OpenCode │
 ├───────────┼───────┼─────────────┼───────────────────────┼──────────┤
-│ formatter │ ✓     │ ✓           │ ✓                     │ –        │
+│ verifier  │ ✓     │ ✓           │ ✓                     │ –        │
 └───────────┴───────┴─────────────┴───────────────────────┴──────────┘
 ```
 

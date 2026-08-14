@@ -30,12 +30,12 @@ class AikitoInitTest(unittest.TestCase):
         self.assertTrue((self.target_path / "memory" / "notes").is_dir())
         self.assertTrue((self.target_path / "projects").is_dir())
         self.assertTrue((self.target_path / "skills").is_dir())
+        self.assertTrue((self.target_path / "mcps").is_dir())
         self.assertTrue((self.target_path / ".git").is_dir())
 
         # Check files
         self.assertTrue((self.target_path / "config.toml").is_file())
         self.assertTrue((self.target_path / "agents.toml").is_file())
-        self.assertTrue((self.target_path / "mcps.toml").is_file())
         self.assertTrue((self.target_path / "subagents.toml").is_file())
         self.assertTrue((self.target_path / "memory" / "index.md").is_file())
         self.assertTrue((self.target_path / "skills.toml").is_file())

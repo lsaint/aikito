@@ -55,7 +55,7 @@ def collect_drift_diffs(aikito_dir: Path, home: Path) -> list[tuple[str, str]]:
         if current is None:
             continue
         actual_label = str(spec.config_path)
-        expected_label = f"mcps.toml ({spec.server})"
+        expected_label = f"mcps/{spec.server}.toml"
         diff = _unified_diff(
             _json_lines(redact_mcp_entry(current)),
             _json_lines(redact_mcp_entry(spec.desired)),

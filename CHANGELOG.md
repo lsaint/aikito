@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-08-14
+
+### Added
+
+- Added `aikito show subagent <name>` and `aikito edit subagent <name>` (with `subagents` alias) for inspecting and editing individual subagent definitions.
+- Added `aikito edit mcp <server>` for opening MCP server configuration files in the configured editor.
+- Added `aikito show mcp <server> --agent` (and `--agent <agent>`) to display detailed per-agent synchronized status and configuration blocks.
+- Added dynamic shell completion candidate support for MCP servers (`mcps`) across Zsh, Bash, and Fish.
+
+### Changed
+
+- Migrated MCP server configurations from a single `mcps.toml` file to individual configuration files in `mcps/*.toml`.
+- Aligned `aikito show mcp <server>` to print the canonical `mcps/<server>.toml` content directly, matching `show skill` and `show subagents`.
+
 ## [1.4.0] - 2026-08-14
 
 ### Added
@@ -125,7 +139,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/lsaint/aikito/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/lsaint/aikito/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/lsaint/aikito/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/lsaint/aikito/compare/v1.1.0...v1.2.0

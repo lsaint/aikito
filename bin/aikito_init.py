@@ -22,12 +22,12 @@ SOURCE_CHECKOUT_MARKERS = (
 
 WORKSPACE_FILE_MARKERS = (
     Path("agents.toml"),
-    Path("mcps.toml"),
     Path("skills.toml"),
     Path("subagents.toml"),
 )
 
 WORKSPACE_DIRECTORY_MARKERS = (
+    Path("mcps"),
     Path("memory"),
     Path("projects"),
     Path("skills"),
@@ -232,11 +232,12 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
     # 1. Create skeleton directories
     dirs_to_create = [
         target_dir,
-        target_dir / "memory",
-        target_dir / "memory" / "notes",
-        target_dir / "projects",
-        target_dir / "skills",
         target_dir / "global",
+        target_dir / "projects",
+        target_dir / "mcps",
+        target_dir / "skills",
+        target_dir / "subagents",
+        target_dir / "memory" / "notes",
     ]
 
     for d in dirs_to_create:
@@ -248,7 +249,6 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
     files_to_create = [
         (target_dir / "config.toml", CONFIG_TOML_TEMPLATE, "Workspace config template"),
         (target_dir / "agents.toml", AGENTS_TOML_TEMPLATE, "Agents config template"),
-        (target_dir / "mcps.toml", MCPS_TOML_TEMPLATE, "MCP config template"),
         (target_dir / "skills.toml", SKILLS_TOML_TEMPLATE, "Global skills config"),
         (
             target_dir / "subagents.toml",

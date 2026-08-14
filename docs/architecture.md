@@ -26,9 +26,9 @@ The workspace is the source of truth:
 ├── skills/
 ├── memory/
 ├── projects/
+├── mcps/
 ├── agents.toml
 ├── skills.toml
-├── mcps.toml
 └── subagents.toml
         |
         | aikito sync ...
@@ -54,7 +54,7 @@ review requirements to match your environment.
 | Memory | `memory/`, `projects/<name>/memory/` | Durable global and project knowledge |
 | Skills | `skills/<name>/` | Reusable Agent workflows |
 | Instructions | `global/AGENTS.md`, `projects/<name>/AGENTS.md` | Global and project behavior |
-| MCP servers | `mcps.toml` | Cross-Agent server definitions |
+| MCP servers | `mcps/*.toml` | Cross-Agent server definitions |
 | Subagents | `subagents.toml`, `subagents/` | Cross-Agent specialist definitions |
 | Agent registry | `agents.toml` | Integration paths and supported capabilities |
 

@@ -20,7 +20,7 @@ from urllib.parse import parse_qs, urlsplit
 
 
 STATE_VERSION = 1
-DEFAULT_MCP_CONFIG = Path("mcps.toml")
+DEFAULT_MCPS_DIR = Path("mcps")
 DEFAULT_AGENTS_CONFIG = Path("agents.toml")
 STATE_FILE = Path(".local/state/aikito/mcp-state.json")
 BACKUP_DIR = Path(".local/state/aikito/backups")
@@ -735,17 +735,30 @@ def _build_desired(
 
 
 def load_agent_specs(aikito_dir: Path, home: Path) -> list[AgentSpec]:
-    config_path = aikito_dir / DEFAULT_MCP_CONFIG
-    if not config_path.exists():
-        raise MCPConfigError(f"MCP config not found: {config_path}")
-    try:
-        document = tomllib.loads(config_path.read_text())
-    except tomllib.TOMLDecodeError as exc:
-        raise MCPConfigError(f"Invalid MCP config {config_path}: {exc}") from exc
+    mcps_dir = aikito_dir / DEFAULT_MCPS_DIR
+    if not mcps_dir.exists():
+        raise MCPConfigError(f"MCP config directory not found: {mcps_dir}")
+    if not mcps_dir.is_dir():
+        raise MCPConfigError(f"MCP config path is not a directory: {mcps_dir}")
 
-    servers = document.get("servers", {})
-    if not isinstance(servers, dict):
-        raise MCPConfigError(f"'servers' must be a table in {config_path}")
+    servers: dict[str, dict[str, Any]] = {}
+    for config_path in sorted(mcps_dir.glob("*.toml")):
+        server_name = config_path.stem
+        try:
+            document = tomllib.loads(config_path.read_text(encoding="utf-8"))
+        except tomllib.TOMLDecodeError as exc:
+            raise MCPConfigError(f"Invalid MCP config {config_path}: {exc}") from exc
+
+        if "servers" in document and isinstance(document["servers"], dict):
+            for s_name, s_val in document["servers"].items():
+                if isinstance(s_val, dict):
+                    servers[s_name] = s_val
+                else:
+                    raise MCPConfigError(
+                        f"Server '{s_name}' in {config_path} must be a table"
+                    )
+        else:
+            servers[server_name] = document
 
     registry = load_agents(aikito_dir, home)
 

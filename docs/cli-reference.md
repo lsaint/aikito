@@ -18,7 +18,7 @@ version.
 | `aikito sync subagents` | Render and synchronize subagents |
 | `aikito auth mcp <agent> <server>` | Authenticate a configured MCP server |
 | `aikito show mcp [server] [--agent agent]` | Inspect the MCP matrix or drill into a server, Agent, or managed entry |
-| `aikito show subagents` | Inspect subagent rendering state across agents |
+| `aikito show subagents [target]` | Inspect subagent rendering state across agents or print one subagent's instructions |
 | `aikito show project [name]` | List registered projects or inspect one project's configuration and sync status |
 | `aikito show instructions [global|project|.]` | List or print global and project instructions |
 | `aikito show memory [target]` | Print a memory note, or list all memory notes if target is omitted |
@@ -26,9 +26,10 @@ version.
 | `aikito edit memory <target>` | Open a memory note in `$VISUAL` or `$EDITOR` |
 | `aikito edit instructions <global|project|.>` | Open canonical instructions in `$VISUAL` or `$EDITOR` |
 | `aikito edit skill <target>` | Open a skill's SKILL.md in `$VISUAL` or `$EDITOR` |
+| `aikito edit subagent <target>` | Open a subagent's instruction markdown in `$VISUAL` or `$EDITOR` |
 | `aikito doctor` | Run deep workspace diagnostics |
 | `aikito completion zsh\|bash\|fish` | Print a shell completion script |
-| `aikito completion candidates projects\|skills\|memories\|paths [prefix]` | List dynamic completion candidates |
+| `aikito completion candidates projects\|skills\|subagents\|memories\|paths [prefix]` | List dynamic completion candidates |
 | `aikito version` | Print the CLI version |
 
 ## Discovery
@@ -49,7 +50,7 @@ Commands differ in their effect:
 - `init project` creates an idempotent canonical project skeleton and its runtime links;
 - `adopt --apply` writes imported resources into the workspace after backup;
 - `sync` writes managed Agent or project runtime configuration;
-- `edit` delegates a canonical memory or skill file to an external editor.
+- `edit` delegates a canonical memory, skill, instruction, or subagent file to an external editor.
 
 Use `--dry-run` to preview project, MCP, and subagent synchronization, and consult the
 [Safety model](safety.md) before applying changes to an existing setup.
@@ -168,6 +169,7 @@ files with no network requests or expensive diagnostics:
 ```bash
 aikito completion candidates projects
 aikito completion candidates skills
+aikito completion candidates subagents
 aikito completion candidates memories
 aikito completion candidates paths agent
 ```

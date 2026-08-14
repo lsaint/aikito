@@ -1,4 +1,3 @@
-import os
 import sys
 import tempfile
 import tomllib
@@ -15,7 +14,6 @@ from aikito_subagent import (  # noqa: E402
     render_claude_markdown,
     render_codex_toml,
     render_copilot_markdown,
-    status_subagent_configs,
     sync_subagent_configs,
 )
 

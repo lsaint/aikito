@@ -104,13 +104,13 @@ class SyncSubcommandParserTest(unittest.TestCase):
                 "--dry-run",
                 "--prune",
                 "--force",
-                "claude-code/formatter",
+                "claude-code/verifier",
             ]
         )
         self.assertEqual(args.sync_target, "subagents")
         self.assertTrue(args.dry_run)
         self.assertTrue(args.prune)
-        self.assertEqual(args.force, ["claude-code/formatter"])
+        self.assertEqual(args.force, ["claude-code/verifier"])
 
         args_alias = parser.parse_args(["sync", "subagent"])
         self.assertEqual(args_alias.sync_target, "subagent")
@@ -928,8 +928,9 @@ config_format = "toml"
 name_style = "verbatim"
 """.lstrip()
         )
-        (self.aikito_dir / "mcps.toml").write_text(
-            '[servers.managed]\ntransport = "remote"\nurl = "http://ex.com"\nagents = ["codex"]\n'
+        (self.aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
+        (self.aikito_dir / "mcps/managed.toml").write_text(
+            'transport = "remote"\nurl = "http://ex.com"\nagents = ["codex"]\n'
         )
         (self.aikito_dir / "subagents.toml").write_text(
             '[subagents.formatter]\ndescription = "Format"\nagents = ["codex"]\n'
@@ -1011,6 +1012,52 @@ url = "http://custom.example.com"
             output = mock_stdout.getvalue()
             self.assertIn("Subagent", output)
             self.assertIn("formatter", output)
+
+        # Show specific target
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "subagent", "formatter"]
+            )
+            args.func(args)
+            output = mock_stdout.getvalue()
+            self.assertEqual(output, "# Formatter Instructions")
+
+        # Show target with prefix
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["show", "subagent", "form"])
+            args.func(args)
+            output = mock_stdout.getvalue()
+            self.assertEqual(output, "# Formatter Instructions")
+
+        # Show nonexistent target
+        with (
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["show", "subagent", "unknown"])
+            args.func(args)
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("Subagent 'unknown' not found", mock_stderr.getvalue())
+
+    def test_edit_subagent(self) -> None:
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI, "open_in_editor") as mock_edit,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["edit", "subagent", "formatter"]
+            )
+            args.func(args)
+            mock_edit.assert_called_once_with(
+                self.aikito_dir / "subagents" / "formatter.md"
+            )
 
     def test_show_instructions_lists_and_reads_targets(self) -> None:
         project_path = self.aikito_dir / "project-code"
@@ -1121,6 +1168,86 @@ url = "http://custom.example.com"
             use_unicode, use_color = AIKITO_CLI.resolve_color_flags(args_no_color)
             self.assertTrue(use_unicode)
             self.assertFalse(use_color)
+
+    def test_show_mcp_raw_content(self) -> None:
+        mcps_dir = self.aikito_dir / "mcps"
+        mcps_dir.mkdir(parents=True, exist_ok=True)
+        (mcps_dir / "atlassian-rovo.toml").write_text(
+            'transport = "remote"\nurl = "https://example.com"\n',
+            encoding="utf-8",
+        )
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "mcp", "atlassian-rovo"]
+            )
+            args.func(args)
+
+        self.assertEqual(
+            mock_stdout.getvalue(),
+            'transport = "remote"\nurl = "https://example.com"\n',
+        )
+
+    def test_show_mcp_prefix_raw_content(self) -> None:
+        mcps_dir = self.aikito_dir / "mcps"
+        mcps_dir.mkdir(parents=True, exist_ok=True)
+        (mcps_dir / "atlassian-rovo.toml").write_text(
+            'transport = "remote"\nurl = "https://example.com"\n',
+            encoding="utf-8",
+        )
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["show", "mcp", "atl"])
+            args.func(args)
+
+        self.assertEqual(
+            mock_stdout.getvalue(),
+            'transport = "remote"\nurl = "https://example.com"\n',
+        )
+
+    def test_show_mcp_detail_view(self) -> None:
+        mcps_dir = self.aikito_dir / "mcps"
+        mcps_dir.mkdir(parents=True, exist_ok=True)
+        (mcps_dir / "atlassian-rovo.toml").write_text(
+            'transport = "remote"\nurl = "https://example.com"\nagents = ["codex"]\n',
+            encoding="utf-8",
+        )
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "mcp", "atlassian-rovo", "--agent"]
+            )
+            args.func(args)
+
+        self.assertIn("MCP Server: atlassian-rovo", mock_stdout.getvalue())
+        self.assertIn("Canonical source:", mock_stdout.getvalue())
+
+    def test_edit_mcp_command_opens_target_in_editor(self) -> None:
+        mcps_dir = self.aikito_dir / "mcps"
+        mcps_dir.mkdir(parents=True, exist_ok=True)
+        mcp_file = mcps_dir / "atlassian-rovo.toml"
+        mcp_file.write_text('url = "https://example.com"\n', encoding="utf-8")
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI, "open_in_editor") as mock_open,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["edit", "mcp", "atl"])
+            args.func(args)
+
+        mock_open.assert_called_once_with(mcp_file)
 
 
 if __name__ == "__main__":

@@ -1,15 +1,15 @@
-[subagents.formatter]
-description = "Runs project-approved formatting and lint-fix operations."
+[subagents.verifier]
+description = "Runs project-approved formatting, lint-fix, and test operations."
 agents = ["codex", "claude-code", "github-copilot", "agy"]
 
-[subagents.formatter.codex]
+[subagents.verifier.codex]
 model = "gpt-5.4-mini"
 model_reasoning_effort = "low"
 
-[subagents.formatter.claude-code]
+[subagents.verifier.claude-code]
 model = "haiku"
 effort = "low"
 
-[subagents.formatter.github-copilot]
-tools = ["read", "search", "edit"]
+[subagents.verifier.github-copilot]
+tools = ["read", "search", "edit", "execute"]
 

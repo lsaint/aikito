@@ -221,7 +221,7 @@ class CheckConfigSyntaxTest(unittest.TestCase):
     def _write_minimal_toml_files(self) -> None:
         (self.aikito_dir / "agents.toml").write_text("[agents]\n")
         (self.aikito_dir / "skills.toml").write_text("skills = []\n")
-        (self.aikito_dir / "mcps.toml").write_text("[servers]\n")
+        (self.aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
         (self.aikito_dir / "subagents.toml").write_text("[subagents]\n")
 
     def test_valid_toml_files_produce_ok_findings(self) -> None:
@@ -319,10 +319,10 @@ name_style = "verbatim"
         self.tmp.cleanup()
 
     def test_unmanaged_user_mcp_is_not_reported_as_orphan(self) -> None:
-        # mcps.toml defines active server 'active-server'
-        (self.aikito_dir / "mcps.toml").write_text(
+        # mcps/ defines active server 'active-server'
+        (self.aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
+        (self.aikito_dir / "mcps/active-server.toml").write_text(
             """
-[servers.active-server]
 transport = "remote"
 url = "https://example.com/active"
 agents = ["claude-code"]
@@ -371,8 +371,8 @@ agents = ["claude-code"]
         )
 
     def test_residual_previously_managed_mcp_is_reported_as_orphan(self) -> None:
-        # mcps.toml has NO servers defined
-        (self.aikito_dir / "mcps.toml").write_text("[servers]\n")
+        # mcps directory has NO servers defined
+        (self.aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
         # .claude.json contains 'old-removed-server'
         (self.home / ".claude.json").write_text(
             json.dumps(
@@ -538,9 +538,9 @@ config_format = "claude_json"
 """.strip()
         )
         (self.aikito_dir / "skills.toml").write_text("skills = []\n")
-        (self.aikito_dir / "mcps.toml").write_text(
+        (self.aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
+        (self.aikito_dir / "mcps/test-server.toml").write_text(
             """
-[servers.test-server]
 transport = "remote"
 url = "https://example.com"
 agents = ["claude-code"]

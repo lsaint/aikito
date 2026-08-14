@@ -270,9 +270,9 @@ config_format = "agy_json"
 name_style = "verbatim"
 """.lstrip()
             )
-            (aikito_dir / "mcps.toml").write_text(
+            (aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
+            (aikito_dir / "mcps/managed.toml").write_text(
                 """
-[servers.managed]
 transport = "remote"
 url = "https://example.com/mcp"
 agents = ["agy"]
@@ -317,9 +317,9 @@ name_style = "underscore"
 live_command = ["codex", "mcp", "list"]
 """.lstrip()
             )
-            (aikito_dir / "mcps.toml").write_text(
+            (aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
+            (aikito_dir / "mcps/managed.toml").write_text(
                 """
-[servers.managed]
 transport = "remote"
 url = "https://example.com/mcp"
 agents = ["codex"]
@@ -373,7 +373,7 @@ instruction_path = ".codex/AGENTS.md"
 """.strip()
             )
             (aikito_dir / "skills.toml").write_text("skills = []\n")
-            (aikito_dir / "mcps.toml").write_text("[servers]\n")
+            (aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
             (aikito_dir / "subagents.toml").write_text("[subagents]\n")
 
             # Create dangling symlink pointing to expected_global_agents (which does not exist!)

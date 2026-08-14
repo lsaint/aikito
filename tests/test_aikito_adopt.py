@@ -83,10 +83,10 @@ class AikitoAdoptTest(unittest.TestCase):
         self.assertEqual(plan.mcp_servers[0].server_name, "test_server")
 
         execute_adoption(plan, dry_run=False)
-        mcps_toml = self.target_path / "mcps.toml"
+        mcps_toml = self.target_path / "mcps" / "test_server.toml"
         self.assertTrue(mcps_toml.is_file())
         content = mcps_toml.read_text(encoding="utf-8")
-        self.assertIn("[servers.test_server]", content)
+        self.assertIn('command = "npx"', content)
 
     def test_adopt_mcp_servers_with_env_dict_and_escaping(self) -> None:
         claude_dir = self.fake_home / ".claude"
@@ -114,19 +114,17 @@ class AikitoAdoptTest(unittest.TestCase):
         self.assertEqual(len(plan.mcp_servers), 1)
 
         execute_adoption(plan, dry_run=False)
-        mcps_toml = self.target_path / "mcps.toml"
+        mcps_toml = self.target_path / "mcps" / "complex_server.toml"
         self.assertTrue(mcps_toml.is_file())
         content = mcps_toml.read_text(encoding="utf-8")
-        self.assertIn("[servers.complex_server]", content)
         self.assertIn('GITHUB_TOKEN = "${GITHUB_TOKEN}"', content)
 
-        # Verify tomllib.loads succeeds on generated mcps.toml
+        # Verify tomllib.loads succeeds on generated TOML
         import tomllib
 
         data = tomllib.loads(content)
-        self.assertIn("servers", data)
         self.assertEqual(
-            data["servers"]["complex_server"]["env"]["GITHUB_TOKEN"],
+            data["env"]["GITHUB_TOKEN"],
             "${GITHUB_TOKEN}",
         )
 
@@ -185,17 +183,16 @@ class AikitoAdoptTest(unittest.TestCase):
         self.assertEqual(len(plan.mcp_servers), 1)
 
         execute_adoption(plan, dry_run=False)
-        mcps_toml = self.target_path / "mcps.toml"
+        mcps_toml = self.target_path / "mcps" / 'ev"il.toml'
         self.assertTrue(mcps_toml.is_file())
         content = mcps_toml.read_text(encoding="utf-8")
-        self.assertIn('[servers."ev\\"il"]', content)
+        self.assertIn('command = "npx"', content)
 
-        # Verify tomllib.loads succeeds on generated mcps.toml
+        # Verify tomllib.loads succeeds on generated TOML
         import tomllib
 
         data = tomllib.loads(content)
-        self.assertIn("servers", data)
-        self.assertIn('ev"il', data["servers"])
+        self.assertEqual(data["command"], "npx")
 
     def test_adopt_handles_exceptions_with_friendly_error(self) -> None:
         from unittest.mock import patch

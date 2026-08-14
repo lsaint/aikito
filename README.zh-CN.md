@@ -51,7 +51,7 @@ Aikito 将这些资源集中在一个个人 Git 工作区中，并将选定的�
 ├── skills/                         跨项目复用的 skill
 ├── memory/                         全局长期 memory
 ├── global/                         全局指令
-├── mcps.toml                       共享 MCP 定义
+├── mcps/                           共享 MCP 定义
 ├── subagents/                      可复用 subagent
 └── projects/
     └── <project-name>/
@@ -71,7 +71,7 @@ Aikito 将这些资源集中在一个个人 Git 工作区中，并将选定的�
 | Memory | `memory/`、`projects/<name>/memory/` | 全局读取及 `<project>/.agents/memory/` |
 | Skills | `skills/<name>/` | 全局和项目 skill 目录 |
 | Instructions | `global/AGENTS.md`、`projects/<name>/AGENTS.md` | Agent 原生及项目运行时指令 |
-| MCP server | `mcps.toml` | Agent 原生 TOML、JSON 或 JSONC 配置 |
+| MCP server | `mcps/*.toml` | Agent 原生 TOML、JSON 或 JSONC 配置 |
 | Subagent | `subagents.toml`、`subagents/` | Agent 原生 subagent 定义 |
 
 默认注册表包含 Codex、Claude Code、Antigravity CLI（`agy`）、OpenCode 和

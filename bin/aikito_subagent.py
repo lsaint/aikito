@@ -1,6 +1,5 @@
 """Synchronize canonical Aikito Subagent definitions into supported agent configs."""
 
-import argparse
 import json
 import os
 import re
@@ -621,7 +620,7 @@ def sync_subagent_configs(
     if force_targets is not None:
         if not force_targets:
             raise SubagentConfigError(
-                "--force requires explicit <agent>/<subagent> target(s), e.g. --force claude-code/formatter"
+                "--force requires explicit <agent>/<subagent> target(s), e.g. --force claude-code/verifier"
             )
         for ft in force_targets:
             if "/" not in ft or len(ft.split("/")) != 2:

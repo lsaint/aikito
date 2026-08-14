@@ -53,7 +53,7 @@ No database, daemon, vector store, or hosted service required.
 ├── skills/                         shared reusable skills
 ├── memory/                         global durable memory
 ├── global/                         global instructions
-├── mcps.toml                       shared MCP definitions
+├── mcps/                           shared MCP definitions
 ├── subagents/                      shared reusable subagents
 └── projects/
     └── <project-name>/
@@ -73,7 +73,7 @@ Each project selects what it needs. It does not have to become the canonical hom
 | Memory | `memory/`, `projects/<name>/memory/` | Global access and `<project>/.agents/memory/` |
 | Skills | `skills/<name>/` | Shared and project-level skill directories |
 | Instructions | `global/AGENTS.md`, `projects/<name>/AGENTS.md` | Agent-native and project runtime instructions |
-| MCP servers | `mcps.toml` | Native TOML, JSON, or JSONC configs |
+| MCP servers | `mcps/*.toml` | Native TOML, JSON, or JSONC configs |
 | Subagents | `subagents.toml`, `subagents/` | Native subagent definitions |
 
 The default registry includes Codex, Claude Code, Antigravity CLI (`agy`),
