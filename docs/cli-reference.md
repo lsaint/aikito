@@ -11,14 +11,15 @@ version.
 | `aikito adopt [path]` | Preview existing local configuration adoption |
 | `aikito adopt --apply` | Apply the reviewed adoption plan |
 | `aikito status` | Show the synchronization dashboard |
-| `aikito diff` | Show unified diffs for all drifted MCP and subagent resources |
-| `aikito sync global` | Synchronize global instructions and skills |
-| `aikito sync project <name>` | Synchronize a project's `.agents/` directory |
+| `aikito diff` | Show unified diffs for drifted MCP, subagent, and copied project skill resources |
+| `aikito sync global [--dry-run]` | Synchronize or preview global instructions and skills |
+| `aikito sync project <name> [--dry-run] [--force]` | Synchronize or preview a project's `.agents/` directory |
 | `aikito sync mcp` | Synchronize MCP entries |
 | `aikito sync subagents` | Render and synchronize subagents |
 | `aikito auth mcp <agent> <server>` | Authenticate a configured MCP server |
 | `aikito show mcp [server] [--agent agent]` | Inspect the MCP matrix or drill into a server, Agent, or managed entry |
 | `aikito show subagents` | Inspect subagent rendering state across agents |
+| `aikito show project [name]` | List registered projects or inspect one project's configuration and sync status |
 | `aikito show instructions [global|project|.]` | List or print global and project instructions |
 | `aikito show memory [target]` | Print a memory note, or list all memory notes if target is omitted |
 | `aikito show skill [target]` | Print a skill's SKILL.md file, or list all skills if target is omitted |
@@ -50,7 +51,7 @@ Commands differ in their effect:
 - `sync` writes managed Agent or project runtime configuration;
 - `edit` delegates a canonical memory or skill file to an external editor.
 
-Use resource-specific `--dry-run` options where available and consult the
+Use `--dry-run` to preview project, MCP, and subagent synchronization, and consult the
 [Safety model](safety.md) before applying changes to an existing setup.
 
 ## Drift Diff
@@ -62,10 +63,11 @@ subagent file at once:
 aikito diff
 ```
 
-The command compares actual Agent configuration against Aikito's expected
-rendering and prints unified diffs. MCP credentials and sensitive headers are
-redacted. Missing resources and unmanaged conflicts remain status findings and
-are not rendered as drift diffs.
+The command compares actual Agent configuration and copied project skills
+against Aikito's expected rendering and prints unified diffs. MCP credentials
+and sensitive headers are redacted. Binary project skill files are reported
+without printing their contents. Missing resources and unmanaged conflicts
+remain status findings and are not rendered as drift diffs.
 
 ## Instructions
 
@@ -89,6 +91,22 @@ aikito edit instructions .
 
 `.` resolves the registered project containing the current directory and notes
 that global instructions are also active.
+
+## Projects
+
+List each registered project's path, synchronization mode, instructions,
+selected skill count, project memory note count, and aggregate sync status:
+
+```bash
+aikito show projects
+```
+
+Inspect one project's canonical and project directories, configuration, and sync
+issues when present:
+
+```bash
+aikito show project example
+```
 
 ## Initialization
 

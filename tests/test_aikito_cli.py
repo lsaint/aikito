@@ -87,6 +87,9 @@ class SyncSubcommandParserTest(unittest.TestCase):
         self.assertEqual(args.project_name, "doxturbo")
         self.assertIsNone(args.project_path)
 
+        args = parser.parse_args(["sync", "project", "doxturbo", "--dry-run"])
+        self.assertTrue(args.dry_run)
+
         # MCP
         args = parser.parse_args(["sync", "mcp", "--dry-run", "--force"])
         self.assertEqual(args.sync_target, "mcp")
@@ -112,6 +115,207 @@ class SyncSubcommandParserTest(unittest.TestCase):
         args_alias = parser.parse_args(["sync", "subagent"])
         self.assertEqual(args_alias.sync_target, "subagent")
         self.assertEqual(args_alias.func, AIKITO_CLI.cmd_subagent_sync)
+
+
+class ShowProjectParserTest(unittest.TestCase):
+    def test_show_project_and_projects_alias(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+
+        args = parser.parse_args(["show", "project", "demo"])
+        self.assertEqual(args.show_target, "project")
+        self.assertEqual(args.target, "demo")
+        self.assertEqual(args.func, AIKITO_CLI.cmd_show_project)
+
+        alias = parser.parse_args(["show", "projects"])
+        self.assertEqual(alias.show_target, "projects")
+        self.assertIsNone(alias.target)
+        self.assertEqual(alias.func, AIKITO_CLI.cmd_show_project)
+
+
+class ProjectSyncSafetyTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary_directory.name)
+        self.workspace = self.root / "workspace"
+        self.project = self.root / "project"
+        self.project.mkdir()
+        AIKITO_CLI.init_workspace(self.workspace, self.root)
+        self.assertEqual(
+            AIKITO_CLI.init_project(self.workspace, self.project, "example"),
+            "example",
+        )
+
+    def tearDown(self) -> None:
+        self.temporary_directory.cleanup()
+
+    def _run_sync(self, *extra_args: str) -> None:
+        args = AIKITO_CLI.build_parser().parse_args(
+            ["sync", "project", "example", str(self.project), *extra_args]
+        )
+        with patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.workspace):
+            args.func(args)
+
+    def test_rejects_unmanaged_runtime_entries_without_deleting_them(self) -> None:
+        unmanaged = self.project / ".agents" / "skills" / "keep-me"
+        unmanaged.mkdir(parents=True)
+        (unmanaged / "data.txt").write_text("keep\n", encoding="utf-8")
+
+        with self.assertRaises(SystemExit):
+            self._run_sync()
+
+        self.assertEqual((unmanaged / "data.txt").read_text(encoding="utf-8"), "keep\n")
+
+    def test_dry_run_does_not_create_runtime_or_persist_path(self) -> None:
+        runtime = self.project / ".agents"
+        self.assertFalse(runtime.exists())
+        config = self.workspace / "projects" / "example" / "agent.toml"
+        original_config = config.read_text(encoding="utf-8")
+
+        self._run_sync("--dry-run")
+
+        self.assertFalse(runtime.exists())
+        self.assertEqual(config.read_text(encoding="utf-8"), original_config)
+
+    def test_copy_mode_refuses_drift_unless_forced(self) -> None:
+        canonical = self.workspace / "skills" / "example-skill"
+        canonical.mkdir()
+        (canonical / "SKILL.md").write_text("canonical\n", encoding="utf-8")
+        config = self.workspace / "projects" / "example" / "agent.toml"
+        config.write_text(
+            config.read_text(encoding="utf-8")
+            .replace('sync_mode = "link"', 'sync_mode = "copy"')
+            .replace("skills = []", 'skills = ["example-skill"]'),
+            encoding="utf-8",
+        )
+        self._run_sync()
+        runtime_file = (
+            self.project / ".agents" / "skills" / "example-skill" / "SKILL.md"
+        )
+        runtime_file.write_text("collaborator change\n", encoding="utf-8")
+
+        with self.assertRaises(SystemExit):
+            self._run_sync()
+        self.assertEqual(
+            runtime_file.read_text(encoding="utf-8"), "collaborator change\n"
+        )
+
+        self._run_sync("--force")
+        self.assertEqual(runtime_file.read_text(encoding="utf-8"), "canonical\n")
+
+    def test_deselected_managed_link_is_cleaned_and_previewed(self) -> None:
+        canonical = self.workspace / "skills" / "example-skill"
+        canonical.mkdir()
+        (canonical / "SKILL.md").write_text("canonical\n", encoding="utf-8")
+        config = self.workspace / "projects" / "example" / "agent.toml"
+        config.write_text(
+            config.read_text(encoding="utf-8").replace(
+                "skills = []", 'skills = ["example-skill"]'
+            ),
+            encoding="utf-8",
+        )
+        self._run_sync()
+        runtime = self.project / ".agents" / "skills" / "example-skill"
+        self.assertTrue(runtime.is_symlink())
+        config.write_text(
+            config.read_text(encoding="utf-8").replace(
+                'skills = ["example-skill"]', "skills = []"
+            ),
+            encoding="utf-8",
+        )
+
+        with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            self._run_sync("--dry-run")
+        self.assertTrue(runtime.is_symlink())
+        self.assertIn("[DRY RUN CLEANUP]", stdout.getvalue())
+
+        self._run_sync()
+        self.assertFalse(runtime.exists())
+
+    def test_deselected_unmodified_copy_is_cleaned(self) -> None:
+        canonical = self.workspace / "skills" / "example-skill"
+        canonical.mkdir()
+        (canonical / "SKILL.md").write_text("canonical\n", encoding="utf-8")
+        config = self.workspace / "projects" / "example" / "agent.toml"
+        config.write_text(
+            config.read_text(encoding="utf-8")
+            .replace('sync_mode = "link"', 'sync_mode = "copy"')
+            .replace("skills = []", 'skills = ["example-skill"]'),
+            encoding="utf-8",
+        )
+        self._run_sync()
+        runtime = self.project / ".agents" / "skills" / "example-skill"
+        config.write_text(
+            config.read_text(encoding="utf-8").replace(
+                'skills = ["example-skill"]', "skills = []"
+            ),
+            encoding="utf-8",
+        )
+
+        self._run_sync()
+        self.assertFalse(runtime.exists())
+
+
+class GlobalSyncSafetyTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary_directory.name)
+        self.workspace = self.root / "workspace"
+        self.runtime = self.root / ".agents" / "skills"
+        (self.workspace / "skills" / "stale").mkdir(parents=True)
+        (self.workspace / "skills" / "stale" / "SKILL.md").write_text(
+            "managed\n", encoding="utf-8"
+        )
+        (self.workspace / "global").mkdir()
+        (self.workspace / "global" / "AGENTS.md").write_text("", encoding="utf-8")
+        (self.workspace / "skills.toml").write_text("skills = []\n", encoding="utf-8")
+        self.runtime.mkdir(parents=True)
+
+    def tearDown(self) -> None:
+        self.temporary_directory.cleanup()
+
+    def _run_sync(self, *extra_args: str) -> None:
+        args = AIKITO_CLI.build_parser().parse_args(["sync", "global", *extra_args])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.workspace),
+            patch.object(
+                AIKITO_CLI, "get_agents_dir", return_value=self.root / ".agents"
+            ),
+            patch.object(AIKITO_CLI, "load_agents", return_value={}),
+        ):
+            args.func(args)
+
+    def test_cleans_only_managed_stale_global_skills(self) -> None:
+        stale = self.runtime / "stale"
+        stale.symlink_to(self.workspace / "skills" / "stale")
+
+        with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            self._run_sync("--dry-run")
+        self.assertTrue(stale.is_symlink())
+        self.assertIn("[DRY RUN CLEANUP]", stdout.getvalue())
+
+        self._run_sync()
+        self.assertFalse(stale.exists())
+
+    def test_rejects_unmanaged_stale_global_skill(self) -> None:
+        unmanaged = self.runtime / "unmanaged"
+        unmanaged.mkdir()
+        (unmanaged / "data.txt").write_text("keep\n", encoding="utf-8")
+
+        with self.assertRaises(SystemExit):
+            self._run_sync()
+        self.assertEqual((unmanaged / "data.txt").read_text(encoding="utf-8"), "keep\n")
+
+    def test_rejects_selected_global_skill_with_unmanaged_content(self) -> None:
+        selected = self.runtime / "stale"
+        selected.mkdir()
+        (selected / "SKILL.md").write_text("local\n", encoding="utf-8")
+        (self.workspace / "skills.toml").write_text(
+            'skills = ["stale"]\n', encoding="utf-8"
+        )
+
+        with self.assertRaises(SystemExit):
+            self._run_sync()
+        self.assertEqual((selected / "SKILL.md").read_text(encoding="utf-8"), "local\n")
 
 
 class InitSubcommandParserTest(unittest.TestCase):

@@ -14,6 +14,37 @@ from aikito_subagent import PlanItem  # noqa: E402
 
 
 class DriftDiffTest(unittest.TestCase):
+    def test_reports_copied_project_skill_text_and_binary_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            project = root / "project"
+            canonical = root / "skills" / "example"
+            runtime = project / ".agents" / "skills" / "example"
+            project_config = root / "projects" / "demo"
+            canonical.mkdir(parents=True)
+            runtime.mkdir(parents=True)
+            project_config.mkdir(parents=True)
+            (project_config / "agent.toml").write_text(
+                f'path = "{project}"\nsync_mode = "copy"\nskills = ["example"]\n',
+                encoding="utf-8",
+            )
+            (canonical / "SKILL.md").write_text("canonical\n", encoding="utf-8")
+            (runtime / "SKILL.md").write_text("runtime\n", encoding="utf-8")
+            (canonical / "asset.bin").write_bytes(b"\0canonical")
+            (runtime / "asset.bin").write_bytes(b"\0runtime")
+
+            with (
+                patch("aikito_diff.load_agent_specs", return_value=[]),
+                patch("aikito_diff.build_plan", return_value=([], {})),
+            ):
+                rendered = render_drift_diffs(collect_drift_diffs(root, root))
+
+        self.assertIn("[Project demo/skill example — SKILL.md]", rendered)
+        self.assertIn("-runtime", rendered)
+        self.assertIn("+canonical", rendered)
+        self.assertIn("[Project demo/skill example — asset.bin]", rendered)
+        self.assertIn("Binary files differ", rendered)
+
     def test_reports_redacted_mcp_and_subagent_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

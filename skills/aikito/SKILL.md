@@ -99,6 +99,7 @@ Canonical sources:
 After reviewing changes:
 
 ```bash
+aikito sync global --dry-run
 aikito sync global
 aikito status
 aikito show skills
@@ -159,19 +160,25 @@ Project configuration belongs under:
 Synchronize and verify with:
 
 ```bash
+aikito show projects
+aikito show project <name>
+aikito sync project <name> --dry-run
 aikito sync project <name>
 aikito status
+aikito diff
 aikito show memory
 ```
 
 Project instructions and memory remain linked to canonical sources. Project
 skills follow `sync_mode`: `link` keeps symbolic links; `copy` generates managed
-copies for project Git tracking. Before replacing a managed copy that contains
-collaborator changes, compare it with the canonical skill and merge changes
-that should survive.
+copies for project Git tracking. Use `aikito status` to detect copied-skill drift
+and `aikito diff` to compare it with the canonical skill. Synchronization refuses
+to replace drifted copies; merge changes that should survive, or use
+`aikito sync project <name> --force` only after review.
 
 The target `.agents/skills/` and `.agents/memory/` directories are exclusively
-managed by Aikito. Do not store unrelated files there.
+managed by Aikito. Unknown entries are conflicts and are never deleted by
+project synchronization. Do not store unrelated files there.
 
 ### MCP Servers
 

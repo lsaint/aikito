@@ -91,13 +91,18 @@ Use `link` when the workspace is the authoritative working environment and
 projects should immediately see canonical skill updates. Use `copy` when a
 project needs a self-contained, Git-trackable snapshot of its selected skills,
 for example when collaborators or CI do not share the same Aikito workspace.
-Treat copied skills as generated project artifacts: make lasting improvements
-in the canonical workspace skill, or explicitly reconcile project changes back
-into it before synchronizing again.
+Treat copied skills as generated project artifacts. `aikito status` reports
+drift and `aikito diff` compares runtime files with their canonical workspace
+versions. Make lasting improvements in the canonical skill, or reconcile
+project changes back into it before synchronizing again. Synchronization stops
+on drift unless `--force` is supplied after review.
 
 The `.agents/skills/` and `.agents/memory/` directories are exclusively managed
-by Aikito. Synchronization removes entries there that are not selected by the
-project configuration. Do not store unrelated files in those directories.
+by Aikito. Entries not selected by the project configuration are unmanaged
+conflicts unless ownership can be proven from an Aikito workspace symlink or an
+unchanged canonical copy. Proven stale entries are removed; synchronization
+stops without deleting everything else. Do not store unrelated files in those
+directories.
 
 ## Synchronization Behavior
 

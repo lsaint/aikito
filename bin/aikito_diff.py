@@ -11,6 +11,7 @@ from aikito_mcp import (
     read_entry,
     redact_mcp_entry,
 )
+from aikito_project import collect_project_skill_diffs
 from aikito_subagent import build_plan
 
 
@@ -78,6 +79,8 @@ def collect_drift_diffs(aikito_dir: Path, home: Path) -> list[tuple[str, str]]:
         )
         if diff:
             results.append((f"Subagent {item.agent_name}/{item.subagent_name}", diff))
+
+    results.extend(collect_project_skill_diffs(aikito_dir, home))
 
     return results
 

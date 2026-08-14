@@ -88,6 +88,17 @@ jobs:
           test -L ${{ runner.temp }}/example-project/.agents/AGENTS.md
           test -L ${{ runner.temp }}/example-project/.agents/memory/index.md
 
+      - name: aikito project inspection and dry-run
+        run: |
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito show projects
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito show project example
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito sync project example --dry-run
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito diff
+
       - name: aikito sync MCP and subagents
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
@@ -137,5 +148,4 @@ jobs:
             python3 bin/aikito completion candidates skills
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito completion candidates projects
-
 

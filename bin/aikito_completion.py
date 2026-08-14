@@ -26,13 +26,15 @@ from aikito_status import collect_skills_rows
 # Dynamic candidate helpers
 # ---------------------------------------------------------------------------
 
+
 def list_projects(aikito_dir: Path) -> List[str]:
     """Return sorted list of project names found in <aikito_dir>/projects/."""
     projects_dir = aikito_dir / "projects"
     if not projects_dir.is_dir():
         return []
     return sorted(
-        p.name for p in projects_dir.iterdir()
+        p.name
+        for p in projects_dir.iterdir()
         if p.is_dir() and not p.name.startswith(".")
     )
 
@@ -118,7 +120,8 @@ def list_paths(aikito_dir: Path, prefix: str) -> List[str]:
     for root in _registered_search_roots(aikito_dir):
         for current, dirnames, filenames in os.walk(root):
             dirnames[:] = [
-                name for name in dirnames
+                name
+                for name in dirnames
                 if name not in ignored_dirs and not name.startswith(".")
             ]
             for name in (*dirnames, *filenames):
@@ -154,8 +157,10 @@ def get_candidates(
 # Shell completion script generators (reflection-based from ArgumentParser)
 # ---------------------------------------------------------------------------
 
+
 def extract_cli_schema(parser: argparse.ArgumentParser) -> dict:
     """Reflect command structure, aliases, and flags from ArgumentParser."""
+
     def get_flags(p: argparse.ArgumentParser) -> List[str]:
         flags = []
         for action in p._actions:
@@ -210,7 +215,9 @@ def _get_schema(parser: argparse.ArgumentParser | None = None) -> dict:
     aikito_path = Path(__file__).parent / "aikito"
     if aikito_path.is_file():
         try:
-            loader = importlib.machinery.SourceFileLoader("aikito_cli", str(aikito_path))
+            loader = importlib.machinery.SourceFileLoader(
+                "aikito_cli", str(aikito_path)
+            )
             spec = importlib.util.spec_from_loader(loader.name, loader)
             if spec:
                 mod = importlib.util.module_from_spec(spec)
@@ -238,12 +245,16 @@ def generate_zsh(parser: argparse.ArgumentParser | None = None) -> str:
             cmd_sub_cases.append(f"                ({cmd}) compadd {' '.join(subs)} ;;")
         flags = data["flags"]
         if flags:
-            cmd_flag_cases.append(f"                ({cmd}) compadd {' '.join(flags)} ;;")
+            cmd_flag_cases.append(
+                f"                ({cmd}) compadd {' '.join(flags)} ;;"
+            )
 
         for sub, sub_data in sorted(data["subcommands"].items()):
             s_flags = sub_data["flags"]
             if s_flags:
-                sub_flag_cases.append(f"                ({cmd} {sub}) compadd {' '.join(s_flags)} ;;")
+                sub_flag_cases.append(
+                    f"                ({cmd} {sub}) compadd {' '.join(s_flags)} ;;"
+                )
 
     cmd_subs_str = "\n".join(cmd_sub_cases)
     cmd_flags_str = "\n".join(cmd_flag_cases)
@@ -319,6 +330,11 @@ _aikito() {{
                         cands=(global . ${{(f)"$(aikito completion candidates projects 2>/dev/null)"}})
                         compadd -a cands
                         ;;
+                    (show\\ project|show\\ projects)
+                        local cands
+                        cands=(${{(f)"$(aikito completion candidates projects 2>/dev/null)"}})
+                        compadd -a cands
+                        ;;
                     (sync\\ project)
                         local cands
                         cands=(${{(f)"$(aikito completion candidates projects 2>/dev/null)"}})
@@ -391,14 +407,14 @@ def generate_bash(parser: argparse.ArgumentParser | None = None) -> str:
         if subs:
             cmd_sub_cases.append(f"""\
         {cmd})
-            COMPREPLY=( $(compgen -W "{' '.join(subs)}" -- "$cur") )
+            COMPREPLY=( $(compgen -W "{" ".join(subs)}" -- "$cur") )
             return 0
             ;;""")
         flags = data["flags"]
         if flags:
             cmd_flag_cases.append(f"""\
         {cmd})
-            COMPREPLY=( $(compgen -W "{' '.join(flags)}" -- "$cur") )
+            COMPREPLY=( $(compgen -W "{" ".join(flags)}" -- "$cur") )
             return 0
             ;;""")
 
@@ -407,7 +423,7 @@ def generate_bash(parser: argparse.ArgumentParser | None = None) -> str:
             if s_flags:
                 sub_flag_cases.append(f"""\
         "{cmd} {sub}")
-            COMPREPLY=( $(compgen -W "{' '.join(s_flags)}" -- "$cur") )
+            COMPREPLY=( $(compgen -W "{" ".join(s_flags)}" -- "$cur") )
             return 0
             ;;""")
 
@@ -494,6 +510,12 @@ _aikito_completion() {{
                 COMPREPLY=( $(compgen -W "global . $projects" -- "$cur") )
                 return 0
                 ;;
+            show\\ project|show\\ projects)
+                local projects
+                projects=$(aikito completion candidates projects 2>/dev/null)
+                COMPREPLY=( $(compgen -W "$projects" -- "$cur") )
+                return 0
+                ;;
             sync\\ project)
                 if [[ $COMP_CWORD -eq 3 ]]; then
                     local candidates
@@ -546,15 +568,17 @@ def generate_fish(parser: argparse.ArgumentParser | None = None) -> str:
     schema = _get_schema(parser)
     cmds = " ".join(sorted(schema["commands"].keys()))
 
-    cmds_lines = [
-        f"complete -c aikito -f -n '__fish_use_subcommand' -a '{cmds}'"
-    ]
+    cmds_lines = [f"complete -c aikito -f -n '__fish_use_subcommand' -a '{cmds}'"]
     for flag in sorted(schema["flags"]):
         name = flag.lstrip("-")
         if len(flag) == 2:
-            cmds_lines.append(f"complete -c aikito -f -n '__fish_use_subcommand' -s {name}")
+            cmds_lines.append(
+                f"complete -c aikito -f -n '__fish_use_subcommand' -s {name}"
+            )
         else:
-            cmds_lines.append(f"complete -c aikito -f -n '__fish_use_subcommand' -l {name}")
+            cmds_lines.append(
+                f"complete -c aikito -f -n '__fish_use_subcommand' -l {name}"
+            )
 
     sub_lines = []
     flag_lines = []
@@ -569,9 +593,13 @@ def generate_fish(parser: argparse.ArgumentParser | None = None) -> str:
         for flag in sorted(data["flags"]):
             name = flag.lstrip("-")
             if len(flag) == 2:
-                flag_lines.append(f"complete -c aikito -f -n '__fish_seen_subcommand_from {cmd}' -s {name}")
+                flag_lines.append(
+                    f"complete -c aikito -f -n '__fish_seen_subcommand_from {cmd}' -s {name}"
+                )
             else:
-                flag_lines.append(f"complete -c aikito -f -n '__fish_seen_subcommand_from {cmd}' -l {name}")
+                flag_lines.append(
+                    f"complete -c aikito -f -n '__fish_seen_subcommand_from {cmd}' -l {name}"
+                )
 
         for sub, sub_data in sorted(data["subcommands"].items()):
             for flag in sorted(sub_data["flags"]):
@@ -593,6 +621,8 @@ def generate_fish(parser: argparse.ArgumentParser | None = None) -> str:
         "-a '(aikito completion candidates skills 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from show edit; and __fish_seen_subcommand_from instructions' "
         "-a 'global . (aikito completion candidates projects 2>/dev/null)'",
+        "complete -c aikito -f -n '__fish_seen_subcommand_from show; and __fish_seen_subcommand_from project projects' "
+        "-a '(aikito completion candidates projects 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from sync; and __fish_seen_subcommand_from project' "
         "-a '(aikito completion candidates projects 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from completion; and __fish_seen_subcommand_from candidates' "
@@ -614,8 +644,14 @@ def generate_fish(parser: argparse.ArgumentParser | None = None) -> str:
     ]
 
     parts = (
-        ["# Aikito shell completion for Fish.", "# Copy to ~/.config/fish/completions/aikito.fish"]
-        + ["# or run: aikito completion fish > ~/.config/fish/completions/aikito.fish", ""]
+        [
+            "# Aikito shell completion for Fish.",
+            "# Copy to ~/.config/fish/completions/aikito.fish",
+        ]
+        + [
+            "# or run: aikito completion fish > ~/.config/fish/completions/aikito.fish",
+            "",
+        ]
         + cmds_lines
         + [""]
         + sub_lines

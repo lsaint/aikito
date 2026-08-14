@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-08-14
+
+### Added
+
+- Added `aikito show project [name]` and its `projects` alias for inspecting registered project configuration, resource counts, synchronization health, and actionable issue details.
+- Added project-aware drift output to `aikito diff` for copied skills, including text diffs and binary-change reporting.
+- Added `--dry-run` support to project synchronization, including stale-resource cleanup previews.
+
+### Changed
+
+- Restricted `aikito status` to workspace-level resources; project synchronization health now lives under `aikito show project`.
+
+### Fixed
+
+- Prevented project and global synchronization from silently deleting unmanaged skill or memory content.
+- Restored safe cleanup of deselected managed project skills without requiring manual deletion.
+
 ## [1.3.0] - 2026-08-13
 
 ### Added
@@ -108,7 +125,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/lsaint/aikito/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/lsaint/aikito/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/lsaint/aikito/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/lsaint/aikito/compare/v1.0.0...v1.1.0

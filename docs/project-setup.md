@@ -71,13 +71,20 @@ for the full design trade-off.
 ## Synchronize and Verify
 
 ```bash
+aikito sync project example --dry-run
 aikito sync project example
+aikito show project example
 aikito status
 aikito show memory
 ```
 
-Inspect the target project's `.agents/` directory and resolve any reported
-unmanaged conflicts manually. Do not store unrelated files under
+The dry run reports planned links and copies without changing the runtime or
+workspace configuration. Synchronization stops before writing when it finds
+unmanaged conflicts or drifted copied skills. Use `aikito diff` to review copy
+mode drift, reconcile changes that should survive, and use `--force` only when
+the reviewed runtime changes may be discarded. Deselected workspace links and
+unchanged canonical copies are recognized as managed and cleaned automatically;
+other stale content remains a conflict. Do not store unrelated files under
 `.agents/skills/` or `.agents/memory/`; Aikito owns those directories.
 
 See [Architecture](architecture.md) for the canonical-source model and

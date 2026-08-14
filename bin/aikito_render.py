@@ -12,6 +12,8 @@ from dataclasses import dataclass
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from aikito_project import ProjectSummary
+
 
 @dataclass
 class AgentStatusRow:
@@ -623,6 +625,79 @@ def render_skills_table(
     return _build_generic_table(
         headers, formatted_rows, use_unicode, use_color, truncatable_cols=[3]
     )
+
+
+def render_projects_table(
+    projects: List[ProjectSummary], use_unicode: bool, use_color: bool
+) -> str:
+    rows = [
+        [
+            project.name,
+            project.path,
+            project.sync_mode,
+            _format_status_badge(project.instructions_status, use_unicode, use_color),
+            str(project.skills_count),
+            str(project.memory_notes_count),
+            _format_status_badge(project.runtime_status, use_unicode, use_color),
+        ]
+        for project in projects
+    ]
+    return _build_generic_table(
+        [
+            "Project",
+            "Path",
+            "Mode",
+            "Instructions",
+            "Skills",
+            "Memory",
+            "Sync",
+        ],
+        rows,
+        use_unicode,
+        use_color,
+        truncatable_cols=[1],
+    )
+
+
+def render_project_detail(
+    project: ProjectSummary, use_unicode: bool, use_color: bool
+) -> str:
+    separator = " · " if use_unicode else " | "
+
+    skills = ", ".join(project.skill_names) if project.skill_names else "0 selected"
+    memory = f"{project.memory_notes_count} notes"
+    if project.memory_refs:
+        memory += f"{separator}{len(project.memory_refs)} references"
+    else:
+        memory += f"{separator}0 references"
+
+    lines = [
+        f"Project: {project.name}",
+        f"Canonical directory: {project.config_path.parent}",
+        f"Project directory: {project.path}",
+        f"Sync mode: {project.sync_mode}",
+        "Instructions: "
+        + ("configured" if project.instructions_status == "OK" else "not configured"),
+        f"Selected skills: {skills}",
+        f"Memory: {memory}",
+        f"Sync: {project.runtime_status}",
+    ]
+    if project.error:
+        lines.append(f"Error: {project.error}")
+    issues = [detail for detail in project.details if detail.status != "OK"]
+    if issues:
+        lines.append("Issues:")
+        lines.extend(
+            f"  {detail.resource} [{detail.status}]: {detail.detail}"
+            for detail in issues
+        )
+    elif project.runtime_status == "PATH MISSING":
+        lines.extend(
+            ["Issues:", f"  Project: directory does not exist: {project.path}"]
+        )
+    elif project.runtime_status == "UNBOUND":
+        lines.extend(["Issues:", "  Project: no directory is registered"])
+    return "\n".join(lines)
 
 
 def render_status_report(

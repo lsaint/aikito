@@ -333,7 +333,11 @@ def _validate_project_name(project_name: str) -> Optional[str]:
 
 
 def _project_validation_error(
-    aikito_dir: Path, project_name: str, project_path: Path
+    aikito_dir: Path,
+    project_name: str,
+    project_path: Path,
+    *,
+    reject_unexpected_entries: bool,
 ) -> Optional[str]:
     name_error = _validate_project_name(project_name)
     if name_error:
@@ -386,6 +390,8 @@ def _project_validation_error(
             continue
         if not managed_dir.is_dir():
             return f"Unmanaged project resources already exist: {managed_dir}"
+        if not reject_unexpected_entries:
+            continue
         unexpected_entries = {
             item.name for item in managed_dir.iterdir()
         } - allowed_entries
@@ -398,6 +404,30 @@ def _project_validation_error(
     return None
 
 
+def project_validation_error(
+    aikito_dir: Path, project_name: str, project_path: Path
+) -> Optional[str]:
+    """Validate registration, where every pre-existing runtime entry is foreign."""
+    return _project_validation_error(
+        aikito_dir,
+        project_name,
+        project_path,
+        reject_unexpected_entries=True,
+    )
+
+
+def project_sync_validation_error(
+    aikito_dir: Path, project_name: str, project_path: Path
+) -> Optional[str]:
+    """Validate repeat sync structure before managed-entry ownership is planned."""
+    return _project_validation_error(
+        aikito_dir,
+        project_name,
+        project_path,
+        reject_unexpected_entries=False,
+    )
+
+
 def init_project(
     aikito_dir: Path, project_path: Path, project_name: Optional[str] = None
 ) -> Optional[str]:
@@ -406,9 +436,7 @@ def init_project(
     project_path = project_path.expanduser().resolve()
     resolved_name = project_name or project_path.name
 
-    validation_error = _project_validation_error(
-        aikito_dir, resolved_name, project_path
-    )
+    validation_error = project_validation_error(aikito_dir, resolved_name, project_path)
     if validation_error:
         print(f"[ERROR] {validation_error}", file=sys.stderr)
         return None

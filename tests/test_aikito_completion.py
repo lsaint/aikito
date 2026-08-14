@@ -76,6 +76,15 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("--dry-run", sync_mcp_flags)
         self.assertIn("--force", sync_mcp_flags)
 
+        sync_project_flags = schema["commands"]["sync"]["subcommands"]["project"][
+            "flags"
+        ]
+        self.assertIn("--dry-run", sync_project_flags)
+        self.assertIn("--force", sync_project_flags)
+
+        sync_global_flags = schema["commands"]["sync"]["subcommands"]["global"]["flags"]
+        self.assertIn("--dry-run", sync_global_flags)
+
         sync_sub_flags = schema["commands"]["sync"]["subcommands"]["subagents"]["flags"]
         self.assertIn("--dry-run", sync_sub_flags)
         self.assertIn("--force", sync_sub_flags)
@@ -89,6 +98,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn('if [[ "$funcstack[1]" == *"_aikito"* ]]; then', zsh)
         self.assertIn("skills", zsh)
         self.assertIn("subagent", zsh)
+        self.assertIn("show\\ project", zsh)
         self.assertIn("--dry-run", zsh)
         self.assertIn("--apply", zsh)
         self.assertIn("--prune", zsh)
@@ -98,6 +108,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         bash = generate_bash(parser)
         self.assertIn("skills", bash)
         self.assertIn("subagent", bash)
+        self.assertIn("show\\ project", bash)
         self.assertIn("--dry-run", bash)
         self.assertIn("--apply", bash)
         self.assertIn("--prune", bash)
@@ -107,6 +118,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         fish = generate_fish(parser)
         self.assertIn("skills", fish)
         self.assertIn("subagent", fish)
+        self.assertIn("project projects", fish)
         self.assertIn("-l dry-run", fish)
         self.assertIn("-l apply", fish)
         self.assertIn("-l prune", fish)
@@ -137,18 +149,20 @@ class AikitoCompletionTest(unittest.TestCase):
 
         candidates = list_memories(self.aikito_dir)
 
-        expected = sorted([
-            "global/index",
-            "bare",
-            "global/bare",
-            "global/notes/bare",
-            "nested",
-            "global/nested",
-            "global/notes/sub/nested",
-            "proj-note",
-            "myproj/proj-note",
-            "myproj/notes/proj-note",
-        ])
+        expected = sorted(
+            [
+                "global/index",
+                "bare",
+                "global/bare",
+                "global/notes/bare",
+                "nested",
+                "global/nested",
+                "global/notes/sub/nested",
+                "proj-note",
+                "myproj/proj-note",
+                "myproj/notes/proj-note",
+            ]
+        )
         self.assertEqual(candidates, expected)
 
     def test_list_memory_completions_collapses_identifiers_and_shows_scope(

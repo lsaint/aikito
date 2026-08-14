@@ -58,7 +58,11 @@ explicit synchronization command.
 ## Conflict and Drift Protection
 
 - Unmanaged targets are reported as conflicts rather than silently replaced.
+- Deselected skills are removed only when a workspace symlink or unchanged
+  canonical copy proves they were managed by Aikito.
 - Managed-entry fingerprints expose local drift.
+- Copied project skill drift is shown by `aikito diff` and blocks project sync
+  unless the user supplies `--force` after review.
 - Conflicting instruction sources require user judgment.
 - Explicit force or prune options should be scoped to a reviewed target.
 
@@ -77,8 +81,9 @@ should use WSL2.
 ## Managed Project Directories
 
 The target project's `.agents/skills/` and `.agents/memory/` directories are
-owned exclusively by Aikito. Project synchronization removes entries that are
-not selected by the project configuration. Never place unrelated files there.
+owned exclusively by Aikito. Project synchronization rejects entries that are
+not selected by the project configuration without deleting them. Never place
+unrelated files there.
 
 ## Recovery Practice
 
