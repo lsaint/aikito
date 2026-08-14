@@ -76,7 +76,7 @@ from aikito_subagent import (
 )
 from aikito_completion import generate_bash, generate_fish, generate_zsh, get_candidates
 
-__version__ = "1.4.0"
+__version__ = "1.5.1"
 
 
 def get_aikito_dir() -> Path:
