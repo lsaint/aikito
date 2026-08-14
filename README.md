@@ -44,9 +44,7 @@ AI agent resources fragment in three directions:
 - Across time: valuable decisions and hard-won lessons disappear into old
   sessions
 
-Aikito keeps all of it in one personal Git workspace and exposes selected resources to each agent and project.
-
-No database, daemon, vector store, or hosted service required.
+Aikito keeps all of it in one personal Git workspace and exposes selected resources to each agent and project:
 
 ```text
 ~/aikito
@@ -64,7 +62,7 @@ No database, daemon, vector store, or hosted service required.
             └── notes/
 ```
 
-Each project selects what it needs. It does not have to become the canonical home of every shared skill or memory note.
+No database, daemon, vector store, or hosted service required.
 
 ## What Aikito Manages
 
