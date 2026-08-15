@@ -1,6 +1,7 @@
 import importlib.machinery
 import importlib.util
 import io
+import re
 import sys
 import tempfile
 import unittest
@@ -1248,6 +1249,93 @@ url = "http://custom.example.com"
             args.func(args)
 
         mock_open.assert_called_once_with(mcp_file)
+
+    def test_version_matches_latest_changelog_release(self) -> None:
+        changelog_path = ROOT / "CHANGELOG.md"
+        if not changelog_path.is_file():
+            return
+        content = changelog_path.read_text(encoding="utf-8")
+        match = re.search(r"(?m)^## \[(\d+\.\d+\.\d+)\]", content)
+        self.assertIsNotNone(
+            match, "Could not find a release version header in CHANGELOG.md"
+        )
+        assert match is not None
+        latest_changelog_version = match.group(1)
+        self.assertEqual(
+            AIKITO_CLI.__version__,
+            latest_changelog_version,
+            f"bin/aikito __version__ ({AIKITO_CLI.__version__}) does not match latest CHANGELOG.md release ({latest_changelog_version})",
+        )
+
+    def test_add_requires_subcommand(self) -> None:
+        with patch("sys.stderr", new_callable=io.StringIO):
+            with self.assertRaises(SystemExit) as cm:
+                AIKITO_CLI.build_parser().parse_args(["add"])
+            self.assertEqual(cm.exception.code, 2)
+
+    def test_add_skill_cli(self) -> None:
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["add", "skill", "cli-skill", "--description", "CLI Skill description"]
+            )
+            args.func(args)
+
+        self.assertTrue(
+            (self.aikito_dir / "skills" / "cli-skill" / "SKILL.md").is_file()
+        )
+        self.assertIn(
+            "[SUCCESS] Added global skill 'cli-skill'.", mock_stdout.getvalue()
+        )
+
+    def test_add_subagent_cli(self) -> None:
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                [
+                    "add",
+                    "subagent",
+                    "cli-subagent",
+                    "--description",
+                    "CLI Subagent desc",
+                    "--agents",
+                    "codex,claude-code",
+                ]
+            )
+            args.func(args)
+
+        self.assertTrue((self.aikito_dir / "subagents" / "cli-subagent.md").is_file())
+        self.assertIn(
+            "[SUCCESS] Added subagent 'cli-subagent'.", mock_stdout.getvalue()
+        )
+
+    def test_add_mcp_cli(self) -> None:
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                [
+                    "add",
+                    "mcp",
+                    "cli-mcp",
+                    "--url",
+                    "https://example.com/mcp",
+                    "--agents",
+                    "agy,codex",
+                ]
+            )
+            args.func(args)
+
+        self.assertTrue((self.aikito_dir / "mcps" / "cli-mcp.toml").is_file())
+        self.assertIn("[SUCCESS] Added MCP server 'cli-mcp'.", mock_stdout.getvalue())
 
 
 if __name__ == "__main__":

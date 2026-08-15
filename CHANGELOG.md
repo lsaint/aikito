@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-08-15
+
+### Added
+
+- Added `aikito add` command family (`aikito add skill`, `aikito add subagent`, `aikito add mcp`) for creating minimal valid canonical resource skeletons with automatic registration.
+- Added support for project-scoped skill creation and registration via `aikito add skill <name> --project <project>`.
+- Added shell completion candidate support for `add` subcommands and options across Zsh, Bash, and Fish.
+
+### Changed
+
+- Updated resource creation next-steps guidance to provide explicit canonical file paths alongside optional `aikito edit` shortcuts, accommodating IDE users, AI coding agents, and terminal workflows.
+
+### Fixed
+
+- Fixed project `agent.toml` multi-line array parsing and serialization during skill addition, preserving comments, formatting, and nested table structures (`[table]`).
+- Added pre-write TOML syntax validation gates for all resource addition commands.
+- Added atomic rollback and cleanup on resource creation failures.
+- Added strict mutual exclusion and validation for `aikito add mcp` transport and configuration arguments.
+
 ## [1.5.1] - 2026-08-14
 
 ### Fixed
@@ -145,7 +164,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.5.1...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/lsaint/aikito/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/lsaint/aikito/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/lsaint/aikito/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/lsaint/aikito/compare/v1.3.0...v1.4.0

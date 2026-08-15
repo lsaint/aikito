@@ -37,6 +37,24 @@ Agent configuration directories and project `.agents/` directories are runtime
 entry points, not independent sources. Modify canonical workspace files first,
 then synchronize them with the CLI.
 
+Standard lifecycle for new canonical resources:
+
+```text
+add ↓
+edit ↓
+show ↓
+sync ↓
+status / diff / doctor
+```
+
+Existing external resources follow a separate import path:
+
+```text
+adopt ↓
+canonical resource ↓
+show / edit / sync / status
+```
+
 Use `AIKITO_DIR` when the workspace is not `~/aikito`. Use the installed
 `aikito` command rather than assuming the CLI lives inside the workspace.
 
@@ -96,15 +114,16 @@ Canonical sources:
 ~/aikito/skills/<skill-name>/
 ```
 
-After reviewing changes:
+Create, review, and synchronize skills:
 
 ```bash
+aikito add skill <name> [--description <desc>]
+aikito edit skill <target>
+aikito show skills
+aikito show skill <target>
 aikito sync global --dry-run
 aikito sync global
 aikito status
-aikito show skills
-aikito show skill <target>
-aikito edit skill <target>
 ```
 
 Do not edit generated Agent-native instruction or skill entries as independent
@@ -188,9 +207,16 @@ Canonical source:
 ~/aikito/mcps/*.toml
 ```
 
-Preview, apply, and verify:
+Unlike Skills (`skills.toml`) and Subagents (`subagents.toml`) which use central
+registry files alongside definition files, MCP servers use a file-based
+self-registering model (`mcps/<name>.toml`). Creating the TOML configuration
+file automatically registers the server.
+
+Create, preview, apply, and verify:
 
 ```bash
+aikito add mcp <name> [--url <url> | --command <command>]
+aikito edit mcp <target>
 aikito sync mcp --dry-run
 aikito sync mcp
 aikito show mcp
@@ -209,14 +235,15 @@ Canonical sources:
 ~/aikito/subagents/
 ```
 
-Preview, apply, and verify:
+Create, preview, apply, and verify:
 
 ```bash
+aikito add subagent <name> [--description <desc>]
+aikito edit subagent <target>
 aikito sync subagents --dry-run
 aikito sync subagents
 aikito show subagents
 aikito show subagent <target>
-aikito edit subagent <target>
 ```
 
 Review orphaned managed files before using `--prune`. Never force an unmanaged

@@ -16,6 +16,7 @@ import tomllib
 from pathlib import Path
 from typing import List
 
+from aikito_add import add_mcp, add_skill, add_subagent
 from aikito_adopt import build_adopt_plan, execute_adoption
 from aikito_diff import collect_drift_diffs, render_drift_diffs
 from aikito_doctor import run_doctor
@@ -76,7 +77,7 @@ from aikito_subagent import (
 )
 from aikito_completion import generate_bash, generate_fish, generate_zsh, get_candidates
 
-__version__ = "1.5.1"
+__version__ = "1.6.0"
 
 
 def get_aikito_dir() -> Path:
@@ -662,6 +663,53 @@ def cmd_init_project(args: argparse.Namespace) -> None:
             project_path=str(project_path),
         )
     )
+
+
+def cmd_add_skill(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    success = add_skill(
+        aikito_dir=aikito_dir,
+        home=Path.home(),
+        name=args.name,
+        description=getattr(args, "description", None),
+        project_name=getattr(args, "project", None),
+    )
+    if not success:
+        sys.exit(1)
+
+
+def cmd_add_subagent(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    agents_list = None
+    if getattr(args, "agents", None):
+        agents_list = [a.strip() for a in args.agents.split(",") if a.strip()]
+    success = add_subagent(
+        aikito_dir=aikito_dir,
+        home=Path.home(),
+        name=args.name,
+        description=getattr(args, "description", None),
+        agents=agents_list,
+    )
+    if not success:
+        sys.exit(1)
+
+
+def cmd_add_mcp(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    agents_list = None
+    if getattr(args, "agents", None):
+        agents_list = [a.strip() for a in args.agents.split(",") if a.strip()]
+    success = add_mcp(
+        aikito_dir=aikito_dir,
+        home=Path.home(),
+        name=args.name,
+        transport=getattr(args, "transport", None),
+        command=getattr(args, "command", None),
+        url=getattr(args, "url", None),
+        agents=agents_list,
+    )
+    if not success:
+        sys.exit(1)
 
 
 class SkillTargetConflictError(Exception):
@@ -1375,6 +1423,78 @@ def build_parser() -> argparse.ArgumentParser:
         help="Code project directory (default: current directory)",
     )
     p_init_project.set_defaults(func=cmd_init_project)
+
+    # add
+    p_add = subparsers.add_parser(
+        "add",
+        help="Add a new managed canonical resource to Aikito",
+    )
+    add_subparsers = p_add.add_subparsers(dest="add_target", required=True)
+
+    # add skill
+    p_add_skill = add_subparsers.add_parser(
+        "skill",
+        help="Add a new canonical skill skeleton and register it",
+    )
+    p_add_skill.add_argument("name", help="Name of the skill in kebab-case")
+    p_add_skill.add_argument(
+        "--description",
+        default=None,
+        help="Initial description for the skill",
+    )
+    p_add_skill.add_argument(
+        "--project",
+        default=None,
+        help="Register skill under a specific project instead of globally",
+    )
+    p_add_skill.set_defaults(func=cmd_add_skill)
+
+    # add subagent
+    p_add_subagent = add_subparsers.add_parser(
+        "subagent",
+        help="Add a new canonical subagent skeleton and register it",
+    )
+    p_add_subagent.add_argument("name", help="Name of the subagent in kebab-case")
+    p_add_subagent.add_argument(
+        "--description",
+        default=None,
+        help="Description for the subagent",
+    )
+    p_add_subagent.add_argument(
+        "--agents",
+        default=None,
+        help="Comma-separated list of target agent platforms (default: all configured)",
+    )
+    p_add_subagent.set_defaults(func=cmd_add_subagent)
+
+    # add mcp
+    p_add_mcp = add_subparsers.add_parser(
+        "mcp",
+        help="Add a new canonical MCP server configuration",
+    )
+    p_add_mcp.add_argument("name", help="Name of the MCP server in kebab-case")
+    p_add_mcp.add_argument(
+        "--transport",
+        choices=["stdio", "remote"],
+        default=None,
+        help="MCP transport type (stdio or remote)",
+    )
+    p_add_mcp.add_argument(
+        "--command",
+        default=None,
+        help="Command for stdio transport (default: npx)",
+    )
+    p_add_mcp.add_argument(
+        "--url",
+        default=None,
+        help="URL for remote transport",
+    )
+    p_add_mcp.add_argument(
+        "--agents",
+        default=None,
+        help="Comma-separated list of target agent platforms (default: all configured)",
+    )
+    p_add_mcp.set_defaults(func=cmd_add_mcp)
 
     # adopt
     p_adopt = subparsers.add_parser(

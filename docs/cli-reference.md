@@ -8,6 +8,9 @@ version.
 | --- | --- |
 | `aikito init workspace [path]` | Create a workspace skeleton and initialize Git |
 | `aikito init project [name] [path]` | Register a code project and synchronize its `.agents/` runtime |
+| `aikito add skill <name>` | Create a canonical skill skeleton and register it in `skills.toml` or project config |
+| `aikito add subagent <name>` | Create a canonical subagent skeleton and register it in `subagents.toml` |
+| `aikito add mcp <name>` | Create a canonical MCP server configuration in `mcps/<name>.toml` |
 | `aikito adopt [path]` | Preview existing local configuration adoption |
 | `aikito adopt --apply` | Apply the reviewed adoption plan |
 | `aikito status` | Show the synchronization dashboard |
@@ -48,6 +51,7 @@ Commands differ in their effect:
 - `status`, `diff`, `show`, `completion`, and the default `adopt` plan are read-only;
 - `init workspace` creates or updates a recognized workspace;
 - `init project` creates an idempotent canonical project skeleton and its runtime links;
+- `add` creates a canonical resource skeleton and performs required registration;
 - `adopt --apply` writes imported resources into the workspace after backup;
 - `sync` writes managed Agent or project runtime configuration;
 - `edit` delegates a canonical memory, skill, instruction, or subagent file to an external editor.

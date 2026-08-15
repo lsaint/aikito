@@ -47,6 +47,10 @@ jobs:
           python3 bin/aikito init --help
           python3 bin/aikito init workspace --help
           python3 bin/aikito init project --help
+          python3 bin/aikito add --help
+          python3 bin/aikito add skill --help
+          python3 bin/aikito add subagent --help
+          python3 bin/aikito add mcp --help
           python3 bin/aikito adopt --help
           python3 bin/aikito status --help
           python3 bin/aikito sync --help
@@ -98,6 +102,18 @@ jobs:
             python3 bin/aikito sync project example --dry-run
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito diff
+
+      - name: aikito add resources (skill, subagent, mcp)
+        run: |
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito add skill ci-skill --description "CI test skill"
+          test -f ${{ runner.temp }}/aikito-ws/skills/ci-skill/SKILL.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito add subagent ci-subagent --description "CI test subagent"
+          test -f ${{ runner.temp }}/aikito-ws/subagents/ci-subagent.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito add mcp ci-mcp --command "npx ci-mcp"
+          test -f ${{ runner.temp }}/aikito-ws/mcps/ci-mcp.toml
 
       - name: aikito sync MCP and subagents
         run: |
