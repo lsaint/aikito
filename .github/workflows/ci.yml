@@ -112,11 +112,13 @@ jobs:
             python3 bin/aikito add subagent ci-subagent --description "CI test subagent"
           test -f ${{ runner.temp }}/aikito-ws/subagents/ci-subagent.md
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito add mcp ci-mcp --command "npx ci-mcp"
+            python3 bin/aikito add mcp ci-mcp --url "https://example.com/mcp"
           test -f ${{ runner.temp }}/aikito-ws/mcps/ci-mcp.toml
 
       - name: aikito sync MCP and subagents
         run: |
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito sync global
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito sync mcp
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
