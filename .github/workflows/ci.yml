@@ -68,6 +68,7 @@ jobs:
             ~/.claude \
             ~/.copilot/agents \
             ~/.gemini/antigravity-cli \
+            ~/.gemini/config \
             ~/.config/opencode
 
       - name: aikito init workspace (fresh workspace)
