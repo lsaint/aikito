@@ -1047,6 +1047,108 @@ url = "http://custom.example.com"
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("Subagent 'unknown' not found", mock_stderr.getvalue())
 
+    def test_show_subagents_with_agent_flag(self) -> None:
+        # Update subagents.toml with platform config override
+        (self.aikito_dir / "subagents.toml").write_text(
+            '[subagents.formatter]\ndescription = "Format code"\nagents = ["codex"]\n\n'
+            '[subagents.formatter.codex]\nmodel = "gpt-5"\n'
+        )
+
+        # 1. show subagents --agent codex (Agent table view)
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "subagents", "--agent", "codex", "--no-color"]
+            )
+            args.func(args)
+            output = mock_stdout.getvalue()
+            self.assertIn("Agent: Codex", output)
+            self.assertIn("Agent key: codex", output)
+            self.assertIn("formatter", output)
+            self.assertIn("model: gpt-5", output)
+            self.assertIn("Format code", output)
+
+        # 2. show subagents formatter --agent (Detail view across agents)
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "subagents", "formatter", "--agent", "--no-color"]
+            )
+            args.func(args)
+            output = mock_stdout.getvalue()
+            self.assertIn("Subagent: formatter", output)
+            self.assertIn("Description: Format code", output)
+            self.assertIn("Codex", output)
+            self.assertIn("Agent key: codex", output)
+            self.assertIn("Platform options:", output)
+            self.assertIn("model: gpt-5", output)
+
+        # 3. show subagents formatter --agent codex (Detail view single agent)
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "subagents", "formatter", "--agent", "codex", "--no-color"]
+            )
+            args.func(args)
+            output = mock_stdout.getvalue()
+            self.assertIn("Subagent: formatter", output)
+            self.assertIn("Agent key: codex", output)
+            self.assertIn("model: gpt-5", output)
+
+        # 4. Unknown agent error handling (no traceback)
+        with (
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "subagents", "--agent", "nosuch"]
+            )
+            args.func(args)
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("[ERROR] Unknown agent 'nosuch'", mock_stderr.getvalue())
+
+        # 5. Unknown subagent with --agent error handling (no traceback)
+        with (
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "subagents", "nosuchsub", "--agent"]
+            )
+            args.func(args)
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("[ERROR] Unknown subagent 'nosuchsub'", mock_stderr.getvalue())
+
+        # 6. Non-targeted agent for subagent
+        # Add another agent to agents.toml
+        agents_toml = self.aikito_dir / "agents.toml"
+        content = (
+            agents_toml.read_text()
+            + "\n[agents.other]\ndisplay_name = 'Other Agent'\n[agents.other.subagents]\nconfig_path = '.other/agents'\nconfig_format = 'claude_markdown'\n"
+        )
+        agents_toml.write_text(content)
+
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "subagents", "formatter", "--agent", "other", "--no-color"]
+            )
+            args.func(args)
+            output = mock_stdout.getvalue()
+            self.assertIn("Subagent: formatter", output)
+            self.assertIn("Status: not targeted by this subagent", output)
+            self.assertIn("n/a (not targeted by this subagent)", output)
+
     def test_edit_subagent(self) -> None:
         with (
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
@@ -1336,6 +1438,257 @@ url = "http://custom.example.com"
 
         self.assertTrue((self.aikito_dir / "mcps" / "cli-mcp.toml").is_file())
         self.assertIn("[SUCCESS] Added MCP server 'cli-mcp'.", mock_stdout.getvalue())
+
+
+class TestMemoryRenameAndRemove(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.aikito_dir = Path(self.tmp.name)
+        (self.aikito_dir / "memory" / "notes").mkdir(parents=True)
+        (self.aikito_dir / "memory" / "index.md").write_text(
+            "- [[note-a|Note A Title]]\n"
+        )
+        (self.aikito_dir / "memory" / "notes" / "note-a.md").write_text(
+            "# Note A Title\nContent"
+        )
+        (self.aikito_dir / "memory" / "notes" / "note-b.md").write_text(
+            "# Note B\nLinks to [[note-a]] and [[note-a|Custom Text]]."
+        )
+        (self.aikito_dir / "memory" / "index.md").write_text(
+            "- [[note-a|Note A Title]]\n- [[note-b|Note B]]\n"
+        )
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_rename_memory_success(self) -> None:
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["rename", "memory", "note-a", "note-alpha"]
+            )
+            args.func(args)
+
+        self.assertFalse((self.aikito_dir / "memory" / "notes" / "note-a.md").exists())
+        self.assertTrue(
+            (self.aikito_dir / "memory" / "notes" / "note-alpha.md").exists()
+        )
+
+        # Check index.md updated
+        index_text = (self.aikito_dir / "memory" / "index.md").read_text()
+        self.assertIn("- [[note-alpha|Note A Title]]", index_text)
+        self.assertNotIn("[[note-a|", index_text)
+        self.assertNotIn("[[note-a]]", index_text)
+
+        # Check note-b inbound references updated
+        note_b_text = (self.aikito_dir / "memory" / "notes" / "note-b.md").read_text()
+        self.assertIn("[[note-alpha]]", note_b_text)
+        self.assertIn("[[note-alpha|Custom Text]]", note_b_text)
+        self.assertNotIn("[[note-a]]", note_b_text)
+        self.assertNotIn("[[note-a|", note_b_text)
+
+        out = mock_stdout.getvalue()
+        self.assertIn("[OK] Renamed memory note 'note-a' → 'note-alpha'", out)
+        self.assertIn("Updated inbound wikilinks in 1 file(s)", out)
+
+    def test_rename_memory_invalid_name(self) -> None:
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["rename", "memory", "note-a", "Invalid_Name"]
+            )
+            with self.assertRaises(SystemExit) as cm:
+                args.func(args)
+            self.assertEqual(cm.exception.code, 1)
+            self.assertIn("Must be kebab-case", mock_stderr.getvalue())
+
+    def test_rename_memory_already_exists(self) -> None:
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["rename", "memory", "note-a", "note-b"]
+            )
+            with self.assertRaises(SystemExit) as cm:
+                args.func(args)
+            self.assertEqual(cm.exception.code, 1)
+            self.assertIn("already exists", mock_stderr.getvalue())
+
+    def test_rm_memory_success_and_warn_inbound(self) -> None:
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["rm", "memory", "note-a"])
+            args.func(args)
+
+        self.assertFalse((self.aikito_dir / "memory" / "notes" / "note-a.md").exists())
+        index_text = (self.aikito_dir / "memory" / "index.md").read_text()
+        self.assertNotIn("[[note-a", index_text)
+        self.assertIn("- [[note-b|Note B]]", index_text)
+
+        out = mock_stdout.getvalue()
+        self.assertIn("[OK] Removed memory note 'note-a'", out)
+        self.assertIn("[WARN] 1 inbound reference(s) still exist", out)
+
+    def test_remove_memory_alias(self) -> None:
+        (self.aikito_dir / "memory" / "notes" / "solo-note.md").write_text("# Solo")
+        (self.aikito_dir / "memory" / "index.md").write_text("- [[solo-note|Solo]]\n")
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["remove", "memory", "solo-note"]
+            )
+            args.func(args)
+
+        self.assertFalse(
+            (self.aikito_dir / "memory" / "notes" / "solo-note.md").exists()
+        )
+        out = mock_stdout.getvalue()
+        self.assertIn("[OK] Removed memory note 'solo-note'", out)
+        self.assertIn("No inbound references found", out)
+
+    def test_rename_index_file_rejected(self) -> None:
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["rename", "memory", "index", "new-index"]
+            )
+            with self.assertRaises(SystemExit) as cm:
+                args.func(args)
+            self.assertEqual(cm.exception.code, 1)
+            self.assertIn("Cannot rename 'index.md'", mock_stderr.getvalue())
+
+    def test_rm_index_file_rejected(self) -> None:
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["rm", "memory", "index"])
+            with self.assertRaises(SystemExit) as cm:
+                args.func(args)
+            self.assertEqual(cm.exception.code, 1)
+            self.assertIn("Cannot remove 'index.md'", mock_stderr.getvalue())
+        self.assertTrue((self.aikito_dir / "memory" / "index.md").exists())
+
+    def test_rename_memory_conflict_handling(self) -> None:
+        proj_notes = self.aikito_dir / "projects" / "p1" / "memory" / "notes"
+        proj_notes.mkdir(parents=True)
+        (proj_notes / "note-a.md").write_text("# Proj Note A")
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["rename", "memory", "note-a", "new-name"]
+            )
+            with self.assertRaises(SystemExit) as cm:
+                args.func(args)
+            self.assertEqual(cm.exception.code, 1)
+            err = mock_stderr.getvalue()
+            self.assertIn("[CONFLICT] Multiple memory notes match 'note-a'", err)
+            self.assertIn("global/notes/note-a", err)
+            self.assertIn("p1/notes/note-a", err)
+            self.assertIn("aikito rename memory global/notes/note-a", err)
+
+    def test_rm_memory_conflict_handling(self) -> None:
+        proj_notes = self.aikito_dir / "projects" / "p1" / "memory" / "notes"
+        proj_notes.mkdir(parents=True)
+        (proj_notes / "note-a.md").write_text("# Proj Note A")
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["rm", "memory", "note-a"])
+            with self.assertRaises(SystemExit) as cm:
+                args.func(args)
+            self.assertEqual(cm.exception.code, 1)
+            err = mock_stderr.getvalue()
+            self.assertIn("[CONFLICT] Multiple memory notes match 'note-a'", err)
+            self.assertIn("global/notes/note-a", err)
+            self.assertIn("p1/notes/note-a", err)
+            self.assertIn("aikito rm memory global/notes/note-a", err)
+
+    def test_rename_memory_isolated_to_same_scope(self) -> None:
+        # Create demo project with its own note-a and note-other that references its own [[note-a]]
+        proj_notes = self.aikito_dir / "projects" / "demo" / "memory" / "notes"
+        proj_notes.mkdir(parents=True)
+        (proj_notes / "note-a.md").write_text("# Demo Note A")
+        (proj_notes / "proj-other.md").write_text("See [[note-a]] in demo.")
+        (self.aikito_dir / "projects" / "demo" / "memory" / "index.md").write_text(
+            "- [[note-a|Demo Note A]]\n- [[proj-other|Proj Other]]\n"
+        )
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("sys.stdout", new_callable=io.StringIO),
+        ):
+            # Rename global note-a to global-note-a using full identifier
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["rename", "memory", "global/notes/note-a", "global-note-a"]
+            )
+            args.func(args)
+
+        # Global note and its inbound refs are renamed
+        self.assertTrue(
+            (self.aikito_dir / "memory" / "notes" / "global-note-a.md").exists()
+        )
+        global_note_b = (self.aikito_dir / "memory" / "notes" / "note-b.md").read_text()
+        self.assertIn("[[global-note-a]]", global_note_b)
+
+        # Demo project's note and its wikilinks MUST REMAIN UNTOUCHED
+        self.assertTrue((proj_notes / "note-a.md").exists())
+        demo_other = (proj_notes / "proj-other.md").read_text()
+        self.assertEqual(demo_other, "See [[note-a]] in demo.")
+
+
+class TestDoctorFixCli(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.aikito_dir = Path(self.tmp.name)
+        (self.aikito_dir / "memory" / "notes").mkdir(parents=True)
+        (self.aikito_dir / "memory" / "notes" / "bare.md").write_text(
+            "# Bare Note Title\nBody"
+        )
+        (self.aikito_dir / "memory" / "index.md").write_text(
+            "- [[ghost-note|Ghost]]\n- [[bare]] — Some Description\n"
+        )
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_doctor_fix_flag(self) -> None:
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["doctor", "--fix", "--no-color"]
+            )
+            try:
+                args.func(args)
+            except SystemExit:
+                pass
+
+        out = mock_stdout.getvalue()
+        self.assertIn("[FIX] Removed dangling index entry [[ghost-note]]", out)
+        self.assertIn("[FIX] Normalized index entry for [[bare]]", out)
+
+        index_text = (self.aikito_dir / "memory" / "index.md").read_text()
+        self.assertNotIn("ghost-note", index_text)
+        self.assertIn("- [[bare|Bare Note Title]]", index_text)
 
 
 if __name__ == "__main__":

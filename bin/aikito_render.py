@@ -143,7 +143,7 @@ def _format_badge_text(status_str: str, use_unicode: bool) -> Tuple[str, str]:
     if status_str.startswith("OK ("):
         count_part = status_str[4:-1]
         return f"{ok_sym} {count_part}", "ok"
-    if status_str in ("SKIP", "N/A"):
+    if status_str in ("SKIP", "N/A", "NOT_TARGETED"):
         return f"{skip_sym}", "skip"
     if status_str == "PRESENT":
         return "P", "skip"
@@ -488,6 +488,76 @@ def render_mcp_details(
             )
         )
     return "\n".join(blocks[:2]) + "\n\n" + "\n\n".join(blocks[2:])
+
+
+def render_agent_subagent_table(
+    rows: List[Any], use_unicode: bool, use_color: bool
+) -> str:
+    formatted_rows = []
+    for row in rows:
+        if row.platform_options:
+            opts = ", ".join(
+                f"{k}: {v}" for k, v in sorted(row.platform_options.items())
+            )
+        else:
+            opts = "(defaults)"
+        formatted_rows.append(
+            [
+                row.subagent_name,
+                _format_status_badge(row.status, use_unicode, use_color),
+                opts,
+                row.description,
+            ]
+        )
+    return _build_generic_table(
+        ["Subagent", "Status", "Overrides", "Description"],
+        formatted_rows,
+        use_unicode,
+        use_color,
+    )
+
+
+def render_subagent_details(
+    rows: List[Any], canonical_path: str, use_unicode: bool, use_color: bool
+) -> str:
+    first = rows[0]
+    blocks = [
+        f"Subagent: {first.subagent_name}",
+        f"Description: {first.description}",
+        f"Canonical source: {canonical_path}",
+    ]
+    for row in rows:
+        if row.status == "NOT_TARGETED":
+            status_text = "not targeted by this subagent"
+            opts_str = "  n/a (not targeted by this subagent)"
+        else:
+            status_text = "synced" if row.status == "OK" else row.status.lower()
+            if row.platform_options:
+                opts_lines = [
+                    f"  {k}: {v}" for k, v in sorted(row.platform_options.items())
+                ]
+                opts_str = "\n".join(opts_lines)
+            else:
+                opts_str = "  (defaults)"
+        blocks.append(
+            "\n".join(
+                [
+                    _render_title_box(
+                        row.agent_display_name,
+                        use_unicode=use_unicode,
+                        use_color=use_color,
+                    ),
+                    f"Agent key: {row.agent_name}",
+                    f"Status: {status_text}",
+                    f"Target: {row.target_path}",
+                    f"Format: {row.config_format}",
+                    "",
+                    "Platform options:",
+                    opts_str,
+                ]
+            )
+        )
+    return "\n".join(blocks[:3]) + "\n\n" + "\n\n".join(blocks[3:])
 
 
 def render_instruction_agent_status(

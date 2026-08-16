@@ -24,7 +24,7 @@ SUBAGENT_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")
 KNOWN_PLATFORM_FIELDS = {
     "codex": {"model", "model_reasoning_effort"},
     "claude-code": {"model", "effort"},
-    "agy": set(),
+    "agy": {"tools"},
     "github-copilot": {
         "name",
         "description",
@@ -233,7 +233,7 @@ def validate_platform_opts(
             raise SubagentConfigError(
                 f"Subagent '{subagent_name}' contains unknown field '{k}' for platform '{agent_name}'. Allowed: {sorted(allowed)}"
             )
-        if agent_name == "github-copilot":
+        if agent_name in {"agy", "github-copilot"}:
             if k == "tools":
                 if isinstance(v, str):
                     v = [v]
@@ -346,7 +346,7 @@ def render_codex_toml(
 
 
 def render_agy_markdown(
-    name: str, description: str, platform_opts: dict[str, str], instructions: str
+    name: str, description: str, platform_opts: dict[str, Any], instructions: str
 ) -> str:
     marker = get_marker_text(name)
     lines = [

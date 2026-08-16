@@ -19,7 +19,7 @@ from typing import List
 from aikito_add import add_mcp, add_skill, add_subagent
 from aikito_adopt import build_adopt_plan, execute_adoption
 from aikito_diff import collect_drift_diffs, render_drift_diffs
-from aikito_doctor import run_doctor
+from aikito_doctor import run_doctor, run_doctor_fixes
 from aikito_init import (
     init_project,
     init_workspace,
@@ -27,12 +27,11 @@ from aikito_init import (
 )
 from aikito_link import classify_symlink, symlink_verdict_to_status
 from aikito_memory import (
-    MemoryFileItem,
-    MemoryTargetConflictError,
     ensure_safe_path,
-    find_memory_files,
-    resolve_memory_target,
+    remove_memory_note,
+    rename_memory_note,
     resolve_memory_target_for_command,
+    validate_memory_name,
 )
 from aikito_mcp import (
     MCPConfigError,
@@ -52,7 +51,9 @@ from aikito_render import (
     SkillRow,
     render_doctor_report,
     render_agent_mcp_table,
+    render_agent_subagent_table,
     render_mcp_details,
+    render_subagent_details,
     render_instruction_agent_status,
     render_mcp_status_table,
     render_memory_notes_table,
@@ -65,6 +66,7 @@ from aikito_render import (
 from aikito_status import (
     collect_mcp_matrix,
     collect_mcp_details,
+    collect_subagent_details,
     collect_memory_notes_rows,
     collect_skills_rows,
     collect_subagents_matrix,
@@ -77,7 +79,7 @@ from aikito_subagent import (
 )
 from aikito_completion import generate_bash, generate_fish, generate_zsh, get_candidates
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 
 
 def get_aikito_dir() -> Path:
@@ -809,7 +811,10 @@ def resolve_subagent_target_for_command(
             sys.exit(1)
         else:
             print(f"[ERROR] Subagent '{target}' not found.", file=sys.stderr)
-            print("Run 'aikito show subagents' to view available subagents.", file=sys.stderr)
+            print(
+                "Run 'aikito show subagents' to view available subagents.",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
     subagents_root = aikito_dir / "subagents"
@@ -1211,9 +1216,7 @@ def cmd_show_mcp(args: argparse.Namespace) -> None:
 
 def cmd_edit_mcp(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
-    mcp_file = resolve_mcp_target_for_command(
-        aikito_dir, args.target, operation="edit"
-    )
+    mcp_file = resolve_mcp_target_for_command(aikito_dir, args.target, operation="edit")
     open_in_editor(mcp_file)
 
 
@@ -1221,33 +1224,80 @@ def cmd_show_subagents(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
     home = Path.home()
     target = getattr(args, "target", None)
+    agent_flag_passed = getattr(args, "agent", None) is not None
+    agent_target = args.agent if isinstance(getattr(args, "agent", None), str) else None
+    use_unicode, use_color = resolve_color_flags(args)
 
-    if not target:
-        use_unicode, use_color = resolve_color_flags(args)
-        try:
-            subagent_rows, orphan_files, agent_names = collect_subagents_matrix(
-                aikito_dir=aikito_dir,
-                home=home,
-            )
-            table_str = render_subagents_status_table(
-                subagent_rows, orphan_files, agent_names, use_unicode, use_color
-            )
-            print(table_str)
-        except SubagentConfigError as exc:
-            print(f"[ERROR] {exc}", file=sys.stderr)
-            sys.exit(1)
-        return
-
-    subagent_file = resolve_subagent_target_for_command(
-        aikito_dir, target, operation="show"
-    )
     try:
-        print(subagent_file.read_text(encoding="utf-8"), end="")
-    except Exception as e:
-        print(
-            f"[ERROR] Failed to read subagent file {subagent_file}: {e}",
-            file=sys.stderr,
+        # 1. Detail / Agent view across agents when --agent is passed
+        if (agent_target is not None) or (target and agent_flag_passed):
+            try:
+                rows = collect_subagent_details(
+                    aikito_dir=aikito_dir,
+                    home=home,
+                    subagent_target=target,
+                    agent_target=agent_target,
+                )
+            except ValueError as exc:
+                raise SubagentConfigError(str(exc)) from exc
+
+            if not rows:
+                selection = "/".join(value for value in (agent_target, target) if value)
+                raise SubagentConfigError(
+                    f"No subagent configuration found for '{selection}'"
+                )
+
+            if agent_target and not target:
+                first = rows[0]
+                synced = sum(row.status == "OK" for row in rows)
+                drifted = sum(row.status == "DRIFT" for row in rows)
+                missing = sum(row.status == "MISSING" for row in rows)
+                print(f"Agent: {first.agent_display_name}")
+                print(f"Agent key: {first.agent_name}")
+                print(f"Target dir: {first.target_path.parent}")
+                print(f"Format: {first.config_format}")
+                print(
+                    f"Subagents: {len(rows)} managed, {synced} synced, "
+                    f"{drifted} drifted, {missing} missing\n"
+                )
+                print(render_agent_subagent_table(rows, use_unicode, use_color))
+            else:
+                print(
+                    render_subagent_details(
+                        rows,
+                        str(aikito_dir / "subagents" / f"{rows[0].subagent_name}.md"),
+                        use_unicode,
+                        use_color,
+                    )
+                )
+            return
+
+        # 2. Raw file view when target is specified without --agent
+        if target:
+            subagent_file = resolve_subagent_target_for_command(
+                aikito_dir, target, operation="show"
+            )
+            try:
+                print(subagent_file.read_text(encoding="utf-8"), end="")
+            except Exception as e:
+                print(
+                    f"[ERROR] Failed to read subagent file {subagent_file}: {e}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            return
+
+        # 3. Default matrix view
+        subagent_rows, orphan_files, agent_names = collect_subagents_matrix(
+            aikito_dir=aikito_dir,
+            home=home,
         )
+        table_str = render_subagents_status_table(
+            subagent_rows, orphan_files, agent_names, use_unicode, use_color
+        )
+        print(table_str)
+    except SubagentConfigError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -1285,6 +1335,85 @@ def cmd_edit_memory(args: argparse.Namespace) -> None:
     open_in_editor(target_file)
 
 
+def cmd_rename_memory(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    new_name = args.new_name
+
+    err = validate_memory_name(new_name)
+    if err:
+        print(f"[ERROR] {err}", file=sys.stderr)
+        sys.exit(1)
+
+    target_file = resolve_memory_target_for_command(
+        aikito_dir, args.target, operation="rename"
+    )
+
+    try:
+        result = rename_memory_note(aikito_dir, target_file, new_name)
+    except (ValueError, FileExistsError) as e:
+        print(f"[ERROR] {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"[OK] Renamed memory note '{result.old_stem}' → '{result.new_stem}'")
+    try:
+        rel_new = result.new_path.relative_to(aikito_dir)
+    except ValueError:
+        rel_new = result.new_path
+    print(f"  - File: {rel_new}")
+    if result.index_updated and result.index_file:
+        try:
+            rel_idx = result.index_file.relative_to(aikito_dir)
+        except ValueError:
+            rel_idx = result.index_file
+        print(f"  - Index updated: {rel_idx}")
+    if result.refactored_notes:
+        print(
+            f"  - Updated inbound wikilinks in {len(result.refactored_notes)} file(s):"
+        )
+        for p in result.refactored_notes:
+            try:
+                rel = p.relative_to(aikito_dir)
+            except ValueError:
+                rel = p
+            print(f"    * {rel}")
+    else:
+        print("  - No inbound wikilinks found in other notes.")
+
+
+def cmd_rm_memory(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    target_file = resolve_memory_target_for_command(
+        aikito_dir, args.target, operation="rm"
+    )
+
+    try:
+        result = remove_memory_note(aikito_dir, target_file)
+    except (ValueError, FileNotFoundError) as e:
+        print(f"[ERROR] {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"[OK] Removed memory note '{result.stem}' ({result.deleted_path.name})")
+    if result.index_updated and result.index_file:
+        try:
+            rel_idx = result.index_file.relative_to(aikito_dir)
+        except ValueError:
+            rel_idx = result.index_file
+        print(f"  - Index entry removed: {rel_idx}")
+    if result.inbound_references:
+        print(
+            f"  - [WARN] {len(result.inbound_references)} inbound reference(s) still exist:"
+        )
+        for ref in result.inbound_references:
+            try:
+                rel = ref.note_path.relative_to(aikito_dir)
+            except ValueError:
+                rel = ref.note_path
+            print(f"    * {rel}:{ref.line_number}: {ref.line_content}")
+        print("    Please review and update the referencing notes if necessary.")
+    else:
+        print("  - No inbound references found.")
+
+
 def cmd_adopt(args: argparse.Namespace) -> None:
     target = Path(args.target) if args.target else get_aikito_dir()
     home = Path.home()
@@ -1307,6 +1436,14 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     home = Path.home()
 
     use_unicode, use_color = resolve_color_flags(args)
+
+    fixes: List[str] = []
+    if getattr(args, "fix", False):
+        fixes = run_doctor_fixes(aikito_dir)
+        if fixes and not getattr(args, "json", False):
+            for fix_msg in fixes:
+                print(f"[FIX] {fix_msg}")
+            print()
 
     stale_days = getattr(args, "stale_days", None)
     report = run_doctor(aikito_dir, home, stale_days=stale_days)
@@ -1331,6 +1468,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 ],
                 "fail_count": r.fail_count,
                 "warn_count": r.warn_count,
+                "fixes": fixes,
             }
 
         print(json.dumps(_report_to_dict(report), ensure_ascii=False, indent=2))
@@ -1681,6 +1819,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Exact subagent name or unique prefix (e.g. verifier, jira)",
     )
+    p_show_subagents.add_argument(
+        "--agent",
+        nargs="?",
+        const=True,
+        default=None,
+        help="Show subagent details across all agents, or narrow to a specific agent",
+    )
     add_color_args(p_show_subagents)
     p_show_subagents.set_defaults(func=cmd_show_subagents)
 
@@ -1807,6 +1952,44 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_edit_mcp.set_defaults(func=cmd_edit_mcp)
 
+    # rename
+    p_rename = subparsers.add_parser(
+        "rename",
+        help="Rename a managed canonical resource",
+    )
+    rename_subparsers = p_rename.add_subparsers(dest="rename_target", required=True)
+
+    p_rename_memory = rename_subparsers.add_parser(
+        "memory",
+        help="Atomically rename a memory note, update its index entry, and refactor inbound wikilinks",
+    )
+    p_rename_memory.add_argument(
+        "target",
+        help="Exact name, unique prefix, or path of the memory note to rename",
+    )
+    p_rename_memory.add_argument(
+        "new_name",
+        help="New kebab-case name for the note (at most 50 characters)",
+    )
+    p_rename_memory.set_defaults(func=cmd_rename_memory)
+
+    # rm & remove
+    for cmd_name in ("rm", "remove"):
+        p_rm = subparsers.add_parser(
+            cmd_name,
+            help=f"{'Remove' if cmd_name == 'remove' else 'Delete'} a managed canonical resource",
+        )
+        rm_subparsers = p_rm.add_subparsers(dest=f"{cmd_name}_target", required=True)
+        p_rm_memory = rm_subparsers.add_parser(
+            "memory",
+            help="Remove a memory note, prune its index entry, and check for inbound wikilinks",
+        )
+        p_rm_memory.add_argument(
+            "target",
+            help="Exact name, unique prefix, or path of the memory note to remove",
+        )
+        p_rm_memory.set_defaults(func=cmd_rm_memory)
+
     # doctor
     p_doctor = subparsers.add_parser(
         "doctor",
@@ -1817,6 +2000,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="Output structured JSON report instead of human-readable text",
+    )
+    p_doctor.add_argument(
+        "--fix",
+        action="store_true",
+        help="Automatically repair fixable issues (reconcile memory index, prune dangling index entries)",
     )
     p_doctor.add_argument(
         "--stale-days",

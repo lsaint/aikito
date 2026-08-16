@@ -55,20 +55,43 @@ The command opens the canonical note with `$VISUAL` or `$EDITOR`. Review and
 commit the resulting change in the Aikito workspace after verifying the
 conclusion.
 
-## Retire a Note
-
-There is no `delete` command. Removing a note is a deliberate manual edit in the
-canonical workspace, because it must stay consistent with the rest of the scope:
+## Rename a Note
 
 ```bash
-cd ~/aikito
-rm memory/notes/<note>.md      # or projects/<name>/memory/notes/<note>.md
-grep -rn '<note>' memory projects   # find the index entry and inbound wikilinks
+aikito rename memory old-note-name new-note-name
 ```
 
-Delete the `index.md` entry and repair every `[[wikilink]]` the grep reports,
-then commit the removal and its cleanups as one change. `aikito show memory`
-afterwards confirms the scope still lists what you expect.
+The command atomically renames the note file, updates its entry in `index.md`,
+and refactors all inbound `[[wikilinks]]` pointing to the note across the entire
+workspace.
+
+## Retire a Note
+
+```bash
+aikito rm memory example/release-checklist
+```
+
+The command deletes the note file, removes its entry from `index.md`, and scans
+the workspace for any remaining inbound `[[wikilinks]]`, reporting their exact
+file and line numbers so you can review and adjust referencing notes.
+
+## Memory Integrity and Auto-Repair
+
+Run `aikito doctor` to inspect memory note filename validity, index consistency,
+and staleness:
+
+```bash
+aikito doctor
+aikito doctor --fix
+```
+
+With `--fix`, Aikito safely reconciles mechanical `index.md` formatting:
+- Prunes dangling index entries pointing to non-existent notes;
+- Normalizes non-standard index entries into the canonical `[[note-stem|Display Text]]` syntax using the note's heading title and removing trailing descriptions.
+
+Missing notes and dangling wikilinks in note bodies are reported by diagnostics
+without being automatically appended or removed, preserving the curated
+categorization of `index.md` and placeholder markers for future knowledge.
 
 Memory has two scopes:
 

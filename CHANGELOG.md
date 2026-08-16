@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-08-16
+
+### Added
+
+- Added `aikito rename memory <target> <new-name>` to atomically rename a note, update its `index.md` entry, and refactor all inbound `[[wikilinks]]` within its scope.
+- Added `aikito rm memory <target>` (and `aikito remove memory`) to delete a note, prune its `index.md` entry, and scan for inbound `[[wikilinks]]` within its scope.
+- Added `aikito doctor --fix` for safe automated reconciliation of memory index files (prunes dangling dead links and normalizes entries to `[[stem|Title]]` using note heading titles).
+- Added note filename validity checking (kebab-case alphanumeric, $\le 50$ chars) and index entry format validation in `aikito doctor`.
+- Added `--agent` flag to `aikito show subagents [target] [--agent agent]` to display per-agent subagent overview tables and detail cards showing active platform options (`model`, `effort`, etc.) and explicit non-targeted status.
+- Added dynamic shell completion candidate support for `rename memory` and `rm memory` across Zsh, Bash, and Fish.
+
+### Fixed
+
+- Fixed `cmd_show_subagents` exception handling to gracefully report unknown agent and subagent errors without tracebacks.
+- Added guards in memory operations to prevent accidental modification or removal of `index.md` and non-note files.
+- Isolated inbound wikilink refactoring and scanning during note rename and removal strictly to the note's owning scope.
+- Prevented `doctor --fix` from blindly appending unindexed notes to preserve the curated category structure of `index.md`.
+
 ## [1.6.0] - 2026-08-15
 
 ### Added
@@ -164,7 +182,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/lsaint/aikito/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/lsaint/aikito/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/lsaint/aikito/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/lsaint/aikito/compare/v1.4.0...v1.5.0

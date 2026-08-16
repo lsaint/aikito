@@ -44,6 +44,9 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("show", schema["commands"])
         self.assertIn("sync", schema["commands"])
         self.assertIn("edit", schema["commands"])
+        self.assertIn("rename", schema["commands"])
+        self.assertIn("rm", schema["commands"])
+        self.assertIn("remove", schema["commands"])
         self.assertIn("--version", schema["flags"])
 
         # Subcommand aliases
@@ -52,6 +55,15 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("skills", show_subs)  # Alias of skill
         self.assertIn("subagents", show_subs)
         self.assertIn("subagent", show_subs)  # Alias of subagents
+
+        rename_subs = schema["commands"]["rename"]["subcommands"]
+        self.assertIn("memory", rename_subs)
+
+        rm_subs = schema["commands"]["rm"]["subcommands"]
+        self.assertIn("memory", rm_subs)
+
+        remove_subs = schema["commands"]["remove"]["subcommands"]
+        self.assertIn("memory", remove_subs)
 
         sync_subs = schema["commands"]["sync"]["subcommands"]
         self.assertIn("subagents", sync_subs)
@@ -70,6 +82,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
 
         doctor_flags = schema["commands"]["doctor"]["flags"]
         self.assertIn("--json", doctor_flags)
+        self.assertIn("--fix", doctor_flags)
         self.assertIn("--stale-days", doctor_flags)
 
         sync_mcp_flags = schema["commands"]["sync"]["subcommands"]["mcp"]["flags"]
@@ -89,6 +102,9 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("--dry-run", sync_sub_flags)
         self.assertIn("--force", sync_sub_flags)
         self.assertIn("--prune", sync_sub_flags)
+
+        show_sub_flags = schema["commands"]["show"]["subcommands"]["subagents"]["flags"]
+        self.assertIn("--agent", show_sub_flags)
 
     def test_generators_produce_script_with_aliases_and_flags(self) -> None:
         parser = AIKITO_CLI.build_parser()

@@ -927,5 +927,112 @@ class DoctorJsonSerialisableTest(unittest.TestCase):
         self.assertEqual(parsed["fail_count"], report.fail_count)
 
 
+class MemoryFormatAndNamingTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.aikito_dir = self.root / "aikito"
+        self.home = self.root / "home"
+        self.home.mkdir()
+        mem = self.aikito_dir / "memory"
+        self.notes_dir = mem / "notes"
+        self.notes_dir.mkdir(parents=True)
+        self.index_file = mem / "index.md"
+        self.index_file.write_text("- [[valid-note|Valid Note]]\n")
+        (self.notes_dir / "valid-note.md").write_text("# Valid Note")
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_invalid_note_filename_fails(self) -> None:
+        from aikito_doctor import check_memory_integrity
+
+        (self.notes_dir / "Invalid_Name.md").write_text("# Invalid")
+        (self.notes_dir / ("a" * 51 + ".md")).write_text("# Too Long")
+        self.index_file.write_text(
+            "- [[valid-note|Valid Note]]\n- [[Invalid_Name|Invalid]]\n- [["
+            + "a" * 51
+            + "|Too Long]]\n"
+        )
+        section = check_memory_integrity(self.aikito_dir, self.home)
+        fails = [f for f in section.findings if f.status == "FAIL"]
+        self.assertTrue(
+            any(
+                "Invalid_Name" in f.message and "invalid filename" in f.message
+                for f in fails
+            )
+        )
+        self.assertTrue(
+            any(
+                "a" * 51 in f.message and "invalid filename" in f.message for f in fails
+            )
+        )
+
+    def test_non_standard_index_entry_warns(self) -> None:
+        from aikito_doctor import check_memory_integrity
+
+        (self.notes_dir / "note-b.md").write_text("# Note B")
+        self.index_file.write_text(
+            "- [[valid-note|Valid Note]]\n- [[note-b]] — Trailing Description\n"
+        )
+        section = check_memory_integrity(self.aikito_dir, self.home)
+        warns = [f for f in section.findings if f.status == "WARN"]
+        self.assertTrue(
+            any(
+                "note-b" in f.message and "non-standard format" in f.message
+                for f in warns
+            )
+        )
+
+
+class DoctorFixesTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.aikito_dir = self.root / "aikito"
+        self.home = self.root / "home"
+        self.home.mkdir()
+        mem = self.aikito_dir / "memory"
+        self.notes_dir = mem / "notes"
+        self.notes_dir.mkdir(parents=True)
+        self.index_file = mem / "index.md"
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_run_doctor_fixes_reconciles_memory_index(self) -> None:
+        from aikito_doctor import run_doctor_fixes
+
+        # 1. Existing note
+        (self.notes_dir / "existing-note.md").write_text("# Existing Title\nContent")
+        # 2. Missing note (not in index)
+        (self.notes_dir / "missing-note.md").write_text("# Missing Title\nContent")
+        # 3. Bare note (format normalization)
+        (self.notes_dir / "bare-note.md").write_text("# Bare Note Title\nContent")
+        # 4. Old format note
+        (self.notes_dir / "old-format.md").write_text("# Old Title\nContent")
+
+        # index.md with dangling note, bare note, old format note, but missing "missing-note"
+        self.index_file.write_text(
+            "- [[existing-note|Existing Title]]\n"
+            "- [[ghost-note|Dangling Note]]\n"
+            "- [[bare-note]]\n"
+            "- [[old-format]] — Custom Description\n"
+        )
+
+        fixes = run_doctor_fixes(self.aikito_dir)
+        self.assertTrue(any("ghost-note" in f for f in fixes))
+        self.assertTrue(any("bare-note" in f for f in fixes))
+        self.assertTrue(any("old-format" in f for f in fixes))
+
+        updated_index = self.index_file.read_text()
+        self.assertNotIn("ghost-note", updated_index)
+        self.assertIn("- [[existing-note|Existing Title]]", updated_index)
+        self.assertIn("- [[bare-note|Bare Note Title]]", updated_index)
+        self.assertIn("- [[old-format|Old Title]]", updated_index)
+        # Missing note is reported by doctor diagnostics, not blindly appended to preserve index structure
+        self.assertNotIn("missing-note", updated_index)
+
+
 if __name__ == "__main__":
     unittest.main()

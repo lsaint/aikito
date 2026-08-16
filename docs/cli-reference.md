@@ -21,18 +21,20 @@ version.
 | `aikito sync subagents` | Render and synchronize subagents |
 | `aikito auth mcp <agent> <server>` | Authenticate a configured MCP server |
 | `aikito show mcp [server] [--agent agent]` | Inspect the MCP matrix or drill into a server, Agent, or managed entry |
-| `aikito show subagents [target]` | Inspect subagent rendering state across agents or print one subagent's instructions |
+| `aikito show subagents [target] [--agent agent]` | Inspect the subagent matrix, drill into platform options per agent, or print instructions |
 | `aikito show project [name]` | List registered projects or inspect one project's configuration and sync status |
 | `aikito show instructions [global|project|.]` | List or print global and project instructions |
 | `aikito show memory [target]` | Print a memory note, or list all memory notes if target is omitted |
 | `aikito show skill [target]` | Print a skill's SKILL.md file, or list all skills if target is omitted |
+| `aikito rename memory <target> <new-name>` | Atomically rename a memory note, update its index entry, and refactor inbound wikilinks |
+| `aikito rm memory <target>` | Remove a memory note, prune its index entry, and scan for inbound wikilinks |
 | `aikito edit memory <target>` | Open a memory note in `$VISUAL` or `$EDITOR` |
 | `aikito edit instructions <global|project|.>` | Open canonical instructions in `$VISUAL` or `$EDITOR` |
 | `aikito edit skill <target>` | Open a skill's SKILL.md in `$VISUAL` or `$EDITOR` |
 | `aikito edit subagent <target>` | Open a subagent's instruction markdown in `$VISUAL` or `$EDITOR` |
-| `aikito doctor` | Run deep workspace diagnostics |
+| `aikito doctor [--fix]` | Run deep workspace diagnostics (and auto-repair fixable index issues) |
 | `aikito completion zsh\|bash\|fish` | Print a shell completion script |
-| `aikito completion candidates projects\|skills\|subagents\|memories\|paths [prefix]` | List dynamic completion candidates |
+| `aikito completion candidates projects\|skills\|subagents\|mcps\|memories\|memory-completions\|paths [prefix]` | List dynamic completion candidates |
 | `aikito version` | Print the CLI version |
 
 ## Discovery

@@ -46,6 +46,19 @@ class MCPDetailRow:
     entry: dict[str, Any] | None
 
 
+@dataclass(frozen=True)
+class SubagentDetailRow:
+    subagent_name: str
+    description: str
+    agent_name: str
+    agent_display_name: str
+    status: str
+    target_path: Path
+    config_format: str
+    platform_options: dict[str, Any]
+    canonical_path: Path
+
+
 def _resolve_name(target: str, names: list[str], resource: str) -> str:
     if target in names:
         return target
@@ -126,6 +139,96 @@ def collect_mcp_details(
                         entry=None,
                     )
                 )
+    return rows
+
+
+def collect_subagent_details(
+    aikito_dir: Path,
+    home: Path,
+    subagent_target: str | None = None,
+    agent_target: str | None = None,
+) -> list[SubagentDetailRow]:
+    from aikito_subagent import (
+        FORMAT_EXTENSIONS,
+        load_all_agents,
+        load_subagent_definitions,
+    )
+
+    agent_configs, all_agent_names = load_all_agents(aikito_dir, home)
+    subagent_defs = load_subagent_definitions(aikito_dir, allow_empty=True)
+    plan_items, _ = build_plan(aikito_dir, home, allow_empty=True)
+
+    subagent_names = sorted(subagent_defs.keys())
+    subagent_name = (
+        _resolve_name(subagent_target, subagent_names, "subagent")
+        if subagent_target
+        else None
+    )
+    agent_name = (
+        _resolve_name(agent_target, sorted(agent_configs.keys()), "agent")
+        if agent_target
+        else None
+    )
+
+    plan_map: dict[tuple[str, str], Any] = {
+        (item.subagent_name, item.agent_name): item for item in plan_items
+    }
+
+    rows: list[SubagentDetailRow] = []
+
+    for name in subagent_names:
+        if subagent_name and name != subagent_name:
+            continue
+        sub_def = subagent_defs[name]
+
+        for ag_key, ag_cfg in sorted(agent_configs.items()):
+            if agent_name and ag_key != agent_name:
+                continue
+
+            if ag_key not in sub_def.agents and not (subagent_name and agent_name):
+                continue
+
+            plan_item = plan_map.get((name, ag_key))
+            if ag_key not in sub_def.agents:
+                status = "NOT_TARGETED"
+                ext = FORMAT_EXTENSIONS.get(ag_cfg.config_format, ".md")
+                target_path = ag_cfg.config_path / f"{name}{ext}"
+            elif plan_item:
+                if plan_item.action == "OK":
+                    status = "OK"
+                elif plan_item.action in ("UPDATE", "FORCE UPDATE"):
+                    status = "DRIFT"
+                elif plan_item.action == "CREATE":
+                    status = "MISSING"
+                elif plan_item.action == "CONFLICT":
+                    status = "CONFLICT"
+                elif plan_item.action == "SKIP":
+                    status = "SKIP"
+                else:
+                    status = plan_item.action
+                target_path = plan_item.target_path
+            else:
+                status = "MISSING"
+                ext = FORMAT_EXTENSIONS.get(ag_cfg.config_format, ".md")
+                target_path = ag_cfg.config_path / f"{name}{ext}"
+
+            platform_opts = sub_def.platform_configs.get(ag_key, {})
+            canonical_path = aikito_dir / "subagents" / f"{name}.md"
+
+            rows.append(
+                SubagentDetailRow(
+                    subagent_name=name,
+                    description=sub_def.description,
+                    agent_name=ag_key,
+                    agent_display_name=ag_cfg.display_name,
+                    status=status,
+                    target_path=target_path,
+                    config_format=ag_cfg.config_format,
+                    platform_options=platform_opts,
+                    canonical_path=canonical_path,
+                )
+            )
+
     return rows
 
 

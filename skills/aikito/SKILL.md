@@ -243,7 +243,8 @@ aikito edit subagent <target>
 aikito sync subagents --dry-run
 aikito sync subagents
 aikito show subagents
-aikito show subagent <target>
+aikito show subagents --agent <agent>
+aikito show subagent <target> [--agent]
 ```
 
 Review orphaned managed files before using `--prune`. Never force an unmanaged
@@ -257,6 +258,9 @@ under `~/aikito/projects/<name>/memory/`.
 ```bash
 aikito show memory [target]
 aikito edit memory <target>
+aikito rename memory <target> <new-name>
+aikito rm memory <target>
+aikito doctor --fix
 ```
 
 Use the separate `durable-memory` skill to decide when knowledge is durable

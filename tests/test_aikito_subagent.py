@@ -77,6 +77,9 @@ model_reasoning_effort = "low"
 [subagents.formatter.claude-code]
 model = "haiku"
 effort = "low"
+
+[subagents.formatter.agy]
+tools = ["run_command"]
 """
         (self.aikito_dir / "subagents.toml").write_text(
             subagents_toml.strip(), encoding="utf-8"
@@ -257,6 +260,7 @@ invalid_field = "value"
 
         # Check content includes model gpt-5.4-mini
         self.assertIn('model = "gpt-5.4-mini"', codex_file.read_text(encoding="utf-8"))
+        self.assertIn('tools: ["run_command"]', agy_file.read_text(encoding="utf-8"))
 
     def test_sync_empty_subagents_is_successful_noop(self) -> None:
         (self.aikito_dir / "subagents.toml").write_text(

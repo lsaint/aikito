@@ -345,7 +345,7 @@ _aikito() {{
                 esac
             else
                 case "$cmd $sub" in
-                    (show\\ memory|edit\\ memory)
+                    (show\\ memory|edit\\ memory|rename\\ memory|rm\\ memory|remove\\ memory)
                         local line
                         local -a cands displays
                         for line in ${{(f)"$(aikito completion candidates memory-completions 2>/dev/null)"}}; do
@@ -535,7 +535,7 @@ _aikito_completion() {{
         fi
 
         case "$cmd $sub" in
-            show\\ memory|edit\\ memory)
+            show\\ memory|edit\\ memory|rename\\ memory|rm\\ memory|remove\\ memory)
                 local candidate display
                 while IFS=$'\\t' read -r candidate display; do
                     [[ $candidate == "$cur"* ]] && COMPREPLY+=("$candidate")
@@ -671,7 +671,7 @@ def generate_fish(parser: argparse.ArgumentParser | None = None) -> str:
 
     dyn_lines = [
         "# Dynamic candidates & positionals",
-        "complete -c aikito -f -n '__fish_seen_subcommand_from show edit; and __fish_seen_subcommand_from memory' "
+        "complete -c aikito -f -n '__fish_seen_subcommand_from show edit rename rm remove; and __fish_seen_subcommand_from memory' "
         "-a '(aikito completion candidates memory-completions 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from show edit; and __fish_seen_subcommand_from skill skills' "
         "-a '(aikito completion candidates skills 2>/dev/null)'",
