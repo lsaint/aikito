@@ -116,6 +116,9 @@ Global notes are available everywhere; each project's notes are linked only into
 that project. In this example, an agent working in `aikito` sees only the global
 notes plus `aikito`'s own notes, and nothing from `blog`.
 
+Use `aikito maintain memory` for confirmation-gated, full-scope maintenance;
+see [Proactive Scope Maintenance](docs/durable-memory.md#proactive-scope-maintenance).
+
 ## Boundaries
 
 Aikito manages durable files, explicit scopes, and controlled synchronization.

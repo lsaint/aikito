@@ -47,6 +47,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("rename", schema["commands"])
         self.assertIn("rm", schema["commands"])
         self.assertIn("remove", schema["commands"])
+        self.assertIn("maintain", schema["commands"])
         self.assertIn("--version", schema["flags"])
 
         # Subcommand aliases
@@ -105,6 +106,11 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
 
         show_sub_flags = schema["commands"]["show"]["subcommands"]["subagents"]["flags"]
         self.assertIn("--agent", show_sub_flags)
+
+        maintain_flags = schema["commands"]["maintain"]["subcommands"]["memory"][
+            "flags"
+        ]
+        self.assertIn("--agent", maintain_flags)
 
     def test_generators_produce_script_with_aliases_and_flags(self) -> None:
         parser = AIKITO_CLI.build_parser()

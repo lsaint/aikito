@@ -118,6 +118,24 @@ class SyncSubcommandParserTest(unittest.TestCase):
         self.assertEqual(args_alias.func, AIKITO_CLI.cmd_subagent_sync)
 
 
+class MaintainMemoryParserTest(unittest.TestCase):
+    def test_maintain_memory_defaults_to_current_project_and_codex(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+        args = parser.parse_args(["maintain", "memory"])
+
+        self.assertEqual(args.maintain_target, "memory")
+        self.assertEqual(args.target, ".")
+        self.assertEqual(args.agent, "codex")
+        self.assertEqual(args.func, AIKITO_CLI.cmd_maintain_memory)
+
+    def test_maintain_memory_accepts_scope_and_agent(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+        args = parser.parse_args(["maintain", "memory", "global", "--agent", "custom"])
+
+        self.assertEqual(args.target, "global")
+        self.assertEqual(args.agent, "custom")
+
+
 class ShowProjectParserTest(unittest.TestCase):
     def test_show_project_and_projects_alias(self) -> None:
         parser = AIKITO_CLI.build_parser()

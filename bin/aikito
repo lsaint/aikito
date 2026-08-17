@@ -26,6 +26,7 @@ from aikito_init import (
     project_sync_validation_error,
 )
 from aikito_link import classify_symlink, symlink_verdict_to_status
+from aikito_maintain import MemoryMaintenanceError, run_memory_maintenance
 from aikito_memory import (
     ensure_safe_path,
     remove_memory_note,
@@ -79,7 +80,7 @@ from aikito_subagent import (
 )
 from aikito_completion import generate_bash, generate_fish, generate_zsh, get_candidates
 
-__version__ = "1.7.0"
+__version__ = "1.8.0"
 
 
 def get_aikito_dir() -> Path:
@@ -1502,6 +1503,18 @@ def cmd_completion(args: argparse.Namespace) -> None:
             print(generate_fish(parser), end="")
 
 
+def cmd_maintain_memory(args: argparse.Namespace) -> None:
+    try:
+        returncode = run_memory_maintenance(
+            get_aikito_dir(), args.target, args.agent, Path.cwd()
+        )
+    except MemoryMaintenanceError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        sys.exit(1)
+    if returncode != 0:
+        sys.exit(returncode)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="aikito",
@@ -1672,6 +1685,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show unified diffs for all drifted managed resources",
     )
     p_diff.set_defaults(func=cmd_diff)
+
+    # maintain memory
+    p_maintain = subparsers.add_parser(
+        "maintain",
+        help="Run proactive Agent-assisted maintenance workflows",
+    )
+    maintain_subparsers = p_maintain.add_subparsers(
+        dest="maintain_target", required=True
+    )
+    p_maintain_memory = maintain_subparsers.add_parser(
+        "memory",
+        help="Review one complete memory scope and propose curated changes",
+    )
+    p_maintain_memory.add_argument(
+        "target",
+        nargs="?",
+        default=".",
+        help="global, a project name, or . for the current project (default: .)",
+    )
+    p_maintain_memory.add_argument(
+        "--agent",
+        default="codex",
+        help="Configured Agent runner to launch (default: codex)",
+    )
+    p_maintain_memory.set_defaults(func=cmd_maintain_memory)
 
     # auth & drill-down subparsers
     p_auth = subparsers.add_parser(

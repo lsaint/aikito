@@ -1,5 +1,6 @@
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -71,6 +72,15 @@ class AikitoInitTest(unittest.TestCase):
 
         report = get_status_report_data(self.target_path, self.fake_home)
         self.assertTrue(report.agents)
+
+        with (self.target_path / "agents.toml").open("rb") as config_file:
+            agent_config = tomllib.load(config_file)["agents"]
+        self.assertEqual(
+            set(agent_config),
+            {"codex", "claude-code", "agy", "opencode", "github-copilot"},
+        )
+        for agent_name in agent_config:
+            self.assertTrue(agent_config[agent_name]["runner"]["command"])
 
     def test_init_workspace_skip_existing_unless_force(self) -> None:
         # Initial run

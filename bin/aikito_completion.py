@@ -369,7 +369,7 @@ _aikito() {{
                         cands=(${{(f)"$(aikito completion candidates mcps 2>/dev/null)"}})
                         compadd -a cands
                         ;;
-                    (show\\ instructions|edit\\ instructions)
+                    (show\\ instructions|edit\\ instructions|maintain\\ memory)
                         local cands
                         cands=(global . ${{(f)"$(aikito completion candidates projects 2>/dev/null)"}})
                         compadd -a cands
@@ -560,7 +560,7 @@ _aikito_completion() {{
                 COMPREPLY=( $(compgen -W "$candidates" -- "$cur") )
                 return 0
                 ;;
-            show\\ instructions|edit\\ instructions)
+            show\\ instructions|edit\\ instructions|maintain\\ memory)
                 local projects
                 projects=$(aikito completion candidates projects 2>/dev/null)
                 COMPREPLY=( $(compgen -W "global . $projects" -- "$cur") )
@@ -680,6 +680,8 @@ def generate_fish(parser: argparse.ArgumentParser | None = None) -> str:
         "complete -c aikito -f -n '__fish_seen_subcommand_from show edit; and __fish_seen_subcommand_from mcp mcps' "
         "-a '(aikito completion candidates mcps 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from show edit; and __fish_seen_subcommand_from instructions' "
+        "-a 'global . (aikito completion candidates projects 2>/dev/null)'",
+        "complete -c aikito -f -n '__fish_seen_subcommand_from maintain; and __fish_seen_subcommand_from memory' "
         "-a 'global . (aikito completion candidates projects 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from show; and __fish_seen_subcommand_from project projects' "
         "-a '(aikito completion candidates projects 2>/dev/null)'",

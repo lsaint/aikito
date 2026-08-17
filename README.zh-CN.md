@@ -111,6 +111,9 @@ Claude Code 里写下的 memory，明天 Codex 读到的是同一份。
 全局笔记在任何地方都可读；每个项目的笔记只链接进该项目。因此示例中 Agent 在 `aikito` 里工作
 时，只会看到全局笔记加上 `aikito` 自己的笔记，不含 `blog` 的内容。
 
+使用 `aikito maintain memory` 可执行先确认、后修改的全作用域巡检；详见
+[主动维护作用域](docs/durable-memory.md#proactive-scope-maintenance)。
+
 ## 设计边界
 
 Aikito 管理持久化文件、显式作用域与可控同步。为了保持轻量与可移植，它明确选择**不做**

@@ -73,5 +73,11 @@ committed, so a deletion you disagree with is recoverable.
 The included `durable-memory` skill gives supported Agents the same
 heuristics used across Aikito workspaces.
 
+For an intentional full-scope review, run `aikito maintain memory` with
+`global`, a registered project name, or `.` for the current project. Unlike
+opportunistic retirement during normal work, this command explicitly asks an
+Agent to inspect the complete selected scope. It remains confirmation-gated:
+the Agent proposes changes before modifying memory.
+
 See [Work with memory](durable-memory.md) for the CLI workflow and
 [Safety model](safety.md) before pushing a memory repository to a remote.

@@ -29,6 +29,7 @@ version.
 | `aikito rename memory <target> <new-name>` | Atomically rename a memory note, update its index entry, and refactor inbound wikilinks |
 | `aikito rm memory <target>` | Remove a memory note, prune its index entry, and scan for inbound wikilinks |
 | `aikito edit memory <target>` | Open a memory note in `$VISUAL` or `$EDITOR` |
+| `aikito maintain memory [global\|<project>\|.] [--agent <name>]` | Launch an Agent to review one complete memory scope and propose maintenance before making changes |
 | `aikito edit instructions <global|project|.>` | Open canonical instructions in `$VISUAL` or `$EDITOR` |
 | `aikito edit skill <target>` | Open a skill's SKILL.md in `$VISUAL` or `$EDITOR` |
 | `aikito edit subagent <target>` | Open a subagent's instruction markdown in `$VISUAL` or `$EDITOR` |
@@ -57,9 +58,28 @@ Commands differ in their effect:
 - `adopt --apply` writes imported resources into the workspace after backup;
 - `sync` writes managed Agent or project runtime configuration;
 - `edit` delegates a canonical memory, skill, instruction, or subagent file to an external editor.
+- `maintain memory` launches an interactive Agent whose prompt requires confirmation before writes.
 
 Use `--dry-run` to preview project, MCP, and subagent synchronization, and consult the
 [Safety model](safety.md) before applying changes to an existing setup.
+
+`aikito maintain memory` defaults to the project containing the current
+directory and launches the `codex` runner configured in `agents.toml`. Use
+`global` or a registered project name to select another scope, and `--agent`
+to choose `codex`, `claude-code`, `agy`, `opencode`, or `github-copilot`.
+Custom Agents can define `[agents.<name>.runner]` with a `command` array.
+Supported placeholders are `{prompt}`, `{workdir}`, `{scope}`, and
+`{memory_dir}`. Optional `[agents.<name>.runner.env]` string values override
+the inherited process environment and support the same placeholders:
+
+```toml
+[agents.codex.runner.env]
+HTTPS_PROXY = "http://127.0.0.1:1234"
+```
+
+Runner environment values are local configuration. The open-source export
+removes every `runner.env` value while preserving runner commands and a safe
+commented example; never rely on repository publication as a secrets store.
 
 ## Drift Diff
 

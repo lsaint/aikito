@@ -56,6 +56,7 @@ jobs:
           python3 bin/aikito sync --help
           python3 bin/aikito show --help
           python3 bin/aikito doctor --help
+          python3 bin/aikito maintain memory --help
           python3 bin/aikito completion --help
           python3 bin/aikito completion candidates --help
 
@@ -130,6 +131,13 @@ jobs:
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito status
 
+      - name: aikito memory maintenance validation
+        run: |
+          if AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito maintain memory missing-project; then
+            exit 1
+          fi
+
       # doctor should report all symlinks and config.toml OK after sync
       - name: aikito doctor
         run: |
@@ -167,4 +175,3 @@ jobs:
             python3 bin/aikito completion candidates skills
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito completion candidates projects
-

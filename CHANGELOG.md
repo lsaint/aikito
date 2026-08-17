@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-08-17
+
+### Added
+
+- Added `aikito maintain memory [global|<project>|.]` to launch a configured interactive Agent for confirmation-gated, full-scope memory maintenance.
+- Added interactive runner definitions for Codex, Claude Code, Antigravity CLI, OpenCode, and GitHub Copilot CLI.
+- Added per-runner environment overrides through `[agents.<name>.runner.env]`, with inherited process environment and prompt placeholders.
+
+### Changed
+
+- Extended proactive memory maintenance to compare notes with relevant skills and instructions, report upstream corrections separately, and defer unverifiable conflicts to the user.
+
+### Fixed
+
+- Added focused diagnostics for malformed runner placeholders, unknown Agents, invalid runner configuration, and registered projects without a memory scope.
+
+### Security
+
+- Added open-source export sanitization for all Agent runner environment values, including proxies, API keys, and tokens.
+
 ## [1.7.0] - 2026-08-16
 
 ### Added
@@ -182,7 +202,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/lsaint/aikito/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/lsaint/aikito/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/lsaint/aikito/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/lsaint/aikito/compare/v1.5.0...v1.5.1

@@ -42,6 +42,13 @@ display_name = "Codex"
 instruction_path = ".codex/AGENTS.md"
 skills_path = ".agents/skills"
 
+[agents.codex.runner]
+command = ["codex", "-C", "{workdir}", "{prompt}"]
+
+# Optional per-runner environment overrides:
+# [agents.codex.runner.env]
+# HTTPS_PROXY = "http://127.0.0.1:1234"
+
 [agents.codex.subagents]
 config_path = ".codex/agents"
 config_format = "codex_toml"
@@ -57,6 +64,9 @@ auth_command = ["codex", "mcp", "login", "{target}"]
 display_name = "Claude Code"
 instruction_path = ".claude/CLAUDE.md"
 skills_path = ".claude/skills"
+
+[agents.claude-code.runner]
+command = ["claude", "{prompt}"]
 
 [agents.claude-code.subagents]
 config_path = ".claude/agents"
@@ -74,6 +84,9 @@ display_name = "Antigravity CLI (agy)"
 instruction_path = ".gemini/GEMINI.md"
 skills_path = ".gemini/antigravity-cli/skills"
 
+[agents.agy.runner]
+command = ["agy", "--prompt-interactive", "{prompt}"]
+
 [agents.agy.subagents]
 config_path = ".gemini/config/agents"
 config_format = "agy_markdown"
@@ -88,6 +101,9 @@ display_name = "OpenCode"
 instruction_path = ".config/opencode/AGENTS.md"
 skills_path = ".agents/skills"
 
+[agents.opencode.runner]
+command = ["opencode", "{workdir}", "--prompt", "{prompt}"]
+
 [agents.opencode.mcp]
 config_path = ".config/opencode/opencode.jsonc"
 config_format = "jsonc"
@@ -99,6 +115,9 @@ auth_command = ["opencode", "mcp", "auth", "{target}"]
 display_name = "GitHub Copilot CLI"
 instruction_path = ".copilot/copilot-instructions.md"
 skills_path = ".agents/skills"
+
+[agents.github-copilot.runner]
+command = ["copilot", "-C", "{workdir}", "-i", "{prompt}"]
 
 [agents.github-copilot.subagents]
 config_path = ".copilot/agents"
