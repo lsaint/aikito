@@ -47,6 +47,11 @@ from aikito_project import (
     plan_runtime_cleanup,
 )
 
+from aikito_config import get_inbox_path
+from aikito_inbox import (
+    collect_inbox_rows,
+    resolve_inbox_target_for_command,
+)
 from aikito_render import (
     DoctorReport,
     SkillRow,
@@ -56,6 +61,7 @@ from aikito_render import (
     render_mcp_details,
     render_subagent_details,
     render_instruction_agent_status,
+    render_inbox_table,
     render_mcp_status_table,
     render_memory_notes_table,
     render_project_detail,
@@ -80,7 +86,7 @@ from aikito_subagent import (
 )
 from aikito_completion import generate_bash, generate_fish, generate_zsh, get_candidates
 
-__version__ = "1.8.0"
+__version__ = "1.9.0"
 
 
 def get_aikito_dir() -> Path:
@@ -1302,6 +1308,38 @@ def cmd_show_subagents(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_show_inbox(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    inbox_dir = get_inbox_path(aikito_dir)
+    target = getattr(args, "target", None)
+
+    if not target:
+        if not inbox_dir.is_dir():
+            print(f"Inbox directory does not exist: {inbox_dir}")
+            return
+        use_unicode, use_color = resolve_color_flags(args)
+        rows = collect_inbox_rows(inbox_dir)
+        if not rows:
+            print(f"Inbox is empty ({inbox_dir}).")
+            return
+        table_str = render_inbox_table(rows, use_unicode, use_color)
+        print(table_str)
+        return
+
+    target_file = resolve_inbox_target_for_command(
+        inbox_dir, target, operation="show"
+    )
+
+    try:
+        print(target_file.read_text(encoding="utf-8"), end="")
+    except Exception as e:
+        print(
+            f"[ERROR] Failed to read inbox note {target_file}: {e}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 def cmd_show_memory(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
     home = Path.home()
@@ -1881,6 +1919,20 @@ def build_parser() -> argparse.ArgumentParser:
     add_color_args(p_show_instructions)
     p_show_instructions.set_defaults(func=cmd_show_instructions)
 
+    # show inbox [target]
+    p_show_inbox = show_subparsers.add_parser(
+        "inbox",
+        help="Print raw markdown content of an inbox note, or list all inbox notes if target is omitted",
+    )
+    p_show_inbox.add_argument(
+        "target",
+        nargs="?",
+        default=None,
+        help="Exact name or unique prefix of the inbox note",
+    )
+    add_color_args(p_show_inbox)
+    p_show_inbox.set_defaults(func=cmd_show_inbox)
+
     # show memory [target]
     p_show_memory = show_subparsers.add_parser(
         "memory",
@@ -2084,6 +2136,8 @@ def build_parser() -> argparse.ArgumentParser:
             "mcp",
             "memories",
             "memory-completions",
+            "inbox",
+            "inbox-completions",
             "paths",
         ],
         help="Category of candidates to list",

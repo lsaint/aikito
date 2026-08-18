@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT / "bin"))
 
 from aikito_config import (  # noqa: E402
     DEFAULT_STALE_MEMORY_DAYS,
+    get_inbox_path,
     get_project_memory_stale_days,
     get_workspace_config_path,
     load_workspace_config,
@@ -54,6 +55,31 @@ class AikitoConfigTest(unittest.TestCase):
 
         days = get_project_memory_stale_days(proj_dir, default_stale_days=30)
         self.assertEqual(days, 7)
+
+    def test_inbox_config_default(self) -> None:
+        cfg = load_workspace_config(self.root)
+        self.assertEqual(cfg.inbox.path, "~/aikito/inbox")
+
+        inbox_dir = get_inbox_path(self.root)
+        self.assertEqual(inbox_dir, (self.root / "inbox").resolve())
+
+    def test_inbox_config_custom_path(self) -> None:
+        config_file = self.root / "config.toml"
+        custom_target = self.root / "custom_inbox"
+        config_file.write_text(f'[inbox]\npath = "{custom_target}"\n', encoding="utf-8")
+
+        cfg = load_workspace_config(self.root)
+        self.assertEqual(cfg.inbox.path, str(custom_target))
+
+        inbox_dir = get_inbox_path(self.root)
+        self.assertEqual(inbox_dir, custom_target.resolve())
+
+    def test_inbox_config_empty_fallback(self) -> None:
+        config_file = self.root / "config.toml"
+        config_file.write_text('[inbox]\npath = "   "\n', encoding="utf-8")
+
+        inbox_dir = get_inbox_path(self.root)
+        self.assertEqual(inbox_dir, (self.root / "inbox").resolve())
 
 
 if __name__ == "__main__":

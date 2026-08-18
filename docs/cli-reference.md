@@ -24,6 +24,7 @@ version.
 | `aikito show subagents [target] [--agent agent]` | Inspect the subagent matrix, drill into platform options per agent, or print instructions |
 | `aikito show project [name]` | List registered projects or inspect one project's configuration and sync status |
 | `aikito show instructions [global|project|.]` | List or print global and project instructions |
+| `aikito show inbox [target]` | Print raw markdown content of an inbox note, or list all inbox notes if target is omitted |
 | `aikito show memory [target]` | Print a memory note, or list all memory notes if target is omitted |
 | `aikito show skill [target]` | Print a skill's SKILL.md file, or list all skills if target is omitted |
 | `aikito rename memory <target> <new-name>` | Atomically rename a memory note, update its index entry, and refactor inbound wikilinks |
@@ -35,7 +36,7 @@ version.
 | `aikito edit subagent <target>` | Open a subagent's instruction markdown in `$VISUAL` or `$EDITOR` |
 | `aikito doctor [--fix]` | Run deep workspace diagnostics (and auto-repair fixable index issues) |
 | `aikito completion zsh\|bash\|fish` | Print a shell completion script |
-| `aikito completion candidates projects\|skills\|subagents\|mcps\|memories\|memory-completions\|paths [prefix]` | List dynamic completion candidates |
+| `aikito completion candidates projects\|skills\|subagents\|mcps\|memories\|memory-completions\|inbox\|inbox-completions\|paths [prefix]` | List dynamic completion candidates |
 | `aikito version` | Print the CLI version |
 
 ## Discovery
@@ -119,6 +120,30 @@ aikito edit instructions .
 `.` resolves the registered project containing the current directory and notes
 that global instructions are also active.
 
+## Inbox
+
+`inbox/` acts as a staging directory for raw notes captured from browser AI conversations before they are curated into durable memory.
+
+List inbox notes sorted by modification time (`Name` and `Modified`):
+
+```bash
+aikito show inbox
+```
+
+Print the raw Markdown content of an inbox note by exact name or unique prefix:
+
+```bash
+aikito show inbox perplexity-ai-positioning
+aikito show inbox perplexity
+```
+
+The inbox directory defaults to `~/aikito/inbox` and can be customized in `config.toml`:
+
+```toml
+[inbox]
+path = "~/aikito/inbox"
+```
+
 ## Projects
 
 List each registered project's path, synchronization mode, instructions,
@@ -196,7 +221,9 @@ files with no network requests or expensive diagnostics:
 aikito completion candidates projects
 aikito completion candidates skills
 aikito completion candidates subagents
+aikito completion candidates mcps
 aikito completion candidates memories
+aikito completion candidates inbox-completions
 aikito completion candidates paths agent
 ```
 

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 DEFAULT_STALE_MEMORY_DAYS = 30
+DEFAULT_INBOX_PATH = "~/aikito/inbox"
 
 
 @dataclass
@@ -19,8 +20,14 @@ class MemoryConfig:
 
 
 @dataclass
+class InboxConfig:
+    path: str = DEFAULT_INBOX_PATH
+
+
+@dataclass
 class AikitoConfig:
     memory: MemoryConfig = field(default_factory=MemoryConfig)
+    inbox: InboxConfig = field(default_factory=InboxConfig)
 
 
 def get_workspace_config_path(aikito_dir: Path) -> Optional[Path]:
@@ -55,7 +62,32 @@ def load_workspace_config(aikito_dir: Path) -> AikitoConfig:
         if isinstance(val, int) and val > 0:
             memory_config.stale_days = val
 
-    return AikitoConfig(memory=memory_config)
+    inbox_config = InboxConfig()
+    inbox_data = data.get("inbox")
+    if isinstance(inbox_data, dict):
+        path_val = inbox_data.get("path")
+        if isinstance(path_val, str):
+            inbox_config.path = path_val
+
+    return AikitoConfig(memory=memory_config, inbox=inbox_config)
+
+
+def get_inbox_path(aikito_dir: Path) -> Path:
+    """
+    Resolve configured inbox path. Defaults to aikito_dir / "inbox"
+    (or ~/aikito/inbox).
+    """
+    config = load_workspace_config(aikito_dir)
+    raw_path = config.inbox.path.strip() if config.inbox.path else ""
+    if not raw_path:
+        return (aikito_dir / "inbox").resolve()
+
+    expanded = Path(raw_path).expanduser()
+    if expanded == Path(DEFAULT_INBOX_PATH).expanduser():
+        return (aikito_dir / "inbox").resolve()
+    if not expanded.is_absolute():
+        return (aikito_dir / expanded).resolve()
+    return expanded.resolve()
 
 
 def get_project_memory_stale_days(

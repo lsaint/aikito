@@ -666,6 +666,18 @@ def render_memory_notes_table(
     )
 
 
+def render_inbox_table(
+    rows: List[Any],
+    use_unicode: bool,
+    use_color: bool,
+) -> str:
+    headers = ["Name", "Modified"]
+    formatted_rows = [[r.name, r.modified] for r in rows]
+    return _build_generic_table(
+        headers, formatted_rows, use_unicode, use_color, truncatable_cols=[0]
+    )
+
+
 def render_skills_table(
     skills: List[SkillRow],
     use_unicode: bool,

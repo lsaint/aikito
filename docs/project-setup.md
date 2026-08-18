@@ -49,7 +49,6 @@ name = "example"
 path = "~/code/example"
 sync_mode = "link"
 skills = ["durable-memory"]
-memory = []
 ```
 
 The project name identifies its workspace configuration. The `path` points to

@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import List
 
 
+from aikito_config import get_inbox_path
+from aikito_inbox import find_inbox_files
 from aikito_memory import find_memory_files
 from aikito_status import collect_skills_rows
 
@@ -111,6 +113,21 @@ def list_memory_completions(aikito_dir: Path) -> List[str]:
     return sorted(set(completions))
 
 
+def list_inbox_completions(aikito_dir: Path) -> List[str]:
+    """Return candidates for inbox notes."""
+    inbox_dir = get_inbox_path(aikito_dir)
+    files = find_inbox_files(inbox_dir)
+    completions = []
+    for f in files:
+        try:
+            rel = f.relative_to(inbox_dir)
+            ident = str(rel.with_suffix(""))
+        except ValueError:
+            ident = f.stem
+        completions.append(ident)
+    return sorted(set(completions))
+
+
 def _registered_search_roots(aikito_dir: Path) -> List[Path]:
     """Return existing workspace and registered project roots without duplicates."""
     roots = [aikito_dir.resolve()]
@@ -175,6 +192,8 @@ def get_candidates(
         "mcp": list_mcps,
         "memories": list_memories,
         "memory-completions": list_memory_completions,
+        "inbox": list_inbox_completions,
+        "inbox-completions": list_inbox_completions,
     }
     if category == "paths":
         return list_paths(aikito_dir, query or "")
@@ -353,6 +372,11 @@ _aikito() {{
                             displays+=("${{line%%$'\\t'*}}${{line#*$'\\t'}}")
                         done
                         compadd -d displays -a cands
+                        ;;
+                    (show\\ inbox)
+                        local cands
+                        cands=(${{(f)"$(aikito completion candidates inbox-completions 2>/dev/null)"}})
+                        compadd -a cands
                         ;;
                     (show\\ skill|show\\ skills|edit\\ skill|edit\\ skills)
                         local cands
@@ -542,6 +566,12 @@ _aikito_completion() {{
                 done < <(aikito completion candidates memory-completions 2>/dev/null)
                 return 0
                 ;;
+            show\\ inbox)
+                local candidates
+                candidates=$(aikito completion candidates inbox-completions 2>/dev/null)
+                COMPREPLY=( $(compgen -W "$candidates" -- "$cur") )
+                return 0
+                ;;
             show\\ skill|show\\ skills|edit\\ skill|edit\\ skills)
                 local candidates
                 candidates=$(aikito completion candidates skills 2>/dev/null)
@@ -673,6 +703,8 @@ def generate_fish(parser: argparse.ArgumentParser | None = None) -> str:
         "# Dynamic candidates & positionals",
         "complete -c aikito -f -n '__fish_seen_subcommand_from show edit rename rm remove; and __fish_seen_subcommand_from memory' "
         "-a '(aikito completion candidates memory-completions 2>/dev/null)'",
+        "complete -c aikito -f -n '__fish_seen_subcommand_from show; and __fish_seen_subcommand_from inbox' "
+        "-a '(aikito completion candidates inbox-completions 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from show edit; and __fish_seen_subcommand_from skill skills' "
         "-a '(aikito completion candidates skills 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from show edit; and __fish_seen_subcommand_from subagent subagents' "
@@ -688,7 +720,7 @@ def generate_fish(parser: argparse.ArgumentParser | None = None) -> str:
         "complete -c aikito -f -n '__fish_seen_subcommand_from sync; and __fish_seen_subcommand_from project' "
         "-a '(aikito completion candidates projects 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from completion; and __fish_seen_subcommand_from candidates' "
-        "-a 'projects skills memories subagents mcps'",
+        "-a 'projects skills memories memory-completions subagents mcps inbox inbox-completions paths'",
         "complete -c aikito -F -n '__fish_seen_subcommand_from init; and __fish_seen_subcommand_from workspace project'",
         "complete -c aikito -F -n '__fish_seen_subcommand_from sync; and __fish_seen_subcommand_from project'",
         "complete -c aikito -F -n '__fish_seen_subcommand_from adopt'",

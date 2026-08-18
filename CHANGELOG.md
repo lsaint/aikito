@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-08-18
+
+### Added
+
+- Added `aikito show inbox [target]` to list staged Markdown notes or print a
+  selected note by exact name or unique prefix.
+- Added configurable Inbox paths through `[inbox].path` in the workspace
+  `config.toml`.
+- Added dynamic shell completion for Inbox note targets across Zsh, Bash, and
+  Fish.
+- Added standalone English and Simplified Chinese guides covering the Inbox
+  lifecycle, its trust boundary, and how reviewed notes become durable memory.
+
+### Changed
+
+- Removed the unused `memory = []` field from newly generated project
+  configuration files.
+
 ## [1.8.0] - 2026-08-17
 
 ### Added
@@ -202,7 +220,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/lsaint/aikito/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/lsaint/aikito/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/lsaint/aikito/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/lsaint/aikito/compare/v1.5.1...v1.6.0

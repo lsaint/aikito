@@ -37,7 +37,7 @@ flowchart LR
 
 Its contents serve two complementary purposes:
 
-1. **Immediate task input**: Coding agents can inspect notes in `inbox/` directly to carry out single-session tasks.
+1. **Immediate task input**: Coding agents and users can inspect notes in `inbox/` directly via `aikito show inbox [target]` to carry out single-session tasks.
 2. **Staging for review**: Raw distilled notes remain uncommitted until reviewed, preventing temporary context or unverified ideas from polluting Git history.
 
 Agents should not treat notes remaining inside `inbox/` as established project constraints merely because they exist.

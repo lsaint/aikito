@@ -301,6 +301,18 @@ class AikitoCompletionTest(unittest.TestCase):
         )
         self.assertEqual(get_candidates("paths", self.aikito_dir, "missing"), [])
 
+    def test_list_inbox_completions(self) -> None:
+        inbox_dir = self.aikito_dir / "inbox"
+        inbox_dir.mkdir(parents=True, exist_ok=True)
+        (inbox_dir / "alpha.md").write_text("# Alpha")
+        (inbox_dir / "beta.md").write_text("# Beta")
+
+        cands = get_candidates("inbox-completions", self.aikito_dir)
+        self.assertEqual(cands, ["alpha", "beta"])
+
+        cands_inbox = get_candidates("inbox", self.aikito_dir)
+        self.assertEqual(cands_inbox, ["alpha", "beta"])
+
 
 class AikitoMemoryTest(unittest.TestCase):
     def setUp(self) -> None:

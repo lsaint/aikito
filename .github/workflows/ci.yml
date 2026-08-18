@@ -55,6 +55,7 @@ jobs:
           python3 bin/aikito status --help
           python3 bin/aikito sync --help
           python3 bin/aikito show --help
+          python3 bin/aikito show inbox --help
           python3 bin/aikito doctor --help
           python3 bin/aikito maintain memory --help
           python3 bin/aikito completion --help
@@ -154,9 +155,25 @@ jobs:
           # Workspace custom test config
           [memory]
           stale_days = 14
+
+          [inbox]
+          path = "~/aikito/inbox"
           EOF
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito doctor
+
+      - name: aikito inbox inspection (missing, empty, note list, and target reading)
+        run: |
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito show inbox
+          mkdir -p ${{ runner.temp }}/aikito-ws/inbox
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito show inbox
+          echo "# CI Test Inbox Note" > ${{ runner.temp }}/aikito-ws/inbox/ci-note.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito show inbox
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito show inbox ci-note
 
       # README Migration: aikito adopt (dry-run, no --apply)
       - name: aikito adopt (dry-run)
@@ -171,6 +188,8 @@ jobs:
           python3 bin/aikito completion fish
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito completion candidates memories
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito completion candidates inbox-completions
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito completion candidates skills
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \

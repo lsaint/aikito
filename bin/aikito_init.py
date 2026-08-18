@@ -159,6 +159,10 @@ CONFIG_TOML_TEMPLATE = """# Aikito Workspace Configuration
 [memory]
 # Number of days after which an untouched durable memory note is flagged as stale.
 stale_days = 30
+
+[inbox]
+# Staging directory for incoming distilled notes.
+path = "~/aikito/inbox"
 """
 
 GLOBAL_AGENTS_TEMPLATE = """# Global Agent Directives
@@ -472,8 +476,7 @@ def init_project(
             f'name = "{resolved_name}"\n'
             f'path = "{display_path}"\n'
             'sync_mode = "link"\n'
-            "skills = []\n"
-            "memory = []\n",
+            "skills = []\n",
             encoding="utf-8",
         )
         print(f"[CREATE FILE] {config_path}")
