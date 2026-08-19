@@ -80,7 +80,7 @@ live_command = ["claude", "mcp", "list"]
 auth_command = ["claude", "mcp", "login", "{target}"]
 
 [agents.agy]
-display_name = "Antigravity CLI (agy)"
+display_name = "Antigravity CLI"
 instruction_path = ".gemini/GEMINI.md"
 skills_path = ".gemini/antigravity-cli/skills"
 
@@ -128,6 +128,23 @@ config_path = ".copilot/mcp-config.json"
 config_format = "copilot_json"
 name_style = "verbatim"
 live_command = ["copilot", "mcp", "list"]
+
+[agents.dsh]
+display_name = "DeepSeek Harness"
+instruction_path = ".dsh/AGENTS.md"
+skills_path = ".agents/skills"
+
+[agents.dsh.runner]
+command = ["dsh", "--profile", "headless", "{prompt}"]
+
+[agents.dsh.subagents]
+config_path = ".dsh/cordis.patch.yml"
+config_format = "dsh_cordis_subagent"
+
+[agents.dsh.mcp]
+config_path = ".dsh/cordis.patch.yml"
+config_format = "dsh_cordis"
+name_style = "verbatim"
 """
 
 MCPS_TOML_TEMPLATE = """# Aikito MCP Config
@@ -371,7 +388,7 @@ def _project_validation_error(
     if not project_path.is_dir():
         return f"Project path is not a directory: {project_path}"
 
-    if _target_validation_error(aikito_dir):
+    if not (aikito_dir / "agents.toml").is_file():
         return f"Aikito workspace is not initialized: {aikito_dir}"
 
     config_path = aikito_dir / "projects" / project_name / "agent.toml"

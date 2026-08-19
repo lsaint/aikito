@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-08-19
+
+### Added
+
+- Added native DeepSeek Harness (`dsh`) agent support across global instructions (`.dsh/AGENTS.md`), canonical skills (`.agents/skills`), MCP configuration (`.dsh/cordis.patch.yml` via `dsh_cordis` renderer), subagents (`.dsh/.agent-presets/<name>/` via `dsh_preset` renderer), and runner (`dsh --profile headless`).
+- Added full diagnostic checks and CLI status checking for DeepSeek Harness in `aikito doctor` and `aikito status`.
+
+### Fixed
+
+- Allowed project operations when the target workspace is at the CLI source root.
+
 ## [1.9.0] - 2026-08-18
 
 ### Added
@@ -220,7 +231,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/lsaint/aikito/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/lsaint/aikito/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/lsaint/aikito/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/lsaint/aikito/compare/v1.6.0...v1.7.0

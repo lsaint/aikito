@@ -109,7 +109,7 @@ Aikito prioritizes inspectability, Git history, and portability. Storing resourc
 Aikito stores durable conclusions rather than attempting to retain every Agent event. Manual or semi-automated distillation prevents noise accumulation and keeps memory notes concise, reliable, and easy to review via Git diffs.
 
 ### Existing agents over orchestration
-Aikito configures and supplies resources to Agent runtimes rather than replacing them. It leaves execution, reasoning, and prompt assembly to native coding agents like Codex, Claude Code, Antigravity `agy`, or OpenCode.
+Aikito configures and supplies resources to Agent runtimes rather than replacing them. It leaves execution, reasoning, and prompt assembly to native coding agents like Codex, Claude Code, Antigravity `agy`, OpenCode, GitHub Copilot CLI, or DeepSeek Harness (`dsh`).
 
 ### Central workspace over project-local ownership
 Reusable resources live once in `~/aikito`, and projects select what they need. This eliminates duplication while allowing projects to remain isolated when required.

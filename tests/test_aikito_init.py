@@ -8,7 +8,11 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
 
-from aikito_init import init_project, init_workspace  # noqa: E402
+from aikito_init import (  # noqa: E402
+    init_project,
+    init_workspace,
+    project_sync_validation_error,
+)
 from aikito_mcp import load_agent_specs, load_agents  # noqa: E402
 from aikito_status import get_status_report_data  # noqa: E402
 
@@ -77,7 +81,7 @@ class AikitoInitTest(unittest.TestCase):
             agent_config = tomllib.load(config_file)["agents"]
         self.assertEqual(
             set(agent_config),
-            {"codex", "claude-code", "agy", "opencode", "github-copilot"},
+            {"codex", "claude-code", "agy", "opencode", "github-copilot", "dsh"},
         )
         for agent_name in agent_config:
             self.assertTrue(agent_config[agent_name]["runner"]["command"])
@@ -152,6 +156,22 @@ class AikitoInitTest(unittest.TestCase):
         config = (project_dir / "agent.toml").read_text(encoding="utf-8")
         self.assertIn('name = "example"', config)
         self.assertIn('sync_mode = "link"', config)
+
+    def test_project_operations_allow_workspace_at_cli_source_root(self) -> None:
+        init_workspace(self.target_path, self.fake_home)
+        project_path = Path(self.tmp_dir.name) / "example"
+        project_path.mkdir()
+        project_path = project_path.resolve()
+
+        with patch("aikito_init.CLI_SOURCE_ROOT", self.target_path):
+            self.assertEqual(
+                init_project(self.target_path, project_path, "example"), "example"
+            )
+            self.assertIsNone(
+                project_sync_validation_error(
+                    self.target_path, "example", project_path
+                )
+            )
 
     def test_init_project_is_idempotent(self) -> None:
         init_workspace(self.target_path, self.fake_home)

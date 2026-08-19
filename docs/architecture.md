@@ -63,7 +63,7 @@ Aikito calls the resource “instructions” while retaining the ecosystem-stand
 
 Integrations are capability-based. An Agent may participate in instructions,
 skills, MCP, or subagent synchronization independently. The default registry
-contains Codex, Claude Code, Antigravity CLI (`agy`), OpenCode, and GitHub Copilot CLI.
+contains Codex, Claude Code, Antigravity CLI (`agy`), OpenCode, GitHub Copilot CLI, and DeepSeek Harness (`dsh`).
 
 ## Project Runtime Directory
 

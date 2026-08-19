@@ -31,11 +31,11 @@ default.
 Example `aikito show subagents` output from a configured workspace:
 
 ```text
-┌───────────┬───────┬─────────────┬───────────────────────┬──────────┐
-│ Subagent  │ Codex │ Claude Code │ Antigravity CLI (agy) │ OpenCode │
-├───────────┼───────┼─────────────┼───────────────────────┼──────────┤
-│ verifier  │ ✓     │ ✓           │ ✓                     │ –        │
-└───────────┴───────┴─────────────┴───────────────────────┴──────────┘
+┌───────────┬───────┬─────────────┬─────────────────┬──────────┬────────────────────┬──────────────────┐
+│ Subagent  │ Codex │ Claude Code │ Antigravity CLI │ OpenCode │ GitHub Copilot CLI │ DeepSeek Harness │
+├───────────┼───────┼─────────────┼─────────────────┼──────────┼────────────────────┼──────────────────┤
+│ verifier  │ ✓     │ ✓           │ ✓               │ –        │ ✓                  │ ✓                │
+└───────────┴───────┴─────────────┴─────────────────┴──────────┴────────────────────┴──────────────────┘
 ```
 
 `✓` means the rendered definition is synchronized; `–` means that Agent does

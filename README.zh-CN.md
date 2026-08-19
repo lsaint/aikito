@@ -73,8 +73,8 @@ Aikito 将这些资源集中在一个个人 Git 工作区中，并将选定的�
 | MCP server | `mcps/*.toml` | Agent 原生 TOML、JSON 或 JSONC 配置 |
 | Subagent | `subagents.toml`、`subagents/` | Agent 原生 subagent 定义 |
 
-默认注册表包含 Codex、Claude Code、Antigravity CLI（`agy`）、OpenCode 和
-GitHub Copilot CLI。完整心智模型和
+默认注册表包含 Codex、Claude Code、Antigravity CLI（`agy`）、OpenCode、
+GitHub Copilot CLI 和 DeepSeek Harness（`dsh`）。完整心智模型和
 能力边界见[架构文档（英文）](docs/architecture.md)。
 
 ### 共享或隔离
@@ -174,12 +174,13 @@ Agent 资源，不保存项目源码本身。
 ├───────────────────────┼──────────────┼────────┼────────────┼───────────┤
 │ Codex                 │ ✓            │ 2 ›    │ –          │ –         │
 │ Claude Code           │ ✓            │ 2 »    │ –          │ –         │
-│ Antigravity CLI (agy) │ ✓            │ 2 »    │ –          │ –         │
+│ Antigravity CLI       │ ✓            │ 2 »    │ –          │ –         │
 │ OpenCode              │ ✓            │ 2 ›    │ –          │ –         │
 │ GitHub Copilot CLI    │ ✓            │ 2 ›    │ –          │ –         │
+│ DeepSeek Harness      │ ✓            │ 2 ›    │ –          │ –         │
 └───────────────────────┴──────────────┴────────┴────────────┴───────────┘
 
-✓ all synced · 5 agents · 2 skills · 0 notes across 1 scopes
+✓ all synced · 6 agents · 2 skills · 0 notes across 1 scopes
 ```
 
 如需从源码构建、使用自定义安装路径或查看高级参数，请参阅[项目配置指南（英文）](docs/project-setup.md)。

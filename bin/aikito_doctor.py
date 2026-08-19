@@ -28,6 +28,7 @@ from aikito_config import (
 from aikito_link import SymlinkVerdict, classify_symlink
 from aikito_mcp import (
     MCPConfigError,
+    _load_document,
     _parse_jsonc,
     evaluate_spec_status,
     load_agent_specs,
@@ -764,6 +765,13 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
                             f"{definition.display_name} config: valid JSONC ({display})"
                         )
                     )
+                elif fmt == "dsh_cordis":
+                    _load_document(fmt, text)
+                    findings.append(
+                        _ok(
+                            f"{definition.display_name} config: valid Cordis patch YAML ({display})"
+                        )
+                    )
             except (
                 json.JSONDecodeError,
                 tomllib.TOMLDecodeError,
@@ -1043,6 +1051,7 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
         "agy": "agy",
         "opencode": "opencode",
         "copilot": "copilot",
+        "dsh": "dsh",
     }
     for label, binary in cli_map.items():
         if shutil.which(binary):

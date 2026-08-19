@@ -262,7 +262,7 @@ class AikitoStatusCollectorTest(unittest.TestCase):
             (aikito_dir / "agents.toml").write_text(
                 """
 [agents.agy]
-display_name = "Antigravity CLI (agy)"
+display_name = "Antigravity CLI"
 
 [agents.agy.mcp]
 config_path = ".gemini/config/mcp_config.json"

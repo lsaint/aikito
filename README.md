@@ -75,7 +75,7 @@ No database, daemon, vector store, or hosted service required.
 | Subagents | `subagents.toml`, `subagents/` | Native subagent definitions |
 
 The default registry includes Codex, Claude Code, Antigravity CLI (`agy`),
-OpenCode, and GitHub Copilot CLI. See the [architecture](docs/architecture.md) for the complete mental
+OpenCode, GitHub Copilot CLI, and DeepSeek Harness (`dsh`). See the [architecture](docs/architecture.md) for the complete mental
 model and capability boundaries.
 
 ### Share or isolate
@@ -184,12 +184,13 @@ and its project-specific Agent resources, not the project source code itself.
 ├───────────────────────┼──────────────┼────────┼────────────┼───────────┤
 │ Codex                 │ ✓            │ 2 ›    │ –          │ –         │
 │ Claude Code           │ ✓            │ 2 »    │ –          │ –         │
-│ Antigravity CLI (agy) │ ✓            │ 2 »    │ –          │ –         │
+│ Antigravity CLI       │ ✓            │ 2 »    │ –          │ –         │
 │ OpenCode              │ ✓            │ 2 ›    │ –          │ –         │
 │ GitHub Copilot CLI    │ ✓            │ 2 ›    │ –          │ –         │
+│ DeepSeek Harness      │ ✓            │ 2 ›    │ –          │ –         │
 └───────────────────────┴──────────────┴────────┴────────────┴───────────┘
 
-✓ all synced · 5 agents · 2 skills · 0 notes across 1 scopes
+✓ all synced · 6 agents · 2 skills · 0 notes across 1 scopes
 ```
 
 For building from source, custom install paths, or advanced configuration, see

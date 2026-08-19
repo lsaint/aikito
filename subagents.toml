@@ -2,7 +2,7 @@
 # Invocation context is controlled by the caller and cannot be expressed here.
 [subagents.verifier]
 description = "Runs project-approved formatting, lint-fix, and test operations."
-agents = ["codex", "claude-code", "github-copilot", "agy"]
+agents = ["codex", "claude-code", "github-copilot", "agy", "dsh"]
 
 [subagents.verifier.codex]
 model = "gpt-5.4-mini"

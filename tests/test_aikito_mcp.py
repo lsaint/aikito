@@ -18,6 +18,7 @@ from aikito_mcp import (  # noqa: E402
     evaluate_spec_status,
     get_claude_json_server,
     get_copilot_json_server,
+    get_dsh_cordis_server,
     get_jsonc_server,
     get_agy_json_server,
     get_toml_server,
@@ -28,6 +29,7 @@ from aikito_mcp import (  # noqa: E402
     sync_mcp_configs,
     update_claude_json_server,
     update_copilot_json_server,
+    update_dsh_cordis_server,
     update_jsonc_server,
     update_agy_json_server,
     update_toml_server,
@@ -58,7 +60,7 @@ live_command = ["opencode", "mcp", "list"]
 auth_command = ["opencode", "mcp", "auth", "{target}"]
 
 [agents.agy]
-display_name = "Antigravity CLI (agy)"
+display_name = "Antigravity CLI"
 instruction_path = ".gemini/GEMINI.md"
 skills_path = ".gemini/antigravity-cli/skills"
 
@@ -78,7 +80,20 @@ config_format = "claude_json"
 name_style = "verbatim"
 live_command = ["claude", "mcp", "list"]
 auth_command = ["claude", "mcp", "login", "{target}"]
-""".lstrip()
+
+[agents.dsh]
+display_name = "DeepSeek Harness"
+instruction_path = ".dsh/AGENTS.md"
+skills_path = ".agents/skills"
+
+[agents.dsh.runner]
+command = ["dsh", "--profile", "headless", "{prompt}"]
+
+[agents.dsh.mcp]
+config_path = ".dsh/cordis.patch.yml"
+config_format = "dsh_cordis"
+name_style = "verbatim"
+"""
 
 
 DESIRED_CODEX = {"url": "https://example.com/mcp"}
@@ -189,6 +204,64 @@ enabled = true
         document = json.loads(updated)
         self.assertEqual(document["machineID"], "keep-me")
         self.assertIn("other", document["mcpServers"])
+
+    def test_dsh_cordis_update_creates_new_file(self) -> None:
+        desired = {
+            "serverName": "atlassian-rovo",
+            "transport": "streamable-http",
+            "url": "https://mcp.atlassian.com/v1/mcp",
+            "headers": {"Authorization": "!!js process.env.ATLASSIAN_MCP_AUTHORIZATION"},
+        }
+        updated = update_dsh_cordis_server("", "atlassian-rovo", desired)
+        self.assertEqual(get_dsh_cordis_server(updated, "atlassian-rovo"), desired)
+
+    def test_dsh_cordis_update_preserves_unmanaged_rows_and_comments(self) -> None:
+        source = """# User cordis patch configuration
+- id: custom-plugin
+  name: '@my-scope/custom-plugin'
+  config:
+    enabled: true
+
+- id: aikito-mcp-old
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: old
+    transport: streamable-http
+    url: https://old.example.com
+"""
+        desired = {
+            "serverName": "github",
+            "transport": "stdio",
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-github"],
+            "env": {"GITHUB_TOKEN": "!!js process.env.GITHUB_TOKEN"},
+        }
+        updated = update_dsh_cordis_server(source, "github", desired)
+        self.assertIn("custom-plugin", updated)
+        self.assertIn("# User cordis patch configuration", updated)
+        self.assertEqual(get_dsh_cordis_server(updated, "github"), desired)
+        self.assertEqual(get_dsh_cordis_server(updated, "old")["url"], "https://old.example.com")
+
+    def test_dsh_cordis_update_modifies_existing_entry(self) -> None:
+        source = """- id: aikito-mcp-atlassian-rovo
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: atlassian-rovo
+    transport: streamable-http
+    url: https://old.atlassian.com/v1/mcp
+"""
+        desired = {
+            "serverName": "atlassian-rovo",
+            "transport": "streamable-http",
+            "url": "https://mcp.atlassian.com/v1/mcp",
+            "headers": {"Authorization": "!!js process.env.ATLASSIAN_MCP_AUTHORIZATION"},
+            "toolCallTimeoutMs": 45000,
+        }
+        updated = update_dsh_cordis_server(source, "atlassian-rovo", desired)
+        self.assertEqual(get_dsh_cordis_server(updated, "atlassian-rovo"), desired)
+        entries = read_all_entries("dsh_cordis", updated)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries["atlassian-rovo"], desired)
 
 
 class SynchronizationTest(unittest.TestCase):
@@ -460,7 +533,7 @@ class AgentRegistryTest(unittest.TestCase):
     def test_load_agents_parses_registry(self) -> None:
         agents = load_agents(self.aikito_dir, self.home)
 
-        self.assertEqual(set(agents), {"codex", "opencode", "agy", "claude-code"})
+        self.assertEqual(set(agents), {"codex", "opencode", "agy", "claude-code", "dsh"})
         self.assertEqual(
             agents["codex"].instruction_path, self.home / ".codex/AGENTS.md"
         )
@@ -479,6 +552,17 @@ class AgentRegistryTest(unittest.TestCase):
             agents["claude-code"].mcp_config_path, self.home / ".claude.json"
         )
         self.assertEqual(agents["claude-code"].mcp_config_format, "claude_json")
+        self.assertEqual(
+            agents["dsh"].instruction_path, self.home / ".dsh/AGENTS.md"
+        )
+        self.assertEqual(
+            agents["dsh"].skills_path, self.home / ".agents/skills"
+        )
+        self.assertTrue(agents["dsh"].supports_mcp)
+        self.assertEqual(
+            agents["dsh"].mcp_config_path, self.home / ".dsh/cordis.patch.yml"
+        )
+        self.assertEqual(agents["dsh"].mcp_config_format, "dsh_cordis")
 
     def test_missing_agents_config_raises(self) -> None:
         (self.aikito_dir / "agents.toml").unlink()

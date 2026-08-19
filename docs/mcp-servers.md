@@ -41,12 +41,12 @@ Live status performs additional runtime checks where supported.
 Example `aikito show mcp` output from a configured workspace:
 
 ```text
-┌─────────────┬───────┬─────────────┬───────────────────────┬──────────┐
-│ MCP Server  │ Codex │ Claude Code │ Antigravity CLI (agy) │ OpenCode │
-├─────────────┼───────┼─────────────┼───────────────────────┼──────────┤
-│ local-tools │ ✓     │ ✓           │ ✓                     │ ✓        │
-│ knowledge   │ ✓     │ ✓           │ –                     │ ✓        │
-└─────────────┴───────┴─────────────┴───────────────────────┴──────────┘
+┌─────────────┬───────┬─────────────┬─────────────────┬──────────┬────────────────────┬──────────────────┐
+│ MCP Server  │ Codex │ Claude Code │ Antigravity CLI │ OpenCode │ GitHub Copilot CLI │ DeepSeek Harness │
+├─────────────┼───────┼─────────────┼─────────────────┼──────────┼────────────────────┼──────────────────┤
+│ local-tools │ ✓     │ ✓           │ ✓               │ ✓        │ ✓                  │ ✓                │
+│ knowledge   │ ✓     │ ✓           │ –               │ ✓        │ ✓                  │ ✓                │
+└─────────────┴───────┴─────────────┴─────────────────┴──────────┴────────────────────┴──────────────────┘
 ```
 
 `✓` means the managed entry is synchronized; `–` means that integration is not
