@@ -114,6 +114,20 @@ Claude Code 里写下的 memory，明天 Codex 读到的是同一份。
 使用 `aikito maintain memory` 可执行先确认、后修改的全作用域巡检；详见
 [主动维护作用域](docs/durable-memory.md#proactive-scope-maintenance)。
 
+## Web Console
+
+通过本地只读界面浏览 workspace、资源、作用域和治理状态：
+
+```bash
+aikito web
+```
+
+<p align="center">
+  <img src="docs/assets/aikito-web-console.png" alt="Aikito Web Console">
+</p>
+
+Console 只监听 `127.0.0.1`，以可视化方式呈现规范 workspace，不会修改其中的资源。
+
 ## 设计边界
 
 Aikito 管理持久化文件、显式作用域与可控同步。为了保持轻量与可移植，它明确选择**不做**

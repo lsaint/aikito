@@ -6,6 +6,7 @@ Supports sync_mode: 'link' (symlinks) or 'copy' (file/directory copy).
 """
 
 import argparse
+import errno
 import json
 import os
 import shutil
@@ -649,13 +650,24 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 
 def cmd_web(args: argparse.Namespace) -> None:
-    serve_console(
-        get_aikito_dir(),
-        Path.home(),
-        __version__,
-        port=args.port,
-        open_browser=not args.no_open,
-    )
+    try:
+        serve_console(
+            get_aikito_dir(),
+            Path.home(),
+            __version__,
+            port=args.port,
+            open_browser=not args.no_open,
+        )
+    except OSError as exc:
+        if exc.errno != errno.EADDRINUSE:
+            raise
+        print(f"[ERROR] Port {args.port} is already in use.", file=sys.stderr)
+        print(
+            f"Open the existing console at http://127.0.0.1:{args.port}, "
+            "or run 'aikito web --port 0' to use a free port.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 def cmd_diff(args: argparse.Namespace) -> None:
@@ -1337,9 +1349,7 @@ def cmd_show_inbox(args: argparse.Namespace) -> None:
         print(table_str)
         return
 
-    target_file = resolve_inbox_target_for_command(
-        inbox_dir, target, operation="show"
-    )
+    target_file = resolve_inbox_target_for_command(inbox_dir, target, operation="show")
 
     try:
         print(target_file.read_text(encoding="utf-8"), end="")

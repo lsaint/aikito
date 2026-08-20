@@ -119,6 +119,21 @@ notes plus `aikito`'s own notes, and nothing from `blog`.
 Use `aikito maintain memory` for confirmation-gated, full-scope maintenance;
 see [Proactive Scope Maintenance](docs/durable-memory.md#proactive-scope-maintenance).
 
+## Web Console
+
+Browse your workspace, resources, scopes, and governance state in a local, read-only interface:
+
+```bash
+aikito web
+```
+
+<p align="center">
+  <img src="docs/assets/aikito-web-console.png" alt="Aikito Web Console">
+</p>
+
+The console binds to `127.0.0.1` and provides a visual view of the canonical
+workspace without changing its resources.
+
 ## Boundaries
 
 Aikito manages durable files, explicit scopes, and controlled synchronization.

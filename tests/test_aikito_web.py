@@ -1,3 +1,6 @@
+import errno
+import importlib.machinery
+import importlib.util
 import json
 import subprocess
 import sys
@@ -8,6 +11,7 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
@@ -135,11 +139,11 @@ process.stdout.write(markdown(JSON.parse(process.argv[2]), JSON.parse(process.ar
         self.assertNotIn("missing", detail["wikilinks"])
 
     def test_markdown_matches_raw_wikilinks_before_escaping(self) -> None:
-        target_name = "Global/A & B's \"notes\""
+        target_name = 'Global/A & B\'s "notes"'
         rendered = self.render_markdown(
-            "[[A & B's \"notes\"|Open <note>]]",
+            '[[A & B\'s "notes"|Open <note>]]',
             {
-                "A & B's \"notes\"": {
+                'A & B\'s "notes"': {
                     "kind": "memory",
                     "name": target_name,
                 }
@@ -152,7 +156,7 @@ process.stdout.write(markdown(JSON.parse(process.argv[2]), JSON.parse(process.ar
 
     def test_markdown_escapes_url_attributes_after_matching(self) -> None:
         rendered = self.render_markdown(
-            'Visit https://example.test/search?a=1&b=\"quoted\" and <unsafe>.', {}
+            'Visit https://example.test/search?a=1&b="quoted" and <unsafe>.', {}
         )
 
         self.assertIn(
@@ -201,9 +205,6 @@ process.stdout.write(markdown(JSON.parse(process.argv[2]), JSON.parse(process.ar
 
 class WebCommandParserTest(unittest.TestCase):
     def test_web_command_options(self) -> None:
-        import importlib.machinery
-        import importlib.util
-
         loader = importlib.machinery.SourceFileLoader(
             "aikito_web_cli", str(ROOT / "bin" / "aikito")
         )
@@ -215,6 +216,27 @@ class WebCommandParserTest(unittest.TestCase):
         self.assertEqual(args.port, 0)
         self.assertTrue(args.no_open)
         self.assertEqual(args.func, module.cmd_web)
+
+    def test_web_command_reports_port_conflict_without_traceback(self) -> None:
+        loader = importlib.machinery.SourceFileLoader(
+            "aikito_web_cli_port_conflict", str(ROOT / "bin" / "aikito")
+        )
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        args = module.build_parser().parse_args(["web", "--port", "8765"])
+
+        error = OSError(errno.EADDRINUSE, "Address already in use")
+        with mock.patch.object(module, "serve_console", side_effect=error):
+            with mock.patch("sys.stderr") as stderr:
+                with self.assertRaises(SystemExit) as exit_error:
+                    module.cmd_web(args)
+
+        self.assertEqual(exit_error.exception.code, 1)
+        output = "".join(call.args[0] for call in stderr.write.call_args_list)
+        self.assertIn("[ERROR] Port 8765 is already in use.", output)
+        self.assertIn("http://127.0.0.1:8765", output)
+        self.assertIn("aikito web --port 0", output)
 
 
 if __name__ == "__main__":
