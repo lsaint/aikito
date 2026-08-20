@@ -84,9 +84,10 @@ from aikito_subagent import (
     load_subagent_definitions,
     sync_subagent_configs,
 )
+from aikito_web import serve_console
 from aikito_completion import generate_bash, generate_fish, generate_zsh, get_candidates
 
-__version__ = "1.10.0"
+__version__ = "1.11.0"
 
 
 def get_aikito_dir() -> Path:
@@ -645,6 +646,16 @@ def cmd_status(args: argparse.Namespace) -> None:
         no_color=not use_color,
     )
     print(rendered)
+
+
+def cmd_web(args: argparse.Namespace) -> None:
+    serve_console(
+        get_aikito_dir(),
+        Path.home(),
+        __version__,
+        port=args.port,
+        open_browser=not args.no_open,
+    )
 
 
 def cmd_diff(args: argparse.Namespace) -> None:
@@ -1716,6 +1727,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     add_color_args(p_status)
     p_status.set_defaults(func=cmd_status)
+
+    p_web = subparsers.add_parser(
+        "web",
+        help="Start the read-only local Web Console",
+    )
+    p_web.add_argument(
+        "--port",
+        type=int,
+        default=8765,
+        help="Local port (default: 8765; use 0 to pick a free port)",
+    )
+    p_web.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Do not open the default browser",
+    )
+    p_web.set_defaults(func=cmd_web)
 
     # diff
     p_diff = subparsers.add_parser(

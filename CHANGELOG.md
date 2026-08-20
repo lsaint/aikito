@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-08-20
+
+### Added
+
+- Added a stdlib-only, local, read-only Aikito Web Console.
+
 ## [1.10.0] - 2026-08-19
 
 ### Added
@@ -231,7 +237,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.10.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.11.0...HEAD
+[1.11.0]: https://github.com/lsaint/aikito/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/lsaint/aikito/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/lsaint/aikito/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/lsaint/aikito/compare/v1.7.0...v1.8.0

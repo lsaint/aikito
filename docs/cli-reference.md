@@ -1,5 +1,18 @@
 # CLI Reference
 
+## `aikito web`
+
+Start the read-only local Web Console on `127.0.0.1`:
+
+```bash
+aikito web
+aikito web --port 8765
+aikito web --no-open
+```
+
+The Console browses canonical resources and governance status. It does not
+modify workspace files or expose MCP secret values.
+
 Aikito uses an operation-first command structure. Run
 `aikito <command> --help` for the complete options supported by the installed
 version.
