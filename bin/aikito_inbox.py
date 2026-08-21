@@ -167,3 +167,18 @@ def resolve_inbox_target_for_command(
                 file=sys.stderr,
             )
         sys.exit(1)
+
+
+def remove_inbox_note(inbox_dir: Path, target: str | Path) -> Path:
+    """Remove an inbox note file."""
+    if isinstance(target, Path):
+        target_path = target
+    else:
+        target_path = resolve_inbox_target(inbox_dir, target)
+
+    safe_path = ensure_safe_path(target_path, [inbox_dir], "inbox note")
+    if not safe_path.is_file():
+        raise FileNotFoundError(f"Inbox note not found: {safe_path}")
+
+    safe_path.unlink()
+    return safe_path

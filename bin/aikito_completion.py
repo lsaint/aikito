@@ -373,7 +373,7 @@ _aikito() {{
                         done
                         compadd -d displays -a cands
                         ;;
-                    (show\\ inbox)
+                    (show\\ inbox|edit\\ inbox|rm\\ inbox|remove\\ inbox)
                         local cands
                         cands=(${{(f)"$(aikito completion candidates inbox-completions 2>/dev/null)"}})
                         compadd -a cands
@@ -566,7 +566,7 @@ _aikito_completion() {{
                 done < <(aikito completion candidates memory-completions 2>/dev/null)
                 return 0
                 ;;
-            show\\ inbox)
+            show\\ inbox|edit\\ inbox|rm\\ inbox|remove\\ inbox)
                 local candidates
                 candidates=$(aikito completion candidates inbox-completions 2>/dev/null)
                 COMPREPLY=( $(compgen -W "$candidates" -- "$cur") )
@@ -703,7 +703,7 @@ def generate_fish(parser: argparse.ArgumentParser | None = None) -> str:
         "# Dynamic candidates & positionals",
         "complete -c aikito -f -n '__fish_seen_subcommand_from show edit rename rm remove; and __fish_seen_subcommand_from memory' "
         "-a '(aikito completion candidates memory-completions 2>/dev/null)'",
-        "complete -c aikito -f -n '__fish_seen_subcommand_from show; and __fish_seen_subcommand_from inbox' "
+        "complete -c aikito -f -n '__fish_seen_subcommand_from show edit rm remove; and __fish_seen_subcommand_from inbox' "
         "-a '(aikito completion candidates inbox-completions 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from show edit; and __fish_seen_subcommand_from skill skills' "
         "-a '(aikito completion candidates skills 2>/dev/null)'",

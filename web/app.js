@@ -15,19 +15,25 @@ async function get(path) { const response=await fetch(path); if(!response.ok) th
 function propertyValue(key,value) { return key === "details" ? `<pre class="pretty-data">${escapeHtml(JSON.stringify(value,null,2))}</pre>` : escapeHtml(typeof value === "object" ? JSON.stringify(value) : value); }
 function properties(value) { return `<dl class="properties">${Object.entries(value || {}).map(([key,item]) => `<dt>${escapeHtml(key.replaceAll("_"," "))}</dt><dd>${propertyValue(key,item)}</dd>`).join("")}</dl>`; }
 const inlineMarkdown = (value,wikilinks={}) => {
-  const pattern=/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|`([^`]+)`|\*\*([^*]+)\*\*|(https?:\/\/[^\s<]+)/g;
+  const pattern=/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|(https?:\/\/[^\s<]+)/g;
   let output=""; let cursor=0;
   for(const match of value.matchAll(pattern)) {
-    const [original,linkTarget,linkLabel,codeValue,boldValue,urlValue]=match;
+    const [original,linkTarget,linkLabel,mdLabel,mdTarget,codeValue,boldValue,urlValue]=match;
     output+=escapeHtml(value.slice(cursor,match.index));
     if(linkTarget !== undefined) {
       const target=wikilinks[linkTarget.trim()];
       output+=target ? `<a class="wikilink" href="#" data-kind="${escapeAttribute(target.kind)}" data-name="${escapeAttribute(target.name)}">${escapeHtml(linkLabel || linkTarget)}</a>` : escapeHtml(original);
+    } else if(mdLabel !== undefined && mdTarget !== undefined) {
+      const targetUrl=mdTarget.trim();
+      const isHttp=/^https?:\/\//i.test(targetUrl);
+      output+=isHttp
+        ? `<a class="external-link" href="${escapeAttribute(targetUrl)}" title="${escapeAttribute(targetUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(mdLabel)}</a>`
+        : `<span class="external-link" title="${escapeAttribute(targetUrl)}">${escapeHtml(mdLabel)}</span>`;
     } else if(codeValue !== undefined) output+=`<span class="inline-code">${escapeHtml(codeValue)}</span>`;
     else if(boldValue !== undefined) output+=`<strong>${escapeHtml(boldValue)}</strong>`;
-    else {
+    else if(urlValue !== undefined) {
       const trailing=urlValue.match(/[)\]},.;:!?。，；：！？、）】》]+$/)?.[0] || ""; const url=trailing ? urlValue.slice(0,-trailing.length) : urlValue;
-      output+=`<a class="external-link" href="${escapeAttribute(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>${escapeHtml(trailing)}`;
+      output+=`<a class="external-link" href="${escapeAttribute(url)}" title="${escapeAttribute(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>${escapeHtml(trailing)}`;
     }
     cursor=match.index+original.length;
   }
@@ -118,3 +124,59 @@ async function renderGroup(title,entries) {
   explorer.append(section);
 }
 (async()=>{ try { const overview=await get("/api/overview"); document.querySelector("#workspace").textContent=overview.workspace; document.querySelector("#version").textContent=`Aikito ${overview.version}`; const health=document.querySelector("#health"); health.textContent=overview.healthy ? "Healthy" : `${overview.counts.issues} issues`; health.className=overview.healthy ? "ok" : "issue"; for(const group of groups) await renderGroup(...group); } catch(error) { explorer.textContent=error.message; } })();
+document.addEventListener("scroll", event => {
+  const element = event.target === document ? document.documentElement : event.target;
+  if (!element || !element.classList) return;
+  element.classList.add("is-scrolling");
+  clearTimeout(element._scrollbarTimer);
+  element._scrollbarTimer = setTimeout(() => {
+    element.classList.remove("is-scrolling");
+  }, 600);
+}, { capture: true, passive: true });
+function initResizers() {
+  const main = document.querySelector("main");
+  const left = document.querySelector("#resizer-left");
+  const right = document.querySelector("#resizer-right");
+  const savedNav = localStorage.getItem("aikito-nav-w");
+  if (savedNav) main.style.setProperty("--nav-w", savedNav);
+  const savedAside = localStorage.getItem("aikito-aside-w");
+  if (savedAside) main.style.setProperty("--aside-w", savedAside);
+
+  const bind = (handle, isLeft) => {
+    if (!handle) return;
+    handle.addEventListener("pointerdown", event => {
+      event.preventDefault();
+      handle.setPointerCapture(event.pointerId);
+      handle.classList.add("dragging");
+      document.body.classList.add("is-resizing");
+      const target = document.querySelector(isLeft ? "#explorer" : "#governance");
+      const startWidth = target ? target.getBoundingClientRect().width : (isLeft ? 260 : 280);
+      const startX = event.clientX;
+      const onMove = e => {
+        const delta = e.clientX - startX;
+        const width = isLeft
+          ? Math.max(160, Math.min(window.innerWidth - 450, Math.round(startWidth + delta)))
+          : Math.max(180, Math.min(window.innerWidth - 450, Math.round(startWidth - delta)));
+        main.style.setProperty(isLeft ? "--nav-w" : "--aside-w", `${width}px`);
+      };
+      const onUp = e => {
+        handle.releasePointerCapture(e.pointerId);
+        handle.classList.remove("dragging");
+        document.body.classList.remove("is-resizing");
+        handle.removeEventListener("pointermove", onMove);
+        handle.removeEventListener("pointerup", onUp);
+        handle.removeEventListener("pointercancel", onUp);
+        const prop = isLeft ? "--nav-w" : "--aside-w";
+        const val = main.style.getPropertyValue(prop);
+        if (val) localStorage.setItem(isLeft ? "aikito-nav-w" : "aikito-aside-w", val);
+      };
+      handle.addEventListener("pointermove", onMove);
+      handle.addEventListener("pointerup", onUp);
+      handle.addEventListener("pointercancel", onUp);
+    });
+  };
+  bind(left, true);
+  bind(right, false);
+}
+initResizers();
+

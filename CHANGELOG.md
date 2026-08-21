@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-08-21
+
+### Added
+
+- Added `aikito edit inbox <target>` to open an inbox note in the configured external editor.
+- Added `aikito rm inbox <target>` and `aikito remove inbox <target>` to delete processed or obsolete inbox notes.
+
+### Changed
+
+- Updated Web Console scrollbars to transient pill scrollbars with hidden tracks that only display while scrolling.
+- Added draggable splitters to resize left and right sidebars in the Web Console with persisted width preferences.
+- Added support for standard Markdown links `[label](target)` in the Web Console, rendering only the label, displaying the target on hover, and opening HTTP(S) links in a new tab.
+- Increased Web Console content typography scale by 1px for improved readability.
+
 ## [1.11.0] - 2026-08-20
 
 ### Added
@@ -237,7 +251,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.11.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.12.0...HEAD
+[1.12.0]: https://github.com/lsaint/aikito/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/lsaint/aikito/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/lsaint/aikito/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/lsaint/aikito/compare/v1.8.0...v1.9.0

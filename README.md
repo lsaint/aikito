@@ -121,7 +121,8 @@ see [Proactive Scope Maintenance](docs/durable-memory.md#proactive-scope-mainten
 
 ## Web Console
 
-Browse your workspace, resources, scopes, and governance state in a local, read-only interface:
+Browse your workspace, resources, scopes, and governance state in a local,
+read-only interface:
 
 ```bash
 aikito web

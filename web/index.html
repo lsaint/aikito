@@ -11,10 +11,29 @@
   <header><div class="brand"><img src="/assets/logo.svg" alt=""><strong>Aikito</strong></div><span id="workspace"></span><span id="health">Loading…</span></header>
   <main>
     <nav id="explorer" aria-label="Resource Explorer"></nav>
+    <div class="resizer" id="resizer-left" title="Drag to resize"></div>
     <section id="content"><div class="empty"><h1>Aikito Workspace</h1><p>Select a resource to inspect its canonical content.</p></div></section>
+    <div class="resizer" id="resizer-right" title="Drag to resize"></div>
     <aside id="governance"><h2>Governance</h2><p class="muted">Select a resource.</p></aside>
   </main>
-  <footer><span id="version"></span><span>localhost · read-only</span></footer>
+  <footer>
+    <span id="version"></span>
+    <div class="footer-actions">
+      <span>localhost · read-only</span>
+      <a
+        class="support-link"
+        href="https://lsaint.github.io/donation/?utm_source=aikito&amp;utm_medium=web&amp;utm_campaign=support"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Support development"
+        data-tooltip="Support development"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 21.35 10.55 20.03C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09A6 6 0 0 1 16.5 3C19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35Z"/>
+        </svg>
+      </a>
+    </div>
+  </footer>
   <script src="/app.js"></script>
 </body>
 </html>

@@ -168,9 +168,7 @@ class AikitoInitTest(unittest.TestCase):
                 init_project(self.target_path, project_path, "example"), "example"
             )
             self.assertIsNone(
-                project_sync_validation_error(
-                    self.target_path, "example", project_path
-                )
+                project_sync_validation_error(self.target_path, "example", project_path)
             )
 
     def test_init_project_is_idempotent(self) -> None:

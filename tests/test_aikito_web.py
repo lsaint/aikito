@@ -169,6 +169,20 @@ process.stdout.write(markdown(JSON.parse(process.argv[2]), JSON.parse(process.ar
         )
         self.assertIn("and &lt;unsafe&gt;.", rendered)
 
+    def test_markdown_renders_standard_markdown_links_with_hover_title(self) -> None:
+        rendered = self.render_markdown(
+            "Check [sample-resource](file:///workspace/sample/resource) and [Docs](https://example.com/doc?q=1&v=2).",
+            {},
+        )
+        self.assertIn(
+            '<span class="external-link" title="file:///workspace/sample/resource">sample-resource</span>',
+            rendered,
+        )
+        self.assertIn(
+            '<a class="external-link" href="https://example.com/doc?q=1&amp;v=2" title="https://example.com/doc?q=1&amp;v=2" target="_blank" rel="noopener noreferrer">Docs</a>',
+            rendered,
+        )
+
     def test_markdown_renders_frontmatter_as_borderless_table(self) -> None:
         rendered = self.render_markdown(
             "---\nname: obsidian-cli\ndescription: xxx\n---\n# Content\n---", {}

@@ -51,6 +51,7 @@ from aikito_project import (
 from aikito_config import get_inbox_path
 from aikito_inbox import (
     collect_inbox_rows,
+    remove_inbox_note,
     resolve_inbox_target_for_command,
 )
 from aikito_render import (
@@ -88,7 +89,7 @@ from aikito_subagent import (
 from aikito_web import serve_console
 from aikito_completion import generate_bash, generate_fish, generate_zsh, get_candidates
 
-__version__ = "1.11.0"
+__version__ = "1.12.0"
 
 
 def get_aikito_dir() -> Path:
@@ -1361,6 +1362,38 @@ def cmd_show_inbox(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_edit_inbox(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    inbox_dir = get_inbox_path(aikito_dir)
+    target_file = resolve_inbox_target_for_command(
+        inbox_dir, args.target, operation="edit"
+    )
+    open_in_editor(target_file)
+
+
+def cmd_rm_inbox(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    inbox_dir = get_inbox_path(aikito_dir)
+    op = "remove" if getattr(args, "remove_target", None) else "rm"
+    target_file = resolve_inbox_target_for_command(
+        inbox_dir, args.target, operation=op
+    )
+
+    try:
+        rel = target_file.relative_to(inbox_dir)
+        ident = str(rel.with_suffix(""))
+    except ValueError:
+        ident = target_file.stem
+
+    try:
+        remove_inbox_note(inbox_dir, target_file)
+    except Exception as e:
+        print(f"[ERROR] Failed to remove inbox note '{ident}': {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"[OK] Removed inbox note '{ident}' ({target_file.name})")
+
+
 def cmd_show_memory(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
     home = Path.home()
@@ -2033,6 +2066,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_edit_memory.set_defaults(func=cmd_edit_memory)
 
+    # edit inbox <target>
+    p_edit_inbox = edit_subparsers.add_parser(
+        "inbox",
+        help="Open an inbox note in your configured editor",
+    )
+    p_edit_inbox.add_argument(
+        "target",
+        help="Exact name or unique prefix of the inbox note",
+    )
+    p_edit_inbox.set_defaults(func=cmd_edit_inbox)
+
     # edit instructions <target>
     p_edit_instructions = edit_subparsers.add_parser(
         "instructions",
@@ -2117,6 +2161,16 @@ def build_parser() -> argparse.ArgumentParser:
             help="Exact name, unique prefix, or path of the memory note to remove",
         )
         p_rm_memory.set_defaults(func=cmd_rm_memory)
+
+        p_rm_inbox = rm_subparsers.add_parser(
+            "inbox",
+            help="Remove an inbox note file",
+        )
+        p_rm_inbox.add_argument(
+            "target",
+            help="Exact name or unique prefix of the inbox note to remove",
+        )
+        p_rm_inbox.set_defaults(func=cmd_rm_inbox)
 
     # doctor
     p_doctor = subparsers.add_parser(

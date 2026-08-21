@@ -56,6 +56,22 @@ to the Inbox root:
 aikito show inbox research/perplexity-positioning
 ```
 
+## Edit and Remove Inbox Notes
+
+Open an inbox note in your configured editor (`$VISUAL` or `$EDITOR`):
+
+```bash
+aikito edit inbox perplexity-positioning
+```
+
+Remove an inbox note once it has been processed, curated into memory, or discarded:
+
+```bash
+aikito rm inbox perplexity-positioning
+```
+
+The alias `aikito remove inbox` is also supported.
+
 ## Configure the Inbox Path
 
 The default workspace configuration is:

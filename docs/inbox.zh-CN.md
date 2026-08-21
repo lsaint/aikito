@@ -49,6 +49,22 @@ Inbox 可以包含子目录。读取嵌套笔记时，使用相对于 Inbox 根�
 aikito show inbox research/perplexity-positioning
 ```
 
+## 编辑与删除 Inbox 笔记
+
+在配置的外部编辑器（`$VISUAL` 或 `$EDITOR`）中打开 Inbox 笔记：
+
+```bash
+aikito edit inbox perplexity-positioning
+```
+
+在审阅处理完毕、整理为 Memory 或确认丢弃后删除 Inbox 笔记：
+
+```bash
+aikito rm inbox perplexity-positioning
+```
+
+也支持别名 `aikito remove inbox`。
+
 ## 配置 Inbox 路径
 
 工作区的默认配置为：

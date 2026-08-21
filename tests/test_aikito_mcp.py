@@ -210,7 +210,9 @@ enabled = true
             "serverName": "atlassian-rovo",
             "transport": "streamable-http",
             "url": "https://mcp.atlassian.com/v1/mcp",
-            "headers": {"Authorization": "!!js process.env.ATLASSIAN_MCP_AUTHORIZATION"},
+            "headers": {
+                "Authorization": "!!js process.env.ATLASSIAN_MCP_AUTHORIZATION"
+            },
         }
         updated = update_dsh_cordis_server("", "atlassian-rovo", desired)
         self.assertEqual(get_dsh_cordis_server(updated, "atlassian-rovo"), desired)
@@ -240,7 +242,9 @@ enabled = true
         self.assertIn("custom-plugin", updated)
         self.assertIn("# User cordis patch configuration", updated)
         self.assertEqual(get_dsh_cordis_server(updated, "github"), desired)
-        self.assertEqual(get_dsh_cordis_server(updated, "old")["url"], "https://old.example.com")
+        self.assertEqual(
+            get_dsh_cordis_server(updated, "old")["url"], "https://old.example.com"
+        )
 
     def test_dsh_cordis_update_modifies_existing_entry(self) -> None:
         source = """- id: aikito-mcp-atlassian-rovo
@@ -254,7 +258,9 @@ enabled = true
             "serverName": "atlassian-rovo",
             "transport": "streamable-http",
             "url": "https://mcp.atlassian.com/v1/mcp",
-            "headers": {"Authorization": "!!js process.env.ATLASSIAN_MCP_AUTHORIZATION"},
+            "headers": {
+                "Authorization": "!!js process.env.ATLASSIAN_MCP_AUTHORIZATION"
+            },
             "toolCallTimeoutMs": 45000,
         }
         updated = update_dsh_cordis_server(source, "atlassian-rovo", desired)
@@ -533,7 +539,9 @@ class AgentRegistryTest(unittest.TestCase):
     def test_load_agents_parses_registry(self) -> None:
         agents = load_agents(self.aikito_dir, self.home)
 
-        self.assertEqual(set(agents), {"codex", "opencode", "agy", "claude-code", "dsh"})
+        self.assertEqual(
+            set(agents), {"codex", "opencode", "agy", "claude-code", "dsh"}
+        )
         self.assertEqual(
             agents["codex"].instruction_path, self.home / ".codex/AGENTS.md"
         )
@@ -552,12 +560,8 @@ class AgentRegistryTest(unittest.TestCase):
             agents["claude-code"].mcp_config_path, self.home / ".claude.json"
         )
         self.assertEqual(agents["claude-code"].mcp_config_format, "claude_json")
-        self.assertEqual(
-            agents["dsh"].instruction_path, self.home / ".dsh/AGENTS.md"
-        )
-        self.assertEqual(
-            agents["dsh"].skills_path, self.home / ".agents/skills"
-        )
+        self.assertEqual(agents["dsh"].instruction_path, self.home / ".dsh/AGENTS.md")
+        self.assertEqual(agents["dsh"].skills_path, self.home / ".agents/skills")
         self.assertTrue(agents["dsh"].supports_mcp)
         self.assertEqual(
             agents["dsh"].mcp_config_path, self.home / ".dsh/cordis.patch.yml"

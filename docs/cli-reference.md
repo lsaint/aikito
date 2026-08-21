@@ -38,6 +38,8 @@ version.
 | `aikito show project [name]` | List registered projects or inspect one project's configuration and sync status |
 | `aikito show instructions [global|project|.]` | List or print global and project instructions |
 | `aikito show inbox [target]` | Print raw markdown content of an inbox note, or list all inbox notes if target is omitted |
+| `aikito edit inbox <target>` | Open an inbox note in `$VISUAL` or `$EDITOR` |
+| `aikito rm inbox <target>` | Remove an inbox note file |
 | `aikito show memory [target]` | Print a memory note, or list all memory notes if target is omitted |
 | `aikito show skill [target]` | Print a skill's SKILL.md file, or list all skills if target is omitted |
 | `aikito rename memory <target> <new-name>` | Atomically rename a memory note, update its index entry, and refactor inbound wikilinks |
@@ -148,6 +150,18 @@ Print the raw Markdown content of an inbox note by exact name or unique prefix:
 ```bash
 aikito show inbox perplexity-ai-positioning
 aikito show inbox perplexity
+```
+
+Open an inbox note in the configured editor:
+
+```bash
+aikito edit inbox perplexity-ai-positioning
+```
+
+Remove an inbox note after reviewing or curating it:
+
+```bash
+aikito rm inbox perplexity-ai-positioning
 ```
 
 The inbox directory defaults to `~/aikito/inbox` and can be customized in `config.toml`:

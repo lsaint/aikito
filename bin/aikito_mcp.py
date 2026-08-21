@@ -752,15 +752,17 @@ def update_dsh_cordis_server(
             name = name.strip("'\"")
         plugin_id = plugin.get("id", "")
         cfg = plugin.get("config", {})
-        is_target = (
-            plugin_id == f"aikito-mcp-{server_name}"
-            or (name == "@deepseek-ai/dsh-mcp-client" and cfg.get("serverName") == server_name)
+        is_target = plugin_id == f"aikito-mcp-{server_name}" or (
+            name == "@deepseek-ai/dsh-mcp-client"
+            and cfg.get("serverName") == server_name
         )
         if is_target:
             trailing = "" if item_text.endswith("\n") else "\n"
             return text[:start] + formatted + trailing + text[end:]
 
-    separator = "\n" if text.endswith("\n\n") else ("\n\n" if text.endswith("\n") else "\n\n")
+    separator = (
+        "\n" if text.endswith("\n\n") else ("\n\n" if text.endswith("\n") else "\n\n")
+    )
     return text.rstrip() + separator + formatted + "\n"
 
 
@@ -1029,7 +1031,9 @@ def load_agent_specs(aikito_dir: Path, home: Path) -> list[AgentSpec]:
                 authentication,
                 headers,
             )
-            if definition.mcp_config_format == "dsh_cordis" and not desired.get("serverName"):
+            if definition.mcp_config_format == "dsh_cordis" and not desired.get(
+                "serverName"
+            ):
                 desired = dict(desired)
                 desired["serverName"] = target_name
             specs.append(

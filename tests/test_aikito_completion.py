@@ -62,9 +62,11 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
 
         rm_subs = schema["commands"]["rm"]["subcommands"]
         self.assertIn("memory", rm_subs)
+        self.assertIn("inbox", rm_subs)
 
         remove_subs = schema["commands"]["remove"]["subcommands"]
         self.assertIn("memory", remove_subs)
+        self.assertIn("inbox", remove_subs)
 
         sync_subs = schema["commands"]["sync"]["subcommands"]
         self.assertIn("subagents", sync_subs)
@@ -75,6 +77,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("skills", edit_subs)  # Alias of skill
         self.assertIn("subagent", edit_subs)
         self.assertIn("subagents", edit_subs)  # Alias of subagent
+        self.assertIn("inbox", edit_subs)
 
         # Flags per command & subcommand
         adopt_flags = schema["commands"]["adopt"]["flags"]
@@ -122,6 +125,8 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("subagent", zsh)
         self.assertIn("show\\ mcp", zsh)
         self.assertIn("show\\ project", zsh)
+        self.assertIn("edit\\ inbox", zsh)
+        self.assertIn("rm\\ inbox", zsh)
         self.assertIn("--dry-run", zsh)
         self.assertIn("--apply", zsh)
         self.assertIn("--prune", zsh)
@@ -133,6 +138,8 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("subagent", bash)
         self.assertIn("show\\ mcp", bash)
         self.assertIn("show\\ project", bash)
+        self.assertIn("edit\\ inbox", bash)
+        self.assertIn("rm\\ inbox", bash)
         self.assertIn("--dry-run", bash)
         self.assertIn("--apply", bash)
         self.assertIn("--prune", bash)
@@ -144,6 +151,9 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("subagent", fish)
         self.assertIn("mcp mcps", fish)
         self.assertIn("project projects", fish)
+        self.assertIn(
+            "show edit rm remove; and __fish_seen_subcommand_from inbox", fish
+        )
         self.assertIn("-l dry-run", fish)
         self.assertIn("-l apply", fish)
         self.assertIn("-l prune", fish)

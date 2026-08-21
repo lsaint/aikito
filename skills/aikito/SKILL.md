@@ -266,6 +266,16 @@ aikito doctor --fix
 Use the separate `durable-memory` skill to decide when knowledge is durable
 enough to persist, which scope owns it, and how to version it.
 
+### Inbox
+
+Staging notes for review:
+
+```bash
+aikito show inbox [target]
+aikito edit inbox <target>
+aikito rm inbox <target>
+```
+
 ## Adoption
 
 Preview existing Agent configuration before importing it:

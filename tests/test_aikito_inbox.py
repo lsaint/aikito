@@ -28,6 +28,7 @@ from aikito_inbox import (  # noqa: E402
     InboxTargetConflictError,
     collect_inbox_rows,
     find_inbox_files,
+    remove_inbox_note,
     resolve_inbox_target,
     resolve_inbox_target_for_command,
 )
@@ -254,6 +255,195 @@ class AikitoInboxTest(unittest.TestCase):
 
         out = mock_stdout.getvalue()
         self.assertIn("custom-note", out)
+
+    def test_remove_inbox_note_function(self) -> None:
+        self.inbox_dir.mkdir(parents=True)
+        note1 = self.inbox_dir / "note1.md"
+        note1.write_text("# Note 1")
+        note2 = self.inbox_dir / "note2.md"
+        note2.write_text("# Note 2")
+
+        # Remove by str target
+        deleted = remove_inbox_note(self.inbox_dir, "note1")
+        self.assertEqual(deleted, note1)
+        self.assertFalse(note1.exists())
+
+        # Remove by Path target
+        deleted2 = remove_inbox_note(self.inbox_dir, note2)
+        self.assertEqual(deleted2, note2)
+        self.assertFalse(note2.exists())
+
+        # Nonexistent raises FileNotFoundError
+        with self.assertRaises(FileNotFoundError):
+            remove_inbox_note(self.inbox_dir, self.inbox_dir / "missing.md")
+
+    def test_cli_edit_inbox_parser(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+        args = parser.parse_args(["edit", "inbox", "my-note"])
+        self.assertEqual(args.command, "edit")
+        self.assertEqual(args.edit_target, "inbox")
+        self.assertEqual(args.target, "my-note")
+        self.assertEqual(args.func, AIKITO_CLI.cmd_edit_inbox)
+
+    def test_cli_edit_inbox_invokes_editor(self) -> None:
+        self.inbox_dir.mkdir(parents=True)
+        note_file = self.inbox_dir / "sample-note.md"
+        note_file.write_text("# Sample Note")
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI, "open_in_editor") as mock_open,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["edit", "inbox", "sample"])
+            args.func(args)
+
+        mock_open.assert_called_once_with(note_file)
+
+    def test_cli_edit_inbox_conflict(self) -> None:
+        self.inbox_dir.mkdir(parents=True)
+        (self.inbox_dir / "report-alpha.md").write_text("# Alpha")
+        (self.inbox_dir / "report-beta.md").write_text("# Beta")
+
+        with (
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["edit", "inbox", "report"])
+            args.func(args)
+
+        self.assertEqual(cm.exception.code, 1)
+        err = mock_stderr.getvalue()
+        self.assertIn("[CONFLICT] Multiple inbox notes match 'report':", err)
+        self.assertIn("aikito edit inbox report-alpha", err)
+        self.assertIn("aikito edit inbox report-beta", err)
+
+    def test_cli_rm_inbox_parser(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+
+        args_rm = parser.parse_args(["rm", "inbox", "target-note"])
+        self.assertEqual(args_rm.command, "rm")
+        self.assertEqual(args_rm.rm_target, "inbox")
+        self.assertEqual(args_rm.target, "target-note")
+        self.assertEqual(args_rm.func, AIKITO_CLI.cmd_rm_inbox)
+
+        args_remove = parser.parse_args(["remove", "inbox", "target-note"])
+        self.assertEqual(args_remove.command, "remove")
+        self.assertEqual(args_remove.remove_target, "inbox")
+        self.assertEqual(args_remove.target, "target-note")
+        self.assertEqual(args_remove.func, AIKITO_CLI.cmd_rm_inbox)
+
+    def test_cli_rm_inbox_success(self) -> None:
+        self.inbox_dir.mkdir(parents=True)
+        note_path = self.inbox_dir / "obsolete-note.md"
+        note_path.write_text("# Obsolete Content")
+
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["rm", "inbox", "obsolete-note"]
+            )
+            args.func(args)
+
+        self.assertFalse(note_path.exists())
+        out = mock_stdout.getvalue()
+        self.assertIn("[OK] Removed inbox note 'obsolete-note' (obsolete-note.md)", out)
+
+    def test_cli_remove_inbox_alias(self) -> None:
+        self.inbox_dir.mkdir(parents=True)
+        note_path = self.inbox_dir / "discard-note.md"
+        note_path.write_text("# Discard Content")
+
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["remove", "inbox", "discard-note"]
+            )
+            args.func(args)
+
+        self.assertFalse(note_path.exists())
+        out = mock_stdout.getvalue()
+        self.assertIn("[OK] Removed inbox note 'discard-note' (discard-note.md)", out)
+
+    def test_cli_rm_inbox_nested_note(self) -> None:
+        nested_dir = self.inbox_dir / "research"
+        nested_dir.mkdir(parents=True)
+        note_path = nested_dir / "deepseek-test.md"
+        note_path.write_text("# Deepseek Test")
+
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["rm", "inbox", "research/deepseek-test"]
+            )
+            args.func(args)
+
+        self.assertFalse(note_path.exists())
+        out = mock_stdout.getvalue()
+        self.assertIn(
+            "[OK] Removed inbox note 'research/deepseek-test' (deepseek-test.md)", out
+        )
+
+    def test_cli_rm_inbox_conflict(self) -> None:
+        self.inbox_dir.mkdir(parents=True)
+        (self.inbox_dir / "draft-1.md").write_text("# Draft 1")
+        (self.inbox_dir / "draft-2.md").write_text("# Draft 2")
+
+        with (
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["rm", "inbox", "draft"])
+            args.func(args)
+
+        self.assertEqual(cm.exception.code, 1)
+        err = mock_stderr.getvalue()
+        self.assertIn("[CONFLICT] Multiple inbox notes match 'draft':", err)
+        self.assertIn("aikito rm inbox draft-1", err)
+        self.assertIn("aikito rm inbox draft-2", err)
+
+    def test_cli_rm_inbox_not_found(self) -> None:
+        self.inbox_dir.mkdir(parents=True)
+
+        with (
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            self.assertRaises(SystemExit) as cm,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["rm", "inbox", "nonexistent"])
+            args.func(args)
+
+        self.assertEqual(cm.exception.code, 1)
+        err = mock_stderr.getvalue()
+        self.assertIn("[ERROR] Inbox note 'nonexistent' not found.", err)
+
+    def test_cli_rm_inbox_custom_config_path(self) -> None:
+        custom_inbox = self.aikito_dir / "custom_inbox"
+        custom_inbox.mkdir(parents=True)
+        note = custom_inbox / "temp.md"
+        note.write_text("# Temp")
+
+        config_file = self.aikito_dir / "config.toml"
+        config_file.write_text(f'[inbox]\npath = "{custom_inbox}"\n', encoding="utf-8")
+
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["rm", "inbox", "temp"])
+            args.func(args)
+
+        self.assertFalse(note.exists())
+        self.assertIn(
+            "[OK] Removed inbox note 'temp' (temp.md)", mock_stdout.getvalue()
+        )
 
 
 if __name__ == "__main__":

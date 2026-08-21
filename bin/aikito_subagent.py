@@ -248,7 +248,10 @@ def validate_platform_opts(
                 raise SubagentConfigError(
                     f"Subagent '{subagent_name}' field 'tools' for platform '{agent_name}' must be a string or list of non-empty strings"
                 )
-        elif agent_name == "github-copilot" and k in ("disable-model-invocation", "user-invocable"):
+        elif agent_name == "github-copilot" and k in (
+            "disable-model-invocation",
+            "user-invocable",
+        ):
             if not isinstance(v, bool):
                 raise SubagentConfigError(
                     f"Subagent '{subagent_name}' field '{k}' for platform '{agent_name}' must be a boolean"
@@ -441,7 +444,9 @@ def get_all_dsh_cordis_subagents(text: str) -> list[str]:
         plugin_id = info.get("id", "")
         if plugin_id.startswith("aikito-subagent-"):
             names.append(plugin_id.removeprefix("aikito-subagent-"))
-        elif info.get("name") == "@deepseek-ai/dsh-tool-subagent" and "toolName" in info:
+        elif (
+            info.get("name") == "@deepseek-ai/dsh-tool-subagent" and "toolName" in info
+        ):
             names.append(info["toolName"])
     return names
 
@@ -463,7 +468,9 @@ def update_dsh_cordis_subagent(text: str, name: str, rendered_block: str) -> str
             trailing = "" if item_text.endswith("\n") else "\n"
             return text[:start] + rendered_block + trailing + text[end:]
 
-    separator = "\n" if text.endswith("\n\n") else ("\n\n" if text.endswith("\n") else "\n\n")
+    separator = (
+        "\n" if text.endswith("\n\n") else ("\n\n" if text.endswith("\n") else "\n\n")
+    )
     return text.rstrip() + separator + rendered_block + "\n"
 
 
@@ -502,7 +509,9 @@ def render_dsh_cordis_subagent(
     if "model" in platform_opts or "maxTokens" in platform_opts:
         lines.append("    agentOptions:")
         if "model" in platform_opts:
-            lines.append(f"      model: {json.dumps(platform_opts['model'], ensure_ascii=False)}")
+            lines.append(
+                f"      model: {json.dumps(platform_opts['model'], ensure_ascii=False)}"
+            )
         if "maxTokens" in platform_opts:
             lines.append(f"      maxTokens: {platform_opts['maxTokens']}")
     if "backgroundMode" in platform_opts:
@@ -514,8 +523,7 @@ def render_dsh_cordis_subagent(
             lines.append(f"        - {t}")
 
     indented_instructions = "\n".join(
-        ("      " + line) if line else ""
-        for line in instructions.splitlines()
+        ("      " + line) if line else "" for line in instructions.splitlines()
     )
     lines.append("    persona: |-")
     lines.append(indented_instructions)
@@ -648,7 +656,9 @@ def build_plan(
 
         if agent_config.config_format == "dsh_cordis_subagent":
             patch_file = agent_config.config_path
-            patch_text = patch_file.read_text(encoding="utf-8") if patch_file.is_file() else ""
+            patch_text = (
+                patch_file.read_text(encoding="utf-8") if patch_file.is_file() else ""
+            )
             for sub_name in sorted(subagent_defs.keys()):
                 definition = subagent_defs[sub_name]
                 if agent_name not in definition.agents:
@@ -939,15 +949,29 @@ def sync_subagent_configs(
     for item in plan:
         target_key = f"{item.agent_name}/{item.subagent_name}"
         if item.agent_name == "dsh" or item.target_path.name == "cordis.patch.yml":
-            if item.action in ("CREATE", "UPDATE") or (item.action == "CONFLICT" and target_key in normalized_force):
-                if item.action == "UPDATE" or (item.action == "CONFLICT" and target_key in normalized_force):
+            if item.action in ("CREATE", "UPDATE") or (
+                item.action == "CONFLICT" and target_key in normalized_force
+            ):
+                if item.action == "UPDATE" or (
+                    item.action == "CONFLICT" and target_key in normalized_force
+                ):
                     _backup_file(home, item.agent_name, item.target_path)
-                curr_text = item.target_path.read_text(encoding="utf-8") if item.target_path.is_file() else ""
-                new_text = update_dsh_cordis_subagent(curr_text, item.subagent_name, item.rendered_content)
+                curr_text = (
+                    item.target_path.read_text(encoding="utf-8")
+                    if item.target_path.is_file()
+                    else ""
+                )
+                new_text = update_dsh_cordis_subagent(
+                    curr_text, item.subagent_name, item.rendered_content
+                )
                 _write_file_atomic(item.target_path, new_text)
             elif item.action == "ORPHAN" and prune:
                 _backup_file(home, item.agent_name, item.target_path)
-                curr_text = item.target_path.read_text(encoding="utf-8") if item.target_path.is_file() else ""
+                curr_text = (
+                    item.target_path.read_text(encoding="utf-8")
+                    if item.target_path.is_file()
+                    else ""
+                )
                 new_text = remove_dsh_cordis_subagent(curr_text, item.subagent_name)
                 _write_file_atomic(item.target_path, new_text)
         else:
