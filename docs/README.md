@@ -10,6 +10,8 @@ model, an operational guide, or command details.
   configure, and operate Aikito on your behalf.
 - [Memory workflow](memory-workflow.md) — decide what knowledge should persist
   and where it belongs.
+- [Memory needs a maintainer](programming-agent-memory.md) — why Aikito treats
+  memory and skills as a human-governed cognitive environment.
 - [Capture browser conversations](chat-distiller.md) — use
   [Chat Distiller](https://github.com/lsaint/chat-distiller) to
   turn browser AI discussions into reviewable Markdown in `inbox/`.

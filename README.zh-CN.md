@@ -23,7 +23,7 @@ Aikito 是由 Git 管理的 AI Agent 上下文与长期记忆治理工作区。
 
 纯文件定义唯一事实来源，显式作用域定义谁能看到什么，Git 保留完整历史。
 
-资源由你定义，memory 由 Agent 维护，Aikito 治理整个工作区。
+Aikito 治理工作区，Agent 维护 memory，而一切由你把关。
 
 单个工作区即可让你的 AI 工作流在不同 Agent 与机器间保持一致。
 
@@ -98,6 +98,10 @@ GitHub Copilot CLI 和 DeepSeek Harness（`dsh`）。完整心智模型和
 笔记就是普通 Markdown，所以 Git 直接提供了历史、审查、回滚和可移植性——而 Agent 昨天在
 Claude Code 里写下的 memory，明天 Codex 读到的是同一份。
 
+自动维护不等于治理。阅读[Memory 也需要维护者](docs/programming-agent-memory.zh-CN.md)，
+了解为什么即使大部分维护工作由 Agent 完成，Aikito 仍然要求人对 memory 和 skill 的意义、
+作用域与生命周期负责。
+
 `aikito show memory` 按作用域列出已经沉淀下来的笔记，典型示例如下：
 
 ```text
@@ -107,7 +111,7 @@ Claude Code 里写下的 memory，明天 Codex 读到的是同一份。
 │ Global │ commit-message-style  │ Conventional commits, English only  │ ✓     │ –    │
 │ Global │ review-tone           │ Ask before large refactors          │ ✓     │ –    │
 ├────────┼───────────────────────┼─────────────────────────────────────┼───────┼──────┤
-│ aikito │ versioning-principles │ Version bumps skip round numbers    │ ✓     │ ✓    │
+│ aikito │ architecture-decisions │ Stable project design constraints   │ ✓     │ ✓    │
 │ aikito │ release-checklist     │ Tag only after tests pass           │ ✓     │ ✓    │
 ├────────┼───────────────────────┼─────────────────────────────────────┼───────┼──────┤
 │ blog   │ draft-workflow        │ Drafts live in content/ until dated │ ✓     │ ✓    │
@@ -145,7 +149,7 @@ Aikito 管理持久化文件、显式作用域与可控同步。为了保持轻�
 - 编排 supervisor 与 worker agent
 - 替代你所使用的 Coding Agent 的原生运行时
 
-Aikito 管控工作区及其中的 memory，推理交给你的 Agent。
+Aikito 治理工作区，Agent 负责推理与维护 memory，而一切由你把关。
 
 ## 环境要求
 

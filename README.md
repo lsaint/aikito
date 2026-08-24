@@ -23,7 +23,7 @@ Aikito is a Git-managed workspace for governing AI-agent context and durable mem
 
 Plain files define the source of truth, explicit scopes define who sees what, and Git keeps the history.
 
-You author the resources, agents maintain the memory, Aikito governs the workspace.
+Aikito governs the workspace, agents maintain the memory, and you oversee it all.
 
 One workspace keeps your AI workflow consistent across agents and machines.
 
@@ -103,6 +103,11 @@ The notes are ordinary Markdown, so Git gives you history, review, rollback, and
 portability — and the memory an agent wrote in Claude Code yesterday is the same
 memory Codex reads tomorrow.
 
+Automation is not the same as governance. Read
+[Memory Needs a Maintainer](docs/programming-agent-memory.md) to see why Aikito
+keeps people responsible for the meaning, scope, and lifecycle of memory and
+skills—even when agents perform most maintenance work.
+
 `aikito show memory` lists what has accumulated, grouped by scope. A typical
 example looks like this:
 
@@ -113,7 +118,7 @@ example looks like this:
 │ Global │ commit-message-style  │ Conventional commits, English only  │ ✓     │ –    │
 │ Global │ review-tone           │ Ask before large refactors          │ ✓     │ –    │
 ├────────┼───────────────────────┼─────────────────────────────────────┼───────┼──────┤
-│ aikito │ versioning-principles │ Version bumps skip round numbers    │ ✓     │ ✓    │
+│ aikito │ architecture-decisions │ Stable project design constraints   │ ✓     │ ✓    │
 │ aikito │ release-checklist     │ Tag only after tests pass           │ ✓     │ ✓    │
 ├────────┼───────────────────────┼─────────────────────────────────────┼───────┼──────┤
 │ blog   │ draft-workflow        │ Drafts live in content/ until dated │ ✓     │ ✓    │
@@ -154,7 +159,7 @@ To stay lightweight and portable, it deliberately **does not**:
 - orchestrate supervisor and worker agents
 - replace your coding agent's native runtime
 
-Aikito governs the workspace and the memory in it. Your agent does the reasoning.
+Aikito governs the workspace, your agent reasons and maintains the memory, and you oversee it all.
 
 ## Requirements
 
