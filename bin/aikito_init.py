@@ -4,6 +4,7 @@ Creates workspace skeleton, configuration templates, .gitignore, and initializes
 """
 
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -13,6 +14,7 @@ import tomllib
 
 
 CLI_SOURCE_ROOT = Path(__file__).resolve().parents[1]
+BUNDLED_DURABLE_MEMORY_SKILL = CLI_SOURCE_ROOT / "skills" / "durable-memory"
 
 SOURCE_CHECKOUT_MARKERS = (
     Path("LICENSE"),
@@ -168,7 +170,7 @@ Global atomic notes index across all workspaces.
 """
 
 SKILLS_TOML_TEMPLATE = """# Global skills enabled for all supported agents.
-skills = []
+skills = ["durable-memory"]
 """
 
 CONFIG_TOML_TEMPLATE = """# Aikito Workspace Configuration
@@ -182,9 +184,14 @@ stale_days = 30
 path = "inbox"
 """
 
-GLOBAL_AGENTS_TEMPLATE = """# Global Agent Directives
+DEFAULT_MEMORY_INSTRUCTION = """## Persistent Memory
 
-Add shared instructions for your coding agents here.
+- All tasks must follow the `durable-memory` skill. Its rules are the sole authority for when to use Memory, task boundaries, retrieval, evaluation, persistence, and commits.
+"""
+
+GLOBAL_AGENTS_TEMPLATE = f"""# Global Agent Directives
+
+{DEFAULT_MEMORY_INSTRUCTION}
 """
 
 PROJECT_AGENTS_TEMPLATE = ""
@@ -267,6 +274,14 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
         print(f"[ERROR] {validation_error}", file=sys.stderr)
         return False
 
+    if not (BUNDLED_DURABLE_MEMORY_SKILL / "SKILL.md").is_file():
+        print(
+            "[ERROR] Bundled durable-memory skill not found: "
+            f"{BUNDLED_DURABLE_MEMORY_SKILL}",
+            file=sys.stderr,
+        )
+        return False
+
     print(f"[INFO] Initializing Aikito workspace in: {target_dir}")
 
     # 1. Create skeleton directories
@@ -321,6 +336,13 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
             print(f"{status_tag} {file_path} ({desc})")
         else:
             print(f"[SKIP FILE] {file_path} (Already exists)")
+
+    bundled_skill_target = target_dir / "skills" / "durable-memory"
+    if bundled_skill_target.exists():
+        print(f"[SKIP DIR] {bundled_skill_target} (Already exists)")
+    else:
+        shutil.copytree(BUNDLED_DURABLE_MEMORY_SKILL, bundled_skill_target)
+        print(f"[CREATE DIR] {bundled_skill_target} (Bundled durable-memory skill)")
 
     # 3. Git Init
     git_dir = target_dir / ".git"

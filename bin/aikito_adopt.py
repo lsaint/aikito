@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from aikito_init import DEFAULT_MEMORY_INSTRUCTION, GLOBAL_AGENTS_TEMPLATE
 from aikito_subagent import has_aikito_marker
 
 
@@ -130,6 +131,39 @@ def _normalize_instructions_content(text: str) -> str:
     return "\n".join(lines)
 
 
+def _append_default_memory_instruction(content: str) -> str:
+    normalized = _normalize_instructions_content(content)
+    default_rule = _normalize_instructions_content(DEFAULT_MEMORY_INSTRUCTION)
+    if default_rule in normalized:
+        return normalized + "\n"
+    if not normalized:
+        return DEFAULT_MEMORY_INSTRUCTION
+    return f"{normalized}\n\n{DEFAULT_MEMORY_INSTRUCTION}"
+
+
+def _merge_adopted_instructions(
+    imported_content: str, target_path: Path
+) -> tuple[bool, str | None]:
+    if not target_path.is_file():
+        return False, imported_content
+
+    canonical_content = target_path.read_text(encoding="utf-8")
+    canonical = _normalize_instructions_content(canonical_content)
+    imported = _normalize_instructions_content(imported_content)
+    default_template = _normalize_instructions_content(GLOBAL_AGENTS_TEMPLATE)
+
+    if canonical == imported:
+        return False, canonical_content
+
+    merged = _append_default_memory_instruction(imported_content)
+    if canonical == default_template:
+        return False, merged
+    if canonical == _normalize_instructions_content(merged):
+        return False, canonical_content
+
+    return True, None
+
+
 def scan_instructions(aikito_dir: Path, home: Path) -> InstructionsAdoption:
     candidates = [
         ("codex", home / ".codex" / "AGENTS.md"),
@@ -167,10 +201,13 @@ def scan_instructions(aikito_dir: Path, home: Path) -> InstructionsAdoption:
     all_same = all(n == first_normalized for n in normalized)
 
     if all_same:
+        has_conflict, merged_content = _merge_adopted_instructions(
+            sources[0][2], target_path
+        )
         return InstructionsAdoption(
             sources=sources,
-            has_conflict=False,
-            merged_content=sources[0][2],
+            has_conflict=has_conflict,
+            merged_content=merged_content,
             target_path=target_path,
         )
     else:
@@ -532,7 +569,9 @@ def execute_adoption(
     if inst.sources:
         print("\n--- Global Instructions Adoption ---")
         if inst.has_conflict:
-            print("[CONFLICT] Found different global instructions across local agents:")
+            print("[CONFLICT] Found conflicting global instructions:")
+            if inst.target_path and inst.target_path.is_file():
+                print(f"  - aikito: {inst.target_path}")
             for ag, p, _ in inst.sources:
                 print(f"  - {ag}: {p}")
             print(

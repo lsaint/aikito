@@ -85,9 +85,15 @@ GitHub Copilot CLI 和 DeepSeek Harness（`dsh`）。完整心智模型和
 
 ## 长期 Memory
 
-内置的 `durable-memory` skill 承担 memory 维护工作。它引导 Coding Agent 在动手前
+内置的 [`durable-memory` skill](skills/durable-memory/SKILL.md) 承担 memory 维护工作。
+它引导 Coding Agent 在动手前
 检索相关笔记、把学到的东西提炼成可长期复用的结论、更新已经过时的笔记，并选择正确的
 全局或项目作用域。
+
+新 workspace 默认启用该工作流：初始化会创建 Memory 结构、安装并选中
+`durable-memory`，同时写入要求 Agent 判断 Memory 相关性的最简全局 instruction。只有显式
+执行 `aikito sync global` 后才会连接到 Agent。完整生命周期见
+[默认行为与停用方法](docs/durable-memory.md#default-behavior-and-opt-out)。
 
 笔记就是普通 Markdown，所以 Git 直接提供了历史、审查、回滚和可移植性——而 Agent 昨天在
 Claude Code 里写下的 memory，明天 Codex 读到的是同一份。

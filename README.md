@@ -86,10 +86,17 @@ model and capability boundaries.
 
 ## Durable Memory
 
-The bundled `durable-memory` skill is the curation half of the equation. It
-guides coding agents to retrieve relevant notes before acting, distill durable
-conclusions from what they learn, update notes that went stale, and choose the
-right global or project scope.
+The bundled [`durable-memory` skill](skills/durable-memory/SKILL.md) is the
+curation half of the equation. It guides coding agents to retrieve relevant
+notes before acting, distill durable conclusions from what they learn, update
+notes that went stale, and choose the right global or project scope.
+
+New workspaces enable this workflow by default: initialization creates the
+Memory structure, installs and selects `durable-memory`, and adds the minimal
+global instruction that requires Agents to evaluate Memory relevance. Nothing
+is connected to an Agent until you explicitly run `aikito sync global`. See
+[Default behavior and opt-out](docs/durable-memory.md#default-behavior-and-opt-out)
+for the complete lifecycle.
 
 The notes are ordinary Markdown, so Git gives you history, review, rollback, and
 portability — and the memory an agent wrote in Claude Code yesterday is the same

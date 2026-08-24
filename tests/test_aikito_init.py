@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
 
 from aikito_init import (  # noqa: E402
+    DEFAULT_MEMORY_INSTRUCTION,
     init_project,
     init_workspace,
     project_sync_validation_error,
@@ -45,6 +46,16 @@ class AikitoInitTest(unittest.TestCase):
         self.assertTrue((self.target_path / "memory" / "index.md").is_file())
         self.assertTrue((self.target_path / "skills.toml").is_file())
         self.assertTrue((self.target_path / "global" / "AGENTS.md").is_file())
+        self.assertTrue(
+            (self.target_path / "skills" / "durable-memory" / "SKILL.md").is_file()
+        )
+
+        with (self.target_path / "skills.toml").open("rb") as skills_file:
+            self.assertEqual(tomllib.load(skills_file)["skills"], ["durable-memory"])
+        self.assertIn(
+            DEFAULT_MEMORY_INSTRUCTION,
+            (self.target_path / "global" / "AGENTS.md").read_text(encoding="utf-8"),
+        )
 
         # Check leading slash rule in .gitignore
         gitignore_content = (self.target_path / ".gitignore").read_text(
@@ -54,7 +65,7 @@ class AikitoInitTest(unittest.TestCase):
         self.assertIn("/__pycache__/", gitignore_content)
         self.assertIn("/.venv/", gitignore_content)
 
-    def test_init_workspace_creates_a_usable_empty_configuration(self) -> None:
+    def test_init_workspace_creates_a_usable_default_configuration(self) -> None:
         init_workspace(self.target_path, self.fake_home)
 
         agents = load_agents(self.target_path, self.fake_home)
@@ -102,6 +113,15 @@ class AikitoInitTest(unittest.TestCase):
         init_workspace(self.target_path, self.fake_home, force=True)
         self.assertIn("[agents.codex]", agents_toml.read_text(encoding="utf-8"))
 
+    def test_init_workspace_preserves_existing_bundled_skill(self) -> None:
+        init_workspace(self.target_path, self.fake_home)
+        skill_file = self.target_path / "skills" / "durable-memory" / "SKILL.md"
+        skill_file.write_text("customized\n", encoding="utf-8")
+
+        init_workspace(self.target_path, self.fake_home, force=True)
+
+        self.assertEqual(skill_file.read_text(encoding="utf-8"), "customized\n")
+
     def test_init_workspace_rejects_cli_source_tree_before_writing(self) -> None:
         source_root = Path(self.tmp_dir.name) / "source"
         source_root.mkdir()
@@ -115,6 +135,17 @@ class AikitoInitTest(unittest.TestCase):
 
             self.assertFalse(success)
             self.assertFalse((target / "agents.toml").exists())
+
+    def test_init_workspace_requires_bundled_durable_memory_before_writing(
+        self,
+    ) -> None:
+        missing_skill = Path(self.tmp_dir.name) / "missing-durable-memory"
+
+        with patch("aikito_init.BUNDLED_DURABLE_MEMORY_SKILL", missing_skill):
+            success = init_workspace(self.target_path, self.fake_home)
+
+        self.assertFalse(success)
+        self.assertFalse(self.target_path.exists())
 
     def test_init_workspace_rejects_source_checkout_markers(self) -> None:
         self.target_path.mkdir()

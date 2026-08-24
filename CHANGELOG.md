@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-08-24
+
+### Changed
+
+- New workspaces now enable the bundled `durable-memory` workflow by default,
+  while preserving explicit synchronization and conflict-safe instruction
+  adoption.
+
 ## [1.13.0] - 2026-08-24
 
 ### Added
@@ -264,7 +272,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.13.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.14.0...HEAD
+[1.14.0]: https://github.com/lsaint/aikito/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/lsaint/aikito/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/lsaint/aikito/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/lsaint/aikito/compare/v1.10.0...v1.11.0

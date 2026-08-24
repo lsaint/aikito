@@ -3,6 +3,69 @@
 Use the memory commands to inspect available scopes, find a note, and edit the
 canonical file without navigating the workspace manually.
 
+## Default Behavior and Opt-Out
+
+Aikito separates Memory storage, Agent capability, and Agent behavior:
+
+| Layer | Configuration | Effect |
+| --- | --- | --- |
+| Storage | `aikito init workspace` or `aikito init project` | Creates the canonical Memory directories and indices. |
+| Capability | `durable-memory` in global `skills.toml` or project `agent.toml` | Makes the skill available to the selected Agents after synchronization. |
+| Behavior | A rule in global or project `AGENTS.md` | Tells Agents when they must apply the skill, including whether every task should evaluate Memory relevance. |
+
+`aikito init workspace` configures all three layers by default. It copies the
+bundled skill into `skills/durable-memory`, selects it in `skills.toml`, and
+writes this rule to `global/AGENTS.md`:
+
+```markdown
+## Persistent Memory
+
+- All tasks must follow the `durable-memory` skill. Its rules are the sole
+  authority for when to use Memory, task boundaries, retrieval, evaluation,
+  persistence, and commits.
+```
+
+Initialization changes only the Aikito workspace. The integration becomes
+active only after an explicit synchronization:
+
+```bash
+aikito sync global --dry-run
+aikito sync global
+```
+
+If existing Agent instructions are detected, run `aikito adopt` before
+synchronizing. When all detected Agent instructions agree and the canonical
+file is still Aikito's default, adoption preserves the user content and appends
+the default Memory rule exactly once. Different Agent instructions or a
+separately customized canonical file remain conflicts for manual review; Aikito
+does not overwrite them.
+
+For project-only use, remove the global selection and rule, then add the skill
+to `projects/<name>/agent.toml`:
+
+```toml
+skills = ["durable-memory"]
+```
+
+Place the behavior rule in `projects/<name>/AGENTS.md`, then run:
+
+```bash
+aikito sync project <name> --dry-run
+aikito sync project <name>
+```
+
+The instruction does not mean reading or writing Memory on every task. The
+skill still decides when historical knowledge is relevant and when a conclusion
+has enough future value to persist. The instruction makes that evaluation
+mandatory rather than leaving the workflow merely available.
+
+To opt out, remove the Persistent Memory rule and remove `durable-memory` from
+the relevant skill list, then synchronize that scope again. The bundled skill
+directory, existing notes, and canonical Memory directories are retained as
+user data; opting out does not delete them. Aikito has no background Memory
+service, so no automatic capture or prompt injection continues after the Agent
+integration is disabled.
+
 ## Use or Adapt the Prompt
 
 The complete [durable-memory prompt](../skills/durable-memory/SKILL.md)

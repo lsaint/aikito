@@ -8,6 +8,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
 
 from aikito_adopt import build_adopt_plan, execute_adoption  # noqa: E402
+from aikito_init import (  # noqa: E402
+    DEFAULT_MEMORY_INSTRUCTION,
+    GLOBAL_AGENTS_TEMPLATE,
+)
 from aikito_mcp import load_agent_specs  # noqa: E402
 from aikito_subagent import load_subagent_definitions  # noqa: E402
 
@@ -66,6 +70,85 @@ class AikitoAdoptTest(unittest.TestCase):
 
         plan = build_adopt_plan(self.target_path, self.fake_home)
         self.assertTrue(plan.instructions.has_conflict)
+
+    def test_adopt_appends_default_memory_instruction_to_user_instructions(
+        self,
+    ) -> None:
+        (self.target_path / "global" / "AGENTS.md").write_text(
+            GLOBAL_AGENTS_TEMPLATE, encoding="utf-8"
+        )
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text(
+            "# User Instructions\n\n- Keep existing behavior.\n", encoding="utf-8"
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+
+        self.assertFalse(plan.instructions.has_conflict)
+        self.assertEqual(
+            plan.instructions.merged_content,
+            "# User Instructions\n\n- Keep existing behavior.\n\n"
+            + DEFAULT_MEMORY_INSTRUCTION,
+        )
+
+        execute_adoption(plan, dry_run=False)
+        merged = (self.target_path / "global" / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertIn("Keep existing behavior", merged)
+        self.assertEqual(merged.count("## Persistent Memory"), 1)
+
+    def test_adopt_default_memory_instruction_merge_is_idempotent(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        source = codex_dir / "AGENTS.md"
+        source.write_text("# User Instructions\n", encoding="utf-8")
+        target = self.target_path / "global" / "AGENTS.md"
+        target.write_text(GLOBAL_AGENTS_TEMPLATE, encoding="utf-8")
+
+        first_plan = build_adopt_plan(self.target_path, self.fake_home)
+        execute_adoption(first_plan, dry_run=False)
+        first_content = target.read_text(encoding="utf-8")
+
+        second_plan = build_adopt_plan(self.target_path, self.fake_home)
+        self.assertFalse(second_plan.instructions.has_conflict)
+        execute_adoption(second_plan, dry_run=False)
+
+        self.assertEqual(target.read_text(encoding="utf-8"), first_content)
+        self.assertEqual(first_content.count("## Persistent Memory"), 1)
+
+    def test_adopt_does_not_duplicate_existing_default_memory_instruction(
+        self,
+    ) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        imported = f"# User Instructions\n\n{DEFAULT_MEMORY_INSTRUCTION}"
+        (codex_dir / "AGENTS.md").write_text(imported, encoding="utf-8")
+        (self.target_path / "global" / "AGENTS.md").write_text(
+            GLOBAL_AGENTS_TEMPLATE, encoding="utf-8"
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+
+        self.assertFalse(plan.instructions.has_conflict)
+        self.assertEqual(
+            plan.instructions.merged_content.count("## Persistent Memory"), 1
+        )
+
+    def test_adopt_reports_conflict_with_custom_canonical_instructions(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("# Imported\n", encoding="utf-8")
+        canonical = self.target_path / "global" / "AGENTS.md"
+        canonical.write_text("# Existing Canonical Rules\n", encoding="utf-8")
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+
+        self.assertTrue(plan.instructions.has_conflict)
+        self.assertIsNone(plan.instructions.merged_content)
+        execute_adoption(plan, dry_run=False)
+        self.assertEqual(
+            canonical.read_text(encoding="utf-8"), "# Existing Canonical Rules\n"
+        )
 
     def test_adopt_mcp_servers(self) -> None:
         claude_dir = self.fake_home / ".claude"
