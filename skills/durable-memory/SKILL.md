@@ -92,6 +92,7 @@ merely because a project is unregistered.
 
 - Prefer one durable, independently reusable concept per note.
 - Use stable lowercase kebab-case note names (filename stems) of at most 50 characters (e.g., `payment-idempotency`).
+- For project memory, do not repeat the project name as a filename prefix because the project scope already supplies that identity. Keep the prefix only when it prevents a real ambiguity within that project.
 - Use titles that state the durable idea clearly and make the note easy to recognize from search results or wikilinks. Explain scope, rationale, and actionable guidance in the body.
 - In note, Use Obsidian-style wikilinks for references: `[[note-name]]` or `[[note-name|Display Text]]`.
 - In `index.md`, always use `[[note-name|Display Text]]` without a trailing description.
