@@ -364,6 +364,13 @@ class InitSubcommandParserTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parser.parse_args(["init", "~/aikito"])
 
+    def test_path_workspace_subcommand(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+        args = parser.parse_args(["path", "workspace"])
+
+        self.assertEqual(args.path_target, "workspace")
+        self.assertEqual(args.func, AIKITO_CLI.cmd_path_workspace)
+
     def test_init_project_command_creates_runtime_and_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

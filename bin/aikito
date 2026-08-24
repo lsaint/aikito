@@ -88,15 +88,13 @@ from aikito_subagent import (
 )
 from aikito_web import serve_console
 from aikito_completion import generate_bash, generate_fish, generate_zsh, get_candidates
+from aikito_workspace import persist_workspace, resolve_workspace
 
-__version__ = "1.12.0"
+__version__ = "1.13.0"
 
 
 def get_aikito_dir() -> Path:
-    env_dir = os.environ.get("AIKITO_DIR")
-    if env_dir:
-        return Path(env_dir).expanduser().resolve()
-    return Path.home() / "aikito"
+    return resolve_workspace(Path.home())
 
 
 def get_agents_dir() -> Path:
@@ -682,6 +680,14 @@ def cmd_init(args: argparse.Namespace) -> None:
     success = init_workspace(target, home, force=args.force)
     if not success:
         sys.exit(1)
+    if args.workspace_path:
+        pointer_path = persist_workspace(target, home)
+        print(f"[CONFIG] Default workspace: {target.expanduser().resolve()}")
+        print(f"[CONFIG] Workspace pointer: {pointer_path}")
+
+
+def cmd_path_workspace(args: argparse.Namespace) -> None:
+    print(get_aikito_dir())
 
 
 def cmd_init_project(args: argparse.Namespace) -> None:
@@ -1628,6 +1634,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_version.set_defaults(func=lambda args: print(f"aikito {__version__}"))
 
+    # path
+    p_path = subparsers.add_parser(
+        "path", help="Print resolved paths for scripts and Agent workflows"
+    )
+    path_subparsers = p_path.add_subparsers(dest="path_target", required=True)
+    p_path_workspace = path_subparsers.add_parser(
+        "workspace", help="Print the active workspace directory"
+    )
+    p_path_workspace.set_defaults(func=cmd_path_workspace)
+
     # init
     p_init = subparsers.add_parser("init", help="Initialize a workspace or project")
     init_subparsers = p_init.add_subparsers(dest="init_target", required=True)
@@ -1640,7 +1656,7 @@ def build_parser() -> argparse.ArgumentParser:
         "workspace_path",
         nargs="?",
         default=None,
-        help="Target directory for Aikito workspace (default: ~/aikito or $AIKITO_DIR)",
+        help="Target directory (default: resolved active workspace)",
     )
     p_init_workspace.add_argument(
         "--force",
@@ -1748,7 +1764,7 @@ def build_parser() -> argparse.ArgumentParser:
         "target",
         nargs="?",
         default=None,
-        help="Target directory for Aikito workspace (default: ~/aikito or $AIKITO_DIR)",
+        help="Target directory (default: resolved active workspace)",
     )
     p_adopt.add_argument(
         "--apply",
@@ -1861,7 +1877,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Sync project skills and memory to <project-path>/.agents/",
     )
     p_sync_project.add_argument(
-        "project_name", help="Name of the project in ~/aikito/projects/"
+        "project_name", help="Name of the project under <workspace>/projects/"
     )
     p_sync_project.add_argument(
         "project_path",

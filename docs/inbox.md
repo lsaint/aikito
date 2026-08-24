@@ -78,7 +78,7 @@ The default workspace configuration is:
 
 ```toml
 [inbox]
-path = "~/aikito/inbox"
+path = "inbox"
 ```
 
 A relative path is resolved from the Aikito workspace:

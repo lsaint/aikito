@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Optional
 
 DEFAULT_STALE_MEMORY_DAYS = 30
-DEFAULT_INBOX_PATH = "~/aikito/inbox"
+DEFAULT_INBOX_PATH = "inbox"
+LEGACY_DEFAULT_INBOX_PATH = "~/aikito/inbox"
 
 
 @dataclass
@@ -75,7 +76,7 @@ def load_workspace_config(aikito_dir: Path) -> AikitoConfig:
 def get_inbox_path(aikito_dir: Path) -> Path:
     """
     Resolve configured inbox path. Defaults to aikito_dir / "inbox"
-    (or ~/aikito/inbox).
+    Relative paths are resolved from the active workspace.
     """
     config = load_workspace_config(aikito_dir)
     raw_path = config.inbox.path.strip() if config.inbox.path else ""
@@ -83,7 +84,7 @@ def get_inbox_path(aikito_dir: Path) -> Path:
         return (aikito_dir / "inbox").resolve()
 
     expanded = Path(raw_path).expanduser()
-    if expanded == Path(DEFAULT_INBOX_PATH).expanduser():
+    if expanded == Path(LEGACY_DEFAULT_INBOX_PATH).expanduser():
         return (aikito_dir / "inbox").resolve()
     if not expanded.is_absolute():
         return (aikito_dir / expanded).resolve()

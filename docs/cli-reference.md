@@ -19,7 +19,8 @@ version.
 
 | Command | Purpose |
 | --- | --- |
-| `aikito init workspace [path]` | Create a workspace skeleton and initialize Git |
+| `aikito init workspace [path]` | Create a workspace, initialize Git, and remember an explicit path |
+| `aikito path workspace` | Print the resolved active workspace path |
 | `aikito init project [name] [path]` | Register a code project and synchronize its `.agents/` runtime |
 | `aikito add skill <name>` | Create a canonical skill skeleton and register it in `skills.toml` or project config |
 | `aikito add subagent <name>` | Create a canonical subagent skeleton and register it in `subagents.toml` |
@@ -164,11 +165,11 @@ Remove an inbox note after reviewing or curating it:
 aikito rm inbox perplexity-ai-positioning
 ```
 
-The inbox directory defaults to `~/aikito/inbox` and can be customized in `config.toml`:
+The inbox directory defaults to `<workspace>/inbox` and can be customized in `config.toml`:
 
 ```toml
 [inbox]
-path = "~/aikito/inbox"
+path = "inbox"
 ```
 
 ## Projects
@@ -211,7 +212,7 @@ aikito init project example ~/code/example
 ```
 
 Project initialization creates `agent.toml`, `AGENTS.md`, and the project
-memory skeleton under `~/aikito/projects/<name>/`, then synchronizes the target
+memory skeleton under `<workspace>/projects/<name>/`, then synchronizes the target
 project's `.agents/` runtime. The initial `AGENTS.md` is empty until
 project-specific instructions are added. Initialization is idempotent. A
 project name already bound to another path, or unmanaged resources at a target

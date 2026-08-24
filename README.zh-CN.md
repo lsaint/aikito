@@ -176,9 +176,12 @@ cd ~/code/example
 aikito init project
 ```
 
-该命令会在 `~/aikito/projects/example/` 创建项目的规范资源，并连接到当前目录的
+该命令会在 `<workspace>/projects/example/` 创建项目的规范资源，并连接到当前目录的
 `./.agents/`。一份 workspace 可以管理多个 project；project 代表一个代码目录及其专属
 Agent 资源，不保存项目源码本身。
+
+使用自定义路径初始化后，Aikito 会记住该路径供后续命令使用。可通过
+`aikito path workspace` 输出当前路径；`AIKITO_DIR` 可用于 CI 或隔离自动化中的临时覆盖。
 
 `aikito status` 会展示各个受支持 Agent 的资源状态：
 

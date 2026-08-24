@@ -432,7 +432,7 @@ def collect_memory_status_rows(
         )
     )
 
-    # Project Memory (scan ~/aikito/projects/<project_name>)
+    # Project Memory (scan <workspace>/projects/<project_name>)
     projects_dir = aikito_dir / "projects"
     if projects_dir.is_dir():
         for proj_folder in sorted(projects_dir.iterdir()):

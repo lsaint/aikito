@@ -179,7 +179,7 @@ stale_days = 30
 
 [inbox]
 # Staging directory for incoming distilled notes.
-path = "~/aikito/inbox"
+path = "inbox"
 """
 
 GLOBAL_AGENTS_TEMPLATE = """# Global Agent Directives

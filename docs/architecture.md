@@ -10,18 +10,19 @@ The two directories serve different purposes:
 
 ```text
 ~/aikito-src   CLI source checkout
-~/aikito       canonical user workspace
+<workspace>    canonical user workspace (defaults to ~/aikito)
 ```
 
-They must remain separate. The default workspace is `~/aikito`; set
-`AIKITO_DIR` to select another path.
+They must remain separate. The default workspace is `~/aikito`. An explicit
+`aikito init workspace <path>` persists another default; `AIKITO_DIR` overrides
+it temporarily. Use `aikito path workspace` for machine-readable resolution.
 
 ## Canonical Source
 
 The workspace is the source of truth:
 
 ```text
-~/aikito
+<workspace>
 ├── global/AGENTS.md
 ├── skills/
 ├── memory/

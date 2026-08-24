@@ -16,13 +16,13 @@ Keep the CLI source and user workspace separate:
 
 ```text
 ~/aikito-src   CLI source checkout
-~/aikito       canonical user workspace
+<workspace>    canonical user workspace (defaults to ~/aikito)
 ```
 
 The workspace contains the sources of truth:
 
 ```text
-~/aikito/
+<workspace>/
 ├── agents.toml
 ├── skills.toml
 ├── subagents.toml
@@ -55,8 +55,10 @@ canonical resource ↓
 show / edit / sync / status
 ```
 
-Use `AIKITO_DIR` when the workspace is not `~/aikito`. Use the installed
-`aikito` command rather than assuming the CLI lives inside the workspace.
+Resolve `<workspace>` with `aikito path workspace` before accessing canonical
+files directly. `AIKITO_DIR` can temporarily override the persisted workspace.
+Use the installed `aikito` command rather than assuming the CLI lives inside
+the workspace.
 
 ## Bootstrap
 
@@ -109,9 +111,9 @@ anything.
 Canonical sources:
 
 ```text
-~/aikito/global/AGENTS.md
-~/aikito/skills.toml
-~/aikito/skills/<skill-name>/
+<workspace>/global/AGENTS.md
+<workspace>/skills.toml
+<workspace>/skills/<skill-name>/
 ```
 
 Create, review, and synchronize skills:
@@ -171,9 +173,9 @@ name bound to another path as conflicts for the user; do not bypass them.
 Project configuration belongs under:
 
 ```text
-~/aikito/projects/<name>/agent.toml
-~/aikito/projects/<name>/AGENTS.md
-~/aikito/projects/<name>/memory/
+<workspace>/projects/<name>/agent.toml
+<workspace>/projects/<name>/AGENTS.md
+<workspace>/projects/<name>/memory/
 ```
 
 Synchronize and verify with:
@@ -204,7 +206,7 @@ project synchronization. Do not store unrelated files there.
 Canonical source:
 
 ```text
-~/aikito/mcps/*.toml
+<workspace>/mcps/*.toml
 ```
 
 Unlike Skills (`skills.toml`) and Subagents (`subagents.toml`) which use central
@@ -231,8 +233,8 @@ print, persist, or commit captured credentials.
 Canonical sources:
 
 ```text
-~/aikito/subagents.toml
-~/aikito/subagents/
+<workspace>/subagents.toml
+<workspace>/subagents/
 ```
 
 Create, preview, apply, and verify:
@@ -252,8 +254,8 @@ target merely to make status green.
 
 ### Memory
 
-Global memory belongs under `~/aikito/memory/`. Project-specific memory belongs
-under `~/aikito/projects/<name>/memory/`.
+Global memory belongs under `<workspace>/memory/`. Project-specific memory
+belongs under `<workspace>/projects/<name>/memory/`.
 
 ```bash
 aikito show memory [target]

@@ -71,7 +71,7 @@ aikito rm inbox perplexity-positioning
 
 ```toml
 [inbox]
-path = "~/aikito/inbox"
+path = "inbox"
 ```
 
 相对路径以 Aikito 工作区为基准：

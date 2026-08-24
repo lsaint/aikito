@@ -41,7 +41,7 @@ already registered to another path, or unmanaged resources under the target
 
 ## Configure Project Resources
 
-Edit the generated `~/aikito/projects/example/agent.toml` to select shared
+Edit the generated `<workspace>/projects/example/agent.toml` to select shared
 resources:
 
 ```toml

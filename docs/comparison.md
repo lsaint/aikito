@@ -27,7 +27,7 @@ AgentSync focuses on aligning multi-agent configurations within an individual pr
 | Dimension | Aikito | AgentSync |
 | --- | --- | --- |
 | **Center of gravity** | Personal AI workspace | Individual project |
-| **Canonical source** | `~/aikito` | Project `.agents/` |
+| **Canonical source** | Configurable `<workspace>` | Project `.agents/` |
 | **Cross-agent sync** | Yes | Yes |
 | **Cross-project reuse** | Core model | Secondary |
 | **Skills** | Yes | Yes |
@@ -112,7 +112,7 @@ Aikito stores durable conclusions rather than attempting to retain every Agent e
 Aikito configures and supplies resources to Agent runtimes rather than replacing them. It leaves execution, reasoning, and prompt assembly to native coding agents like Codex, Claude Code, Antigravity `agy`, OpenCode, GitHub Copilot CLI, or DeepSeek Harness (`dsh`).
 
 ### Central workspace over project-local ownership
-Reusable resources live once in `~/aikito`, and projects select what they need. This eliminates duplication while allowing projects to remain isolated when required.
+Reusable resources live once in the active Aikito workspace, and projects select what they need. This eliminates duplication while allowing projects to remain isolated when required.
 
 ### Explicit scopes over implicit context
 Aikito separates global and project-specific resources explicitly instead of depending on an opaque retrieval layer to decide where context belongs.

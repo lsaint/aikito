@@ -321,7 +321,7 @@ def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
 
     all_registered_skills = global_skills | project_skills
 
-    # Check for orphan skill directories in ~/aikito/skills/
+    # Check for orphan skill directories in <workspace>/skills/
     source_skills_dir = aikito_dir / "skills"
     if source_skills_dir.is_dir():
         orphan_skills = []
@@ -1020,7 +1020,10 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
             findings.append(_ok(f"$AIKITO_DIR → {_home_rel(env_path, home)}"))
     else:
         findings.append(
-            _ok(f"AIKITO_DIR not set; using default: {_home_rel(aikito_dir, home)}")
+            _ok(
+                "AIKITO_DIR not set; using configured workspace: "
+                f"{_home_rel(aikito_dir, home)}"
+            )
         )
 
     # 6b. Interpreter consistency: $PATH python3 vs sys.executable

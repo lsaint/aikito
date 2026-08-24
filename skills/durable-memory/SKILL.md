@@ -15,21 +15,24 @@ Autonomously decide when to retrieve, follow related knowledge, or persist memor
 
 ## Scope & Single Source of Truth
 
-All memory is stored centrally in `~/aikito` and managed by Git:
+Resolve `<workspace>` with `aikito path workspace`. All memory is stored
+centrally in that workspace and managed by Git:
 
-- **Global Memory**: `~/aikito/memory/`
+- **Global Memory**: `<workspace>/memory/`
   - Best for cross-project experience, user preferences, and general engineering patterns.
   - Always available regardless of whether `.agents/memory/` exists in the current project.
-- **Project Memory**: `~/aikito/projects/<project-name>/memory/`
+- **Project Memory**: `<workspace>/projects/<project-name>/memory/`
   - Best for project-specific constraints, historical architecture decisions, and project-unique debugging lessons.
   - Typically accessed via the `.agents/memory/` symlink in registered projects.
 
-`~/aikito` is the single source of truth; `.agents/memory/` is merely a runtime entry point without maintaining independent copies. Standard memory CRUD operations act directly on the canonical source files above.
+`<workspace>` is the single source of truth; `.agents/memory/` is merely a
+runtime entry point without maintaining independent copies. Standard memory
+CRUD operations act directly on the canonical source files above.
 
 Standard storage layout:
 
 ```text
-~/aikito/
+<workspace>/
 ├── memory/                         # Global memory
 │   ├── index.md                    # Global memory navigation entry
 │   └── notes/                      # Global atomic notes
@@ -63,7 +66,7 @@ Persist memory at natural work milestones when knowledge stabilizes. Do not wait
 
 Choose retrieval entry points based on the task's likely scope and relevance:
 
-- **Global entry**: `~/aikito/memory/index.md`
+- **Global entry**: `<workspace>/memory/index.md`
 - **Project entry**: `.agents/memory/index.md` (when present)
 
 Indices are for navigation only. Search the memory store using the most efficient available method. Use filenames, headings, body text, wikilinks, or other available retrieval mechanisms when useful. Follow links to related notes when necessary. When memory conflicts with current code, tests, or configuration, ground decisions in current code facts and update stale memory accordingly.
@@ -110,4 +113,8 @@ A retired note should leave nothing pointing at it: drop its index entry and rep
 
 ## Commit & Version Control
 
-When memory changes, stage only files directly required by that memory change and create a local Git commit in `~/aikito`. Deletions are staged the same way, together with the index and wikilink repairs they require, so the removal lands as one reviewable commit. Keep memory commits narrowly scoped and reviewable.
+When memory changes, stage only files directly required by that memory change
+and create a local Git commit in `<workspace>`. Deletions are staged the same
+way, together with the index and wikilink repairs they require, so the removal
+lands as one reviewable commit. Keep memory commits narrowly scoped and
+reviewable.

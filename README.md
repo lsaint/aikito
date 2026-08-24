@@ -188,9 +188,13 @@ aikito init project
 ```
 
 This creates the project's canonical resources under
-`~/aikito/projects/example/` and connects them to `./.agents/`. One workspace
+`<workspace>/projects/example/` and connects them to `./.agents/`. One workspace
 can manage many projects; a project registration represents one code directory
 and its project-specific Agent resources, not the project source code itself.
+
+When initialized at a custom path, Aikito remembers it for future commands.
+Use `aikito path workspace` to print the active path. `AIKITO_DIR` provides a
+temporary override, which is useful for CI and isolated automation.
 
 `aikito status` reports resource state across supported agents:
 

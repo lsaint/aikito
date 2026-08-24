@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-08-24
+
+### Added
+
+- Added `aikito path workspace` for machine-readable active workspace resolution.
+
+### Changed
+
+- Persist explicit `aikito init workspace <path>` selections while preserving
+  `AIKITO_DIR` as the highest-priority temporary override.
+- Made the Inbox default workspace-relative and updated skills and documentation
+  to avoid treating `~/aikito` as the only canonical workspace path.
+
 ## [1.12.0] - 2026-08-21
 
 ### Added
@@ -251,7 +264,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.12.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.13.0...HEAD
+[1.13.0]: https://github.com/lsaint/aikito/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/lsaint/aikito/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/lsaint/aikito/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/lsaint/aikito/compare/v1.9.0...v1.10.0

@@ -58,7 +58,16 @@ class AikitoConfigTest(unittest.TestCase):
 
     def test_inbox_config_default(self) -> None:
         cfg = load_workspace_config(self.root)
-        self.assertEqual(cfg.inbox.path, "~/aikito/inbox")
+        self.assertEqual(cfg.inbox.path, "inbox")
+
+        inbox_dir = get_inbox_path(self.root)
+        self.assertEqual(inbox_dir, (self.root / "inbox").resolve())
+
+    def test_legacy_default_inbox_path_uses_active_workspace(self) -> None:
+        config_file = self.root / "config.toml"
+        config_file.write_text(
+            '[inbox]\npath = "~/aikito/inbox"\n', encoding="utf-8"
+        )
 
         inbox_dir = get_inbox_path(self.root)
         self.assertEqual(inbox_dir, (self.root / "inbox").resolve())

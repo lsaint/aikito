@@ -1,0 +1,44 @@
+"""Tests for active workspace resolution."""
+
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "bin"))
+
+from aikito_workspace import persist_workspace, resolve_workspace  # noqa: E402
+
+
+class AikitoWorkspaceTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.home = Path(self.temporary_directory.name)
+
+    def tearDown(self) -> None:
+        self.temporary_directory.cleanup()
+
+    def test_default_workspace(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(resolve_workspace(self.home), (self.home / "aikito").resolve())
+
+    def test_persisted_workspace(self) -> None:
+        workspace = self.home / "custom-workspace"
+        with patch.dict(os.environ, {}, clear=True):
+            persist_workspace(workspace, self.home)
+            self.assertEqual(resolve_workspace(self.home), workspace.resolve())
+
+    def test_environment_overrides_persisted_workspace(self) -> None:
+        persisted = self.home / "persisted"
+        environment = self.home / "environment"
+        with patch.dict(os.environ, {}, clear=True):
+            persist_workspace(persisted, self.home)
+        with patch.dict(os.environ, {"AIKITO_DIR": str(environment)}, clear=True):
+            self.assertEqual(resolve_workspace(self.home), environment.resolve())
+
+
+if __name__ == "__main__":
+    unittest.main()
