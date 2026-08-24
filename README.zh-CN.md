@@ -90,9 +90,9 @@ GitHub Copilot CLI 和 DeepSeek Harness（`dsh`）。完整心智模型和
 检索相关笔记、把学到的东西提炼成可长期复用的结论、更新已经过时的笔记，并选择正确的
 全局或项目作用域。
 
-新 workspace 默认启用该工作流：初始化会创建 Memory 结构、安装并选中
-`durable-memory`，同时写入要求 Agent 判断 Memory 相关性的最简全局 instruction。只有显式
-执行 `aikito sync global` 后才会连接到 Agent。完整生命周期见
+新 workspace 默认启用该工作流：初始化会创建 Memory 结构、安装并选中内置的 `aikito`
+与 `durable-memory` skills，同时写入要求 Agent 判断 Memory 相关性的最简全局 instruction。
+只有显式执行 `aikito sync global` 后才会连接到 Agent。完整生命周期见
 [默认行为与停用方法](docs/durable-memory.md#default-behavior-and-opt-out)。
 
 笔记就是普通 Markdown，所以 Git 直接提供了历史、审查、回滚和可移植性——而 Agent 昨天在
@@ -156,6 +156,23 @@ Aikito 管控工作区及其中的 memory，推理交给你的 Agent。
 Aikito 的同步和凭据安全模型依赖软链接及 POSIX 文件权限，因此暂不支持原生 Windows。
 
 ## 快速开始
+
+### 选项 1：让 Coding Agent 完成配置（推荐）
+
+<details>
+<summary>复制这段提示词给你的 Coding Agent</summary>
+
+> 请从 https://github.com/lsaint/aikito 安装并配置 Aikito。阅读 README、
+> `skills/aikito/SKILL.md` 及其中与本次配置相关的链接文档，按照其安全要求初始化
+> workspace、同步全局资源，并使用 `aikito status` 验证结果。导入或更改任何已有的
+> Agent 配置前，先向我展示计划变更和冲突并等待确认。配置完成后，总结已经就绪的内容，
+> 并引导我完成下一步，包括是否注册第一个代码项目；未经我确认，不要注册项目。
+
+</details>
+
+选择这种方式后，安装和配置操作由 Coding Agent 执行，无需再手动执行下面的命令。
+
+### 选项 2：手动配置
 
 ```bash
 brew install lsaint/tap/aikito

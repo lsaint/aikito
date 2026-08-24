@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-08-24
+
+### Added
+
+- Added an agent-assisted Quick Start option that delegates safe installation,
+  workspace initialization, synchronization, verification, and next-step
+  guidance to a coding agent.
+
+### Changed
+
+- New workspaces now install and enable the bundled `aikito` skill alongside
+  `durable-memory`.
+
 ## [1.14.0] - 2026-08-24
 
 ### Changed
@@ -272,7 +285,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.14.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.15.0...HEAD
+[1.15.0]: https://github.com/lsaint/aikito/compare/v1.14.0...v1.15.0
 [1.14.0]: https://github.com/lsaint/aikito/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/lsaint/aikito/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/lsaint/aikito/compare/v1.11.0...v1.12.0

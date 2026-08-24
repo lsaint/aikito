@@ -14,8 +14,8 @@ Aikito separates Memory storage, Agent capability, and Agent behavior:
 | Behavior | A rule in global or project `AGENTS.md` | Tells Agents when they must apply the skill, including whether every task should evaluate Memory relevance. |
 
 `aikito init workspace` configures all three layers by default. It copies the
-bundled skill into `skills/durable-memory`, selects it in `skills.toml`, and
-writes this rule to `global/AGENTS.md`:
+bundled `aikito` and `durable-memory` skills into `skills/`, selects both in
+`skills.toml`, and writes this rule to `global/AGENTS.md`:
 
 ```markdown
 ## Persistent Memory

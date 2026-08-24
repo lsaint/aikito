@@ -92,9 +92,10 @@ notes before acting, distill durable conclusions from what they learn, update
 notes that went stale, and choose the right global or project scope.
 
 New workspaces enable this workflow by default: initialization creates the
-Memory structure, installs and selects `durable-memory`, and adds the minimal
-global instruction that requires Agents to evaluate Memory relevance. Nothing
-is connected to an Agent until you explicitly run `aikito sync global`. See
+Memory structure, installs and selects the bundled `aikito` and
+`durable-memory` skills, and adds the minimal global instruction that requires
+Agents to evaluate Memory relevance. Nothing is connected to an Agent until
+you explicitly run `aikito sync global`. See
 [Default behavior and opt-out](docs/durable-memory.md#default-behavior-and-opt-out)
 for the complete lifecycle.
 
@@ -165,6 +166,28 @@ Native Windows is not supported: Aikito relies on symbolic links and POSIX file
 permissions for synchronization and credential safety.
 
 ## Quick Start
+
+### Option 1: Let Your Coding Agent Set It Up (Recommended)
+
+<details>
+<summary>Copy this prompt to your coding agent</summary>
+
+> Install and configure Aikito from https://github.com/lsaint/aikito. Read the
+> README, `skills/aikito/SKILL.md`, and any linked documentation relevant to the
+> setup, then follow their safety requirements to initialize the workspace,
+> synchronize its global resources, and verify the result with `aikito status`.
+> Before importing or changing any existing Agent configuration, show me the
+> planned changes and conflicts and wait for my approval. When setup is
+> complete, summarize what is ready and guide me through the next step, including
+> whether to register my first code project. Do not register a project without
+> my confirmation.
+
+</details>
+
+If you use this option, your coding agent performs the installation and setup;
+you do not need to also follow the manual commands below.
+
+### Option 2: Set It Up Manually
 
 ```bash
 brew install lsaint/tap/aikito

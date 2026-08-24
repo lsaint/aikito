@@ -46,12 +46,15 @@ class AikitoInitTest(unittest.TestCase):
         self.assertTrue((self.target_path / "memory" / "index.md").is_file())
         self.assertTrue((self.target_path / "skills.toml").is_file())
         self.assertTrue((self.target_path / "global" / "AGENTS.md").is_file())
-        self.assertTrue(
-            (self.target_path / "skills" / "durable-memory" / "SKILL.md").is_file()
-        )
+        for skill_name in ("aikito", "durable-memory"):
+            self.assertTrue(
+                (self.target_path / "skills" / skill_name / "SKILL.md").is_file()
+            )
 
         with (self.target_path / "skills.toml").open("rb") as skills_file:
-            self.assertEqual(tomllib.load(skills_file)["skills"], ["durable-memory"])
+            self.assertEqual(
+                tomllib.load(skills_file)["skills"], ["aikito", "durable-memory"]
+            )
         self.assertIn(
             DEFAULT_MEMORY_INSTRUCTION,
             (self.target_path / "global" / "AGENTS.md").read_text(encoding="utf-8"),
@@ -115,12 +118,17 @@ class AikitoInitTest(unittest.TestCase):
 
     def test_init_workspace_preserves_existing_bundled_skill(self) -> None:
         init_workspace(self.target_path, self.fake_home)
-        skill_file = self.target_path / "skills" / "durable-memory" / "SKILL.md"
-        skill_file.write_text("customized\n", encoding="utf-8")
+        skill_files = [
+            self.target_path / "skills" / name / "SKILL.md"
+            for name in ("aikito", "durable-memory")
+        ]
+        for skill_file in skill_files:
+            skill_file.write_text("customized\n", encoding="utf-8")
 
         init_workspace(self.target_path, self.fake_home, force=True)
 
-        self.assertEqual(skill_file.read_text(encoding="utf-8"), "customized\n")
+        for skill_file in skill_files:
+            self.assertEqual(skill_file.read_text(encoding="utf-8"), "customized\n")
 
     def test_init_workspace_rejects_cli_source_tree_before_writing(self) -> None:
         source_root = Path(self.tmp_dir.name) / "source"
@@ -136,12 +144,8 @@ class AikitoInitTest(unittest.TestCase):
             self.assertFalse(success)
             self.assertFalse((target / "agents.toml").exists())
 
-    def test_init_workspace_requires_bundled_durable_memory_before_writing(
-        self,
-    ) -> None:
-        missing_skill = Path(self.tmp_dir.name) / "missing-durable-memory"
-
-        with patch("aikito_init.BUNDLED_DURABLE_MEMORY_SKILL", missing_skill):
+    def test_init_workspace_requires_all_bundled_skills_before_writing(self) -> None:
+        with patch("aikito_init.BUNDLED_SKILL_NAMES", ("aikito", "missing-skill")):
             success = init_workspace(self.target_path, self.fake_home)
 
         self.assertFalse(success)

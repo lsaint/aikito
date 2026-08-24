@@ -14,7 +14,7 @@ import tomllib
 
 
 CLI_SOURCE_ROOT = Path(__file__).resolve().parents[1]
-BUNDLED_DURABLE_MEMORY_SKILL = CLI_SOURCE_ROOT / "skills" / "durable-memory"
+BUNDLED_SKILL_NAMES = ("aikito", "durable-memory")
 
 SOURCE_CHECKOUT_MARKERS = (
     Path("LICENSE"),
@@ -170,7 +170,7 @@ Global atomic notes index across all workspaces.
 """
 
 SKILLS_TOML_TEMPLATE = """# Global skills enabled for all supported agents.
-skills = ["durable-memory"]
+skills = ["aikito", "durable-memory"]
 """
 
 CONFIG_TOML_TEMPLATE = """# Aikito Workspace Configuration
@@ -226,6 +226,10 @@ def _detect_existing_agents(home: Path) -> List[Tuple[str, Path]]:
     return detected
 
 
+def _bundled_skill_path(name: str) -> Path:
+    return CLI_SOURCE_ROOT / "skills" / name
+
+
 def _target_validation_error(target_dir: Path) -> Optional[str]:
     source_root = CLI_SOURCE_ROOT.resolve()
     if target_dir == source_root or source_root in target_dir.parents:
@@ -274,10 +278,14 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
         print(f"[ERROR] {validation_error}", file=sys.stderr)
         return False
 
-    if not (BUNDLED_DURABLE_MEMORY_SKILL / "SKILL.md").is_file():
+    missing_bundled_skills = [
+        name
+        for name in BUNDLED_SKILL_NAMES
+        if not (_bundled_skill_path(name) / "SKILL.md").is_file()
+    ]
+    if missing_bundled_skills:
         print(
-            "[ERROR] Bundled durable-memory skill not found: "
-            f"{BUNDLED_DURABLE_MEMORY_SKILL}",
+            "[ERROR] Bundled skill(s) not found: " + ", ".join(missing_bundled_skills),
             file=sys.stderr,
         )
         return False
@@ -337,12 +345,13 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
         else:
             print(f"[SKIP FILE] {file_path} (Already exists)")
 
-    bundled_skill_target = target_dir / "skills" / "durable-memory"
-    if bundled_skill_target.exists():
-        print(f"[SKIP DIR] {bundled_skill_target} (Already exists)")
-    else:
-        shutil.copytree(BUNDLED_DURABLE_MEMORY_SKILL, bundled_skill_target)
-        print(f"[CREATE DIR] {bundled_skill_target} (Bundled durable-memory skill)")
+    for skill_name in BUNDLED_SKILL_NAMES:
+        bundled_skill_target = target_dir / "skills" / skill_name
+        if bundled_skill_target.exists():
+            print(f"[SKIP DIR] {bundled_skill_target} (Already exists)")
+            continue
+        shutil.copytree(_bundled_skill_path(skill_name), bundled_skill_target)
+        print(f"[CREATE DIR] {bundled_skill_target} (Bundled {skill_name} skill)")
 
     # 3. Git Init
     git_dir = target_dir / ".git"
