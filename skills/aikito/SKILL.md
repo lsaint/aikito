@@ -134,8 +134,9 @@ sources.
 When adding, renaming, or removing a global skill, treat the change as a
 cross-runtime migration rather than a directory-only edit:
 
-- Update `skills.toml`, the public export allowlist, and references to the old
-  skill name.
+- Update `skills.toml` and references to the old skill name. If the skill is a
+  bundled CLI resource, update its source and init template in the CLI source
+  checkout separately; the user workspace is never a release source.
 - Verify that every supported Agent that loads global skills has the correct
   `skills_path` in `agents.toml` and in the `aikito init` template. Do not assume
   that an Agent CLI and its IDE use the same global skill directory.

@@ -94,9 +94,9 @@ the inherited process environment and support the same placeholders:
 HTTPS_PROXY = "http://127.0.0.1:1234"
 ```
 
-Runner environment values are local configuration. The open-source export
-removes every `runner.env` value while preserving runner commands and a safe
-commented example; never rely on repository publication as a secrets store.
+Runner environment values belong to the user workspace and must not be added to
+the source repository. Keep only safe commented examples in source-controlled
+templates, and never rely on repository publication as a secrets store.
 
 ## Drift Diff
 
