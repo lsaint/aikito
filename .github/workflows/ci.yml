@@ -133,7 +133,9 @@ jobs:
             python3 bin/aikito add skill ci-skill --description "CI test skill"
           test -f ${{ runner.temp }}/aikito-ws/skills/ci-skill/SKILL.md
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito add subagent ci-subagent --description "CI test subagent"
+            python3 bin/aikito add subagent ci-subagent \
+            --description "CI test subagent" \
+            --agents "codex,claude-code,agy,opencode,github-copilot"
           test -f ${{ runner.temp }}/aikito-ws/subagents/ci-subagent.md
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito add mcp ci-mcp --url "https://example.com/mcp"
