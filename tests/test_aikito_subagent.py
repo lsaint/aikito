@@ -15,6 +15,7 @@ from aikito_subagent import (  # noqa: E402
     render_codex_toml,
     render_copilot_markdown,
     render_dsh_cordis_subagent,
+    render_opencode_markdown,
     sync_subagent_configs,
     validate_platform_opts,
 )
@@ -61,6 +62,10 @@ config_format = "agy_markdown"
 [agents.opencode]
 display_name = "OpenCode"
 instruction_path = ".config/opencode/AGENTS.md"
+
+[agents.opencode.subagents]
+config_path = ".config/opencode/agents"
+config_format = "opencode_markdown"
 """
         (self.aikito_dir / "agents.toml").write_text(
             agents_toml.strip(), encoding="utf-8"
@@ -70,7 +75,7 @@ instruction_path = ".config/opencode/AGENTS.md"
         subagents_toml = """
 [subagents.formatter]
 description = "Runs project-approved formatting and lint-fix operations."
-agents = ["codex", "claude-code", "agy"]
+agents = ["codex", "claude-code", "agy", "opencode"]
 
 [subagents.formatter.codex]
 model = "gpt-5.4-mini"
@@ -82,6 +87,9 @@ effort = "low"
 
 [subagents.formatter.agy]
 tools = ["run_command"]
+
+[subagents.formatter.opencode]
+model = "alibaba-token-plan-cn/qwen3.6-flash"
 """
         (self.aikito_dir / "subagents.toml").write_text(
             subagents_toml.strip(), encoding="utf-8"
@@ -137,6 +145,18 @@ Perform only the assigned formatting or lint-fix task.
         )
         self.assertIn('model = "gpt-5.4-mini"', rendered_codex_1)
         self.assertIn("developer_instructions = '''", rendered_codex_1)
+
+        rendered_opencode = render_opencode_markdown(
+            "formatter",
+            "Runs project-approved formatting and lint-fix operations.",
+            {"model": "alibaba-token-plan-cn/qwen3.6-flash"},
+            "# Formatter\n\nPerform only task.",
+        )
+        self.assertNotIn("name:", rendered_opencode)
+        self.assertIn('mode: "subagent"', rendered_opencode)
+        self.assertIn(
+            'model: "alibaba-token-plan-cn/qwen3.6-flash"', rendered_opencode
+        )
 
     def test_escaping_and_toml_roundtrip(self) -> None:
         # Test P1 Fix: TOML/YAML escaping and roundtrip parsing
@@ -252,17 +272,26 @@ invalid_field = "value"
         agy_file = (
             self.home_dir / ".gemini" / "config" / "agents" / "formatter" / "agent.md"
         )
+        opencode_file = (
+            self.home_dir / ".config" / "opencode" / "agents" / "formatter.md"
+        )
 
         self.assertTrue(codex_file.is_file())
         self.assertTrue(claude_file.is_file())
         self.assertTrue(agy_file.is_file())
+        self.assertTrue(opencode_file.is_file())
         self.assertTrue(has_aikito_marker(codex_file))
         self.assertTrue(has_aikito_marker(claude_file))
         self.assertTrue(has_aikito_marker(agy_file))
+        self.assertTrue(has_aikito_marker(opencode_file))
 
         # Check content includes model gpt-5.4-mini
         self.assertIn('model = "gpt-5.4-mini"', codex_file.read_text(encoding="utf-8"))
         self.assertIn('tools: ["run_command"]', agy_file.read_text(encoding="utf-8"))
+        self.assertIn(
+            'model: "alibaba-token-plan-cn/qwen3.6-flash"',
+            opencode_file.read_text(encoding="utf-8"),
+        )
 
     def test_sync_empty_subagents_is_successful_noop(self) -> None:
         (self.aikito_dir / "subagents.toml").write_text(
@@ -278,7 +307,7 @@ invalid_field = "value"
     def test_dry_run_and_plan_consistency(self) -> None:
         plan_before, _ = build_plan(self.aikito_dir, self.home_dir)
         create_actions = [p.action for p in plan_before if p.action != "SKIP"]
-        self.assertEqual(create_actions, ["CREATE", "CREATE", "CREATE"])
+        self.assertEqual(create_actions, ["CREATE", "CREATE", "CREATE", "CREATE"])
 
         success = sync_subagent_configs(self.aikito_dir, self.home_dir, dry_run=True)
         self.assertTrue(success)
@@ -441,8 +470,8 @@ config_format = "dsh_cordis_subagent"
             encoding="utf-8"
         )
         subagents_toml = subagents_toml.replace(
-            'agents = ["codex", "claude-code", "agy"]',
-            'agents = ["codex", "claude-code", "agy", "dsh"]',
+            'agents = ["codex", "claude-code", "agy", "opencode"]',
+            'agents = ["codex", "claude-code", "agy", "opencode", "dsh"]',
         )
         subagents_toml += """
 [subagents.formatter.dsh]
@@ -481,8 +510,8 @@ model = "deepseek-chat"
             encoding="utf-8"
         )
         subagents_toml_pruned = subagents_toml_pruned.replace(
-            'agents = ["codex", "claude-code", "agy", "dsh"]',
-            'agents = ["codex", "claude-code", "agy"]',
+            'agents = ["codex", "claude-code", "agy", "opencode", "dsh"]',
+            'agents = ["codex", "claude-code", "agy", "opencode"]',
         )
         (self.aikito_dir / "subagents.toml").write_text(
             subagents_toml_pruned, encoding="utf-8"
@@ -522,8 +551,8 @@ config_format = "dsh_cordis_subagent"
             encoding="utf-8"
         )
         subagents_toml = subagents_toml.replace(
-            'agents = ["codex", "claude-code", "agy"]',
-            'agents = ["codex", "claude-code", "agy", "dsh"]',
+            'agents = ["codex", "claude-code", "agy", "opencode"]',
+            'agents = ["codex", "claude-code", "agy", "opencode", "dsh"]',
         )
         (self.aikito_dir / "subagents.toml").write_text(
             subagents_toml, encoding="utf-8"

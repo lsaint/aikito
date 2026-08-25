@@ -34,12 +34,14 @@ Example `aikito show subagents` output from a configured workspace:
 ┌───────────┬───────┬─────────────┬─────────────────┬──────────┬────────────────────┬──────────────────┐
 │ Subagent  │ Codex │ Claude Code │ Antigravity CLI │ OpenCode │ GitHub Copilot CLI │ DeepSeek Harness │
 ├───────────┼───────┼─────────────┼─────────────────┼──────────┼────────────────────┼──────────────────┤
-│ verifier  │ ✓     │ ✓           │ ✓               │ –        │ ✓                  │ ✓                │
+│ verifier  │ ✓     │ ✓           │ ✓               │ ✓        │ ✓                  │ ✓                │
 └───────────┴───────┴─────────────┴─────────────────┴──────────┴────────────────────┴──────────────────┘
 ```
 
 `✓` means the rendered definition is synchronized; `–` means that Agent does
-not participate in subagent synchronization.
+not participate in subagent synchronization. OpenCode definitions are rendered
+to `~/.config/opencode/agents/<name>.md` with `mode: subagent`; set the native
+model ID through `[subagents.<name>.opencode].model`.
 
 If a definition is removed, status may report a managed orphan. Review it
 before using the command's explicit pruning or force options. Use

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added OpenCode subagent synchronization through native agent Markdown files,
+  including per-subagent model selection.
+
 ## [1.15.1] - 2026-08-25
 
 ### Fixed

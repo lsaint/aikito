@@ -106,6 +106,10 @@ skills_path = ".agents/skills"
 [agents.opencode.runner]
 command = ["opencode", "{workdir}", "--prompt", "{prompt}"]
 
+[agents.opencode.subagents]
+config_path = ".config/opencode/agents"
+config_format = "opencode_markdown"
+
 [agents.opencode.mcp]
 config_path = ".config/opencode/opencode.jsonc"
 config_format = "jsonc"

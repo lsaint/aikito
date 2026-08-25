@@ -34,6 +34,7 @@ KNOWN_PLATFORM_FIELDS = {
         "disable-model-invocation",
         "user-invocable",
     },
+    "opencode": {"model"},
     "dsh": {"provider", "tools", "model", "maxTokens", "backgroundMode"},
 }
 
@@ -42,6 +43,7 @@ FORMAT_EXTENSIONS = {
     "claude_markdown": ".md",
     "agy_markdown": ".md",
     "copilot_markdown": ".agent.md",
+    "opencode_markdown": ".md",
     "dsh_cordis_subagent": "",
 }
 
@@ -324,6 +326,25 @@ def render_claude_markdown(
     return "\n".join(lines)
 
 
+def render_opencode_markdown(
+    name: str, description: str, platform_opts: dict[str, Any], instructions: str
+) -> str:
+    marker = get_marker_text(name)
+    lines = [
+        "---",
+        f"description: {json.dumps(description, ensure_ascii=False)}",
+        'mode: "subagent"',
+    ]
+    for k in sorted(platform_opts.keys()):
+        lines.append(f"{k}: {json.dumps(platform_opts[k], ensure_ascii=False)}")
+    lines.append("---")
+    lines.append(f"<!-- {marker} -->")
+    lines.append("")
+    lines.append(instructions)
+    lines.append("")
+    return "\n".join(lines)
+
+
 def render_codex_toml(
     name: str, description: str, platform_opts: dict[str, str], instructions: str
 ) -> str:
@@ -561,6 +582,13 @@ def render_subagent(
         )
     elif agent_config.config_format == "copilot_markdown":
         return render_copilot_markdown(
+            definition.name,
+            definition.description,
+            platform_opts,
+            definition.instructions,
+        )
+    elif agent_config.config_format == "opencode_markdown":
+        return render_opencode_markdown(
             definition.name,
             definition.description,
             platform_opts,
