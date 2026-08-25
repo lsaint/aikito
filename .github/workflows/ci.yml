@@ -57,6 +57,7 @@ jobs:
           python3 bin/aikito show --help
           python3 bin/aikito show inbox --help
           python3 bin/aikito doctor --help
+          python3 bin/aikito web --help
           python3 bin/aikito maintain memory --help
           python3 bin/aikito completion --help
           python3 bin/aikito completion candidates --help
@@ -131,6 +132,22 @@ jobs:
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito status
+
+      - name: aikito web
+        run: |
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito web --port 8765 --no-open &
+          web_pid=$!
+          trap 'kill "$web_pid"' EXIT
+          for attempt in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:8765/ > "${{ runner.temp }}/aikito-web.html"; then
+              break
+            fi
+            sleep 0.25
+          done
+          curl --fail --silent http://127.0.0.1:8765/ | grep -q '<title>Aikito Console</title>'
+          curl --fail --silent http://127.0.0.1:8765/api/overview | \
+            python3 -c 'import json, sys; data = json.load(sys.stdin); assert data["version"]'
 
       - name: aikito memory maintenance validation
         run: |
