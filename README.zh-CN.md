@@ -176,6 +176,9 @@ Aikito 的同步和凭据安全模型依赖软链接及 POSIX 文件权限，因
 
 选择这种方式后，安装和配置操作由 Coding Agent 执行，无需再手动执行下面的命令。
 
+项目注册、资源管理、诊断和 Memory 维护等提示词，参见英文文档
+[Agent-first workflows](docs/agent-workflow.md)。
+
 ### 选项 2：手动配置
 
 ```bash

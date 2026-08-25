@@ -24,6 +24,7 @@ model, an operational guide, or command details.
 
 ## Guides
 
+- [Agent-first workflows](agent-workflow.md)
 - [Set up a project](project-setup.md)
 - [Work with memory](durable-memory.md)
 - [Synchronize MCP servers](mcp-servers.md)

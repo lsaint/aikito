@@ -192,6 +192,9 @@ permissions for synchronization and credential safety.
 If you use this option, your coding agent performs the installation and setup;
 you do not need to also follow the manual commands below.
 
+For project registration, resource management, diagnostics, and Memory
+maintenance prompts, see [Agent-first workflows](docs/agent-workflow.md).
+
 ### Option 2: Set It Up Manually
 
 ```bash
