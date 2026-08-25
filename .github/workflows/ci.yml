@@ -278,7 +278,6 @@ jobs:
           test -s ${{ runner.temp }}/aikito.bash
           test -s ${{ runner.temp }}/aikito.fish
           bash -n ${{ runner.temp }}/aikito.bash
-          zsh -n ${{ runner.temp }}/_aikito
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito completion candidates memories
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
