@@ -36,6 +36,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Verify executable entry point
+        run: |
+          test -x bin/aikito
+          bin/aikito --help
+          bin/aikito version
+
       - name: aikito --help
         run: python3 bin/aikito --help
 
@@ -79,6 +85,20 @@ jobs:
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito init workspace ${{ runner.temp }}/aikito-ws
           test -f ${{ runner.temp }}/aikito-ws/config.toml
+
+      - name: aikito workspace persistence
+        run: |
+          mkdir -p ${{ runner.temp }}/pointer-home
+          HOME=${{ runner.temp }}/pointer-home \
+            XDG_CONFIG_HOME=${{ runner.temp }}/pointer-home/.config \
+            python3 bin/aikito init workspace ${{ runner.temp }}/pointer-ws
+          test "$(HOME=${{ runner.temp }}/pointer-home \
+            XDG_CONFIG_HOME=${{ runner.temp }}/pointer-home/.config \
+            python3 bin/aikito path workspace)" = \
+            "${{ runner.temp }}/pointer-ws"
+          HOME=${{ runner.temp }}/pointer-home \
+            XDG_CONFIG_HOME=${{ runner.temp }}/pointer-home/.config \
+            python3 bin/aikito status
 
       # README Quick Start: init workspace → sync global → init project → status
       - name: aikito sync global
@@ -127,6 +147,33 @@ jobs:
             python3 bin/aikito sync mcp
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito sync subagents
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito sync global
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito sync mcp
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito sync subagents
+          test -L ~/.agents/skills/ci-skill
+          test -L ~/.codex/AGENTS.md
+          test -L ~/.claude/skills
+          test -L ~/.config/opencode/AGENTS.md
+          test -f ~/.codex/config.toml
+          test -f ~/.codex/agents/ci-subagent.toml
+          test -f ~/.claude/agents/ci-subagent.md
+          test -f ~/.config/opencode/agents/ci-subagent.md
+
+      - name: aikito resource inspection
+        run: |
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito show skill ci-skill | grep -q "CI test skill"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito show subagents ci-subagent | \
+            grep -q "# Ci Subagent"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito show mcp ci-mcp | grep -q "https://example.com/mcp"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito show instructions global | \
+            grep -q "# Global Agent Directives"
 
       - name: aikito status
         run: |
@@ -153,6 +200,28 @@ jobs:
         run: |
           if AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito maintain memory missing-project; then
+            exit 1
+          fi
+
+      - name: aikito memory lifecycle
+        run: |
+          mkdir -p ${{ runner.temp }}/aikito-ws/memory/notes
+          printf '# CI memory note\n' > \
+            ${{ runner.temp }}/aikito-ws/memory/notes/ci-memory.md
+          printf '\n- [[ci-memory|CI memory]]\n' >> \
+            ${{ runner.temp }}/aikito-ws/memory/index.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito show memory ci-memory | grep -q "CI memory note"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito rename memory ci-memory ci-memory-renamed
+          test -f ${{ runner.temp }}/aikito-ws/memory/notes/ci-memory-renamed.md
+          test ! -e ${{ runner.temp }}/aikito-ws/memory/notes/ci-memory.md
+          grep -q 'ci-memory-renamed' ${{ runner.temp }}/aikito-ws/memory/index.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito rm memory ci-memory-renamed
+          test ! -e ${{ runner.temp }}/aikito-ws/memory/notes/ci-memory-renamed.md
+          if grep -q 'ci-memory-renamed' \
+            ${{ runner.temp }}/aikito-ws/memory/index.md; then
             exit 1
           fi
 
@@ -200,9 +269,14 @@ jobs:
 
       - name: aikito completion scripts and dynamic candidates
         run: |
-          python3 bin/aikito completion zsh
-          python3 bin/aikito completion bash
-          python3 bin/aikito completion fish
+          python3 bin/aikito completion zsh > ${{ runner.temp }}/_aikito
+          python3 bin/aikito completion bash > ${{ runner.temp }}/aikito.bash
+          python3 bin/aikito completion fish > ${{ runner.temp }}/aikito.fish
+          test -s ${{ runner.temp }}/_aikito
+          test -s ${{ runner.temp }}/aikito.bash
+          test -s ${{ runner.temp }}/aikito.fish
+          bash -n ${{ runner.temp }}/aikito.bash
+          zsh -n ${{ runner.temp }}/_aikito
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito completion candidates memories
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
