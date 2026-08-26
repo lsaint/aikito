@@ -11,11 +11,11 @@ def get_workspace_pointer_path(home: Path) -> Path:
     return base_dir / "aikito" / "workspace"
 
 
-def resolve_workspace(home: Path) -> Path:
-    """Resolve the workspace using environment, persisted choice, then default."""
+def resolve_workspace_with_source(home: Path) -> tuple[Path, str]:
+    """Resolve the workspace and identify whether it came from env, config, or default."""
     env_dir = os.environ.get("AIKITO_DIR")
     if env_dir:
-        return Path(env_dir).expanduser().resolve()
+        return Path(env_dir).expanduser().resolve(), "AIKITO_DIR"
 
     pointer_path = get_workspace_pointer_path(home)
     try:
@@ -23,9 +23,14 @@ def resolve_workspace(home: Path) -> Path:
     except OSError:
         configured_dir = ""
     if configured_dir:
-        return Path(configured_dir).expanduser().resolve()
+        return Path(configured_dir).expanduser().resolve(), "configured"
 
-    return (home / "aikito").resolve()
+    return (home / "aikito").resolve(), "default"
+
+
+def resolve_workspace(home: Path) -> Path:
+    """Resolve the workspace using environment, persisted choice, then default."""
+    return resolve_workspace_with_source(home)[0]
 
 
 def persist_workspace(workspace: Path, home: Path) -> Path:

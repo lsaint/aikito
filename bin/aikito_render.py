@@ -787,6 +787,8 @@ def render_status_report(
     *,
     is_tty: bool = True,
     no_color: bool = False,
+    workspace: Optional[str] = None,
+    workspace_source: Optional[str] = None,
 ) -> str:
     use_unicode = is_tty
     use_color = is_tty and not no_color
@@ -798,6 +800,14 @@ def render_status_report(
 
     output_sections = []
 
+    if workspace:
+        workspace_line = f"Workspace: {workspace}"
+        if workspace_source:
+            workspace_line += f" ({workspace_source})"
+        if use_color:
+            workspace_line = _colorize(workspace_line, COLOR_BOLD, True)
+        output_sections.extend([workspace_line, ""])
+
     # 1. Agents section
     if data.agents:
         output_sections.append(render_agents_table(data.agents, use_unicode, use_color))
@@ -805,10 +815,6 @@ def render_status_report(
     # 2. Memories section
     if data.memories:
         output_sections.append("")
-        mem_title = "Memory Resources"
-        if use_color:
-            mem_title = _colorize(mem_title, COLOR_BOLD, True)
-        output_sections.append(mem_title)
         output_sections.append(
             render_memory_table(data.memories, use_unicode, use_color)
         )

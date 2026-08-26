@@ -100,6 +100,7 @@ class AikitoStatusRenderTest(unittest.TestCase):
         self.assertIn("⚠ C 3/4", rendered)
         self.assertIn("2 issues · run: aikito doctor", rendered)
         self.assertNotIn("notes across", rendered)
+        self.assertNotIn("Memory Resources", rendered)
 
     def test_render_all_synced_hides_legend(self) -> None:
         clean_rows = [
@@ -126,6 +127,23 @@ class AikitoStatusRenderTest(unittest.TestCase):
         self.assertIn("✓ all synced · 1 agents · 11 skills", rendered)
 
         self.assertIn("  27 notes across 1 scopes", rendered)
+
+    def test_render_workspace_header_is_bold_in_color_output(self) -> None:
+        report_data = StatusReportData(
+            agents=self.agent_rows,
+            memories=self.memory_rows,
+        )
+        rendered = render_status_report(
+            report_data,
+            is_tty=True,
+            workspace="/tmp/aikito",
+            workspace_source="configured",
+        )
+        self.assertTrue(
+            rendered.startswith(
+                "\033[1mWorkspace: /tmp/aikito (configured)\033[0m\n\n"
+            )
+        )
 
     def test_subagent_status_distinguishes_missing_drift_and_conflict(self) -> None:
         self.assertEqual(_summarize_subagent_status(["CREATE"]), "MISSING (0/1)")

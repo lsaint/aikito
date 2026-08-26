@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-08-26
+
+### Added
+
+- Added an agent-first workflow guide for safely installing, initializing, and
+  operating Aikito with a coding agent.
+- Added the resolved workspace path and its source to `aikito status`.
+
+### Changed
+
+- Simplified the `aikito status` dashboard by removing the memory section
+  heading while preserving its resource table.
+
 ## [1.16.0] - 2026-08-25
 
 ### Added
@@ -299,7 +312,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.15.1...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.17.0...HEAD
+[1.17.0]: https://github.com/lsaint/aikito/compare/v1.16.0...v1.17.0
 [1.15.1]: https://github.com/lsaint/aikito/compare/v1.15.0...v1.15.1
 [1.15.0]: https://github.com/lsaint/aikito/compare/v1.14.0...v1.15.0
 [1.14.0]: https://github.com/lsaint/aikito/compare/v1.13.0...v1.14.0

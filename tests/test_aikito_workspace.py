@@ -10,7 +10,11 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
 
-from aikito_workspace import persist_workspace, resolve_workspace  # noqa: E402
+from aikito_workspace import (  # noqa: E402
+    persist_workspace,
+    resolve_workspace,
+    resolve_workspace_with_source,
+)
 
 
 class AikitoWorkspaceTest(unittest.TestCase):
@@ -24,12 +28,18 @@ class AikitoWorkspaceTest(unittest.TestCase):
     def test_default_workspace(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(resolve_workspace(self.home), (self.home / "aikito").resolve())
+            self.assertEqual(
+                resolve_workspace_with_source(self.home)[1], "default"
+            )
 
     def test_persisted_workspace(self) -> None:
         workspace = self.home / "custom-workspace"
         with patch.dict(os.environ, {}, clear=True):
             persist_workspace(workspace, self.home)
             self.assertEqual(resolve_workspace(self.home), workspace.resolve())
+            self.assertEqual(
+                resolve_workspace_with_source(self.home)[1], "configured"
+            )
 
     def test_environment_overrides_persisted_workspace(self) -> None:
         persisted = self.home / "persisted"
@@ -38,6 +48,9 @@ class AikitoWorkspaceTest(unittest.TestCase):
             persist_workspace(persisted, self.home)
         with patch.dict(os.environ, {"AIKITO_DIR": str(environment)}, clear=True):
             self.assertEqual(resolve_workspace(self.home), environment.resolve())
+            self.assertEqual(
+                resolve_workspace_with_source(self.home)[1], "AIKITO_DIR"
+            )
 
 
 if __name__ == "__main__":
