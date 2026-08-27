@@ -83,7 +83,8 @@ should use WSL2.
 Project `.agents/skills/` is shared at entry level. Aikito manages only selected
 skill names, preserves other project-owned entries, and reports a conflict only
 when a selected name is already owned by the project. `.agents/memory/` remains
-exclusively managed by Aikito. Synchronization never deletes unknown content.
+exclusively managed by Aikito. Matching file contents alone never prove copy
+ownership, and synchronization never deletes unknown content.
 
 ## Recovery Practice
 

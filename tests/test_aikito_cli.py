@@ -271,7 +271,7 @@ class ProjectSyncSafetyTest(unittest.TestCase):
         self._run_sync()
         self.assertFalse(runtime.exists())
 
-    def test_deselected_unmodified_copy_is_cleaned(self) -> None:
+    def test_deselected_unmodified_copy_is_preserved_as_project_owned(self) -> None:
         canonical = self.workspace / "skills" / "example-skill"
         canonical.mkdir()
         (canonical / "SKILL.md").write_text("canonical\n", encoding="utf-8")
@@ -291,8 +291,10 @@ class ProjectSyncSafetyTest(unittest.TestCase):
             encoding="utf-8",
         )
 
-        self._run_sync()
-        self.assertFalse(runtime.exists())
+        with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            self._run_sync()
+        self.assertTrue(runtime.is_dir())
+        self.assertIn("[INFO] Preserving project-owned skill:", stdout.getvalue())
 
 
 class GlobalSyncSafetyTest(unittest.TestCase):

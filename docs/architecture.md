@@ -107,8 +107,9 @@ on drift unless `--force` is supplied after review.
 
 Project `.agents/skills/` uses entry-level ownership. Skills not selected by the
 project configuration coexist as project-owned entries and appear as notices;
-only selected-name collisions are conflicts. Proven stale Aikito entries are
-removed. `.agents/memory/` remains exclusively managed by Aikito.
+only selected-name collisions are conflicts. A matching directory copy does not
+prove Aikito ownership; only provably managed links are removed after
+deselection. `.agents/memory/` remains exclusively managed by Aikito.
 
 ## Synchronization Behavior
 

@@ -209,8 +209,9 @@ reports a repository-owned `AGENTS.md` as an informational notice.
 
 Project `.agents/skills/` uses entry-level ownership. Preserve project-owned
 skills not selected in `agent.toml` and report them only as notices; a selected
-skill with the same name remains a conflict. `.agents/memory/` is exclusively
-managed by Aikito, and unknown entries there remain conflicts.
+skill with the same name remains a conflict. Matching directory contents do not
+prove Aikito ownership. `.agents/memory/` is exclusively managed by Aikito, and
+unknown entries there remain conflicts.
 
 ### MCP Servers
 

@@ -502,7 +502,7 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
         agents_skills_dir,
         selected_skills,
         (aikito_dir / "skills",),
-        allow_matching_copies=True,
+        allow_matching_copies=False,
     )
     memory_cleanup = plan_runtime_cleanup(
         agents_memory_dir,

@@ -309,7 +309,7 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
                 skills_runtime,
                 selected_skills,
                 (aikito_dir / "skills",),
-                allow_matching_copies=True,
+                allow_matching_copies=False,
             )
             skill_issues: list[str] = []
             if cleanup_plan.conflicts:
