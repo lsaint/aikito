@@ -74,9 +74,10 @@ Aikito 将这些资源集中在一个个人 Git 工作区中，并将选定的�
 | Subagent | `subagents.toml`、`subagents/` | Agent 原生 subagent 定义 |
 
 默认注册表包含 Codex、Claude Code、Antigravity CLI（`agy`）、OpenCode、
-GitHub Copilot CLI、DeepSeek Harness（`dsh`）和 Grok Build。完整心智模型
+GitHub Copilot CLI、DeepSeek Harness（`dsh`）、Grok Build 和 Pi。完整心智模型
 和能力边界见[架构文档（英文）](docs/architecture.md)。
-Grok Build 支持 instructions、skills、MCP、subagent 和 runner。
+Pi 支持 instructions、skills 和 runner；由于 pi 把 MCP 与 subagent 留给可选
+扩展，Pi 不参与这两类同步。
 
 ### 共享或隔离
 
@@ -112,7 +113,7 @@ Claude Code 里写下的 memory，明天 Codex 读到的是同一份。
 │ Global │ commit-message-style  │ Conventional commits, English only  │ ✓     │ –    │
 │ Global │ review-tone           │ Ask before large refactors          │ ✓     │ –    │
 ├────────┼───────────────────────┼─────────────────────────────────────┼───────┼──────┤
-│ aikito │ architecture-decisions │ Stable project design constraints   │ ✓     │ ✓    │
+│ aikito │ architecture-decisions│ Stable project design constraints   │ ✓     │ ✓    │
 │ aikito │ release-checklist     │ Tag only after tests pass           │ ✓     │ ✓    │
 ├────────┼───────────────────────┼─────────────────────────────────────┼───────┼──────┤
 │ blog   │ draft-workflow        │ Drafts live in content/ until dated │ ✓     │ ✓    │
@@ -227,9 +228,10 @@ Agent 资源，不保存项目源码本身。
 │ GitHub Copilot CLI    │ ✓            │ 2 ›    │ –          │ –         │
 │ DeepSeek Harness      │ ✓            │ 2 ›    │ –          │ –         │
 │ Grok Build            │ ✓            │ 2 ›    │ –          │ –         │
+│ Pi                    │ ✓            │ 2 ›    │ –          │ –         │
 └───────────────────────┴──────────────┴────────┴────────────┴───────────┘
 
-✓ all synced · 7 agents · 2 skills · 0 notes across 1 scopes
+✓ all synced · 8 agents · 2 skills · 0 notes across 1 scopes
 ```
 
 如需从源码构建、使用自定义安装路径或查看高级参数，请参阅[项目配置指南（英文）](docs/project-setup.md)。

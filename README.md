@@ -75,10 +75,11 @@ No database, daemon, vector store, or hosted service required.
 | Subagents | `subagents.toml`, `subagents/` | Native subagent definitions |
 
 The default registry includes Codex, Claude Code, Antigravity CLI (`agy`),
-OpenCode, GitHub Copilot CLI, DeepSeek Harness (`dsh`), and Grok Build. See the
+OpenCode, GitHub Copilot CLI, DeepSeek Harness (`dsh`), Grok Build, and Pi. See the
 [architecture](docs/architecture.md) for the complete mental model and capability
 boundaries.
-Grok Build participates in instructions, skills, MCP, subagents, and runners.
+Pi participates in instructions, skills, and runners. It does not participate
+in MCP or subagent synchronization, which pi leaves to optional extensions.
 
 ### Share or isolate
 
@@ -249,9 +250,10 @@ temporary override, which is useful for CI and isolated automation.
 │ GitHub Copilot CLI    │ ✓            │ 2 ›    │ –          │ –         │
 │ DeepSeek Harness      │ ✓            │ 2 ›    │ –          │ –         │
 │ Grok Build            │ ✓            │ 2 ›    │ –          │ –         │
+│ Pi                    │ ✓            │ 2 ›    │ –          │ –         │
 └───────────────────────┴──────────────┴────────┴────────────┴───────────┘
 
-✓ all synced · 7 agents · 2 skills · 0 notes across 1 scopes
+✓ all synced · 8 agents · 2 skills · 0 notes across 1 scopes
 ```
 
 For building from source, custom install paths, or advanced configuration, see

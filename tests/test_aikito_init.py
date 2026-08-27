@@ -77,6 +77,7 @@ class AikitoInitTest(unittest.TestCase):
             ".copilot",
             ".dsh",
             ".grok",
+            ".pi",
         ):
             (self.fake_home / marker).mkdir(parents=True)
         init_workspace(self.target_path, self.fake_home)
@@ -113,6 +114,16 @@ class AikitoInitTest(unittest.TestCase):
             self.fake_home / ".grok/config.toml",
         )
         self.assertEqual(agents["grok"].mcp_config_format, "toml")
+        # Pi participates in instructions and skills only; MCP and sub-agents
+        # live in optional pi extensions, so it has no such sections.
+        self.assertEqual(
+            agents["pi"].instruction_path,
+            self.fake_home / ".pi/agent/AGENTS.md",
+        )
+        self.assertEqual(
+            agents["pi"].skills_path,
+            self.fake_home / ".agents/skills",
+        )
         self.assertEqual(load_agent_specs(self.target_path, self.fake_home), [])
 
         report = get_status_report_data(self.target_path, self.fake_home)
@@ -130,8 +141,11 @@ class AikitoInitTest(unittest.TestCase):
                 "github-copilot",
                 "dsh",
                 "grok",
+                "pi",
             },
         )
+        self.assertNotIn("subagents", agent_config["pi"])
+        self.assertNotIn("mcp", agent_config["pi"])
         for agent_name in agent_config:
             self.assertTrue(agent_config[agent_name]["runner"]["command"])
 

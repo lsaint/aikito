@@ -65,11 +65,16 @@ Aikito calls the resource “instructions” while retaining the ecosystem-stand
 Integrations are capability-based. An Agent may participate in instructions,
 skills, MCP, or subagent synchronization independently. The default registry
 contains Codex, Claude Code, Antigravity CLI (`agy`), OpenCode, GitHub Copilot
-CLI, DeepSeek Harness (`dsh`), and Grok Build.
+CLI, DeepSeek Harness (`dsh`), Grok Build, and Pi.
 
 Grok Build uses `~/.grok/rules/aikito.md` for global instructions,
 `~/.agents/skills` for shared skills, `~/.grok/config.toml` for MCP servers,
 `~/.grok/agents/` for subagents, and root `AGENTS.md` files for project rules.
+
+Pi uses `~/.pi/agent/AGENTS.md` for global instructions, `~/.agents/skills`
+for shared skills, and root `AGENTS.md` files for project rules. It has no MCP
+or subagent sections because pi keeps its core small and leaves those
+capabilities to optional extensions.
 
 ## Project Runtime Directory
 

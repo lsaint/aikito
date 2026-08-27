@@ -179,6 +179,19 @@ config_path = ".grok/config.toml"
 config_format = "toml"
 name_style = "verbatim"
 live_command = ["grok", "mcp", "list"]
+
+# Pi keeps its core small and pushes MCP and sub-agents into optional
+# extensions, so it participates in instruction and skill synchronization only.
+# Pi natively discovers global skills in ~/.agents/skills and project skills in
+# .agents/skills. It intentionally has no subagents or mcp section.
+[agents.pi]
+display_name = "Pi"
+instruction_path = ".pi/agent/AGENTS.md"
+project_instruction_path = "AGENTS.md"
+skills_path = ".agents/skills"
+
+[agents.pi.runner]
+command = ["pi", "-p", "{prompt}"]
 """
 
 MCPS_TOML_TEMPLATE = """# Aikito MCP Config
@@ -251,6 +264,7 @@ AGENT_INSTALL_MARKERS = {
     "github-copilot": ("GitHub Copilot CLI", "copilot", Path(".copilot")),
     "dsh": ("DeepSeek Harness", "dsh", Path(".dsh")),
     "grok": ("Grok Build", "grok", Path(".grok")),
+    "pi": ("Pi", "pi", Path(".pi")),
 }
 
 
