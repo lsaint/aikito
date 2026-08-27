@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runner registration. Pi does not participate in MCP or subagent
   synchronization, which pi leaves to optional extensions.
 
+### Fixed
+
+- Detect installed Agents during synchronization with the canonical registry
+  check (binary on `$PATH` or home-relative marker directory) instead of the
+  config parent directory, and create missing config directories for detected
+  Agents. Fixes Grok global instructions being skipped forever when the grok
+  CLI had not yet created `~/.grok/rules`.
+
 ## [1.18.1] - 2026-08-27
 
 ### Fixed

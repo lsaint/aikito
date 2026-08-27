@@ -12,7 +12,12 @@ from typing import List, Optional, Tuple
 
 import tomllib
 
-from aikito_mcp import MCPConfigError, collect_project_instruction_targets
+from aikito_mcp import (
+    AGENT_INSTALL_MARKERS,
+    MCPConfigError,
+    collect_project_instruction_targets,
+    is_agent_installed,
+)
 
 
 CLI_SOURCE_ROOT = Path(__file__).resolve().parents[1]
@@ -256,26 +261,18 @@ GITIGNORE_TEMPLATE = """# Aikito Git Ignore Rules
 """
 
 
-AGENT_INSTALL_MARKERS = {
-    "codex": ("Codex", "codex", Path(".codex")),
-    "claude-code": ("Claude Code", "claude", Path(".claude")),
-    "agy": ("Antigravity CLI", "agy", Path(".gemini/config")),
-    "opencode": ("OpenCode", "opencode", Path(".config/opencode")),
-    "github-copilot": ("GitHub Copilot CLI", "copilot", Path(".copilot")),
-    "dsh": ("DeepSeek Harness", "dsh", Path(".dsh")),
-    "grok": ("Grok Build", "grok", Path(".grok")),
-    "pi": ("Pi", "pi", Path(".pi")),
-}
-
-
 def _detect_existing_agents(home: Path) -> List[Tuple[str, Path]]:
     """Return installed registry agents in template order."""
     detected = []
-    for display_name, binary, relative_marker in AGENT_INSTALL_MARKERS.values():
-        marker = home / relative_marker
+    for agent_name, (display_name, binary, relative_marker) in (
+        AGENT_INSTALL_MARKERS.items()
+    ):
+        if not is_agent_installed(agent_name, home):
+            continue
         executable = shutil.which(binary)
-        if executable or marker.exists():
-            detected.append((display_name, Path(executable) if executable else marker))
+        detected.append(
+            (display_name, Path(executable) if executable else home / relative_marker)
+        )
     return detected
 
 

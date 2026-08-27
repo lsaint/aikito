@@ -6,6 +6,7 @@ import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,6 +16,7 @@ from aikito_mcp import (  # noqa: E402
     STATE_FILE,
     AgentSpec,
     MCPConfigError,
+    _agent_detected,
     authenticate_mcp,
     evaluate_spec_status,
     get_claude_json_server,
@@ -23,6 +25,7 @@ from aikito_mcp import (  # noqa: E402
     get_jsonc_server,
     get_agy_json_server,
     get_toml_server,
+    is_agent_installed,
     load_agent_specs,
     load_agents,
     read_all_entries,
@@ -854,6 +857,79 @@ class RedactMCPEntryTest(unittest.TestCase):
         self.assertEqual(redacted["compatibility"], "full")
         self.assertEqual(redacted["pat"], "<redacted>")
         self.assertEqual(redacted["my_pat"], "<redacted>")
+
+
+class AgentDetectionTest(unittest.TestCase):
+    """Canonical install detection must not depend on the config parent dir."""
+
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.home = Path(self.temporary_directory.name)
+
+    def tearDown(self) -> None:
+        self.temporary_directory.cleanup()
+
+    def _spec(self, agent: str, config_path: Path) -> AgentSpec:
+        return AgentSpec(
+            agent=agent,
+            server="demo",
+            config_path=config_path,
+            config_format="toml",
+            target_name="demo",
+            desired={},
+            home=self.home,
+        )
+
+    def test_marker_directory_counts_as_installed(self) -> None:
+        (self.home / ".grok").mkdir()
+
+        with patch("aikito_mcp.shutil.which", return_value=None):
+            self.assertIs(is_agent_installed("grok", self.home), True)
+
+    def test_binary_counts_as_installed(self) -> None:
+        with patch("aikito_mcp.shutil.which", return_value="/usr/local/bin/grok"):
+            self.assertIs(is_agent_installed("grok", self.home), True)
+
+    def test_absent_agent_is_not_installed(self) -> None:
+        with patch("aikito_mcp.shutil.which", return_value=None):
+            self.assertIs(is_agent_installed("grok", self.home), False)
+
+    def test_unknown_agent_returns_none(self) -> None:
+        self.assertIsNone(is_agent_installed("custom-agent", self.home))
+
+    def test_agent_detected_uses_marker_over_missing_parent(self) -> None:
+        (self.home / ".grok").mkdir()
+        spec = self._spec("grok", self.home / ".grok" / "rules" / "config.toml")
+
+        with patch("aikito_mcp.shutil.which", return_value=None):
+            self.assertTrue(_agent_detected(spec))
+
+    def test_agent_detected_false_when_not_installed(self) -> None:
+        spec = self._spec("grok", self.home / ".grok" / "rules" / "config.toml")
+
+        with patch("aikito_mcp.shutil.which", return_value=None):
+            self.assertFalse(_agent_detected(spec))
+
+    def test_agent_detected_falls_back_for_unknown_agent(self) -> None:
+        spec = self._spec("custom-agent", self.home / ".custom" / "config.toml")
+
+        self.assertFalse(_agent_detected(spec))
+        (self.home / ".custom").mkdir()
+        self.assertTrue(_agent_detected(spec))
+
+    def test_agent_detected_without_home_keeps_directory_heuristic(self) -> None:
+        spec = AgentSpec(
+            agent="grok",
+            server="demo",
+            config_path=self.home / ".grok" / "config.toml",
+            config_format="toml",
+            target_name="demo",
+            desired={},
+        )
+
+        self.assertFalse(_agent_detected(spec))
+        (self.home / ".grok").mkdir()
+        self.assertTrue(_agent_detected(spec))
 
 
 if __name__ == "__main__":

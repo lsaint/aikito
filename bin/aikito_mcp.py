@@ -76,6 +76,35 @@ class Token:
         return json.loads(self.text) if self.kind == "string" else self.text
 
 
+# Canonical "is this Agent installed on this machine" registry. Shared by
+# init detection, doctor diagnostics, and synchronization gating. A value is
+# (display_name, binary_on_path, home-relative marker directory); either
+# signal counts as installed.
+AGENT_INSTALL_MARKERS = {
+    "codex": ("Codex", "codex", Path(".codex")),
+    "claude-code": ("Claude Code", "claude", Path(".claude")),
+    "agy": ("Antigravity CLI", "agy", Path(".gemini/config")),
+    "opencode": ("OpenCode", "opencode", Path(".config/opencode")),
+    "github-copilot": ("GitHub Copilot CLI", "copilot", Path(".copilot")),
+    "dsh": ("DeepSeek Harness", "dsh", Path(".dsh")),
+    "grok": ("Grok Build", "grok", Path(".grok")),
+    "pi": ("Pi", "pi", Path(".pi")),
+}
+
+
+def is_agent_installed(agent_name: str, home: Path) -> bool | None:
+    """Return the canonical install state for a bundled agent.
+
+    None means the agent is not in AGENT_INSTALL_MARKERS (a custom registry
+    entry), so callers should fall back to their own heuristic.
+    """
+    marker = AGENT_INSTALL_MARKERS.get(agent_name)
+    if marker is None:
+        return None
+    _display_name, binary, relative_marker = marker
+    return bool(shutil.which(binary)) or (home / relative_marker).exists()
+
+
 @dataclass(frozen=True)
 class AgentSpec:
     agent: str
@@ -90,6 +119,7 @@ class AgentSpec:
     auth_command: tuple[str, ...] = ()
     contains_secret: bool = False
     missing_credential_env: str = ""
+    home: Path | None = None
 
     @property
     def state_key(self) -> str:
@@ -1060,6 +1090,7 @@ def load_agent_specs(aikito_dir: Path, home: Path) -> list[AgentSpec]:
                             or definition.mcp_reason
                             or f"MCP synchronization is not supported for agent '{agent}'"
                         ),
+                        home=home,
                     )
                 )
                 continue
@@ -1099,6 +1130,7 @@ def load_agent_specs(aikito_dir: Path, home: Path) -> list[AgentSpec]:
                     ),
                     contains_secret=contains_secret,
                     missing_credential_env=missing_credential_env,
+                    home=home,
                 )
             )
     return specs
@@ -1303,6 +1335,10 @@ def _update_entry(spec: AgentSpec, text: str) -> str:
 
 
 def _agent_detected(spec: AgentSpec) -> bool:
+    if spec.home is not None:
+        installed = is_agent_installed(spec.agent, spec.home)
+        if installed is not None:
+            return installed
     return spec.config_path.parent.exists()
 
 

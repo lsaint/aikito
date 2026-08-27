@@ -39,6 +39,7 @@ from aikito_mcp import (
     MCPConfigError,
     authenticate_mcp,
     collect_project_instruction_targets,
+    is_agent_installed,
     load_agents,
     sync_mcp_configs,
 )
@@ -251,16 +252,25 @@ def sync_global_entry(
     agent_name: str,
     resource_name: str,
     dry_run: bool = False,
+    installed: bool | None = None,
 ) -> bool:
     """
     Ensures an agent runtime entry points to its canonical global resource.
 
     Existing regular files and directories are never overwritten because they
     may contain unmanaged user resources.
+
+    ``installed`` reports the canonical install state of the owning agent
+    (None when unknown, e.g. a custom registry entry). A detected agent may
+    have its missing config parent directory created; anything else keeps the
+    historical parent-directory heuristic.
     """
     if not target.parent.exists():
-        print(f"[SKIP] {agent_name} not detected: {target.parent}")
-        return True
+        if installed is True:
+            target.parent.mkdir(parents=True)
+        else:
+            print(f"[SKIP] {agent_name} not detected: {target.parent}")
+            return True
 
     if target.resolve(strict=False) == source.resolve(strict=False):
         print(f"[OK] {agent_name} {resource_name}: shared path {source}")
@@ -374,8 +384,9 @@ def cmd_global_sync(args: argparse.Namespace) -> None:
         )
         sys.exit(1)
 
+    home = Path.home()
     try:
-        agents = load_agents(aikito_dir, Path.home())
+        agents = load_agents(aikito_dir, home)
     except MCPConfigError as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
         sys.exit(1)
@@ -396,6 +407,7 @@ def cmd_global_sync(args: argparse.Namespace) -> None:
             definition.display_name,
             "instructions",
             dry_run,
+            installed=is_agent_installed(definition.name, home),
         )
         for definition in agents.values()
         if definition.instruction_path is not None
@@ -407,6 +419,7 @@ def cmd_global_sync(args: argparse.Namespace) -> None:
             definition.display_name,
             "skills",
             dry_run,
+            installed=is_agent_installed(definition.name, home),
         )
         for definition in agents.values()
         if definition.skills_path is not None

@@ -57,6 +57,26 @@ class GlobalEntrySyncTest(unittest.TestCase):
         )
         self.assertTrue(self.target.is_dir())
 
+    def test_installed_agent_missing_parent_directory_is_created(self) -> None:
+        target = self.root / ".grok" / "rules" / "aikito.md"
+
+        result = AIKITO_CLI.sync_global_entry(
+            self.source, target, "Grok Build", "instructions", installed=True
+        )
+
+        self.assertTrue(result)
+        self.assertEqual(target.resolve(), self.source.resolve())
+
+    def test_uninstalled_agent_missing_parent_directory_is_skipped(self) -> None:
+        target = self.root / ".grok" / "rules" / "aikito.md"
+
+        result = AIKITO_CLI.sync_global_entry(
+            self.source, target, "Grok Build", "instructions", installed=False
+        )
+
+        self.assertTrue(result)
+        self.assertFalse((self.root / ".grok").exists())
+
 
 class SyncSubcommandParserTest(unittest.TestCase):
     def test_diff_command(self) -> None:
