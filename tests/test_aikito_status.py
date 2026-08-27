@@ -25,6 +25,7 @@ from aikito_render import (  # noqa: E402
 
 from aikito_status import (  # noqa: E402
     _summarize_subagent_status,
+    collect_agent_status_rows,
     collect_mcp_details,
     collect_mcp_matrix,
     collect_skills_rows,
@@ -147,6 +148,48 @@ class AikitoStatusRenderTest(unittest.TestCase):
 
     def test_subagent_status_distinguishes_missing_drift_and_conflict(self) -> None:
         self.assertEqual(_summarize_subagent_status(["CREATE"]), "MISSING (0/1)")
+
+    def test_count_badges_render_without_checkmark(self) -> None:
+        from aikito_render import render_agents_table
+
+        rows = [
+            AgentStatusRow(
+                agent_name="codex",
+                display_name="Codex",
+                instructions_status="OK",
+                skills_status="SKIP",
+                mcp_status="OK (3)",
+                subagent_status="OK (2)",
+            ),
+            AgentStatusRow(
+                agent_name="grok",
+                display_name="Grok Build",
+                instructions_status="OK",
+                skills_status="SKIP",
+                mcp_status="OK (0)",
+                subagent_status="OK (0)",
+            ),
+            AgentStatusRow(
+                agent_name="pi",
+                display_name="Pi",
+                instructions_status="OK",
+                skills_status="SKIP",
+                mcp_status="SKIP",
+                subagent_status="SKIP",
+            ),
+        ]
+
+        rendered_unicode = render_agents_table(rows, use_unicode=True, use_color=False)
+        self.assertIn("│ 3 ", rendered_unicode)
+        self.assertIn("│ 2 ", rendered_unicode)
+        self.assertIn("│ 0 ", rendered_unicode)
+        self.assertIn("│ – ", rendered_unicode)
+        self.assertNotIn("✓ 3", rendered_unicode)
+        self.assertNotIn("✓ 0", rendered_unicode)
+
+        rendered_ascii = render_agents_table(rows, use_unicode=False, use_color=False)
+        self.assertIn("| 3 ", rendered_ascii)
+        self.assertNotIn("v 3", rendered_ascii)
         self.assertEqual(_summarize_subagent_status(["UPDATE"]), "DRIFT (0/1)")
         self.assertEqual(_summarize_subagent_status(["CONFLICT"]), "CONFLICT (0/1)")
 
@@ -261,6 +304,46 @@ class AikitoStatusCollectorTest(unittest.TestCase):
         self.assertTrue(len(data.memories) > 0)
         self.assertTrue(data.total_skills_count >= 0)
         self.assertTrue(data.total_memory_notes >= 0)
+
+    def test_capable_agent_without_targets_shows_zero_not_skip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            home = root / "home"
+            aikito_dir = root / "aikito"
+            home.mkdir()
+            (aikito_dir / "global").mkdir(parents=True)
+            (aikito_dir / "global" / "AGENTS.md").write_text("", encoding="utf-8")
+            (aikito_dir / "skills.toml").write_text("skills = []\n", encoding="utf-8")
+            (aikito_dir / "mcps").mkdir()
+            (aikito_dir / "subagents.toml").write_text(
+                "[subagents]\n", encoding="utf-8"
+            )
+            (aikito_dir / "agents.toml").write_text(
+                '[agents.codex]\ndisplay_name = "Codex"\n'
+                'instruction_path = ".codex/AGENTS.md"\n'
+                'skills_path = ".agents/skills"\n'
+                "[agents.codex.subagents]\n"
+                'config_path = ".codex/agents"\n'
+                'config_format = "codex_toml"\n'
+                "[agents.codex.mcp]\n"
+                'config_path = ".codex/config.toml"\n'
+                'config_format = "toml"\n'
+                'name_style = "underscore"\n'
+                '[agents.pi]\ndisplay_name = "Pi"\n'
+                'instruction_path = ".pi/agent/AGENTS.md"\n'
+                'skills_path = ".agents/skills"\n',
+                encoding="utf-8",
+            )
+
+            rows, _issues, _subagents, _mcp = collect_agent_status_rows(
+                aikito_dir, home
+            )
+            by_name = {row.agent_name: row for row in rows}
+
+            self.assertEqual(by_name["codex"].mcp_status, "OK (0)")
+            self.assertEqual(by_name["codex"].subagent_status, "OK (0)")
+            self.assertEqual(by_name["pi"].mcp_status, "SKIP")
+            self.assertEqual(by_name["pi"].subagent_status, "SKIP")
 
     def test_collect_mcp_matrix(self) -> None:
         rows, agents = collect_mcp_matrix(self.aikito_dir, self.home)

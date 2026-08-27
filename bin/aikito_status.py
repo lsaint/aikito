@@ -273,7 +273,7 @@ def collect_agent_status_rows(
 
     # Pre-fetch MCP specs and Subagent plan items
     mcp_specs = load_agent_specs(aikito_dir, home)
-    subagent_plan, _ = build_plan(aikito_dir, home, allow_empty=True)
+    subagent_plan, subagent_configs = build_plan(aikito_dir, home, allow_empty=True)
 
     # Unique enabled MCP servers
     enabled_mcp_servers = set(spec.server for spec in mcp_specs if spec.enabled)
@@ -329,38 +329,41 @@ def collect_agent_status_rows(
         # 3. MCP Status
         mcp_status = "SKIP"
         agent_mcp_specs = [s for s in mcp_specs if s.agent == name]
-        if definition.mcp_config_format != "unsupported" and agent_mcp_specs:
-            total_mcp = len(agent_mcp_specs)
-            ok_mcp = 0
-            has_drift = False
-            has_missing = False
-            has_error = False
-
-            for spec in agent_mcp_specs:
-                st = evaluate_spec_status(spec)
-                if st == "OK":
-                    ok_mcp += 1
-                elif st == "DRIFT":
-                    has_drift = True
-                elif st == "MISSING":
-                    has_missing = True
-                elif st == "ERROR":
-                    has_error = True
-
-            if ok_mcp == total_mcp:
-                mcp_status = f"OK ({total_mcp})"
-            elif has_error:
-                mcp_status = f"ERROR ({ok_mcp}/{total_mcp})"
-                agent_issues += 1
-            elif has_drift:
-                mcp_status = f"DRIFT ({ok_mcp}/{total_mcp})"
-                agent_issues += 1
-            elif has_missing:
-                mcp_status = f"MISSING ({ok_mcp}/{total_mcp})"
-                agent_issues += 1
+        if definition.mcp_config_format != "unsupported":
+            if not agent_mcp_specs:
+                mcp_status = "OK (0)"
             else:
-                mcp_status = f"CONFLICT ({ok_mcp}/{total_mcp})"
-                agent_issues += 1
+                total_mcp = len(agent_mcp_specs)
+                ok_mcp = 0
+                has_drift = False
+                has_missing = False
+                has_error = False
+
+                for spec in agent_mcp_specs:
+                    st = evaluate_spec_status(spec)
+                    if st == "OK":
+                        ok_mcp += 1
+                    elif st == "DRIFT":
+                        has_drift = True
+                    elif st == "MISSING":
+                        has_missing = True
+                    elif st == "ERROR":
+                        has_error = True
+
+                if ok_mcp == total_mcp:
+                    mcp_status = f"OK ({total_mcp})"
+                elif has_error:
+                    mcp_status = f"ERROR ({ok_mcp}/{total_mcp})"
+                    agent_issues += 1
+                elif has_drift:
+                    mcp_status = f"DRIFT ({ok_mcp}/{total_mcp})"
+                    agent_issues += 1
+                elif has_missing:
+                    mcp_status = f"MISSING ({ok_mcp}/{total_mcp})"
+                    agent_issues += 1
+                else:
+                    mcp_status = f"CONFLICT ({ok_mcp}/{total_mcp})"
+                    agent_issues += 1
 
         # 4. Subagent Status
         subagent_status = "SKIP"
@@ -374,6 +377,8 @@ def collect_agent_status_rows(
             )
             if not subagent_status.startswith("OK"):
                 agent_issues += 1
+        elif name in subagent_configs:
+            subagent_status = "OK (0)"
 
         shared_skills_path = home / ".agents" / "skills"
         if definition.skills_path is None:

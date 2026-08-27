@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Agents. Fixes Grok global instructions being skipped forever when the grok
   CLI had not yet created `~/.grok/rules`.
 
+### Changed
+
+- `aikito status` distinguishes agents that do not participate in MCP or
+  subagent synchronization (`–`) from participating agents with nothing
+  synchronized (`0`), and renders synced counts as bare numbers.
+
 ## [1.18.1] - 2026-08-27
 
 ### Fixed

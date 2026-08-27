@@ -243,13 +243,13 @@ temporary override, which is useful for CI and isolated automation.
 ┌───────────────────────┬──────────────┬────────┬────────────┬───────────┐
 │ Agent                 │ Instructions │ Skills │ MCP Config │ Subagents │
 ├───────────────────────┼──────────────┼────────┼────────────┼───────────┤
-│ Codex                 │ ✓            │ 2 ›    │ –          │ –         │
-│ Claude Code           │ ✓            │ 2 »    │ –          │ –         │
-│ Antigravity CLI       │ ✓            │ 2 »    │ –          │ –         │
-│ OpenCode              │ ✓            │ 2 ›    │ –          │ –         │
-│ GitHub Copilot CLI    │ ✓            │ 2 ›    │ –          │ –         │
-│ DeepSeek Harness      │ ✓            │ 2 ›    │ –          │ –         │
-│ Grok Build            │ ✓            │ 2 ›    │ –          │ –         │
+│ Codex                 │ ✓            │ 2 ›    │ 0          │ 0         │
+│ Claude Code           │ ✓            │ 2 »    │ 0          │ 0         │
+│ Antigravity CLI       │ ✓            │ 2 »    │ 0          │ 0         │
+│ OpenCode              │ ✓            │ 2 ›    │ 0          │ 0         │
+│ GitHub Copilot CLI    │ ✓            │ 2 ›    │ 0          │ 0         │
+│ DeepSeek Harness      │ ✓            │ 2 ›    │ 0          │ 0         │
+│ Grok Build            │ ✓            │ 2 ›    │ 0          │ 0         │
 │ Pi                    │ ✓            │ 2 ›    │ –          │ –         │
 └───────────────────────┴──────────────┴────────┴────────────┴───────────┘
 

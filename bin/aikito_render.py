@@ -142,7 +142,7 @@ def _format_badge_text(status_str: str, use_unicode: bool) -> Tuple[str, str]:
         return f"{ok_sym} (live)", "ok"
     if status_str.startswith("OK ("):
         count_part = status_str[4:-1]
-        return f"{ok_sym} {count_part}", "ok"
+        return count_part, "ok"
     if status_str in ("SKIP", "N/A", "NOT_TARGETED"):
         return f"{skip_sym}", "skip"
     if status_str == "PRESENT":
@@ -835,7 +835,7 @@ def render_status_report(
     if data.issues_count > 0:
         output_sections.append("")
         legend_text = (
-            f"Legend: {ok_sym} synced {dot} {skip_sym} skipped {dot} "
+            f"Legend: {ok_sym} synced {dot} {skip_sym} n/a {dot} 0 none {dot} "
             f"{warn_sym} M missing {dot} {warn_sym} C conflict {dot} {warn_sym} D drift"
         )
         if use_color:
