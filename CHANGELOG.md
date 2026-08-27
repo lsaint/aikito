@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   legacy links are cleaned while project-owned `AGENTS.md` files are preserved.
 - Project-owned unselected skills now coexist with Aikito-managed skills;
   conflicts are limited to selected skill names.
+- Project detail output now renders each concrete resource issue on its own line.
 
 ## [1.17.0] - 2026-08-26
 

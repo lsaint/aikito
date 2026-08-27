@@ -164,6 +164,37 @@ class ProjectSummaryTest(unittest.TestCase):
         self.assertIn("Instructions (codex) [MISSING]: Missing", detail)
         self.assertIn("Memory [MISSING]", detail)
 
+    def test_detail_renders_each_resource_problem_on_its_own_line(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            project = root / "project"
+            definition = root / "projects" / "demo"
+            project.mkdir()
+            definition.mkdir(parents=True)
+            (definition / "agent.toml").write_text(
+                f'path = "{project}"\nskills = []\n', encoding="utf-8"
+            )
+            (root / "agents.toml").write_text("[agents]\n", encoding="utf-8")
+            (definition / "AGENTS.md").write_text("", encoding="utf-8")
+            memory = definition / "memory"
+            memory.mkdir()
+            (memory / "index.md").write_text("# Index\n", encoding="utf-8")
+            (memory / "notes").mkdir()
+            runtime_memory = project / ".agents" / "memory"
+            runtime_memory.mkdir(parents=True)
+            (runtime_memory / "index.md").write_text("Local\n", encoding="utf-8")
+            (runtime_memory / "notes").mkdir()
+
+            summary = collect_project_summaries(root, root)[0]
+            detail = render_project_detail(summary, False, False)
+
+        memory_lines = [
+            line for line in detail.splitlines() if line.startswith("  Memory [")
+        ]
+        self.assertEqual(len(memory_lines), 2)
+        self.assertIn("notes:", memory_lines[0])
+        self.assertIn("index.md:", memory_lines[1])
+
 
 if __name__ == "__main__":
     unittest.main()

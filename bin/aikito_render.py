@@ -773,10 +773,12 @@ def render_project_detail(
     issues = [detail for detail in project.details if detail.status != "OK"]
     if issues:
         lines.append("Issues:")
-        lines.extend(
-            f"  {detail.resource} [{detail.status}]: {detail.detail}"
-            for detail in issues
-        )
+        for detail in issues:
+            messages = detail.detail.split("; ") if detail.detail else [""]
+            lines.extend(
+                f"  {detail.resource} [{detail.status}]: {message}"
+                for message in messages
+            )
     elif project.runtime_status == "PATH MISSING":
         lines.extend(
             ["Issues:", f"  Project: directory does not exist: {project.path}"]
