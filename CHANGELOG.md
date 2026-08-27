@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.1] - 2026-08-27
+
+### Fixed
+
+- Allow workspaces with an intentionally empty Agent registry to initialize,
+  inspect, and synchronize safely.
+- Render project memory diagnostics deterministically and report each resource
+  issue on its own line.
+
 ## [1.18.0] - 2026-08-27
 
 ### Added
@@ -341,7 +350,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.18.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.18.1...HEAD
+[1.18.1]: https://github.com/lsaint/aikito/compare/v1.18.0...v1.18.1
 [1.18.0]: https://github.com/lsaint/aikito/compare/v1.17.0...v1.18.0
 [1.17.0]: https://github.com/lsaint/aikito/compare/v1.16.0...v1.17.0
 [1.15.1]: https://github.com/lsaint/aikito/compare/v1.15.0...v1.15.1
