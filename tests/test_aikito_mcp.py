@@ -352,6 +352,39 @@ reason = "Unsupported test agent"
         )
         self.assertTrue(any("[OK] codex/managed" in line for line in second_output))
 
+    def test_sync_writes_grok_native_mcp_config(self) -> None:
+        agents_path = self.aikito_dir / "agents.toml"
+        agents_path.write_text(
+            agents_path.read_text()
+            + "\n[agents.grok]\n"
+            + 'display_name = "Grok Build"\n'
+            + "[agents.grok.mcp]\n"
+            + 'config_path = ".grok/config.toml"\n'
+            + 'config_format = "toml"\n'
+            + 'name_style = "verbatim"\n',
+            encoding="utf-8",
+        )
+        (self.aikito_dir / "mcps/managed.toml").write_text(
+            'transport = "remote"\n'
+            'url = "https://example.com/mcp"\n'
+            'agents = ["grok"]\n',
+            encoding="utf-8",
+        )
+        grok_dir = self.home / ".grok"
+        grok_dir.mkdir()
+        grok_config = grok_dir / "config.toml"
+        grok_config.write_text('model = "grok-build"\n', encoding="utf-8")
+
+        result = sync_mcp_configs(aikito_dir=self.aikito_dir, home=self.home)
+
+        self.assertTrue(result)
+        with grok_config.open("rb") as config_file:
+            config = tomllib.load(config_file)
+        self.assertEqual(config["model"], "grok-build")
+        self.assertEqual(
+            config["mcp_servers"]["managed"]["url"], "https://example.com/mcp"
+        )
+
     def test_conflict_requires_force(self) -> None:
         codex_config = self.home / ".codex/config.toml"
         codex_config.write_text(

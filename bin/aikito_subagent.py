@@ -36,6 +36,16 @@ KNOWN_PLATFORM_FIELDS = {
     },
     "opencode": {"model"},
     "dsh": {"provider", "tools", "model", "maxTokens", "backgroundMode"},
+    "grok": {
+        "model",
+        "reasoning_effort",
+        "prompt_mode",
+        "permission_mode",
+        "agents_md",
+        "tools",
+        "skills",
+        "mcpInheritance",
+    },
 }
 
 FORMAT_EXTENSIONS = {
@@ -45,6 +55,7 @@ FORMAT_EXTENSIONS = {
     "copilot_markdown": ".agent.md",
     "opencode_markdown": ".md",
     "dsh_cordis_subagent": "",
+    "grok_markdown": ".md",
 }
 
 
@@ -241,7 +252,7 @@ def validate_platform_opts(
             raise SubagentConfigError(
                 f"Subagent '{subagent_name}' contains unknown field '{k}' for platform '{agent_name}'. Allowed: {sorted(allowed)}"
             )
-        if agent_name in {"agy", "github-copilot", "dsh"} and k == "tools":
+        if agent_name in {"agy", "github-copilot", "dsh", "grok"} and k == "tools":
             if isinstance(v, str):
                 v = [v]
             if not isinstance(v, list) or not all(
@@ -249,6 +260,23 @@ def validate_platform_opts(
             ):
                 raise SubagentConfigError(
                     f"Subagent '{subagent_name}' field 'tools' for platform '{agent_name}' must be a string or list of non-empty strings"
+                )
+        elif agent_name == "grok" and k == "skills":
+            if not isinstance(v, list) or not all(
+                isinstance(item, str) and item.strip() for item in v
+            ):
+                raise SubagentConfigError(
+                    f"Subagent '{subagent_name}' field 'skills' for platform 'grok' must be a list of non-empty strings"
+                )
+        elif agent_name == "grok" and k == "agents_md":
+            if not isinstance(v, bool):
+                raise SubagentConfigError(
+                    f"Subagent '{subagent_name}' field 'agents_md' for platform 'grok' must be a boolean"
+                )
+        elif agent_name == "grok" and k == "mcpInheritance":
+            if not isinstance(v, (str, dict)):
+                raise SubagentConfigError(
+                    f"Subagent '{subagent_name}' field 'mcpInheritance' for platform 'grok' must be a string or table"
                 )
         elif agent_name == "github-copilot" and k in (
             "disable-model-invocation",
@@ -342,6 +370,25 @@ def render_opencode_markdown(
     lines.append("")
     lines.append(instructions)
     lines.append("")
+    return "\n".join(lines)
+
+
+def render_grok_markdown(
+    name: str, description: str, platform_opts: dict[str, Any], instructions: str
+) -> str:
+    marker = get_marker_text(name)
+    lines = [
+        "---",
+        f"name: {json.dumps(name, ensure_ascii=False)}",
+        f"description: {json.dumps(description, ensure_ascii=False)}",
+    ]
+    for key in sorted(platform_opts):
+        value = platform_opts[key]
+        if isinstance(value, bool):
+            lines.append(f"{key}: {'true' if value else 'false'}")
+        else:
+            lines.append(f"{key}: {json.dumps(value, ensure_ascii=False)}")
+    lines.extend(["---", f"<!-- {marker} -->", "", instructions, ""])
     return "\n".join(lines)
 
 
@@ -596,6 +643,13 @@ def render_subagent(
         )
     elif agent_config.config_format == "dsh_cordis_subagent":
         return render_dsh_cordis_subagent(
+            definition.name,
+            definition.description,
+            platform_opts,
+            definition.instructions,
+        )
+    elif agent_config.config_format == "grok_markdown":
+        return render_grok_markdown(
             definition.name,
             definition.description,
             platform_opts,

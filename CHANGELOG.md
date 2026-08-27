@@ -11,9 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added conflict-safe project instruction links for agents registered in the
   workspace root `agents.toml`.
-- Added Agent registry schema diagnostics and additive `doctor --fix` migration.
-- Added Grok Build global instructions, shared skills, project instructions,
-  and headless runner registration.
+- Added Agent registry schema and installed-Agent diagnostics with additive
+  `doctor --fix` migration.
+- Added Grok Build global and project instructions, shared skills, MCP,
+  subagents, installed-Agent diagnostics, and headless runner registration.
 
 ### Changed
 

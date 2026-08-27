@@ -25,7 +25,11 @@ from aikito_config import (
     get_workspace_config_path,
     load_workspace_config,
 )
-from aikito_init import AGENTS_TOML_TEMPLATE
+from aikito_init import (
+    AGENTS_TOML_TEMPLATE,
+    _detect_existing_agents,
+    detected_agent_names,
+)
 from aikito_link import SymlinkVerdict, classify_symlink
 from aikito_mcp import (
     MCPConfigError,
@@ -678,6 +682,21 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
                 tomllib.load(f)
             findings.append(_ok(f"{filename}: valid TOML"))
             if filename == "agents.toml":
+                with path.open("rb") as registry_file:
+                    registered_agents = set(
+                        tomllib.load(registry_file).get("agents", {})
+                    )
+                installed_agents = detected_agent_names(
+                    _detect_existing_agents(home)
+                )
+                for agent_name in installed_agents:
+                    if agent_name not in registered_agents:
+                        findings.append(
+                            _warn(
+                                f"agents.toml: installed Agent '{agent_name}' is not registered",
+                                "aikito doctor --fix",
+                            )
+                        )
                 for agent_name, fields in missing_agent_fields(
                     path, AGENTS_TOML_TEMPLATE
                 ).items():
@@ -1069,6 +1088,7 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
         "opencode": "opencode",
         "copilot": "copilot",
         "dsh": "dsh",
+        "grok": "grok",
     }
     for label, binary in cli_map.items():
         if shutil.which(binary):
@@ -1079,7 +1099,7 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
     return DoctorSection(name="Environment", findings=findings)
 
 
-def run_doctor_fixes(aikito_dir: Path) -> List[str]:
+def run_doctor_fixes(aikito_dir: Path, home: Optional[Path] = None) -> List[str]:
     """Apply safe automated fixes to memory index files.
 
     1. Prune dangling entries in index.md (pointing to non-existent notes).
@@ -1089,10 +1109,18 @@ def run_doctor_fixes(aikito_dir: Path) -> List[str]:
     Returns a list of human-readable descriptions of the fixes performed.
     """
     fixes: List[str] = []
+    resolved_home = home or Path.home()
     agents_path = aikito_dir / "agents.toml"
     if agents_path.is_file():
         try:
-            fixes.extend(add_missing_agent_fields(agents_path, AGENTS_TOML_TEMPLATE))
+            installed_agents = detected_agent_names(
+                _detect_existing_agents(resolved_home)
+            )
+            fixes.extend(
+                add_missing_agent_fields(
+                    agents_path, AGENTS_TOML_TEMPLATE, installed_agents
+                )
+            )
         except (OSError, tomllib.TOMLDecodeError):
             pass
     scope_dirs = _memory_scope_dirs(aikito_dir)

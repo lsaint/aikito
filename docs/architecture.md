@@ -67,6 +67,10 @@ skills, MCP, or subagent synchronization independently. The default registry
 contains Codex, Claude Code, Antigravity CLI (`agy`), OpenCode, GitHub Copilot
 CLI, DeepSeek Harness (`dsh`), and Grok Build.
 
+Grok Build uses `~/.grok/rules/aikito.md` for global instructions,
+`~/.agents/skills` for shared skills, `~/.grok/config.toml` for MCP servers,
+`~/.grok/agents/` for subagents, and root `AGENTS.md` files for project rules.
+
 ## Project Runtime Directory
 
 Project synchronization creates a managed `.agents/` directory in the target

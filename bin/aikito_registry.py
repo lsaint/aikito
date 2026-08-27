@@ -19,14 +19,18 @@ def _leaf_fields(value: dict[str, Any], prefix: tuple[str, ...] = ()) -> dict:
 
 
 def missing_agent_fields(
-    registry_path: Path, template: str
+    registry_path: Path,
+    template: str,
+    include_agents: tuple[str, ...] = (),
 ) -> dict[str, dict[tuple[str, ...], Any]]:
     """Return bundled fields missing from agents already present in a registry."""
     with registry_path.open("rb") as registry_file:
         current = tomllib.load(registry_file).get("agents", {})
     bundled = tomllib.loads(template).get("agents", {})
     missing = {}
-    for agent_name, current_definition in current.items():
+    agent_names = tuple(dict.fromkeys((*current, *include_agents)))
+    for agent_name in agent_names:
+        current_definition = current.get(agent_name, {})
         bundled_definition = bundled.get(agent_name)
         if not isinstance(current_definition, dict) or not isinstance(
             bundled_definition, dict
@@ -54,10 +58,12 @@ def _toml_value(value: Any) -> str:
 
 
 def add_missing_agent_fields(
-    registry_path: Path, template: str
+    registry_path: Path,
+    template: str,
+    include_agents: tuple[str, ...] = (),
 ) -> list[str]:
     """Add bundled defaults for missing fields without changing existing values."""
-    missing = missing_agent_fields(registry_path, template)
+    missing = missing_agent_fields(registry_path, template, include_agents)
     if not missing:
         return []
 

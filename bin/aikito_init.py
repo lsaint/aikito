@@ -163,12 +163,22 @@ name_style = "verbatim"
 
 [agents.grok]
 display_name = "Grok Build"
-instruction_path = ".grok/AGENTS.md"
+instruction_path = ".grok/rules/aikito.md"
 project_instruction_path = "AGENTS.md"
 skills_path = ".agents/skills"
 
 [agents.grok.runner]
 command = ["grok", "--cwd", "{workdir}", "-p", "{prompt}"]
+
+[agents.grok.subagents]
+config_path = ".grok/agents"
+config_format = "grok_markdown"
+
+[agents.grok.mcp]
+config_path = ".grok/config.toml"
+config_format = "toml"
+name_style = "verbatim"
+live_command = ["grok", "mcp", "list"]
 """
 
 MCPS_TOML_TEMPLATE = """# Aikito MCP Config
@@ -255,7 +265,7 @@ def _detect_existing_agents(home: Path) -> List[Tuple[str, Path]]:
     return detected
 
 
-def _detected_agent_names(
+def detected_agent_names(
     detected_agents: List[Tuple[str, Path]],
 ) -> tuple[str, ...]:
     detected_display_names = {name for name, _ in detected_agents}
@@ -367,12 +377,12 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
 
     # 2. Write configuration templates & files
     detected_agents = _detect_existing_agents(home)
-    detected_agent_names = _detected_agent_names(detected_agents)
+    installed_agent_names = detected_agent_names(detected_agents)
     files_to_create = [
         (target_dir / "config.toml", CONFIG_TOML_TEMPLATE, "Workspace config template"),
         (
             target_dir / "agents.toml",
-            _filter_agents_template(detected_agent_names),
+            _filter_agents_template(installed_agent_names),
             "Detected agents config",
         ),
         (target_dir / "skills.toml", SKILLS_TOML_TEMPLATE, "Global skills config"),

@@ -380,6 +380,15 @@ def cmd_global_sync(args: argparse.Namespace) -> None:
         print(f"[ERROR] {exc}", file=sys.stderr)
         sys.exit(1)
 
+    legacy_grok_instructions = Path.home() / ".grok" / "AGENTS.md"
+    if (
+        "grok" in agents
+        and legacy_grok_instructions.is_symlink()
+        and legacy_grok_instructions.resolve(strict=False)
+        == global_instruction_source.resolve(strict=False)
+    ):
+        apply_runtime_cleanup((legacy_grok_instructions,), dry_run)
+
     instruction_results = [
         sync_global_entry(
             global_instruction_source,
@@ -1602,7 +1611,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
 
     fixes: List[str] = []
     if getattr(args, "fix", False):
-        fixes = run_doctor_fixes(aikito_dir)
+        fixes = run_doctor_fixes(aikito_dir, home)
         if fixes and not getattr(args, "json", False):
             for fix_msg in fixes:
                 print(f"[FIX] {fix_msg}")

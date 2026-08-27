@@ -104,6 +104,15 @@ class AikitoInitTest(unittest.TestCase):
             agents["agy"].skills_path,
             self.fake_home / ".gemini/antigravity-cli/skills",
         )
+        self.assertEqual(
+            agents["grok"].instruction_path,
+            self.fake_home / ".grok/rules/aikito.md",
+        )
+        self.assertEqual(
+            agents["grok"].mcp_config_path,
+            self.fake_home / ".grok/config.toml",
+        )
+        self.assertEqual(agents["grok"].mcp_config_format, "toml")
         self.assertEqual(load_agent_specs(self.target_path, self.fake_home), [])
 
         report = get_status_report_data(self.target_path, self.fake_home)

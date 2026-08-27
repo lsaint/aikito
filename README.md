@@ -78,6 +78,7 @@ The default registry includes Codex, Claude Code, Antigravity CLI (`agy`),
 OpenCode, GitHub Copilot CLI, DeepSeek Harness (`dsh`), and Grok Build. See the
 [architecture](docs/architecture.md) for the complete mental model and capability
 boundaries.
+Grok Build participates in instructions, skills, MCP, subagents, and runners.
 
 ### Share or isolate
 

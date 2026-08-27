@@ -262,6 +262,27 @@ class CheckConfigSyntaxTest(unittest.TestCase):
         self.assertTrue(any("project_instruction_path" in f.message for f in warnings))
         self.assertTrue(all(f.fix_hint == "aikito doctor --fix" for f in warnings))
 
+    def test_installed_unregistered_agent_produces_fixable_warning(self) -> None:
+        self._write_minimal_toml_files()
+        (self.aikito_dir / "agents.toml").write_text(
+            '[agents.codex]\ndisplay_name = "Codex"\n'
+            'project_instruction_path = "AGENTS.md"\n'
+            'instruction_path = ".codex/AGENTS.md"\n'
+            'skills_path = ".agents/skills"\n'
+            '\n[agents.codex.runner]\ncommand = ["codex", "{prompt}"]\n',
+            encoding="utf-8",
+        )
+
+        with patch(
+            "aikito_doctor._detect_existing_agents",
+            return_value=[("Grok Build", self.home / ".grok")],
+        ):
+            section = check_config_syntax(self.aikito_dir, self.home)
+
+        warnings = [finding for finding in section.findings if finding.status == "WARN"]
+        self.assertTrue(any("'grok' is not registered" in f.message for f in warnings))
+        self.assertTrue(all(f.fix_hint == "aikito doctor --fix" for f in warnings))
+
 
 class CheckSymlinksTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -1022,7 +1043,7 @@ class DoctorFixesTest(unittest.TestCase):
             '[agents.codex]\ndisplay_name = "Custom Codex"\n', encoding="utf-8"
         )
 
-        fixes = run_doctor_fixes(self.aikito_dir)
+        fixes = run_doctor_fixes(self.aikito_dir, self.home)
 
         with agents_path.open("rb") as config_file:
             codex = tomllib.load(config_file)["agents"]["codex"]
@@ -1030,6 +1051,23 @@ class DoctorFixesTest(unittest.TestCase):
         self.assertEqual(codex["project_instruction_path"], "AGENTS.md")
         self.assertEqual(codex["runner"]["command"][0], "codex")
         self.assertTrue(any("project_instruction_path" in fix for fix in fixes))
+
+    def test_run_doctor_fixes_registers_installed_supported_agent(self) -> None:
+        from aikito_doctor import run_doctor_fixes
+
+        self.aikito_dir.mkdir(exist_ok=True)
+        agents_path = self.aikito_dir / "agents.toml"
+        agents_path.write_text("[agents]\n", encoding="utf-8")
+        (self.home / ".grok").mkdir()
+
+        with patch("aikito_init.shutil.which", return_value=None):
+            fixes = run_doctor_fixes(self.aikito_dir, self.home)
+
+        with agents_path.open("rb") as config_file:
+            grok = tomllib.load(config_file)["agents"]["grok"]
+        self.assertEqual(grok["project_instruction_path"], "AGENTS.md")
+        self.assertEqual(grok["runner"]["command"][0], "grok")
+        self.assertTrue(any("agents.grok" in fix for fix in fixes))
 
     def test_run_doctor_fixes_reconciles_memory_index(self) -> None:
         from aikito_doctor import run_doctor_fixes

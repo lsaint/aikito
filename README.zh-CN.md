@@ -76,6 +76,7 @@ Aikito 将这些资源集中在一个个人 Git 工作区中，并将选定的�
 默认注册表包含 Codex、Claude Code、Antigravity CLI（`agy`）、OpenCode、
 GitHub Copilot CLI、DeepSeek Harness（`dsh`）和 Grok Build。完整心智模型
 和能力边界见[架构文档（英文）](docs/architecture.md)。
+Grok Build 支持 instructions、skills、MCP、subagent 和 runner。
 
 ### 共享或隔离
 

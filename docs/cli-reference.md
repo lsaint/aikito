@@ -82,7 +82,8 @@ Use `--dry-run` to preview project, MCP, and subagent synchronization, and consu
 
 `doctor` compares registered Agents with the current bundled registry schema.
 Missing fields are warnings; `doctor --fix` adds bundled defaults without
-replacing existing values or enabling unregistered Agents.
+replacing existing values. Installed supported Agents missing from the registry
+are also reported and can be added by `doctor --fix`.
 
 `aikito maintain memory` defaults to the project containing the current
 directory and launches the `codex` runner configured in `agents.toml`. Use
