@@ -115,8 +115,8 @@ jobs:
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito init project example ${{ runner.temp }}/example-project
           test ! -e ${{ runner.temp }}/example-project/.agents/AGENTS.md
-          test -L ${{ runner.temp }}/example-project/AGENTS.md
-          test -L ${{ runner.temp }}/example-project/.claude/CLAUDE.md
+          test ! -e ${{ runner.temp }}/example-project/AGENTS.md
+          test ! -e ${{ runner.temp }}/example-project/.claude/CLAUDE.md
           test -L ${{ runner.temp }}/example-project/.agents/memory/index.md
 
       - name: aikito project inspection and dry-run
