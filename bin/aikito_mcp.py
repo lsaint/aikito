@@ -175,8 +175,8 @@ def load_agents(aikito_dir: Path, home: Path) -> dict[str, AgentDefinition]:
         raise MCPConfigError(f"Invalid agents config {config_path}: {exc}") from exc
 
     agents = document.get("agents")
-    if not isinstance(agents, dict) or not agents:
-        raise MCPConfigError(f"'agents' must be a non-empty table in {config_path}")
+    if not isinstance(agents, dict):
+        raise MCPConfigError(f"'agents' must be a table in {config_path}")
 
     definitions: dict[str, AgentDefinition] = {}
     for name, spec in agents.items():

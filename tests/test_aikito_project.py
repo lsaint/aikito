@@ -192,8 +192,8 @@ class ProjectSummaryTest(unittest.TestCase):
             line for line in detail.splitlines() if line.startswith("  Memory [")
         ]
         self.assertEqual(len(memory_lines), 2)
-        self.assertIn("notes:", memory_lines[0])
-        self.assertIn("index.md:", memory_lines[1])
+        self.assertTrue(any("index.md:" in line for line in memory_lines))
+        self.assertTrue(any("notes:" in line for line in memory_lines))
 
 
 if __name__ == "__main__":

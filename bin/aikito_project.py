@@ -370,7 +370,7 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
                 )
             memory_statuses: list[str] = []
             memory_issues: list[str] = []
-            for name, source in expected_memory.items():
+            for name, source in sorted(expected_memory.items()):
                 target = memory_runtime / name
                 status = _link_status(target, source)
                 memory_statuses.append(status)

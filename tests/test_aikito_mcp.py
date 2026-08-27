@@ -607,6 +607,11 @@ class AgentRegistryTest(unittest.TestCase):
         with self.assertRaises(MCPConfigError):
             load_agents(self.aikito_dir, self.home)
 
+    def test_load_agents_accepts_empty_registry(self) -> None:
+        (self.aikito_dir / "agents.toml").write_text("[agents]\n", encoding="utf-8")
+
+        self.assertEqual(load_agents(self.aikito_dir, self.home), {})
+
     def test_specs_synthesized_from_registry_and_servers(self) -> None:
         self.write_servers(
             """
