@@ -19,7 +19,7 @@ version.
 
 | Command | Purpose |
 | --- | --- |
-| `aikito init workspace [path]` | Create a workspace, initialize Git, and remember an explicit path |
+| `aikito init workspace [path]` | Create a workspace, detect installed Agents, initialize Git, and remember an explicit path |
 | `aikito path workspace` | Print the resolved active workspace path |
 | `aikito init project [name] [path]` | Register a code project and synchronize its `.agents/` runtime |
 | `aikito add skill <name>` | Create a canonical skill skeleton and register it in `skills.toml` or project config |
@@ -79,6 +79,10 @@ Commands differ in their effect:
 
 Use `--dry-run` to preview project, MCP, and subagent synchronization, and consult the
 [Safety model](safety.md) before applying changes to an existing setup.
+
+`doctor` compares registered Agents with the current bundled registry schema.
+Missing fields are warnings; `doctor --fix` adds bundled defaults without
+replacing existing values or enabling unregistered Agents.
 
 `aikito maintain memory` defaults to the project containing the current
 directory and launches the `codex` runner configured in `agents.toml`. Use
@@ -213,8 +217,11 @@ aikito init project example ~/code/example
 
 Project initialization creates `agent.toml`, `AGENTS.md`, and the project
 memory skeleton under `<workspace>/projects/<name>/`, then synchronizes the target
-project's `.agents/` runtime. The initial `AGENTS.md` is empty until
-project-specific instructions are added. Initialization is idempotent. A
+project's `.agents/` runtime and each workspace-registered Agent's native project
+instruction path. Targets shared by multiple agents are linked once.
+Existing unmanaged files are reported as conflicts and are never replaced. The
+initial `AGENTS.md` is empty until project-specific instructions are added.
+Initialization is idempotent. A
 project name already bound to another path, or unmanaged resources at a target
 runtime path, is reported as a conflict rather than overwritten.
 

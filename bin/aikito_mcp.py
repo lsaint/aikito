@@ -103,6 +103,7 @@ class AgentDefinition:
     name: str
     display_name: str
     instruction_path: Path | None
+    project_instruction_path: Path | None
     skills_path: Path | None
     mcp_config_path: Path | None
     mcp_config_format: str
@@ -152,6 +153,17 @@ def _resolve_home_path(home: Path, value: Any, field: str, agent: str) -> Path:
     return home / value
 
 
+def _resolve_project_path(value: Any, field: str, agent: str) -> Path:
+    if not isinstance(value, str) or not value:
+        raise MCPConfigError(f"Agent '{agent}' requires a string '{field}'")
+    path = Path(value)
+    if path.is_absolute() or path == Path(".") or ".." in path.parts:
+        raise MCPConfigError(
+            f"Agent '{agent}' requires a safe relative '{field}', got: {value}"
+        )
+    return path
+
+
 def load_agents(aikito_dir: Path, home: Path) -> dict[str, AgentDefinition]:
     """Load the agent registry from agents.toml (the single source of truth)."""
     config_path = aikito_dir / DEFAULT_AGENTS_CONFIG
@@ -175,6 +187,14 @@ def load_agents(aikito_dir: Path, home: Path) -> dict[str, AgentDefinition]:
         instruction_path = (
             _resolve_home_path(home, instruction_value, "instruction_path", name)
             if instruction_value is not None
+            else None
+        )
+        project_instruction_value = spec.get("project_instruction_path")
+        project_instruction_path = (
+            _resolve_project_path(
+                project_instruction_value, "project_instruction_path", name
+            )
+            if project_instruction_value is not None
             else None
         )
         skills_value = spec.get("skills_path")
@@ -208,6 +228,7 @@ def load_agents(aikito_dir: Path, home: Path) -> dict[str, AgentDefinition]:
             name=name,
             display_name=str(spec.get("display_name", name)),
             instruction_path=instruction_path,
+            project_instruction_path=project_instruction_path,
             skills_path=skills_path,
             mcp_config_path=mcp_config_path,
             mcp_config_format=mcp_config_format,
@@ -218,6 +239,28 @@ def load_agents(aikito_dir: Path, home: Path) -> dict[str, AgentDefinition]:
         )
 
     return definitions
+
+
+def collect_project_instruction_targets(
+    aikito_dir: Path,
+    project_path: Path,
+    home: Path,
+) -> dict[Path, tuple[str, ...]]:
+    """Group agent-native project instruction targets by runtime path."""
+    definitions = load_agents(aikito_dir, home)
+    grouped: dict[Path, list[str]] = {}
+    for definition in definitions.values():
+        relative_path = definition.project_instruction_path
+        if relative_path is None:
+            continue
+        target = project_path / relative_path
+        grouped.setdefault(target, []).append(definition.display_name)
+    return {
+        target: tuple(sorted(agent_names))
+        for target, agent_names in sorted(
+            grouped.items(), key=lambda item: str(item[0])
+        )
+    }
 
 
 def _target_name(name_style: str, server_name: str) -> str:

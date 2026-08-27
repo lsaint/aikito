@@ -69,13 +69,13 @@ Aikito 将这些资源集中在一个个人 Git 工作区中，并将选定的�
 | --- | --- | --- |
 | Memory | `memory/`、`projects/<name>/memory/` | 全局读取及 `<project>/.agents/memory/` |
 | Skills | `skills/<name>/` | 全局和项目 skill 目录 |
-| Instructions | `global/AGENTS.md`、`projects/<name>/AGENTS.md` | Agent 原生及项目运行时指令 |
+| Instructions | `global/AGENTS.md`、`projects/<name>/AGENTS.md` | Workspace Agent 的原生指令路径 |
 | MCP server | `mcps/*.toml` | Agent 原生 TOML、JSON 或 JSONC 配置 |
 | Subagent | `subagents.toml`、`subagents/` | Agent 原生 subagent 定义 |
 
 默认注册表包含 Codex、Claude Code、Antigravity CLI（`agy`）、OpenCode、
-GitHub Copilot CLI 和 DeepSeek Harness（`dsh`）。完整心智模型和
-能力边界见[架构文档（英文）](docs/architecture.md)。
+GitHub Copilot CLI、DeepSeek Harness（`dsh`）和 Grok Build。完整心智模型
+和能力边界见[架构文档（英文）](docs/architecture.md)。
 
 ### 共享或隔离
 
@@ -225,9 +225,10 @@ Agent 资源，不保存项目源码本身。
 │ OpenCode              │ ✓            │ 2 ›    │ –          │ –         │
 │ GitHub Copilot CLI    │ ✓            │ 2 ›    │ –          │ –         │
 │ DeepSeek Harness      │ ✓            │ 2 ›    │ –          │ –         │
+│ Grok Build            │ ✓            │ 2 ›    │ –          │ –         │
 └───────────────────────┴──────────────┴────────┴────────────┴───────────┘
 
-✓ all synced · 6 agents · 2 skills · 0 notes across 1 scopes
+✓ all synced · 7 agents · 2 skills · 0 notes across 1 scopes
 ```
 
 如需从源码构建、使用自定义安装路径或查看高级参数，请参阅[项目配置指南（英文）](docs/project-setup.md)。

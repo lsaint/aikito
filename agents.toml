@@ -1,8 +1,9 @@
 # Agent registry: the single source of truth for agent identity and paths.
 #
-# Every agent that aikito can target is defined here. Three capabilities are
+# Every agent that aikito can target is defined here. Four capabilities are
 # optional per agent:
 #   - instruction_path : where aikito sync global links global/AGENTS.md
+#   - project_instruction_path : project-relative native instruction entry
 #   - skills_path      : where aikito sync global links the shared ~/.agents/skills directory
 #   - [agents.<name>.mcp] : how aikito sync mcp writes managed MCP entries
 #
@@ -17,6 +18,7 @@
 [agents.codex]
 display_name = "Codex"
 instruction_path = ".codex/AGENTS.md"
+project_instruction_path = "AGENTS.md"
 skills_path = ".agents/skills"
 
 [agents.codex.runner]
@@ -42,6 +44,7 @@ auth_command = ["codex", "mcp", "login", "{target}"]
 [agents.claude-code]
 display_name = "Claude Code"
 instruction_path = ".claude/CLAUDE.md"
+project_instruction_path = ".claude/CLAUDE.md"
 skills_path = ".claude/skills"
 
 [agents.claude-code.runner]
@@ -64,6 +67,7 @@ auth_command = ["claude", "mcp", "login", "{target}"]
 [agents.agy]
 display_name = "Antigravity CLI"
 instruction_path = ".gemini/GEMINI.md"
+project_instruction_path = "AGENTS.md"
 skills_path = ".gemini/antigravity-cli/skills"
 
 [agents.agy.runner]
@@ -84,6 +88,7 @@ name_style = "verbatim"
 [agents.opencode]
 display_name = "OpenCode"
 instruction_path = ".config/opencode/AGENTS.md"
+project_instruction_path = "AGENTS.md"
 skills_path = ".agents/skills"
 
 [agents.opencode.runner]
@@ -106,6 +111,7 @@ auth_command = ["opencode", "mcp", "auth", "{target}"]
 [agents.github-copilot]
 display_name = "GitHub Copilot CLI"
 instruction_path = ".copilot/copilot-instructions.md"
+project_instruction_path = "AGENTS.md"
 skills_path = ".agents/skills"
 
 [agents.github-copilot.runner]
@@ -127,6 +133,7 @@ live_command = ["copilot", "mcp", "list"]
 [agents.dsh]
 display_name = "DeepSeek Harness"
 instruction_path = ".dsh/AGENTS.md"
+project_instruction_path = "AGENTS.md"
 skills_path = ".agents/skills"
 
 [agents.dsh.runner]
@@ -140,3 +147,15 @@ config_format = "dsh_cordis_subagent"
 config_path = ".dsh/cordis.patch.yml"
 config_format = "dsh_cordis"
 name_style = "verbatim"
+
+# =============================================================================
+# Grok Build
+# =============================================================================
+[agents.grok]
+display_name = "Grok Build"
+instruction_path = ".grok/AGENTS.md"
+project_instruction_path = "AGENTS.md"
+skills_path = ".agents/skills"
+
+[agents.grok.runner]
+command = ["grok", "--cwd", "{workdir}", "-p", "{prompt}"]

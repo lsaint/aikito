@@ -5,6 +5,8 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from aikito_mcp import collect_project_instruction_targets
+
 
 @dataclass(frozen=True)
 class ProjectSkillState:
@@ -245,22 +247,21 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
         else:
             agents_dir = project_path / ".agents"
             statuses: list[str] = []
-            instructions_runtime = agents_dir / "AGENTS.md"
-            instruction_runtime_status = _link_status(
-                instructions_runtime, instructions
-            )
-            statuses.append(instruction_runtime_status)
-            details.append(
-                ProjectResourceDetail(
-                    "Instructions",
-                    instructions,
-                    instructions_runtime,
-                    instruction_runtime_status,
-                    _link_issue(
-                        instructions_runtime, instructions, instruction_runtime_status
-                    ),
-                )
-            )
+            if (aikito_dir / "agents.toml").is_file():
+                for target, agent_names in collect_project_instruction_targets(
+                    aikito_dir, project_path, home
+                ).items():
+                    status = _link_status(target, instructions)
+                    statuses.append(status)
+                    details.append(
+                        ProjectResourceDetail(
+                            f"Instructions ({', '.join(agent_names)})",
+                            instructions,
+                            target,
+                            status,
+                            _link_issue(target, instructions, status),
+                        )
+                    )
 
             skills_runtime = agents_dir / "skills"
             selected_skills = set(skill_names)

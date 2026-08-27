@@ -377,6 +377,8 @@ class InitSubcommandParserTest(unittest.TestCase):
             workspace = root / "workspace"
             project = root / "example"
             project.mkdir()
+            (root / ".codex").mkdir()
+            (root / ".claude").mkdir()
             AIKITO_CLI.init_workspace(workspace, root)
 
             args = AIKITO_CLI.build_parser().parse_args(["init", "project"])
@@ -389,14 +391,65 @@ class InitSubcommandParserTest(unittest.TestCase):
 
             canonical = workspace / "projects" / "example"
             runtime = project / ".agents"
+            self.assertFalse((runtime / "AGENTS.md").exists())
             self.assertEqual(
-                (runtime / "AGENTS.md").resolve(),
+                (project / "AGENTS.md").resolve(),
+                (canonical / "AGENTS.md").resolve(),
+            )
+            self.assertEqual(
+                (project / ".claude" / "CLAUDE.md").resolve(),
                 (canonical / "AGENTS.md").resolve(),
             )
             self.assertEqual(
                 (runtime / "memory" / "index.md").resolve(),
                 (canonical / "memory" / "index.md").resolve(),
             )
+
+    def test_sync_project_refuses_unmanaged_native_instructions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            workspace = root / "workspace"
+            project = root / "example"
+            project.mkdir()
+            (project / "AGENTS.md").write_text("Keep me\n", encoding="utf-8")
+            (root / ".codex").mkdir()
+            AIKITO_CLI.init_workspace(workspace, root)
+
+            args = AIKITO_CLI.build_parser().parse_args(["init", "project"])
+            with (
+                patch.object(AIKITO_CLI, "get_aikito_dir", return_value=workspace),
+                patch.object(AIKITO_CLI.Path, "cwd", return_value=project),
+                self.assertRaises(SystemExit),
+            ):
+                args.func(args)
+
+            self.assertEqual(
+                (project / "AGENTS.md").read_text(encoding="utf-8"),
+                "Keep me\n",
+            )
+
+    def test_sync_project_uses_workspace_agents_not_project_agents_field(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            workspace = root / "workspace"
+            project = root / "example"
+            project.mkdir()
+            (root / ".claude").mkdir()
+            with patch("aikito_init.shutil.which", return_value=None):
+                AIKITO_CLI.init_workspace(workspace, root)
+            AIKITO_CLI.init_project(workspace, project, "example")
+            config_path = workspace / "projects" / "example" / "agent.toml"
+            config_path.write_text(
+                config_path.read_text(encoding="utf-8") + 'agents = ["codex"]\n',
+                encoding="utf-8",
+            )
+
+            args = AIKITO_CLI.build_parser().parse_args(["sync", "project", "example"])
+            with patch.object(AIKITO_CLI, "get_aikito_dir", return_value=workspace):
+                args.func(args)
+
+            self.assertFalse((project / "AGENTS.md").exists())
+            self.assertTrue((project / ".claude" / "CLAUDE.md").is_symlink())
 
 
 class AuthSubcommandParserTest(unittest.TestCase):

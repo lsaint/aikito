@@ -82,6 +82,8 @@ aikito status
 
 `aikito init workspace` refuses the CLI source tree, another source checkout,
 and an unrecognized non-empty directory. Do not try to bypass these guards.
+Initialization detects locally installed Agents and writes only those entries to
+the root `agents.toml`, which is the Agent source of truth for all projects.
 After initialization, inspect the generated files before synchronizing
 anything.
 
@@ -197,6 +199,10 @@ copies for project Git tracking. Use `aikito status` to detect copied-skill drif
 and `aikito diff` to compare it with the canonical skill. Synchronization refuses
 to replace drifted copies; merge changes that should survive, or use
 `aikito sync project <name> --force` only after review.
+
+Project instructions are linked for every Agent registered in the workspace root
+`agents.toml`, using each configured `project_instruction_path`. Shared targets
+are deduplicated, and an existing unmanaged file or link is always a conflict.
 
 The target `.agents/skills/` and `.agents/memory/` directories are exclusively
 managed by Aikito. Unknown entries are conflicts and are never deleted by

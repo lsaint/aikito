@@ -38,6 +38,7 @@ from aikito_memory import (
 from aikito_mcp import (
     MCPConfigError,
     authenticate_mcp,
+    collect_project_instruction_targets,
     load_agents,
     sync_mcp_configs,
 )
@@ -208,6 +209,40 @@ def apply_runtime_cleanup(paths: tuple[Path, ...], dry_run: bool) -> None:
         elif path.is_dir():
             shutil.rmtree(path)
             print(f"[CLEANUP] Removed stale managed item: {path}")
+
+
+def sync_project_instruction(source: Path, target: Path, dry_run: bool) -> bool:
+    """Create a project instruction link without replacing existing content."""
+    expected = source.resolve(strict=False)
+    if target.is_symlink():
+        if target.resolve(strict=False) == expected:
+            print(f"[OK] Project instructions: {target} -> {source}")
+            return True
+        print(
+            f"[CONFLICT] Project instructions already exist: {target}",
+            file=sys.stderr,
+        )
+        return False
+    if target.exists():
+        print(
+            f"[CONFLICT] Project instructions already exist: {target}",
+            file=sys.stderr,
+        )
+        return False
+    if dry_run:
+        print(f"[DRY RUN LINK] {source} -> {target}")
+        return True
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.symlink_to(source)
+        print(f"[LINK] {target} -> {source}")
+        return True
+    except OSError as exc:
+        print(
+            f"[ERROR] Failed to create symlink {target} -> {source}: {exc}",
+            file=sys.stderr,
+        )
+        return False
 
 
 def sync_global_entry(
@@ -546,11 +581,34 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
     else:
         print(f"[INFO] No project memory dir found at {proj_mem_source}")
 
-    # 4. Sync project AGENTS.md (always link)
+    # 4. Sync project instructions to the selected agent-native entry points.
     proj_agents_md = aikito_dir / "projects" / project_name / "AGENTS.md"
     if proj_agents_md.exists():
-        target = agents_dir / "AGENTS.md"
-        sync_resource(proj_agents_md, target, mode="link", dry_run=dry_run)
+        instruction_targets = collect_project_instruction_targets(
+            aikito_dir, project_path, Path.home()
+        )
+        possible_stale_targets = {agents_dir / "AGENTS.md"}
+        managed_stale_targets = tuple(
+            sorted(
+                target
+                for target in possible_stale_targets
+                if target.is_symlink()
+                and target.resolve(strict=False)
+                == proj_agents_md.resolve(strict=False)
+            )
+        )
+        apply_runtime_cleanup(managed_stale_targets, dry_run)
+        instruction_results = []
+        for target, agent_names in instruction_targets.items():
+            print(f"[INFO] Project instructions for {', '.join(agent_names)}")
+            instruction_results.append(
+                sync_project_instruction(proj_agents_md, target, dry_run)
+            )
+        if not all(instruction_results):
+            print(
+                "[ERROR] Project instruction synchronization failed.", file=sys.stderr
+            )
+            sys.exit(1)
     else:
         print(
             f"[INFO] No AGENTS.md found for project '{project_name}' at {proj_agents_md}"

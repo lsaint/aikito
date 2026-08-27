@@ -36,7 +36,7 @@ This guard applies before workspace files are written. `--force` can refresh
 templates in a recognized Aikito workspace, but it does not bypass these
 directory safety checks.
 
-`aikito init project` refuses to replace unmanaged `.agents/AGENTS.md`, skill,
+`aikito init project` refuses to replace unmanaged agent-native instruction, skill,
 or memory resources. It also refuses to bind an existing project name to a
 different code directory.
 

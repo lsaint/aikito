@@ -12,6 +12,8 @@ from typing import List, Optional, Tuple
 
 import tomllib
 
+from aikito_mcp import collect_project_instruction_targets
+
 
 CLI_SOURCE_ROOT = Path(__file__).resolve().parents[1]
 BUNDLED_SKILL_NAMES = ("aikito", "durable-memory")
@@ -38,10 +40,12 @@ WORKSPACE_DIRECTORY_MARKERS = (
 
 AGENTS_TOML_TEMPLATE = """# Aikito Agents Config
 # Defines the installed agent integration points. Add or remove sections as needed.
+# project_instruction_path is relative to each registered project directory.
 
 [agents.codex]
 display_name = "Codex"
 instruction_path = ".codex/AGENTS.md"
+project_instruction_path = "AGENTS.md"
 skills_path = ".agents/skills"
 
 [agents.codex.runner]
@@ -65,6 +69,7 @@ auth_command = ["codex", "mcp", "login", "{target}"]
 [agents.claude-code]
 display_name = "Claude Code"
 instruction_path = ".claude/CLAUDE.md"
+project_instruction_path = ".claude/CLAUDE.md"
 skills_path = ".claude/skills"
 
 [agents.claude-code.runner]
@@ -84,6 +89,7 @@ auth_command = ["claude", "mcp", "login", "{target}"]
 [agents.agy]
 display_name = "Antigravity CLI"
 instruction_path = ".gemini/GEMINI.md"
+project_instruction_path = "AGENTS.md"
 skills_path = ".gemini/antigravity-cli/skills"
 
 [agents.agy.runner]
@@ -101,6 +107,7 @@ name_style = "verbatim"
 [agents.opencode]
 display_name = "OpenCode"
 instruction_path = ".config/opencode/AGENTS.md"
+project_instruction_path = "AGENTS.md"
 skills_path = ".agents/skills"
 
 [agents.opencode.runner]
@@ -120,6 +127,7 @@ auth_command = ["opencode", "mcp", "auth", "{target}"]
 [agents.github-copilot]
 display_name = "GitHub Copilot CLI"
 instruction_path = ".copilot/copilot-instructions.md"
+project_instruction_path = "AGENTS.md"
 skills_path = ".agents/skills"
 
 [agents.github-copilot.runner]
@@ -138,6 +146,7 @@ live_command = ["copilot", "mcp", "list"]
 [agents.dsh]
 display_name = "DeepSeek Harness"
 instruction_path = ".dsh/AGENTS.md"
+project_instruction_path = "AGENTS.md"
 skills_path = ".agents/skills"
 
 [agents.dsh.runner]
@@ -151,6 +160,15 @@ config_format = "dsh_cordis_subagent"
 config_path = ".dsh/cordis.patch.yml"
 config_format = "dsh_cordis"
 name_style = "verbatim"
+
+[agents.grok]
+display_name = "Grok Build"
+instruction_path = ".grok/AGENTS.md"
+project_instruction_path = "AGENTS.md"
+skills_path = ".agents/skills"
+
+[agents.grok.runner]
+command = ["grok", "--cwd", "{workdir}", "-p", "{prompt}"]
 """
 
 MCPS_TOML_TEMPLATE = """# Aikito MCP Config
@@ -215,19 +233,54 @@ GITIGNORE_TEMPLATE = """# Aikito Git Ignore Rules
 """
 
 
+AGENT_INSTALL_MARKERS = {
+    "codex": ("Codex", "codex", Path(".codex")),
+    "claude-code": ("Claude Code", "claude", Path(".claude")),
+    "agy": ("Antigravity CLI", "agy", Path(".gemini/config")),
+    "opencode": ("OpenCode", "opencode", Path(".config/opencode")),
+    "github-copilot": ("GitHub Copilot CLI", "copilot", Path(".copilot")),
+    "dsh": ("DeepSeek Harness", "dsh", Path(".dsh")),
+    "grok": ("Grok Build", "grok", Path(".grok")),
+}
+
+
 def _detect_existing_agents(home: Path) -> List[Tuple[str, Path]]:
-    candidates = [
-        ("Claude Code", home / ".claude"),
-        ("Codex", home / ".codex"),
-        ("Antigravity (AGY)", home / ".gemini" / "config"),
-        ("GitHub Copilot CLI", home / ".copilot"),
-        ("Agents Runtime", home / ".agents"),
-    ]
+    """Return installed registry agents in template order."""
     detected = []
-    for name, p in candidates:
-        if p.exists():
-            detected.append((name, p))
+    for display_name, binary, relative_marker in AGENT_INSTALL_MARKERS.values():
+        marker = home / relative_marker
+        executable = shutil.which(binary)
+        if executable or marker.exists():
+            detected.append((display_name, Path(executable) if executable else marker))
     return detected
+
+
+def _detected_agent_names(
+    detected_agents: List[Tuple[str, Path]],
+) -> tuple[str, ...]:
+    detected_display_names = {name for name, _ in detected_agents}
+    return tuple(
+        name
+        for name, (display_name, _binary, _marker) in AGENT_INSTALL_MARKERS.items()
+        if display_name in detected_display_names
+    )
+
+
+def _filter_agents_template(agent_names: tuple[str, ...]) -> str:
+    """Keep only detected top-level agent blocks from the bundled registry."""
+    matches = list(re.finditer(r"(?m)^\[agents\.([^.\]]+)\]\s*$", AGENTS_TOML_TEMPLATE))
+    preamble = AGENTS_TOML_TEMPLATE[: matches[0].start()].rstrip()
+    selected = set(agent_names)
+    blocks = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(
+            AGENTS_TOML_TEMPLATE
+        )
+        if match.group(1) in selected:
+            blocks.append(AGENTS_TOML_TEMPLATE[match.start() : end].strip())
+    if not blocks:
+        blocks.append("[agents]")
+    return preamble + "\n\n" + "\n\n".join(blocks) + "\n"
 
 
 def _bundled_skill_path(name: str) -> Path:
@@ -313,9 +366,15 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
             print(f"[CREATE DIR] {d}")
 
     # 2. Write configuration templates & files
+    detected_agents = _detect_existing_agents(home)
+    detected_agent_names = _detected_agent_names(detected_agents)
     files_to_create = [
         (target_dir / "config.toml", CONFIG_TOML_TEMPLATE, "Workspace config template"),
-        (target_dir / "agents.toml", AGENTS_TOML_TEMPLATE, "Agents config template"),
+        (
+            target_dir / "agents.toml",
+            _filter_agents_template(detected_agent_names),
+            "Detected agents config",
+        ),
         (target_dir / "skills.toml", SKILLS_TOML_TEMPLATE, "Global skills config"),
         (
             target_dir / "subagents.toml",
@@ -375,7 +434,6 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
         print(f"[SKIP GIT] Git repository already exists in {target_dir}")
 
     # 4. Check existing agents & print next-step hints
-    detected_agents = _detect_existing_agents(home)
     print("\n[SUCCESS] Aikito workspace initialization complete!")
 
     if detected_agents:
@@ -444,10 +502,21 @@ def _project_validation_error(
                     f"{resolved_saved_path}, not {project_path}."
                 )
 
-    agents_dir = project_path / ".agents"
-    agents_file = agents_dir / "AGENTS.md"
-    if agents_file.exists() and not agents_file.is_symlink():
-        return f"Unmanaged project instructions already exist: {agents_file}"
+    canonical_instructions = aikito_dir / "projects" / project_name / "AGENTS.md"
+    for target, agent_names in collect_project_instruction_targets(
+        aikito_dir, project_path, Path.home()
+    ).items():
+        if target.is_symlink():
+            if target.resolve(strict=False) == canonical_instructions.resolve(
+                strict=False
+            ):
+                continue
+        elif not target.exists():
+            continue
+        return (
+            f"Unmanaged project instructions for {', '.join(agent_names)} "
+            f"already exist: {target}"
+        )
 
     expected_entries = {"skills": set(), "memory": set()}
     if config_data is not None:
@@ -460,7 +529,7 @@ def _project_validation_error(
             )
 
     for managed_dir_name, allowed_entries in expected_entries.items():
-        managed_dir = agents_dir / managed_dir_name
+        managed_dir = project_path / ".agents" / managed_dir_name
         if managed_dir.is_symlink() or not managed_dir.exists():
             continue
         if not managed_dir.is_dir():

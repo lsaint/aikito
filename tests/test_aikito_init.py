@@ -69,6 +69,16 @@ class AikitoInitTest(unittest.TestCase):
         self.assertIn("/.venv/", gitignore_content)
 
     def test_init_workspace_creates_a_usable_default_configuration(self) -> None:
+        for marker in (
+            ".codex",
+            ".claude",
+            ".gemini/config",
+            ".config/opencode",
+            ".copilot",
+            ".dsh",
+            ".grok",
+        ):
+            (self.fake_home / marker).mkdir(parents=True)
         init_workspace(self.target_path, self.fake_home)
 
         agents = load_agents(self.target_path, self.fake_home)
@@ -83,6 +93,14 @@ class AikitoInitTest(unittest.TestCase):
             self.fake_home / ".agents/skills",
         )
         self.assertEqual(
+            agents["codex"].project_instruction_path,
+            Path("AGENTS.md"),
+        )
+        self.assertEqual(
+            agents["claude-code"].project_instruction_path,
+            Path(".claude/CLAUDE.md"),
+        )
+        self.assertEqual(
             agents["agy"].skills_path,
             self.fake_home / ".gemini/antigravity-cli/skills",
         )
@@ -95,12 +113,31 @@ class AikitoInitTest(unittest.TestCase):
             agent_config = tomllib.load(config_file)["agents"]
         self.assertEqual(
             set(agent_config),
-            {"codex", "claude-code", "agy", "opencode", "github-copilot", "dsh"},
+            {
+                "codex",
+                "claude-code",
+                "agy",
+                "opencode",
+                "github-copilot",
+                "dsh",
+                "grok",
+            },
         )
         for agent_name in agent_config:
             self.assertTrue(agent_config[agent_name]["runner"]["command"])
 
+    def test_init_workspace_registers_only_detected_agents(self) -> None:
+        (self.fake_home / ".claude").mkdir()
+
+        with patch("aikito_init.shutil.which", return_value=None):
+            init_workspace(self.target_path, self.fake_home)
+
+        with (self.target_path / "agents.toml").open("rb") as config_file:
+            agents = tomllib.load(config_file)["agents"]
+        self.assertEqual(set(agents), {"claude-code"})
+
     def test_init_workspace_skip_existing_unless_force(self) -> None:
+        (self.fake_home / ".codex").mkdir()
         # Initial run
         init_workspace(self.target_path, self.fake_home)
         agents_toml = self.target_path / "agents.toml"
@@ -191,6 +228,7 @@ class AikitoInitTest(unittest.TestCase):
         config = (project_dir / "agent.toml").read_text(encoding="utf-8")
         self.assertIn('name = "example"', config)
         self.assertIn('sync_mode = "link"', config)
+        self.assertNotIn("agents =", config)
 
     def test_project_operations_allow_workspace_at_cli_source_root(self) -> None:
         init_workspace(self.target_path, self.fake_home)

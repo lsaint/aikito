@@ -70,13 +70,14 @@ No database, daemon, vector store, or hosted service required.
 | --- | --- | --- |
 | Memory | `memory/`, `projects/<name>/memory/` | Global access and `<project>/.agents/memory/` |
 | Skills | `skills/<name>/` | Shared and project-level skill directories |
-| Instructions | `global/AGENTS.md`, `projects/<name>/AGENTS.md` | Agent-native and project runtime instructions |
+| Instructions | `global/AGENTS.md`, `projects/<name>/AGENTS.md` | Workspace Agent-native instruction paths |
 | MCP servers | `mcps/*.toml` | Native TOML, JSON, or JSONC configs |
 | Subagents | `subagents.toml`, `subagents/` | Native subagent definitions |
 
 The default registry includes Codex, Claude Code, Antigravity CLI (`agy`),
-OpenCode, GitHub Copilot CLI, and DeepSeek Harness (`dsh`). See the [architecture](docs/architecture.md) for the complete mental
-model and capability boundaries.
+OpenCode, GitHub Copilot CLI, DeepSeek Harness (`dsh`), and Grok Build. See the
+[architecture](docs/architecture.md) for the complete mental model and capability
+boundaries.
 
 ### Share or isolate
 
@@ -246,9 +247,10 @@ temporary override, which is useful for CI and isolated automation.
 │ OpenCode              │ ✓            │ 2 ›    │ –          │ –         │
 │ GitHub Copilot CLI    │ ✓            │ 2 ›    │ –          │ –         │
 │ DeepSeek Harness      │ ✓            │ 2 ›    │ –          │ –         │
+│ Grok Build            │ ✓            │ 2 ›    │ –          │ –         │
 └───────────────────────┴──────────────┴────────┴────────────┴───────────┘
 
-✓ all synced · 6 agents · 2 skills · 0 notes across 1 scopes
+✓ all synced · 7 agents · 2 skills · 0 notes across 1 scopes
 ```
 
 For building from source, custom install paths, or advanced configuration, see

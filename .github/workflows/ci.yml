@@ -76,6 +76,7 @@ jobs:
             ~/.codex \
             ~/.claude \
             ~/.copilot/agents \
+            ~/.grok \
             ~/.gemini/antigravity-cli \
             ~/.gemini/config \
             ~/.config/opencode
@@ -113,7 +114,9 @@ jobs:
             python3 bin/aikito init project example ${{ runner.temp }}/example-project
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito init project example ${{ runner.temp }}/example-project
-          test -L ${{ runner.temp }}/example-project/.agents/AGENTS.md
+          test ! -e ${{ runner.temp }}/example-project/.agents/AGENTS.md
+          test -L ${{ runner.temp }}/example-project/AGENTS.md
+          test -L ${{ runner.temp }}/example-project/.claude/CLAUDE.md
           test -L ${{ runner.temp }}/example-project/.agents/memory/index.md
 
       - name: aikito project inspection and dry-run
@@ -158,6 +161,7 @@ jobs:
           test -L ~/.agents/skills/ci-skill
           test -L ~/.codex/AGENTS.md
           test -L ~/.claude/skills
+          test -L ~/.grok/AGENTS.md
           test -L ~/.config/opencode/AGENTS.md
           test -f ~/.codex/config.toml
           test -f ~/.codex/agents/ci-subagent.toml

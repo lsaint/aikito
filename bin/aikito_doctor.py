@@ -25,6 +25,7 @@ from aikito_config import (
     get_workspace_config_path,
     load_workspace_config,
 )
+from aikito_init import AGENTS_TOML_TEMPLATE
 from aikito_link import SymlinkVerdict, classify_symlink
 from aikito_mcp import (
     MCPConfigError,
@@ -35,6 +36,7 @@ from aikito_mcp import (
     load_agents,
 )
 from aikito_memory import extract_note_title, validate_memory_name
+from aikito_registry import add_missing_agent_fields, missing_agent_fields
 from aikito_render import DoctorFinding, DoctorReport, DoctorSection
 from aikito_status import collect_subagents_matrix
 from aikito_subagent import (
@@ -675,6 +677,18 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
             with open(path, "rb") as f:
                 tomllib.load(f)
             findings.append(_ok(f"{filename}: valid TOML"))
+            if filename == "agents.toml":
+                for agent_name, fields in missing_agent_fields(
+                    path, AGENTS_TOML_TEMPLATE
+                ).items():
+                    field_names = ", ".join(".".join(field) for field in fields)
+                    findings.append(
+                        _warn(
+                            f"agents.toml [{agent_name}]: missing bundled fields: "
+                            f"{field_names}",
+                            "aikito doctor --fix",
+                        )
+                    )
         except tomllib.TOMLDecodeError as exc:
             findings.append(_fail(f"{filename}: TOML parse error — {exc}"))
 
@@ -1075,6 +1089,12 @@ def run_doctor_fixes(aikito_dir: Path) -> List[str]:
     Returns a list of human-readable descriptions of the fixes performed.
     """
     fixes: List[str] = []
+    agents_path = aikito_dir / "agents.toml"
+    if agents_path.is_file():
+        try:
+            fixes.extend(add_missing_agent_fields(agents_path, AGENTS_TOML_TEMPLATE))
+        except (OSError, tomllib.TOMLDecodeError):
+            pass
     scope_dirs = _memory_scope_dirs(aikito_dir)
 
     for scope_dir, scope_label, _proj_folder in scope_dirs:

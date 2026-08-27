@@ -37,7 +37,8 @@ projects/example/
 
 It is safe to run again and preserves existing canonical files. A project name
 already registered to another path, or unmanaged resources under the target
-`.agents/`, is reported as a conflict instead of being overwritten.
+`.agents/` or an agent-native instruction path, is reported as a conflict instead
+of being overwritten.
 
 ## Configure Project Resources
 
@@ -52,8 +53,9 @@ skills = ["durable-memory"]
 ```
 
 The project name identifies its workspace configuration. The `path` points to
-the project receiving the managed `.agents/` runtime directory. `sync_mode`
-controls only the selected project skills:
+the project receiving the managed resources. Native project instruction paths
+come from the workspace root `agents.toml`; project configs do not duplicate
+that list. `sync_mode` controls only the selected project skills:
 
 - Keep the default `link` mode when this Aikito workspace is the shared source
   of truth and projects should receive skill updates immediately.

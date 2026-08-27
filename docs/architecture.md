@@ -64,13 +64,16 @@ Aikito calls the resource “instructions” while retaining the ecosystem-stand
 
 Integrations are capability-based. An Agent may participate in instructions,
 skills, MCP, or subagent synchronization independently. The default registry
-contains Codex, Claude Code, Antigravity CLI (`agy`), OpenCode, GitHub Copilot CLI, and DeepSeek Harness (`dsh`).
+contains Codex, Claude Code, Antigravity CLI (`agy`), OpenCode, GitHub Copilot
+CLI, DeepSeek Harness (`dsh`), and Grok Build.
 
 ## Project Runtime Directory
 
 Project synchronization creates a managed `.agents/` directory in the target
-project. Project instructions and memory use symbolic links so their canonical
-content remains in the Aikito workspace. Skills use the project's configured
+project for skills and memory. Project instructions are linked only to each
+workspace-registered agent's configured `project_instruction_path`; paths shared
+by multiple agents are created once. Aikito refuses to replace unmanaged content
+at any instruction target. Skills use the project's configured
 `sync_mode`, which can link or copy them.
 
 ### Project Skill Sync Modes

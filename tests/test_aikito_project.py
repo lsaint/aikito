@@ -29,12 +29,19 @@ class ProjectSummaryTest(unittest.TestCase):
                 'skills = ["example"]\nmemory = []\n',
                 encoding="utf-8",
             )
+            (workspace / "agents.toml").write_text(
+                '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n'
+                '[agents.claude-code]\nproject_instruction_path = ".claude/CLAUDE.md"\n',
+                encoding="utf-8",
+            )
             (definition / "AGENTS.md").write_text("Project rules\n", encoding="utf-8")
             (definition / "memory" / "index.md").write_text(
                 "# Index\n", encoding="utf-8"
             )
             (notes / "one.md").write_text("# One\n", encoding="utf-8")
-            (runtime / "AGENTS.md").symlink_to(definition / "AGENTS.md")
+            (project / "AGENTS.md").symlink_to(definition / "AGENTS.md")
+            (project / ".claude").mkdir()
+            (project / ".claude" / "CLAUDE.md").symlink_to(definition / "AGENTS.md")
             (runtime / "skills" / "example").symlink_to(skill)
             (runtime / "memory" / "index.md").symlink_to(
                 definition / "memory" / "index.md"
@@ -90,6 +97,10 @@ class ProjectSummaryTest(unittest.TestCase):
             (definition / "agent.toml").write_text(
                 f'path = "{project}"\nskills = []\n', encoding="utf-8"
             )
+            (root / "agents.toml").write_text(
+                '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n',
+                encoding="utf-8",
+            )
             (definition / "AGENTS.md").write_text("Rules\n", encoding="utf-8")
             (definition / "memory").mkdir()
             (definition / "memory" / "index.md").write_text(
@@ -101,7 +112,7 @@ class ProjectSummaryTest(unittest.TestCase):
 
         self.assertIn("Sync: MISSING", detail)
         self.assertIn("Issues:", detail)
-        self.assertIn("Instructions [MISSING]: Missing", detail)
+        self.assertIn("Instructions (codex) [MISSING]: Missing", detail)
         self.assertIn("Memory [MISSING]", detail)
 
 

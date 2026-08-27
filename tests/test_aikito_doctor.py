@@ -3,6 +3,7 @@
 import json
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -248,6 +249,18 @@ class CheckConfigSyntaxTest(unittest.TestCase):
             any("agents.toml" in f.message for f in fails),
             msg="Expected agents.toml missing failure",
         )
+
+    def test_missing_bundled_agent_fields_produce_fixable_warning(self) -> None:
+        self._write_minimal_toml_files()
+        (self.aikito_dir / "agents.toml").write_text(
+            '[agents.codex]\ndisplay_name = "Custom Codex"\n', encoding="utf-8"
+        )
+
+        section = check_config_syntax(self.aikito_dir, self.home)
+
+        warnings = [finding for finding in section.findings if finding.status == "WARN"]
+        self.assertTrue(any("project_instruction_path" in f.message for f in warnings))
+        self.assertTrue(all(f.fix_hint == "aikito doctor --fix" for f in warnings))
 
 
 class CheckSymlinksTest(unittest.TestCase):
@@ -999,6 +1012,24 @@ class DoctorFixesTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
+
+    def test_run_doctor_fixes_adds_missing_agent_fields_without_overwrite(self) -> None:
+        from aikito_doctor import run_doctor_fixes
+
+        self.aikito_dir.mkdir(exist_ok=True)
+        agents_path = self.aikito_dir / "agents.toml"
+        agents_path.write_text(
+            '[agents.codex]\ndisplay_name = "Custom Codex"\n', encoding="utf-8"
+        )
+
+        fixes = run_doctor_fixes(self.aikito_dir)
+
+        with agents_path.open("rb") as config_file:
+            codex = tomllib.load(config_file)["agents"]["codex"]
+        self.assertEqual(codex["display_name"], "Custom Codex")
+        self.assertEqual(codex["project_instruction_path"], "AGENTS.md")
+        self.assertEqual(codex["runner"]["command"][0], "codex")
+        self.assertTrue(any("project_instruction_path" in fix for fix in fixes))
 
     def test_run_doctor_fixes_reconciles_memory_index(self) -> None:
         from aikito_doctor import run_doctor_fixes
