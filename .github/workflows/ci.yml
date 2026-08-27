@@ -76,7 +76,7 @@ jobs:
             ~/.codex \
             ~/.claude \
             ~/.copilot/agents \
-            ~/.grok \
+            ~/.grok/rules \
             ~/.gemini/antigravity-cli \
             ~/.gemini/config \
             ~/.config/opencode
@@ -161,7 +161,7 @@ jobs:
           test -L ~/.agents/skills/ci-skill
           test -L ~/.codex/AGENTS.md
           test -L ~/.claude/skills
-          test -L ~/.grok/AGENTS.md
+          test -L ~/.grok/rules/aikito.md
           test -L ~/.config/opencode/AGENTS.md
           test -f ~/.codex/config.toml
           test -f ~/.codex/agents/ci-subagent.toml
