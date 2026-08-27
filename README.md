@@ -120,7 +120,7 @@ example looks like this:
 │ Global │ commit-message-style  │ Conventional commits, English only  │ ✓     │ –    │
 │ Global │ review-tone           │ Ask before large refactors          │ ✓     │ –    │
 ├────────┼───────────────────────┼─────────────────────────────────────┼───────┼──────┤
-│ aikito │ architecture-decisions │ Stable project design constraints   │ ✓     │ ✓    │
+│ aikito │ architecture-decisions│ Stable project design constraints   │ ✓     │ ✓    │
 │ aikito │ release-checklist     │ Tag only after tests pass           │ ✓     │ ✓    │
 ├────────┼───────────────────────┼─────────────────────────────────────┼───────┼──────┤
 │ blog   │ draft-workflow        │ Drafts live in content/ until dated │ ✓     │ ✓    │
