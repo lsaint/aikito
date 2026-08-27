@@ -225,8 +225,9 @@ class AikitoInitTest(unittest.TestCase):
         project_path = Path(self.tmp_dir.name) / "example"
         project_path.mkdir()
 
-        with patch("pathlib.Path.home", return_value=self.fake_home):
-            project_name = init_project(self.target_path, project_path)
+        project_name = init_project(
+            self.target_path, project_path, home=self.fake_home
+        )
 
         self.assertEqual(project_name, "example")
         project_dir = self.target_path / "projects" / "example"
@@ -250,7 +251,9 @@ class AikitoInitTest(unittest.TestCase):
                 init_project(self.target_path, project_path, "example"), "example"
             )
             self.assertIsNone(
-                project_sync_validation_error(self.target_path, "example", project_path)
+                project_sync_validation_error(
+                    self.target_path, "example", project_path, self.fake_home
+                )
             )
 
     def test_init_project_is_idempotent(self) -> None:
@@ -277,6 +280,19 @@ class AikitoInitTest(unittest.TestCase):
             init_project(self.target_path, first_path, "example"), "example"
         )
         self.assertIsNone(init_project(self.target_path, second_path, "example"))
+
+    def test_init_project_reports_malformed_agent_registry(self) -> None:
+        init_workspace(self.target_path, self.fake_home)
+        project_path = Path(self.tmp_dir.name) / "example"
+        project_path.mkdir()
+        (self.target_path / "agents.toml").write_text(
+            "[agents]\nbroken = 1\n", encoding="utf-8"
+        )
+
+        self.assertIsNone(
+            init_project(self.target_path, project_path, home=self.fake_home)
+        )
+        self.assertFalse((self.target_path / "projects" / "example").exists())
 
     def test_init_project_rejects_unmanaged_runtime_resources(self) -> None:
         init_workspace(self.target_path, self.fake_home)

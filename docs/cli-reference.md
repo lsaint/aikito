@@ -84,6 +84,10 @@ Use `--dry-run` to preview project, MCP, and subagent synchronization, and consu
 Missing fields are warnings; `doctor --fix` adds bundled defaults without
 replacing existing values. Installed supported Agents missing from the registry
 are also reported and can be added by `doctor --fix`.
+It also reports each project's native instruction, skill, and memory runtime
+issues. Missing resources point to `sync project`; conflicts remain read-only
+and point to `show project` for review. Findings are aggregated per project;
+when missing resources and conflicts coexist, the conflict action wins.
 
 `aikito maintain memory` defaults to the project containing the current
 directory and launches the `codex` runner configured in `agents.toml`. Use

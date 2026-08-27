@@ -5,7 +5,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from aikito_mcp import collect_project_instruction_targets
+from aikito_mcp import MCPConfigError, collect_project_instruction_targets
 
 
 @dataclass(frozen=True)
@@ -247,21 +247,25 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
         else:
             agents_dir = project_path / ".agents"
             statuses: list[str] = []
-            if (aikito_dir / "agents.toml").is_file():
-                for target, agent_names in collect_project_instruction_targets(
+            try:
+                instruction_targets = collect_project_instruction_targets(
                     aikito_dir, project_path, home
-                ).items():
-                    status = _link_status(target, instructions)
-                    statuses.append(status)
-                    details.append(
-                        ProjectResourceDetail(
-                            f"Instructions ({', '.join(agent_names)})",
-                            instructions,
-                            target,
-                            status,
-                            _link_issue(target, instructions, status),
-                        )
+                )
+            except MCPConfigError:
+                # An unreadable agent registry is reported by doctor, not here.
+                instruction_targets = {}
+            for target, agent_names in instruction_targets.items():
+                status = _link_status(target, instructions)
+                statuses.append(status)
+                details.append(
+                    ProjectResourceDetail(
+                        f"Instructions ({', '.join(agent_names)})",
+                        instructions,
+                        target,
+                        status,
+                        _link_issue(target, instructions, status),
                     )
+                )
 
             skills_runtime = agents_dir / "skills"
             selected_skills = set(skill_names)

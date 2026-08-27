@@ -456,7 +456,7 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     validation_error = project_sync_validation_error(
-        aikito_dir, project_name, project_path
+        aikito_dir, project_name, project_path, Path.home()
     )
     if validation_error:
         print(f"[ERROR] {validation_error}", file=sys.stderr)

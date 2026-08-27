@@ -12,7 +12,7 @@ from typing import List, Optional, Tuple
 
 import tomllib
 
-from aikito_mcp import collect_project_instruction_targets
+from aikito_mcp import MCPConfigError, collect_project_instruction_targets
 
 
 CLI_SOURCE_ROOT = Path(__file__).resolve().parents[1]
@@ -479,6 +479,7 @@ def _project_validation_error(
     aikito_dir: Path,
     project_name: str,
     project_path: Path,
+    home: Path,
     *,
     reject_unexpected_entries: bool,
 ) -> Optional[str]:
@@ -513,9 +514,13 @@ def _project_validation_error(
                 )
 
     canonical_instructions = aikito_dir / "projects" / project_name / "AGENTS.md"
-    for target, agent_names in collect_project_instruction_targets(
-        aikito_dir, project_path, Path.home()
-    ).items():
+    try:
+        instruction_targets = collect_project_instruction_targets(
+            aikito_dir, project_path, home
+        )
+    except MCPConfigError as exc:
+        return str(exc)
+    for target, agent_names in instruction_targets.items():
         if target.is_symlink():
             if target.resolve(strict=False) == canonical_instructions.resolve(
                 strict=False
@@ -559,38 +564,46 @@ def _project_validation_error(
 
 
 def project_validation_error(
-    aikito_dir: Path, project_name: str, project_path: Path
+    aikito_dir: Path, project_name: str, project_path: Path, home: Path
 ) -> Optional[str]:
     """Validate registration, where every pre-existing runtime entry is foreign."""
     return _project_validation_error(
         aikito_dir,
         project_name,
         project_path,
+        home,
         reject_unexpected_entries=True,
     )
 
 
 def project_sync_validation_error(
-    aikito_dir: Path, project_name: str, project_path: Path
+    aikito_dir: Path, project_name: str, project_path: Path, home: Path
 ) -> Optional[str]:
     """Validate repeat sync structure before managed-entry ownership is planned."""
     return _project_validation_error(
         aikito_dir,
         project_name,
         project_path,
+        home,
         reject_unexpected_entries=False,
     )
 
 
 def init_project(
-    aikito_dir: Path, project_path: Path, project_name: Optional[str] = None
+    aikito_dir: Path,
+    project_path: Path,
+    project_name: Optional[str] = None,
+    home: Optional[Path] = None,
 ) -> Optional[str]:
     """Create an idempotent canonical project definition and return its name."""
     aikito_dir = aikito_dir.expanduser().resolve()
     project_path = project_path.expanduser().resolve()
     resolved_name = project_name or project_path.name
+    home = home or Path.home()
 
-    validation_error = project_validation_error(aikito_dir, resolved_name, project_path)
+    validation_error = project_validation_error(
+        aikito_dir, resolved_name, project_path, home
+    )
     if validation_error:
         print(f"[ERROR] {validation_error}", file=sys.stderr)
         return None
@@ -602,7 +615,7 @@ def init_project(
 
     config_path = project_dir / "agent.toml"
     if not config_path.exists():
-        display_path = _display_path(project_path, Path.home())
+        display_path = _display_path(project_path, home)
         config_path.write_text(
             f'name = "{resolved_name}"\n'
             f'path = "{display_path}"\n'

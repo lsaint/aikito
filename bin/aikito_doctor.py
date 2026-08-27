@@ -40,6 +40,7 @@ from aikito_mcp import (
     load_agents,
 )
 from aikito_memory import extract_note_title, validate_memory_name
+from aikito_project import collect_project_summaries
 from aikito_registry import add_missing_agent_fields, missing_agent_fields
 from aikito_render import DoctorFinding, DoctorReport, DoctorSection
 from aikito_status import collect_subagents_matrix
@@ -840,6 +841,43 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
     return DoctorSection(name="Configuration", findings=findings)
 
 
+def check_projects(aikito_dir: Path, home: Path) -> DoctorSection:
+    """Report project runtime health using the same model as `show project`."""
+    findings: List[DoctorFinding] = []
+    projects = collect_project_summaries(aikito_dir, home)
+    for project in projects:
+        if project.runtime_status == "OK":
+            continue
+        if project.details:
+            counts: dict[str, int] = {}
+            for detail in project.details:
+                if detail.status != "OK":
+                    counts[detail.status] = counts.get(detail.status, 0) + 1
+            summary = ", ".join(
+                f"{count} {status.lower()}"
+                for status in ("MISSING", "DRIFT", "CONFLICT")
+                if (count := counts.get(status, 0))
+            )
+            message = f"Project '{project.name}': {project.runtime_status}"
+            if summary:
+                message += f" — {summary}"
+        else:
+            message = f"Project '{project.name}': {project.runtime_status}"
+            if project.error:
+                message += f" — {project.error}"
+
+        action = (
+            f"aikito sync project {project.name}"
+            if project.runtime_status == "MISSING"
+            else f"aikito show project {project.name}"
+        )
+        findings.append(_fail(message, action))
+
+    if not findings:
+        findings.append(_ok(f"Project runtimes OK ({len(projects)} projects)"))
+    return DoctorSection(name="Projects", findings=findings)
+
+
 # ---------------------------------------------------------------------------
 # §5 Fingerprint Drift
 # ---------------------------------------------------------------------------
@@ -1200,6 +1238,7 @@ def run_doctor(
         check_drift(aikito_dir, home),
         check_security(aikito_dir, home),
         check_environment(aikito_dir, home),
+        check_projects(aikito_dir, home),
         # Keep check_config_syntax last: it's the slowest section (parses every
         # workspace config file), so cheaper checks report first.
         check_config_syntax(aikito_dir, home),

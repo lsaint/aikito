@@ -18,6 +18,7 @@ from aikito_doctor import (  # noqa: E402
     check_drift,
     check_environment,
     check_orphans,
+    check_projects,
     check_security,
     check_symlinks,
     run_doctor,
@@ -200,6 +201,70 @@ class RenderDoctorReportTest(unittest.TestCase):
         report = self._make_report()
         self.assertEqual(report.fail_count, 1)
         self.assertEqual(report.warn_count, 1)
+
+
+# ---------------------------------------------------------------------------
+# Doctor project runtime tests
+# ---------------------------------------------------------------------------
+
+
+class CheckProjectsTest(unittest.TestCase):
+    def test_reports_missing_native_instructions_with_sync_hint(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            workspace = root / "workspace"
+            project = root / "project"
+            definition = workspace / "projects" / "demo"
+            project.mkdir()
+            definition.mkdir(parents=True)
+            (workspace / "agents.toml").write_text(
+                '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n',
+                encoding="utf-8",
+            )
+            (definition / "agent.toml").write_text(
+                f'path = "{project}"\nskills = []\n', encoding="utf-8"
+            )
+            (definition / "AGENTS.md").write_text("Rules\n", encoding="utf-8")
+            (definition / "memory").mkdir()
+
+            section = check_projects(workspace, root)
+
+        failures = [finding for finding in section.findings if finding.status == "FAIL"]
+        self.assertEqual(len(failures), 1)
+        self.assertIn("Project 'demo': MISSING — 1 missing", failures[0].message)
+        self.assertTrue(
+            any(f.fix_hint == "aikito sync project demo" for f in failures)
+        )
+
+    def test_conflict_suppresses_sync_hint_for_same_project(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            workspace = root / "workspace"
+            project = root / "project"
+            definition = workspace / "projects" / "demo"
+            project.mkdir()
+            definition.mkdir(parents=True)
+            (workspace / "agents.toml").write_text(
+                '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n'
+                '[agents.claude-code]\n'
+                'project_instruction_path = ".claude/CLAUDE.md"\n',
+                encoding="utf-8",
+            )
+            (definition / "agent.toml").write_text(
+                f'path = "{project}"\nskills = []\n', encoding="utf-8"
+            )
+            (definition / "AGENTS.md").write_text("Rules\n", encoding="utf-8")
+            (definition / "memory").mkdir()
+            (project / "AGENTS.md").write_text("Unmanaged\n", encoding="utf-8")
+
+            section = check_projects(workspace, root)
+
+        self.assertEqual(len(section.findings), 1)
+        finding = section.findings[0]
+        self.assertEqual(finding.status, "FAIL")
+        self.assertIn("Project 'demo': CONFLICT", finding.message)
+        self.assertIn("1 missing, 1 conflict", finding.message)
+        self.assertEqual(finding.fix_hint, "aikito show project demo")
 
 
 # ---------------------------------------------------------------------------
@@ -693,7 +758,7 @@ class RunDoctorIntegrationTest(unittest.TestCase):
         # Run against the actual aikito workspace (read-only)
         report = run_doctor(ROOT, Path(tempfile.gettempdir()))
         self.assertIsInstance(report, DoctorReport)
-        self.assertTrue(len(report.sections) == 7)
+        self.assertTrue(len(report.sections) == 8)
         # All section names present
         names = {s.name for s in report.sections}
         for expected in (

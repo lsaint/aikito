@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   workspace root `agents.toml`.
 - Added Agent registry schema and installed-Agent diagnostics with additive
   `doctor --fix` migration.
+- Added project runtime diagnostics to `doctor`, sharing the same missing,
+  drift, and conflict model as `show project`.
 - Added Grok Build global and project instructions, shared skills, MCP,
   subagents, installed-Agent diagnostics, and headless runner registration.
 
@@ -22,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instructions now use only agent-native discovery paths.
 - Workspace initialization now registers only locally detected Agents, and
   project `agent.toml` files no longer duplicate the Agent list.
+- Project doctor findings are aggregated by project so conflicts suppress
+  unsafe synchronization hints.
 
 ## [1.17.0] - 2026-08-26
 
