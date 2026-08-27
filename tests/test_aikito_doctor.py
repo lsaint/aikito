@@ -626,6 +626,9 @@ class CheckDriftAndSecurityTest(unittest.TestCase):
         self.aikito_dir.mkdir()
         self.home = self.root / "home"
         self.home.mkdir()
+        # Marker directory: simulate an installed Claude Code so canonical
+        # detection passes without depending on the host PATH.
+        (self.home / ".claude").mkdir()
 
         (self.aikito_dir / "agents.toml").write_text(
             """

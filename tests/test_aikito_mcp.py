@@ -282,6 +282,7 @@ class SynchronizationTest(unittest.TestCase):
         self.home = self.root / "home"
         self.aikito_dir.mkdir(parents=True)
         (self.home / ".codex").mkdir(parents=True)
+        (self.home / ".claude").mkdir(parents=True)
         (self.home / ".config/opencode").mkdir(parents=True)
         (self.home / ".gemini/config").mkdir(parents=True)
         (self.aikito_dir / "agents.toml").write_text(AGENTS_TOML)
