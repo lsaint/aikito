@@ -80,10 +80,10 @@ should use WSL2.
 
 ## Managed Project Directories
 
-The target project's `.agents/skills/` and `.agents/memory/` directories are
-owned exclusively by Aikito. Project synchronization rejects entries that are
-not selected by the project configuration without deleting them. Never place
-unrelated files there.
+Project `.agents/skills/` is shared at entry level. Aikito manages only selected
+skill names, preserves other project-owned entries, and reports a conflict only
+when a selected name is already owned by the project. `.agents/memory/` remains
+exclusively managed by Aikito. Synchronization never deletes unknown content.
 
 ## Recovery Practice
 

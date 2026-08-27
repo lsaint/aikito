@@ -517,7 +517,6 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
         allow_drifted_copies=sync_mode == "copy",
     )
     cleanup_conflicts = (
-        *skill_cleanup.conflicts,
         *memory_cleanup.conflicts,
         *selected_skill_conflicts,
     )
@@ -526,6 +525,8 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
             print(f"[CONFLICT] Unmanaged project runtime item: {path}", file=sys.stderr)
         print("[ERROR] Project synchronization aborted.", file=sys.stderr)
         sys.exit(1)
+    for path in skill_cleanup.conflicts:
+        print(f"[INFO] Preserving project-owned skill: {path}")
 
     if sync_mode == "copy":
         states = [

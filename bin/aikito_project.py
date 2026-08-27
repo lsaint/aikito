@@ -47,6 +47,7 @@ class ProjectSummary:
     memory_refs: tuple[str, ...] = ()
     details: tuple[ProjectResourceDetail, ...] = ()
     instructions_notice: str = ""
+    skills_notice: str = ""
     error: str = ""
 
 
@@ -242,6 +243,7 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
         )
         details: list[ProjectResourceDetail] = []
         instructions_notice = ""
+        skills_notice = ""
         if project_path is None:
             runtime_status = "UNBOUND"
         elif not project_path.is_dir():
@@ -310,11 +312,15 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
                 allow_matching_copies=True,
             )
             skill_issues: list[str] = []
-            if selected_conflicts or cleanup_plan.conflicts:
+            if cleanup_plan.conflicts:
+                skills_notice = "Project-owned skills detected: " + ", ".join(
+                    path.name for path in cleanup_plan.conflicts
+                )
+            if selected_conflicts:
                 skills_status = "CONFLICT"
                 skill_issues.extend(
-                    f"Unmanaged runtime entry: {path}"
-                    for path in (*selected_conflicts, *cleanup_plan.conflicts)
+                    f"Selected skill conflicts with project-owned entry: {path}"
+                    for path in selected_conflicts
                 )
             elif cleanup_plan.cleanup:
                 skills_status = "DRIFT"
@@ -416,6 +422,7 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
                 memory_refs=memory_refs,
                 details=tuple(details),
                 instructions_notice=instructions_notice,
+                skills_notice=skills_notice,
             )
         )
     return summaries

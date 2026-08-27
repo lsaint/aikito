@@ -113,6 +113,29 @@ class ProjectSummaryTest(unittest.TestCase):
         self.assertIn("Notice: Project-owned AGENTS.md detected:", detail)
         self.assertNotIn("Issues:", detail)
 
+    def test_project_owned_unselected_skill_is_only_a_notice(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            project = root / "project"
+            definition = root / "projects" / "demo"
+            project_owned = project / ".agents" / "skills" / "local-skill"
+            project_owned.mkdir(parents=True)
+            definition.mkdir(parents=True)
+            (project_owned / "SKILL.md").write_text("Local\n", encoding="utf-8")
+            (definition / "agent.toml").write_text(
+                f'path = "{project}"\nskills = []\n', encoding="utf-8"
+            )
+            (root / "agents.toml").write_text("[agents]\n", encoding="utf-8")
+            (definition / "AGENTS.md").write_text("", encoding="utf-8")
+            (definition / "memory").mkdir()
+
+            summary = collect_project_summaries(root, root)[0]
+            detail = render_project_detail(summary, False, False)
+
+        self.assertEqual(summary.runtime_status, "OK")
+        self.assertIn("Notice: Project-owned skills detected: local-skill", detail)
+        self.assertNotIn("Issues:", detail)
+
     def test_detail_explains_resource_sync_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

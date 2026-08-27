@@ -174,15 +174,36 @@ class ProjectSyncSafetyTest(unittest.TestCase):
         with patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.workspace):
             args.func(args)
 
-    def test_rejects_unmanaged_runtime_entries_without_deleting_them(self) -> None:
+    def test_preserves_project_owned_unselected_skills(self) -> None:
         unmanaged = self.project / ".agents" / "skills" / "keep-me"
         unmanaged.mkdir(parents=True)
         (unmanaged / "data.txt").write_text("keep\n", encoding="utf-8")
 
+        self._run_sync()
+
+        self.assertEqual((unmanaged / "data.txt").read_text(encoding="utf-8"), "keep\n")
+
+    def test_rejects_project_owned_skill_selected_by_aikito(self) -> None:
+        canonical = self.workspace / "skills" / "example-skill"
+        canonical.mkdir()
+        (canonical / "SKILL.md").write_text("canonical\n", encoding="utf-8")
+        config = self.workspace / "projects" / "example" / "agent.toml"
+        config.write_text(
+            config.read_text(encoding="utf-8").replace(
+                "skills = []", 'skills = ["example-skill"]'
+            ),
+            encoding="utf-8",
+        )
+        project_owned = self.project / ".agents" / "skills" / "example-skill"
+        project_owned.mkdir(parents=True)
+        (project_owned / "SKILL.md").write_text("project\n", encoding="utf-8")
+
         with self.assertRaises(SystemExit):
             self._run_sync()
 
-        self.assertEqual((unmanaged / "data.txt").read_text(encoding="utf-8"), "keep\n")
+        self.assertEqual(
+            (project_owned / "SKILL.md").read_text(encoding="utf-8"), "project\n"
+        )
 
     def test_dry_run_does_not_create_runtime_or_persist_path(self) -> None:
         runtime = self.project / ".agents"

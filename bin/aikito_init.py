@@ -558,6 +558,8 @@ def _project_validation_error(
             continue
         if not managed_dir.is_dir():
             return f"Unmanaged project resources already exist: {managed_dir}"
+        if managed_dir_name == "skills":
+            continue
         if not reject_unexpected_entries:
             continue
         unexpected_entries = {

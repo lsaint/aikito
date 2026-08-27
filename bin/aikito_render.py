@@ -768,6 +768,8 @@ def render_project_detail(
         lines.append(f"Error: {project.error}")
     if project.instructions_notice:
         lines.append(f"Notice: {project.instructions_notice}")
+    if project.skills_notice:
+        lines.append(f"Notice: {project.skills_notice} (not managed by Aikito)")
     issues = [detail for detail in project.details if detail.status != "OK"]
     if issues:
         lines.append("Issues:")

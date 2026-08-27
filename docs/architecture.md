@@ -105,12 +105,10 @@ versions. Make lasting improvements in the canonical skill, or reconcile
 project changes back into it before synchronizing again. Synchronization stops
 on drift unless `--force` is supplied after review.
 
-The `.agents/skills/` and `.agents/memory/` directories are exclusively managed
-by Aikito. Entries not selected by the project configuration are unmanaged
-conflicts unless ownership can be proven from an Aikito workspace symlink or an
-unchanged canonical copy. Proven stale entries are removed; synchronization
-stops without deleting everything else. Do not store unrelated files in those
-directories.
+Project `.agents/skills/` uses entry-level ownership. Skills not selected by the
+project configuration coexist as project-owned entries and appear as notices;
+only selected-name collisions are conflicts. Proven stale Aikito entries are
+removed. `.agents/memory/` remains exclusively managed by Aikito.
 
 ## Synchronization Behavior
 
