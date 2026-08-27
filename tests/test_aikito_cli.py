@@ -392,20 +392,29 @@ class InitSubcommandParserTest(unittest.TestCase):
             canonical = workspace / "projects" / "example"
             runtime = project / ".agents"
             self.assertFalse((runtime / "AGENTS.md").exists())
-            self.assertEqual(
-                (project / "AGENTS.md").resolve(),
-                (canonical / "AGENTS.md").resolve(),
-            )
-            self.assertEqual(
-                (project / ".claude" / "CLAUDE.md").resolve(),
-                (canonical / "AGENTS.md").resolve(),
-            )
+            self.assertFalse((project / "AGENTS.md").exists())
+            self.assertFalse((project / ".claude" / "CLAUDE.md").exists())
             self.assertEqual(
                 (runtime / "memory" / "index.md").resolve(),
                 (canonical / "memory" / "index.md").resolve(),
             )
 
-    def test_sync_project_refuses_unmanaged_native_instructions(self) -> None:
+            (project / "AGENTS.md").symlink_to(canonical / "AGENTS.md")
+            (project / ".claude").mkdir()
+            (project / ".claude" / "CLAUDE.md").symlink_to(
+                canonical / "AGENTS.md"
+            )
+            sync_args = AIKITO_CLI.build_parser().parse_args(
+                ["sync", "project", "example"]
+            )
+            with patch.object(AIKITO_CLI, "get_aikito_dir", return_value=workspace):
+                sync_args.func(sync_args)
+            self.assertFalse((project / "AGENTS.md").exists())
+            self.assertFalse((project / ".claude" / "CLAUDE.md").exists())
+
+    def test_init_project_preserves_project_owned_instructions_when_canonical_empty(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             workspace = root / "workspace"
@@ -419,7 +428,6 @@ class InitSubcommandParserTest(unittest.TestCase):
             with (
                 patch.object(AIKITO_CLI, "get_aikito_dir", return_value=workspace),
                 patch.object(AIKITO_CLI.Path, "cwd", return_value=project),
-                self.assertRaises(SystemExit),
             ):
                 args.func(args)
 
@@ -438,6 +446,9 @@ class InitSubcommandParserTest(unittest.TestCase):
             with patch("aikito_init.shutil.which", return_value=None):
                 AIKITO_CLI.init_workspace(workspace, root)
             AIKITO_CLI.init_project(workspace, project, "example")
+            (workspace / "projects" / "example" / "AGENTS.md").write_text(
+                "Project rules\n", encoding="utf-8"
+            )
             config_path = workspace / "projects" / "example" / "agent.toml"
             config_path.write_text(
                 config_path.read_text(encoding="utf-8") + 'agents = ["codex"]\n',

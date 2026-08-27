@@ -57,6 +57,10 @@ the project receiving the managed resources. Native project instruction paths
 come from the workspace root `agents.toml`; project configs do not duplicate
 that list. `sync_mode` controls only the selected project skills:
 
+An empty canonical project `AGENTS.md` disables instruction synchronization.
+Aikito removes only its own obsolete links and leaves a repository-owned
+`AGENTS.md` untouched; `show project` reports that file as an informational notice.
+
 - Keep the default `link` mode when this Aikito workspace is the shared source
   of truth and projects should receive skill updates immediately.
 - Choose `copy` when the project repository should contain and track a managed

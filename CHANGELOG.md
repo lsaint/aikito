@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   project `agent.toml` files no longer duplicate the Agent list.
 - Project doctor findings are aggregated by project so conflicts suppress
   unsafe synchronization hints.
+- Empty canonical project instructions no longer create native links; managed
+  legacy links are cleaned while project-owned `AGENTS.md` files are preserved.
 
 ## [1.17.0] - 2026-08-26
 

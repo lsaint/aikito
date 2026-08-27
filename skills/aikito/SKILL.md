@@ -203,6 +203,9 @@ to replace drifted copies; merge changes that should survive, or use
 Project instructions are linked for every Agent registered in the workspace root
 `agents.toml`, using each configured `project_instruction_path`. Shared targets
 are deduplicated, and an existing unmanaged file or link is always a conflict.
+An empty canonical project `AGENTS.md` disables these links. Synchronization
+cleans only links proven to target that canonical file, while `show project`
+reports a repository-owned `AGENTS.md` as an informational notice.
 
 The target `.agents/skills/` and `.agents/memory/` directories are exclusively
 managed by Aikito. Unknown entries are conflicts and are never deleted by

@@ -596,7 +596,12 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
         instruction_targets = collect_project_instruction_targets(
             aikito_dir, project_path, Path.home()
         )
+        instructions_enabled = bool(
+            proj_agents_md.read_text(encoding="utf-8", errors="replace").strip()
+        )
         possible_stale_targets = {agents_dir / "AGENTS.md"}
+        if not instructions_enabled:
+            possible_stale_targets.update(instruction_targets)
         managed_stale_targets = tuple(
             sorted(
                 target
@@ -607,6 +612,12 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
             )
         )
         apply_runtime_cleanup(managed_stale_targets, dry_run)
+        if not instructions_enabled:
+            print(
+                f"[INFO] Project instructions are empty for '{project_name}'; "
+                "no Agent-native instruction links are required."
+            )
+            instruction_targets = {}
         instruction_results = []
         for target, agent_names in instruction_targets.items():
             print(f"[INFO] Project instructions for {', '.join(agent_names)}")

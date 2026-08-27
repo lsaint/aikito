@@ -87,6 +87,32 @@ class ProjectSummaryTest(unittest.TestCase):
         self.assertIn("Sync: PATH MISSING", detail)
         self.assertIn("Project: directory does not exist:", detail)
 
+    def test_empty_canonical_instructions_only_notice_project_owned_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            project = root / "project"
+            definition = root / "projects" / "demo"
+            project.mkdir()
+            definition.mkdir(parents=True)
+            (definition / "agent.toml").write_text(
+                f'path = "{project}"\nskills = []\n', encoding="utf-8"
+            )
+            (root / "agents.toml").write_text(
+                '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n',
+                encoding="utf-8",
+            )
+            (definition / "AGENTS.md").write_text("", encoding="utf-8")
+            (definition / "memory").mkdir()
+            (project / "AGENTS.md").write_text("Repository rules\n", encoding="utf-8")
+
+            summary = collect_project_summaries(root, root)[0]
+            detail = render_project_detail(summary, False, False)
+
+        self.assertEqual(summary.instructions_status, "EMPTY")
+        self.assertEqual(summary.runtime_status, "OK")
+        self.assertIn("Notice: Project-owned AGENTS.md detected:", detail)
+        self.assertNotIn("Issues:", detail)
+
     def test_detail_explains_resource_sync_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

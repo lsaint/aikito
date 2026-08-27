@@ -520,18 +520,27 @@ def _project_validation_error(
         )
     except MCPConfigError as exc:
         return str(exc)
-    for target, agent_names in instruction_targets.items():
-        if target.is_symlink():
-            if target.resolve(strict=False) == canonical_instructions.resolve(
-                strict=False
-            ):
-                continue
-        elif not target.exists():
-            continue
-        return (
-            f"Unmanaged project instructions for {', '.join(agent_names)} "
-            f"already exist: {target}"
+    instructions_enabled = (
+        canonical_instructions.is_file()
+        and bool(
+            canonical_instructions.read_text(
+                encoding="utf-8", errors="replace"
+            ).strip()
         )
+    )
+    if instructions_enabled:
+        for target, agent_names in instruction_targets.items():
+            if target.is_symlink():
+                if target.resolve(strict=False) == canonical_instructions.resolve(
+                    strict=False
+                ):
+                    continue
+            elif not target.exists():
+                continue
+            return (
+                f"Unmanaged project instructions for {', '.join(agent_names)} "
+                f"already exist: {target}"
+            )
 
     expected_entries = {"skills": set(), "memory": set()}
     if config_data is not None:

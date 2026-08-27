@@ -46,6 +46,7 @@ class ProjectSummary:
     skill_names: tuple[str, ...] = ()
     memory_refs: tuple[str, ...] = ()
     details: tuple[ProjectResourceDetail, ...] = ()
+    instructions_notice: str = ""
     error: str = ""
 
 
@@ -240,6 +241,7 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
             else 0
         )
         details: list[ProjectResourceDetail] = []
+        instructions_notice = ""
         if project_path is None:
             runtime_status = "UNBOUND"
         elif not project_path.is_dir():
@@ -254,18 +256,44 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
             except MCPConfigError:
                 # An unreadable agent registry is reported by doctor, not here.
                 instruction_targets = {}
-            for target, agent_names in instruction_targets.items():
-                status = _link_status(target, instructions)
-                statuses.append(status)
-                details.append(
-                    ProjectResourceDetail(
-                        f"Instructions ({', '.join(agent_names)})",
-                        instructions,
-                        target,
-                        status,
-                        _link_issue(target, instructions, status),
+            if instructions_status == "OK":
+                for target, agent_names in instruction_targets.items():
+                    status = _link_status(target, instructions)
+                    statuses.append(status)
+                    details.append(
+                        ProjectResourceDetail(
+                            f"Instructions ({', '.join(agent_names)})",
+                            instructions,
+                            target,
+                            status,
+                            _link_issue(target, instructions, status),
+                        )
                     )
-                )
+            elif instructions_status == "EMPTY":
+                for target, agent_names in instruction_targets.items():
+                    if target.is_symlink() and target.resolve(
+                        strict=False
+                    ) == instructions.resolve(strict=False):
+                        statuses.append("DRIFT")
+                        details.append(
+                            ProjectResourceDetail(
+                                f"Instructions ({', '.join(agent_names)})",
+                                instructions,
+                                target,
+                                "DRIFT",
+                                f"Empty canonical instructions no longer require {target}",
+                            )
+                        )
+                project_agents_md = project_path / "AGENTS.md"
+                if project_agents_md.exists() and not (
+                    project_agents_md.is_symlink()
+                    and project_agents_md.resolve(strict=False)
+                    == instructions.resolve(strict=False)
+                ):
+                    instructions_notice = (
+                        f"Project-owned AGENTS.md detected: {project_agents_md} "
+                        "(not managed because canonical instructions are empty)"
+                    )
 
             skills_runtime = agents_dir / "skills"
             selected_skills = set(skill_names)
@@ -387,6 +415,7 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
                 skill_names=skill_names,
                 memory_refs=memory_refs,
                 details=tuple(details),
+                instructions_notice=instructions_notice,
             )
         )
     return summaries

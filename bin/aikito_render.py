@@ -766,6 +766,8 @@ def render_project_detail(
     ]
     if project.error:
         lines.append(f"Error: {project.error}")
+    if project.instructions_notice:
+        lines.append(f"Notice: {project.instructions_notice}")
     issues = [detail for detail in project.details if detail.status != "OK"]
     if issues:
         lines.append("Issues:")
