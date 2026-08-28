@@ -94,3 +94,29 @@ def add_missing_agent_fields(
 
     registry_path.write_text(content, encoding="utf-8")
     return fixes
+
+
+def remove_agent_section(registry_path: Path, agent_name: str) -> None:
+    """Remove one complete Agent table tree while preserving all other text."""
+    content = registry_path.read_text(encoding="utf-8")
+    header = re.search(rf"(?m)^\[agents\.{re.escape(agent_name)}\]\s*$", content)
+    if header is None:
+        return
+
+    next_agent = re.search(r"(?m)^\[agents\.[^.\]]+\]\s*$", content[header.end() :])
+    next_start = header.end() + next_agent.start() if next_agent else len(content)
+    boundary = content.rfind("\n\n", header.end(), next_start)
+    end = boundary if boundary >= 0 else next_start
+
+    start = header.start()
+    boundary = content.rfind("\n\n", 0, header.start())
+    comment_start = boundary + 2 if boundary >= 0 else 0
+    preceding = content[comment_start : header.start()]
+    if preceding.lstrip().startswith("#"):
+        start = comment_start
+
+    updated = (
+        content[:start].rstrip() + "\n\n" + content[end:].lstrip()
+    ).rstrip() + "\n"
+    tomllib.loads(updated)
+    registry_path.write_text(updated, encoding="utf-8")

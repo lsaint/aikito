@@ -40,6 +40,14 @@ directory safety checks.
 or memory resources. It also refuses to bind an existing project name to a
 different code directory.
 
+## Doctor pruning
+
+`aikito doctor --prune` removes only bundled Agents that remain registered in
+`agents.toml` but are no longer detected by executable or configuration marker.
+It backs up `agents.toml` first, refuses Agents still referenced by canonical
+subagent or MCP definitions, and never removes custom Agent entries or files in
+the Agent's own configuration directory.
+
 ## Adoption
 
 `aikito adopt` is a read-only preview unless `--apply` is supplied. Review all

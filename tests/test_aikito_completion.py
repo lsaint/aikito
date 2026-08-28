@@ -87,6 +87,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         doctor_flags = schema["commands"]["doctor"]["flags"]
         self.assertIn("--json", doctor_flags)
         self.assertIn("--fix", doctor_flags)
+        self.assertIn("--prune", doctor_flags)
         self.assertIn("--stale-days", doctor_flags)
 
         sync_mcp_flags = schema["commands"]["sync"]["subcommands"]["mcp"]["flags"]

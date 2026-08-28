@@ -31,16 +31,22 @@ from aikito_init import (
 )
 from aikito_link import SymlinkVerdict, classify_symlink
 from aikito_mcp import (
+    AGENT_INSTALL_MARKERS,
     MCPConfigError,
     _load_document,
     _parse_jsonc,
     evaluate_spec_status,
     load_agent_specs,
     load_agents,
+    is_agent_installed,
 )
 from aikito_memory import extract_note_title, validate_memory_name
 from aikito_project import collect_project_summaries
-from aikito_registry import add_missing_agent_fields, missing_agent_fields
+from aikito_registry import (
+    add_missing_agent_fields,
+    missing_agent_fields,
+    remove_agent_section,
+)
 from aikito_render import DoctorFinding, DoctorReport, DoctorSection
 from aikito_status import collect_subagents_matrix
 from aikito_subagent import (
@@ -695,6 +701,16 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
                                 "aikito doctor --fix",
                             )
                         )
+                for agent_name in sorted(
+                    registered_agents & AGENT_INSTALL_MARKERS.keys()
+                ):
+                    if not is_agent_installed(agent_name, home):
+                        findings.append(
+                            _warn(
+                                f"agents.toml: registered Agent '{agent_name}' is not detected",
+                                "aikito doctor --prune",
+                            )
+                        )
                 for agent_name, fields in missing_agent_fields(
                     path, AGENTS_TOML_TEMPLATE
                 ).items():
@@ -1217,6 +1233,98 @@ def run_doctor_fixes(aikito_dir: Path, home: Optional[Path] = None) -> List[str]
             index_file.write_text(output_text, encoding="utf-8")
 
     return fixes
+
+
+def _find_agent_references(aikito_dir: Path, agent_name: str) -> list[str]:
+    references: list[str] = []
+    subagents_path = aikito_dir / "subagents.toml"
+    if subagents_path.is_file():
+        try:
+            subagents = tomllib.loads(subagents_path.read_text(encoding="utf-8")).get(
+                "subagents", {}
+            )
+            if isinstance(subagents, dict):
+                for name, definition in subagents.items():
+                    if isinstance(definition, dict) and agent_name in definition.get(
+                        "agents", []
+                    ):
+                        references.append(f"subagents.toml:[subagents.{name}].agents")
+        except (OSError, tomllib.TOMLDecodeError):
+            references.append("subagents.toml (cannot verify references)")
+
+    mcps_dir = aikito_dir / "mcps"
+    if mcps_dir.is_dir():
+        for mcp_path in sorted(mcps_dir.glob("*.toml")):
+            try:
+                document = tomllib.loads(mcp_path.read_text(encoding="utf-8"))
+            except (OSError, tomllib.TOMLDecodeError):
+                references.append(f"mcps/{mcp_path.name} (cannot verify references)")
+                continue
+
+            pending = [document]
+            found = False
+            while pending and not found:
+                value = pending.pop()
+                if not isinstance(value, dict):
+                    continue
+                agents = value.get("agents")
+                if isinstance(agents, list) and agent_name in agents:
+                    found = True
+                    break
+                pending.extend(
+                    child for child in value.values() if isinstance(child, dict)
+                )
+            if found:
+                references.append(f"mcps/{mcp_path.name}:agents")
+    return references
+
+
+def run_doctor_prune(
+    aikito_dir: Path, home: Optional[Path] = None
+) -> tuple[list[str], list[str]]:
+    """Prune undetected bundled Agents after reference checks and one backup."""
+    resolved_home = home or Path.home()
+    agents_path = aikito_dir / "agents.toml"
+    try:
+        document = tomllib.loads(agents_path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return [], ["agents.toml cannot be read or parsed"]
+
+    registered = document.get("agents", {})
+    if not isinstance(registered, dict):
+        return [], ["agents.toml has no valid [agents] table"]
+
+    candidates = [
+        name
+        for name in registered
+        if name in AGENT_INSTALL_MARKERS and not is_agent_installed(name, resolved_home)
+    ]
+    blocked: list[str] = []
+    prunable: list[str] = []
+    for name in candidates:
+        references = _find_agent_references(aikito_dir, name)
+        if references:
+            blocked.append(f"{name}: still referenced by {', '.join(references)}")
+        else:
+            prunable.append(name)
+
+    if not prunable:
+        return [], blocked
+
+    timestamp = f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{time.time_ns()}"
+    backup_path = (
+        resolved_home
+        / ".local/state/aikito/backups/doctor"
+        / f"{timestamp}-agents.toml"
+    )
+    backup_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(agents_path, backup_path)
+
+    pruned = [f"Backed up agents.toml to {backup_path}"]
+    for name in prunable:
+        remove_agent_section(agents_path, name)
+        pruned.append(f"Removed undetected Agent '{name}' from agents.toml")
+    return pruned, blocked
 
 
 # ---------------------------------------------------------------------------

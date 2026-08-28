@@ -84,6 +84,9 @@ Use `--dry-run` to preview project, MCP, and subagent synchronization, and consu
 Missing fields are warnings; `doctor --fix` adds bundled defaults without
 replacing existing values. Installed supported Agents missing from the registry
 are also reported and can be added by `doctor --fix`.
+Registered bundled Agents that are no longer detected are warnings. Review
+their subagent and MCP references, then use `doctor --prune` for explicit,
+backup-backed removal. Referenced and custom Agents are never pruned.
 It also reports each project's native instruction, skill, and memory runtime
 issues. Missing resources point to `sync project`; conflicts remain read-only
 and point to `show project` for review. Findings are aggregated per project;

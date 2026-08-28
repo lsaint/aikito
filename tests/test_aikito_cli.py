@@ -1828,6 +1828,11 @@ class TestDoctorFixCli(unittest.TestCase):
         self.assertNotIn("ghost-note", index_text)
         self.assertIn("- [[bare|Bare Note Title]]", index_text)
 
+    def test_doctor_prune_flag(self) -> None:
+        args = AIKITO_CLI.build_parser().parse_args(["doctor", "--prune"])
+
+        self.assertTrue(args.prune)
+
 
 if __name__ == "__main__":
     unittest.main()
