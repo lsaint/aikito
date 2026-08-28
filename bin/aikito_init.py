@@ -264,9 +264,11 @@ GITIGNORE_TEMPLATE = """# Aikito Git Ignore Rules
 def _detect_existing_agents(home: Path) -> List[Tuple[str, Path]]:
     """Return installed registry agents in template order."""
     detected = []
-    for agent_name, (display_name, binary, relative_marker) in (
-        AGENT_INSTALL_MARKERS.items()
-    ):
+    for agent_name, (
+        display_name,
+        binary,
+        relative_marker,
+    ) in AGENT_INSTALL_MARKERS.items():
         if not is_agent_installed(agent_name, home):
             continue
         executable = shutil.which(binary)
@@ -294,8 +296,10 @@ def _filter_agents_template(agent_names: tuple[str, ...]) -> str:
     selected = set(agent_names)
     blocks = []
     for index, match in enumerate(matches):
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(
-            AGENTS_TOML_TEMPLATE
+        end = (
+            matches[index + 1].start()
+            if index + 1 < len(matches)
+            else len(AGENTS_TOML_TEMPLATE)
         )
         if match.group(1) in selected:
             blocks.append(AGENTS_TOML_TEMPLATE[match.start() : end].strip())
@@ -531,13 +535,8 @@ def _project_validation_error(
         )
     except MCPConfigError as exc:
         return str(exc)
-    instructions_enabled = (
-        canonical_instructions.is_file()
-        and bool(
-            canonical_instructions.read_text(
-                encoding="utf-8", errors="replace"
-            ).strip()
-        )
+    instructions_enabled = canonical_instructions.is_file() and bool(
+        canonical_instructions.read_text(encoding="utf-8", errors="replace").strip()
     )
     if instructions_enabled:
         for target, agent_names in instruction_targets.items():

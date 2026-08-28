@@ -444,9 +444,7 @@ class InitSubcommandParserTest(unittest.TestCase):
 
             (project / "AGENTS.md").symlink_to(canonical / "AGENTS.md")
             (project / ".claude").mkdir()
-            (project / ".claude" / "CLAUDE.md").symlink_to(
-                canonical / "AGENTS.md"
-            )
+            (project / ".claude" / "CLAUDE.md").symlink_to(canonical / "AGENTS.md")
             sync_args = AIKITO_CLI.build_parser().parse_args(
                 ["sync", "project", "example"]
             )

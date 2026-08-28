@@ -232,9 +232,7 @@ class CheckProjectsTest(unittest.TestCase):
         failures = [finding for finding in section.findings if finding.status == "FAIL"]
         self.assertEqual(len(failures), 1)
         self.assertIn("Project 'demo': MISSING — 1 missing", failures[0].message)
-        self.assertTrue(
-            any(f.fix_hint == "aikito sync project demo" for f in failures)
-        )
+        self.assertTrue(any(f.fix_hint == "aikito sync project demo" for f in failures))
 
     def test_conflict_suppresses_sync_hint_for_same_project(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -246,7 +244,7 @@ class CheckProjectsTest(unittest.TestCase):
             definition.mkdir(parents=True)
             (workspace / "agents.toml").write_text(
                 '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n'
-                '[agents.claude-code]\n'
+                "[agents.claude-code]\n"
                 'project_instruction_path = ".claude/CLAUDE.md"\n',
                 encoding="utf-8",
             )

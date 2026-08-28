@@ -141,9 +141,7 @@ class AikitoStatusRenderTest(unittest.TestCase):
             workspace_source="configured",
         )
         self.assertTrue(
-            rendered.startswith(
-                "\033[1mWorkspace: /tmp/aikito (configured)\033[0m\n\n"
-            )
+            rendered.startswith("\033[1mWorkspace: /tmp/aikito (configured)\033[0m\n\n")
         )
 
     def test_subagent_status_distinguishes_missing_drift_and_conflict(self) -> None:

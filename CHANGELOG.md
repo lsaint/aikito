@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-08-28
+
 ### Added
 
 - Added Pi global and project instructions, shared skills, and headless
@@ -370,7 +372,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.18.1...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.19.0...HEAD
+[1.19.0]: https://github.com/lsaint/aikito/compare/v1.18.1...v1.19.0
 [1.18.1]: https://github.com/lsaint/aikito/compare/v1.18.0...v1.18.1
 [1.18.0]: https://github.com/lsaint/aikito/compare/v1.17.0...v1.18.0
 [1.17.0]: https://github.com/lsaint/aikito/compare/v1.16.0...v1.17.0

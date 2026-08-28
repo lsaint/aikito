@@ -239,9 +239,7 @@ class AikitoInitTest(unittest.TestCase):
         project_path = Path(self.tmp_dir.name) / "example"
         project_path.mkdir()
 
-        project_name = init_project(
-            self.target_path, project_path, home=self.fake_home
-        )
+        project_name = init_project(self.target_path, project_path, home=self.fake_home)
 
         self.assertEqual(project_name, "example")
         project_dir = self.target_path / "projects" / "example"

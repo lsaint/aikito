@@ -82,9 +82,7 @@ def add_missing_agent_fields(
         if match:
             next_header = re.search(r"(?m)^\[", content[match.end() :])
             insertion = (
-                match.end() + next_header.start()
-                if next_header
-                else len(content)
+                match.end() + next_header.start() if next_header else len(content)
             )
             prefix = "" if content[:insertion].endswith("\n") else "\n"
             content = content[:insertion] + prefix + additions + content[insertion:]

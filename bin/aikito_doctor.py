@@ -687,9 +687,7 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
                     registered_agents = set(
                         tomllib.load(registry_file).get("agents", {})
                     )
-                installed_agents = detected_agent_names(
-                    _detect_existing_agents(home)
-                )
+                installed_agents = detected_agent_names(_detect_existing_agents(home))
                 for agent_name in installed_agents:
                     if agent_name not in registered_agents:
                         findings.append(

@@ -65,9 +65,7 @@ class AikitoConfigTest(unittest.TestCase):
 
     def test_legacy_default_inbox_path_uses_active_workspace(self) -> None:
         config_file = self.root / "config.toml"
-        config_file.write_text(
-            '[inbox]\npath = "~/aikito/inbox"\n', encoding="utf-8"
-        )
+        config_file.write_text('[inbox]\npath = "~/aikito/inbox"\n', encoding="utf-8")
 
         inbox_dir = get_inbox_path(self.root)
         self.assertEqual(inbox_dir, (self.root / "inbox").resolve())
