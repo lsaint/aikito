@@ -43,6 +43,11 @@ not participate in subagent synchronization. OpenCode definitions are rendered
 to `~/.config/opencode/agents/<name>.md` with `mode: subagent`; set the native
 model ID through `[subagents.<name>.opencode].model`.
 
+Pi participates only when its optional extension entry point exists at
+`~/.pi/agent/extensions/subagent/index.ts`. Definitions are rendered to
+`~/.pi/agent/agents/<name>.md`. Pi-specific configuration supports `model` and
+`tools`; without the extension, Pi remains skipped and Aikito writes nothing.
+
 If a definition is removed, status may report a managed orphan. Review it
 before using the command's explicit pruning or force options. Use
 `aikito sync subagents --help` for the options supported by the installed

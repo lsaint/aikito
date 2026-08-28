@@ -46,6 +46,7 @@ KNOWN_PLATFORM_FIELDS = {
         "skills",
         "mcpInheritance",
     },
+    "pi": {"model", "tools"},
 }
 
 FORMAT_EXTENSIONS = {
@@ -56,6 +57,7 @@ FORMAT_EXTENSIONS = {
     "opencode_markdown": ".md",
     "dsh_cordis_subagent": "",
     "grok_markdown": ".md",
+    "pi_markdown": ".md",
 }
 
 
@@ -69,6 +71,7 @@ class AgentSubagentConfig:
     display_name: str
     config_path: Path
     config_format: str
+    requires_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -136,6 +139,7 @@ def load_all_agents(
 
         raw_config_path = subagents_sec.get("config_path")
         config_format = subagents_sec.get("config_format")
+        raw_requires_path = subagents_sec.get("requires_path")
 
         if not raw_config_path or not config_format:
             raise SubagentConfigError(
@@ -147,7 +151,19 @@ def load_all_agents(
                 f"Agent '{agent_name}' unsupported config_format '{config_format}'"
             )
 
+        if raw_requires_path is not None and (
+            not isinstance(raw_requires_path, str) or not raw_requires_path
+        ):
+            raise SubagentConfigError(
+                f"Agent '{agent_name}' subagents 'requires_path' must be a non-empty string"
+            )
+
         config_path = (home / raw_config_path).resolve()
+        requires_path = (
+            (home / raw_requires_path).resolve()
+            if isinstance(raw_requires_path, str) and raw_requires_path
+            else None
+        )
         display_name = agent_info.get("display_name", agent_name)
 
         subagent_configs[agent_name] = AgentSubagentConfig(
@@ -155,6 +171,7 @@ def load_all_agents(
             display_name=display_name,
             config_path=config_path,
             config_format=config_format,
+            requires_path=requires_path,
         )
 
     return subagent_configs, all_agent_names
@@ -252,7 +269,10 @@ def validate_platform_opts(
             raise SubagentConfigError(
                 f"Subagent '{subagent_name}' contains unknown field '{k}' for platform '{agent_name}'. Allowed: {sorted(allowed)}"
             )
-        if agent_name in {"agy", "github-copilot", "dsh", "grok"} and k == "tools":
+        if (
+            agent_name in {"agy", "github-copilot", "dsh", "grok", "pi"}
+            and k == "tools"
+        ):
             if isinstance(v, str):
                 v = [v]
             if not isinstance(v, list) or not all(
@@ -388,6 +408,23 @@ def render_grok_markdown(
             lines.append(f"{key}: {'true' if value else 'false'}")
         else:
             lines.append(f"{key}: {json.dumps(value, ensure_ascii=False)}")
+    lines.extend(["---", f"<!-- {marker} -->", "", instructions, ""])
+    return "\n".join(lines)
+
+
+def render_pi_markdown(
+    name: str, description: str, platform_opts: dict[str, Any], instructions: str
+) -> str:
+    marker = get_marker_text(name)
+    lines = [
+        "---",
+        f"name: {json.dumps(name, ensure_ascii=False)}",
+        f"description: {json.dumps(description, ensure_ascii=False)}",
+    ]
+    if "model" in platform_opts:
+        lines.append(f"model: {json.dumps(platform_opts['model'], ensure_ascii=False)}")
+    if "tools" in platform_opts:
+        lines.append(f"tools: {json.dumps(platform_opts['tools'], ensure_ascii=False)}")
     lines.extend(["---", f"<!-- {marker} -->", "", instructions, ""])
     return "\n".join(lines)
 
@@ -655,6 +692,13 @@ def render_subagent(
             platform_opts,
             definition.instructions,
         )
+    elif agent_config.config_format == "pi_markdown":
+        return render_pi_markdown(
+            definition.name,
+            definition.description,
+            platform_opts,
+            definition.instructions,
+        )
     else:
         raise SubagentConfigError(f"Unsupported format '{agent_config.config_format}'")
 
@@ -718,6 +762,21 @@ def build_plan(
             )
 
     for agent_name, agent_config in subagent_configs.items():
+        if (
+            agent_config.requires_path is not None
+            and not agent_config.requires_path.exists()
+        ):
+            plan.append(
+                PlanItem(
+                    agent_name=agent_name,
+                    subagent_name="*",
+                    target_path=agent_config.config_path,
+                    action="SKIP",
+                    reason=f"Optional subagent capability is not installed at {agent_config.requires_path}",
+                )
+            )
+            continue
+
         if agent_name == "codex":
             enabled, msg = check_codex_enabled(home)
             if not enabled:

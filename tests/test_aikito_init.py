@@ -144,7 +144,14 @@ class AikitoInitTest(unittest.TestCase):
                 "pi",
             },
         )
-        self.assertNotIn("subagents", agent_config["pi"])
+        self.assertEqual(
+            agent_config["pi"]["subagents"],
+            {
+                "config_path": ".pi/agent/agents",
+                "config_format": "pi_markdown",
+                "requires_path": ".pi/agent/extensions/subagent/index.ts",
+            },
+        )
         self.assertNotIn("mcp", agent_config["pi"])
         for agent_name in agent_config:
             self.assertTrue(agent_config[agent_name]["runner"]["command"])

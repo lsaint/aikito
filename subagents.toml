@@ -2,7 +2,7 @@
 # Invocation context is controlled by the caller and cannot be expressed here.
 [subagents.verifier]
 description = "Runs project-approved formatting, lint-fix, and test operations."
-agents = ["codex", "claude-code", "github-copilot", "agy", "dsh", "grok"]
+agents = ["codex", "claude-code", "github-copilot", "agy", "dsh", "grok", "pi"]
 
 [subagents.verifier.codex]
 model = "gpt-5.4-mini"
@@ -17,3 +17,6 @@ tools = ["run_command"]
 
 [subagents.verifier.github-copilot]
 tools = ["read", "search", "edit", "execute"]
+
+[subagents.verifier.pi]
+tools = ["read", "grep", "find", "ls", "bash"]

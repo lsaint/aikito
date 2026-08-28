@@ -72,9 +72,10 @@ Grok Build uses `~/.grok/rules/aikito.md` for global instructions,
 `~/.grok/agents/` for subagents, and root `AGENTS.md` files for project rules.
 
 Pi uses `~/.pi/agent/AGENTS.md` for global instructions, `~/.agents/skills`
-for shared skills, and root `AGENTS.md` files for project rules. It has no MCP
-or subagent sections because pi keeps its core small and leaves those
-capabilities to optional extensions.
+for shared skills, and root `AGENTS.md` files for project rules. When Pi's
+optional `subagent` extension entry point exists, Aikito synchronizes global
+definitions to `~/.pi/agent/agents`; without it, the capability is skipped and
+no target files are written. Pi has no MCP section.
 
 ## Project Runtime Directory
 

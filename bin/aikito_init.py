@@ -186,9 +186,10 @@ name_style = "verbatim"
 live_command = ["grok", "mcp", "list"]
 
 # Pi keeps its core small and pushes MCP and sub-agents into optional
-# extensions, so it participates in instruction and skill synchronization only.
+# extensions. Aikito enables subagent synchronization only when the extension
+# is installed, leaving the core-only behavior unchanged.
 # Pi natively discovers global skills in ~/.agents/skills and project skills in
-# .agents/skills. It intentionally has no subagents or mcp section.
+# .agents/skills. It intentionally has no mcp section.
 [agents.pi]
 display_name = "Pi"
 instruction_path = ".pi/agent/AGENTS.md"
@@ -197,6 +198,11 @@ skills_path = ".agents/skills"
 
 [agents.pi.runner]
 command = ["pi", "-p", "{prompt}"]
+
+[agents.pi.subagents]
+config_path = ".pi/agent/agents"
+config_format = "pi_markdown"
+requires_path = ".pi/agent/extensions/subagent/index.ts"
 """
 
 MCPS_TOML_TEMPLATE = """# Aikito MCP Config

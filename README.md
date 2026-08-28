@@ -78,8 +78,10 @@ The default registry includes Codex, Claude Code, Antigravity CLI (`agy`),
 OpenCode, GitHub Copilot CLI, DeepSeek Harness (`dsh`), Grok Build, and Pi. See the
 [architecture](docs/architecture.md) for the complete mental model and capability
 boundaries.
-Pi participates in instructions, skills, and runners. It does not participate
-in MCP or subagent synchronization, which pi leaves to optional extensions.
+Pi participates in instructions, skills, and runners. When Pi's optional
+`subagent` extension is installed, Aikito also synchronizes definitions to
+`~/.pi/agent/agents`; otherwise Pi remains skipped. Pi does not participate in
+MCP synchronization.
 
 ### Share or isolate
 
