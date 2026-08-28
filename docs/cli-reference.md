@@ -89,6 +89,13 @@ issues. Missing resources point to `sync project`; conflicts remain read-only
 and point to `show project` for review. Findings are aggregated per project;
 when missing resources and conflicts coexist, the conflict action wins.
 
+`status` is the compact dashboard: its Memory `Status` column combines the
+presence of canonical `index.md` and runtime connection health, and the legend
+explains any warning symbols. It does not check whether individual notes are
+listed in `index.md`; use `doctor` for that index consistency check. Use
+`show project <name>` to inspect the exact runtime resource paths and link
+issues for one project.
+
 `aikito maintain memory` defaults to the project containing the current
 directory and launches the `codex` runner configured in `agents.toml`. Use
 `global` or a registered project name to select another scope, and `--agent`

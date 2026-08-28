@@ -60,10 +60,9 @@ class AikitoStatusRenderTest(unittest.TestCase):
             MemoryStatusRow(
                 name="Global Memory",
                 scope="Global",
-                index_status="OK",
+                status="OK",
                 notes_count=6,
-                target_link="-",
-                link_status="N/A",
+                runtime_location="-",
             )
         ]
 
@@ -288,6 +287,29 @@ class AikitoStatusRenderTest(unittest.TestCase):
         self.assertLessEqual(abs(note_width - title_width), 1)
         self.assertGreaterEqual(note_width, 20)
         self.assertGreaterEqual(title_width, 20)
+
+    def test_render_memory_table_combines_index_and_link_status(self) -> None:
+        from aikito_render import render_memory_table
+
+        rendered = render_memory_table(
+            [
+                MemoryStatusRow(
+                    name="demo",
+                    scope="Project",
+                    status="MISSING",
+                    notes_count=2,
+                    runtime_location="~/source/demo/.agents/memory",
+                )
+            ],
+            use_unicode=False,
+            use_color=False,
+        )
+
+        self.assertIn("Status", rendered)
+        self.assertIn("Runtime Location", rendered)
+        self.assertNotIn("Link Status", rendered)
+        self.assertNotIn("Index", rendered)
+        self.assertIn("! M", rendered)
 
 
 class AikitoStatusCollectorTest(unittest.TestCase):

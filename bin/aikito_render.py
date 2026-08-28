@@ -30,10 +30,9 @@ class AgentStatusRow:
 class MemoryStatusRow:
     name: str
     scope: str
-    index_status: str
+    status: str
     notes_count: int
-    target_link: Optional[str]
-    link_status: str
+    runtime_location: Optional[str]
 
 
 @dataclass
@@ -385,18 +384,17 @@ def render_agents_table(
 def render_memory_table(
     rows: List[MemoryStatusRow], use_unicode: bool, use_color: bool
 ) -> str:
-    headers = ["Memory Scope", "Index", "Notes", "Link Target", "Link Status"]
+    headers = ["Memory Scope", "Status", "Notes", "Runtime Location"]
 
     formatted_rows = []
     for r in rows:
-        target_display = r.target_link if r.target_link else "-"
+        location_display = r.runtime_location if r.runtime_location else "-"
         formatted_rows.append(
             [
                 r.name,
-                _format_status_badge(r.index_status, use_unicode, use_color),
+                _format_status_badge(r.status, use_unicode, use_color),
                 str(r.notes_count),
-                target_display,
-                _format_status_badge(r.link_status, use_unicode, use_color),
+                location_display,
             ]
         )
     return _build_generic_table(headers, formatted_rows, use_unicode, use_color)

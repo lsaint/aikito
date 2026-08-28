@@ -430,10 +430,9 @@ def collect_memory_status_rows(
         MemoryStatusRow(
             name="Global Memory",
             scope="Global",
-            index_status=global_index_status,
+            status=global_index_status,
             notes_count=global_notes_count,
-            target_link=global_mem_target,
-            link_status="N/A",
+            runtime_location=global_mem_target,
         )
     )
 
@@ -501,10 +500,13 @@ def collect_memory_status_rows(
                     MemoryStatusRow(
                         name=proj_folder.name,
                         scope="Project",
-                        index_status=proj_index_status,
+                        status=(
+                            proj_index_status
+                            if proj_index_status != "OK"
+                            else p_link_status
+                        ),
                         notes_count=proj_notes_count,
-                        target_link=p_link_target,
-                        link_status=p_link_status,
+                        runtime_location=p_link_target,
                     )
                 )
 
