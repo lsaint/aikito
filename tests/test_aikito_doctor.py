@@ -522,8 +522,11 @@ agents = ["claude-code"]
             msg=f"Expected empty orphan skill directory warning, got: {[f.message for f in warn_findings]}",
         )
         self.assertTrue(
-            any("rm -rf" in f.fix_hint for f in warn_findings),
-            msg=f"Expected rm -rf fix_hint for empty orphan skill, got: {[f.fix_hint for f in warn_findings]}",
+            any(
+                "Remove the empty directory manually:" in f.fix_hint
+                for f in warn_findings
+            ),
+            msg=f"Expected manual removal fix_hint for empty orphan skill, got: {[f.fix_hint for f in warn_findings]}",
         )
 
         # Add a file to make it non-empty

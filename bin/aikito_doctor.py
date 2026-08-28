@@ -10,7 +10,6 @@ import json
 import os
 import re
 import shutil
-import shlex
 import stat
 import subprocess
 import sys
@@ -342,7 +341,7 @@ def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
                 has_files = _has_user_files(target_dir)
                 if not has_files:
                     msg = f"skills/{name}: empty directory, safe to delete"
-                    fix_hint = f"rm -rf {shlex.quote(str(target_dir))}"
+                    fix_hint = f"Remove the empty directory manually: {target_dir}"
                 else:
                     msg = f"skills/{name}: orphan skill directory (not in skills.toml or any project agent.toml)"
                     fix_hint = ""
