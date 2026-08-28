@@ -472,10 +472,13 @@ def _render_title_box(
 def render_mcp_details(
     rows: List[Any], canonical_path: str, use_unicode: bool, use_color: bool
 ) -> str:
-    blocks = [
-        f"MCP Server: {rows[0].server_name}",
-        f"Canonical source: {canonical_path}",
-    ]
+    overview = render_key_value_fields(
+        [
+            ("MCP Server:", rows[0].server_name),
+            ("Canonical source:", canonical_path),
+        ]
+    )
+    blocks = []
     for row in rows:
         entry = (
             json.dumps(row.entry, ensure_ascii=False, indent=2)
@@ -490,17 +493,26 @@ def render_mcp_details(
                         use_unicode=use_unicode,
                         use_color=use_color,
                     ),
-                    f"Agent key: {row.agent_name}",
-                    f"Status: {'synced' if row.status == 'OK' else row.status.lower()}",
-                    f"Config: {row.config_path}",
-                    f"Format: {row.config_format}",
+                    render_key_value_fields(
+                        [
+                            ("Agent key:", row.agent_name),
+                            (
+                                "Status:",
+                                "synced"
+                                if row.status == "OK"
+                                else row.status.lower(),
+                            ),
+                            ("Config:", str(row.config_path)),
+                            ("Format:", row.config_format),
+                        ]
+                    ),
                     "",
                     "Managed entry:",
                     entry,
                 ]
             )
         )
-    return "\n".join(blocks[:2]) + "\n\n" + "\n\n".join(blocks[2:])
+    return overview + "\n\n" + "\n\n".join(blocks)
 
 
 def render_agent_subagent_table(
@@ -534,24 +546,29 @@ def render_subagent_details(
     rows: List[Any], canonical_path: str, use_unicode: bool, use_color: bool
 ) -> str:
     first = rows[0]
-    blocks = [
-        f"Subagent: {first.subagent_name}",
-        f"Description: {first.description}",
-        f"Canonical source: {canonical_path}",
-    ]
+    overview = render_key_value_fields(
+        [
+            ("Subagent:", first.subagent_name),
+            ("Description:", first.description),
+            ("Canonical source:", canonical_path),
+        ]
+    )
+    blocks = []
     for row in rows:
         if row.status == "NOT_TARGETED":
             status_text = "not targeted by this subagent"
-            opts_str = "  n/a (not targeted by this subagent)"
+            opts_str = "n/a (not targeted by this subagent)"
         else:
             status_text = "synced" if row.status == "OK" else row.status.lower()
             if row.platform_options:
-                opts_lines = [
-                    f"  {k}: {v}" for k, v in sorted(row.platform_options.items())
-                ]
-                opts_str = "\n".join(opts_lines)
+                opts_str = render_key_value_fields(
+                    [
+                        (f"{key}:", str(value))
+                        for key, value in sorted(row.platform_options.items())
+                    ]
+                )
             else:
-                opts_str = "  (defaults)"
+                opts_str = "(defaults)"
         blocks.append(
             "\n".join(
                 [
@@ -560,17 +577,21 @@ def render_subagent_details(
                         use_unicode=use_unicode,
                         use_color=use_color,
                     ),
-                    f"Agent key: {row.agent_name}",
-                    f"Status: {status_text}",
-                    f"Target: {row.target_path}",
-                    f"Format: {row.config_format}",
+                    render_key_value_fields(
+                        [
+                            ("Agent key:", row.agent_name),
+                            ("Status:", status_text),
+                            ("Target:", str(row.target_path)),
+                            ("Format:", row.config_format),
+                        ]
+                    ),
                     "",
                     "Platform options:",
                     opts_str,
                 ]
             )
         )
-    return "\n".join(blocks[:3]) + "\n\n" + "\n\n".join(blocks[3:])
+    return overview + "\n\n" + "\n\n".join(blocks)
 
 
 def render_instruction_agent_status(
@@ -582,26 +603,18 @@ def render_instruction_agent_status(
     blocks = ["Instructions"]
     for display_name, target, status in rows:
         blocks.append(
-            "\n".join(
-                [
-                    _render_title_box(
-                        display_name,
-                        use_unicode=use_unicode,
-                        use_color=use_color,
-                    ),
-                    f"Status: {status}",
-                    f"Target: {target}",
-                ]
+            render_key_value_fields(
+                [("Agent:", display_name), ("Status:", status), ("Target:", target)]
             )
         )
     if project_rows:
         blocks.append(
             "\n".join(
                 [
-                    _render_title_box(
-                        "Projects", use_unicode=use_unicode, use_color=use_color
+                    "Projects",
+                    render_key_value_fields(
+                        [(f"{name}:", status) for name, status in project_rows]
                     ),
-                    *(f"{name}: {status}" for name, status in project_rows),
                 ]
             )
         )
@@ -766,39 +779,48 @@ def render_project_detail(
     else:
         memory += f"{separator}0 references"
 
-    lines = [
-        f"Project: {project.name}",
-        f"Canonical directory: {project.config_path.parent}",
-        f"Project directory: {project.path}",
-        f"Sync mode: {project.sync_mode}",
-        "Instructions: "
-        + ("configured" if project.instructions_status == "OK" else "not configured"),
-        f"Selected skills: {skills}",
-        f"Memory: {memory}",
-        f"Sync: {project.runtime_status}",
+    fields = [
+        ("Project:", project.name),
+        ("Canonical directory:", str(project.config_path.parent)),
+        ("Project directory:", str(project.path)),
+        ("Sync mode:", project.sync_mode),
+        (
+            "Instructions:",
+            "configured" if project.instructions_status == "OK" else "not configured",
+        ),
+        ("Selected skills:", skills),
+        ("Memory:", memory),
+        ("Sync:", project.runtime_status),
     ]
     if project.error:
-        lines.append(f"Error: {project.error}")
+        fields.append(("Error:", project.error))
     if project.instructions_notice:
-        lines.append(f"Notice: {project.instructions_notice}")
+        fields.append(("Notice:", project.instructions_notice))
     if project.skills_notice:
-        lines.append(f"Notice: {project.skills_notice} (not managed by Aikito)")
+        fields.append(("Notice:", f"{project.skills_notice} (not managed by Aikito)"))
     issues = [detail for detail in project.details if detail.status != "OK"]
     if issues:
-        lines.append("Issues:")
         for detail in issues:
             messages = detail.detail.split("; ") if detail.detail else [""]
-            lines.extend(
-                f"  {detail.resource} [{detail.status}]: {message}"
+            fields.extend(
+                ("Issue:", f"{detail.resource} [{detail.status}]: {message}")
                 for message in messages
             )
     elif project.runtime_status == "PATH MISSING":
-        lines.extend(
-            ["Issues:", f"  Project: directory does not exist: {project.path}"]
+        fields.append(
+            ("Issue:", f"Project: directory does not exist: {project.path}")
         )
     elif project.runtime_status == "UNBOUND":
-        lines.extend(["Issues:", "  Project: no directory is registered"])
-    return "\n".join(lines)
+        fields.append(("Issue:", "Project: no directory is registered"))
+    return render_key_value_fields(fields)
+
+
+def render_key_value_fields(fields: List[Tuple[str, str]]) -> str:
+    label_width = max(_get_display_width(label) for label, _ in fields)
+    return "\n".join(
+        " " * (label_width - _get_display_width(label)) + f"{label}  {value}"
+        for label, value in fields
+    )
 
 
 def render_status_report(

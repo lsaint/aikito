@@ -17,6 +17,7 @@ from aikito_render import (  # noqa: E402
     SkillRow,
     StatusReportData,
     SubagentRow,
+    render_key_value_fields,
     render_mcp_status_table,
     render_memory_notes_table,
     render_skills_table,
@@ -234,6 +235,18 @@ class AikitoStatusRenderTest(unittest.TestCase):
         self.assertEqual(_get_display_width("abc"), 3)
         self.assertEqual(_get_display_width("中文"), 4)
         self.assertEqual(_get_display_width("agy 1.1.8 的"), 12)
+
+    def test_render_key_value_fields_aligns_labels_without_borders(self) -> None:
+        rendered = render_key_value_fields(
+            [("Name:", "demo"), ("Canonical source:", "/tmp/demo")]
+        )
+
+        self.assertEqual(
+            rendered,
+            "            Name:  demo\nCanonical source:  /tmp/demo",
+        )
+        self.assertNotIn("|", rendered)
+        self.assertNotIn("+", rendered)
 
     def test_truncate_display_text(self) -> None:
         from aikito_render import _truncate_display_text

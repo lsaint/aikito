@@ -65,6 +65,7 @@ from aikito_render import (
     render_mcp_details,
     render_subagent_details,
     render_instruction_agent_status,
+    render_key_value_fields,
     render_inbox_table,
     render_mcp_status_table,
     render_memory_notes_table,
@@ -1299,14 +1300,22 @@ def cmd_show_mcp(args: argparse.Namespace) -> None:
                 synced = sum(row.status == "OK" for row in managed)
                 drifted = sum(row.status == "DRIFT" for row in managed)
                 unmanaged = sum(row.source == "unmanaged" for row in rows)
-                print(f"Agent: {first.agent_display_name}")
-                print(f"Agent key: {first.agent_name}")
-                print(f"Config: {first.config_path}")
-                print(f"Format: {first.config_format}")
                 print(
-                    f"MCP Servers: {len(managed)} managed, {synced} synced, "
-                    f"{drifted} drifted, {unmanaged} unmanaged\n"
+                    render_key_value_fields(
+                        [
+                            ("Agent:", first.agent_display_name),
+                            ("Agent key:", first.agent_name),
+                            ("Config:", str(first.config_path)),
+                            ("Format:", first.config_format),
+                            (
+                                "MCP Servers:",
+                                f"{len(managed)} managed, {synced} synced, "
+                                f"{drifted} drifted, {unmanaged} unmanaged",
+                            ),
+                        ]
+                    )
                 )
+                print()
                 print(render_agent_mcp_table(rows, use_unicode, use_color))
             else:
                 print(
@@ -1387,14 +1396,22 @@ def cmd_show_subagents(args: argparse.Namespace) -> None:
                 synced = sum(row.status == "OK" for row in rows)
                 drifted = sum(row.status == "DRIFT" for row in rows)
                 missing = sum(row.status == "MISSING" for row in rows)
-                print(f"Agent: {first.agent_display_name}")
-                print(f"Agent key: {first.agent_name}")
-                print(f"Target dir: {first.target_path.parent}")
-                print(f"Format: {first.config_format}")
                 print(
-                    f"Subagents: {len(rows)} managed, {synced} synced, "
-                    f"{drifted} drifted, {missing} missing\n"
+                    render_key_value_fields(
+                        [
+                            ("Agent:", first.agent_display_name),
+                            ("Agent key:", first.agent_name),
+                            ("Target dir:", str(first.target_path.parent)),
+                            ("Format:", first.config_format),
+                            (
+                                "Subagents:",
+                                f"{len(rows)} managed, {synced} synced, "
+                                f"{drifted} drifted, {missing} missing",
+                            ),
+                        ]
+                    )
                 )
+                print()
                 print(render_agent_subagent_table(rows, use_unicode, use_color))
             else:
                 print(

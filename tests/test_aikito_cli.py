@@ -1108,7 +1108,8 @@ url = "http://custom.example.com"
             args.func(args)
 
         output = mock_stdout.getvalue()
-        self.assertIn("Agent: Codex", output)
+        self.assertIn("Agent:", output)
+        self.assertIn("Codex", output)
         self.assertIn(str(self.home / ".codex/config.toml"), output)
         self.assertIn("1 managed", output)
         self.assertIn("1 unmanaged", output)
@@ -1126,10 +1127,10 @@ url = "http://custom.example.com"
             args.func(args)
 
         output = mock_stdout.getvalue()
-        self.assertIn("MCP Server: managed", output)
-        self.assertEqual(output.count("MCP Server: managed"), 1)
+        self.assertIn("MCP Server:", output)
+        self.assertIn("managed", output)
+        self.assertEqual(output.count("MCP Server:"), 1)
         self.assertIn("| Codex", output)
-        self.assertNotIn("Agent: Codex", output)
         self.assertIn("Managed entry:", output)
         self.assertIn('"url": "http://ex.com"', output)
 
@@ -1194,8 +1195,9 @@ url = "http://custom.example.com"
             )
             args.func(args)
             output = mock_stdout.getvalue()
-            self.assertIn("Agent: Codex", output)
-            self.assertIn("Agent key: codex", output)
+            self.assertIn("Agent:", output)
+            self.assertIn("Codex", output)
+            self.assertIn("Agent key:", output)
             self.assertIn("formatter", output)
             self.assertIn("model: gpt-5", output)
             self.assertIn("Format code", output)
@@ -1210,12 +1212,14 @@ url = "http://custom.example.com"
             )
             args.func(args)
             output = mock_stdout.getvalue()
-            self.assertIn("Subagent: formatter", output)
-            self.assertIn("Description: Format code", output)
-            self.assertIn("Codex", output)
-            self.assertIn("Agent key: codex", output)
+            self.assertIn("Subagent:", output)
+            self.assertIn("formatter", output)
+            self.assertIn("Description:", output)
+            self.assertIn("Format code", output)
+            self.assertIn("| Codex", output)
+            self.assertIn("Agent key:", output)
             self.assertIn("Platform options:", output)
-            self.assertIn("model: gpt-5", output)
+            self.assertIn("model:  gpt-5", output)
 
         # 3. show subagents formatter --agent codex (Detail view single agent)
         with (
@@ -1227,9 +1231,10 @@ url = "http://custom.example.com"
             )
             args.func(args)
             output = mock_stdout.getvalue()
-            self.assertIn("Subagent: formatter", output)
-            self.assertIn("Agent key: codex", output)
-            self.assertIn("model: gpt-5", output)
+            self.assertIn("Subagent:", output)
+            self.assertIn("formatter", output)
+            self.assertIn("Agent key:", output)
+            self.assertIn("model:  gpt-5", output)
 
         # 4. Unknown agent error handling (no traceback)
         with (
@@ -1275,8 +1280,10 @@ url = "http://custom.example.com"
             )
             args.func(args)
             output = mock_stdout.getvalue()
-            self.assertIn("Subagent: formatter", output)
-            self.assertIn("Status: not targeted by this subagent", output)
+            self.assertIn("Subagent:", output)
+            self.assertIn("formatter", output)
+            self.assertIn("Status:", output)
+            self.assertIn("not targeted by this subagent", output)
             self.assertIn("n/a (not targeted by this subagent)", output)
 
     def test_edit_subagent(self) -> None:
@@ -1324,13 +1331,13 @@ url = "http://custom.example.com"
             )
             args.func(args)
         listing = mock_stdout.getvalue()
-        self.assertIn("╭", listing)
-        self.assertIn("│ Codex", listing)
-        self.assertIn("Status: linked", listing)
-        self.assertIn("Target: ~/.codex/AGENTS.md", listing)
-        self.assertIn("│ Projects", listing)
-        self.assertIn("example: linked", listing)
-        self.assertIn("empty: -", listing)
+        self.assertNotIn("╭", listing)
+        self.assertIn("Agent:  Codex", listing)
+        self.assertIn("Status:  linked", listing)
+        self.assertIn("Target:  ~/.codex/AGENTS.md", listing)
+        self.assertIn("Projects", listing)
+        self.assertIn("example:  linked", listing)
+        self.assertIn("empty:  -", listing)
 
         with (
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
@@ -1464,7 +1471,8 @@ url = "http://custom.example.com"
             )
             args.func(args)
 
-        self.assertIn("MCP Server: atlassian-rovo", mock_stdout.getvalue())
+        self.assertIn("MCP Server:", mock_stdout.getvalue())
+        self.assertIn("atlassian-rovo", mock_stdout.getvalue())
         self.assertIn("Canonical source:", mock_stdout.getvalue())
 
     def test_edit_mcp_command_opens_target_in_editor(self) -> None:

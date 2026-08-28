@@ -61,14 +61,21 @@ class ProjectSummaryTest(unittest.TestCase):
         detail = render_project_detail(summary, False, False)
         self.assertIn("Instructions", rendered)
         self.assertIn("| 1      |", rendered)
-        self.assertIn(f"Canonical directory: {definition}", detail)
+        self.assertIn(f"Canonical directory:  {definition}", detail)
         self.assertIn("Project directory:", detail)
-        self.assertIn("Instructions: configured", detail)
-        self.assertIn("Selected skills: example", detail)
-        self.assertIn("Memory: 1 notes | 0 references", detail)
+        self.assertIn("configured", detail)
+        self.assertIn("Selected skills:", detail)
+        self.assertIn("1 notes | 0 references", detail)
+        value_start = len("Canonical directory:") + 2
+        self.assertTrue(
+            all(
+                line[value_start - 2 : value_start] == " " * 2
+                for line in detail.splitlines()
+            )
+        )
         self.assertNotIn("runtime OK\nSelected skills", detail)
-        self.assertIn("Sync: OK", detail)
-        self.assertNotIn("Issues:", detail)
+        self.assertIn("OK", detail)
+        self.assertNotIn("Issue:", detail)
         self.assertNotIn("Resource     | Canonical", detail)
 
     def test_reports_missing_project_path(self) -> None:
@@ -84,7 +91,7 @@ class ProjectSummaryTest(unittest.TestCase):
 
         self.assertEqual(summary.runtime_status, "PATH MISSING")
         detail = render_project_detail(summary, False, False)
-        self.assertIn("Sync: PATH MISSING", detail)
+        self.assertIn("PATH MISSING", detail)
         self.assertIn("Project: directory does not exist:", detail)
 
     def test_empty_canonical_instructions_only_notice_project_owned_file(self) -> None:
@@ -110,8 +117,8 @@ class ProjectSummaryTest(unittest.TestCase):
 
         self.assertEqual(summary.instructions_status, "EMPTY")
         self.assertEqual(summary.runtime_status, "OK")
-        self.assertIn("Notice: Project-owned AGENTS.md detected:", detail)
-        self.assertNotIn("Issues:", detail)
+        self.assertIn("Project-owned AGENTS.md detected:", detail)
+        self.assertNotIn("Issue:", detail)
 
     def test_project_owned_unselected_skill_is_only_a_notice(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -133,8 +140,8 @@ class ProjectSummaryTest(unittest.TestCase):
             detail = render_project_detail(summary, False, False)
 
         self.assertEqual(summary.runtime_status, "OK")
-        self.assertIn("Notice: Project-owned skills detected: local-skill", detail)
-        self.assertNotIn("Issues:", detail)
+        self.assertIn("Project-owned skills detected: local-skill", detail)
+        self.assertNotIn("Issue:", detail)
 
     def test_detail_explains_resource_sync_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -159,8 +166,8 @@ class ProjectSummaryTest(unittest.TestCase):
             summary = collect_project_summaries(root, root)[0]
             detail = render_project_detail(summary, False, False)
 
-        self.assertIn("Sync: MISSING", detail)
-        self.assertIn("Issues:", detail)
+        self.assertIn("MISSING", detail)
+        self.assertIn("Issue:", detail)
         self.assertIn("Instructions (codex) [MISSING]: Missing", detail)
         self.assertIn("Memory [MISSING]", detail)
 
@@ -189,7 +196,7 @@ class ProjectSummaryTest(unittest.TestCase):
             detail = render_project_detail(summary, False, False)
 
         memory_lines = [
-            line for line in detail.splitlines() if line.startswith("  Memory [")
+            line for line in detail.splitlines() if "Memory [" in line
         ]
         self.assertEqual(len(memory_lines), 2)
         self.assertTrue(any("index.md:" in line for line in memory_lines))
