@@ -1,6 +1,7 @@
 import sys
 import tempfile
 import unittest
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -62,7 +63,7 @@ class AikitoStatusRenderTest(unittest.TestCase):
                 scope="Global",
                 status="OK",
                 notes_count=6,
-                runtime_location="-",
+                updated_on=date.today(),
             )
         ]
 
@@ -298,7 +299,7 @@ class AikitoStatusRenderTest(unittest.TestCase):
                     scope="Project",
                     status="MISSING",
                     notes_count=2,
-                    runtime_location="~/source/demo/.agents/memory",
+                    updated_on=date(2025, 12, 3),
                 )
             ],
             use_unicode=False,
@@ -306,10 +307,24 @@ class AikitoStatusRenderTest(unittest.TestCase):
         )
 
         self.assertIn("Status", rendered)
-        self.assertIn("Runtime Location", rendered)
+        self.assertIn("Updated", rendered)
+        self.assertIn("2025-12-03", rendered)
         self.assertNotIn("Link Status", rendered)
         self.assertNotIn("Index", rendered)
         self.assertIn("! M", rendered)
+
+    def test_render_memory_table_uses_calendar_relative_dates(self) -> None:
+        from aikito_render import _format_memory_updated_date
+
+        current = date.today()
+        self.assertEqual(_format_memory_updated_date(current), "today")
+        self.assertEqual(
+            _format_memory_updated_date(current - timedelta(days=1)), "yesterday"
+        )
+        self.assertEqual(
+            _format_memory_updated_date(date(current.year, 8, 26)), "Aug 26"
+        )
+        self.assertEqual(_format_memory_updated_date(date(2025, 12, 3)), "2025-12-03")
 
 
 class AikitoStatusCollectorTest(unittest.TestCase):

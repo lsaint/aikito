@@ -9,6 +9,7 @@ import shutil
 import sys
 import unicodedata
 from dataclasses import dataclass
+from datetime import date
 
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -32,7 +33,7 @@ class MemoryStatusRow:
     scope: str
     status: str
     notes_count: int
-    runtime_location: Optional[str]
+    updated_on: Optional[date]
 
 
 @dataclass
@@ -384,20 +385,34 @@ def render_agents_table(
 def render_memory_table(
     rows: List[MemoryStatusRow], use_unicode: bool, use_color: bool
 ) -> str:
-    headers = ["Memory Scope", "Status", "Notes", "Runtime Location"]
+    headers = ["Memory Scope", "Status", "Notes", "Updated"]
 
     formatted_rows = []
     for r in rows:
-        location_display = r.runtime_location if r.runtime_location else "-"
+        updated_display = _format_memory_updated_date(r.updated_on)
         formatted_rows.append(
             [
                 r.name,
                 _format_status_badge(r.status, use_unicode, use_color),
                 str(r.notes_count),
-                location_display,
+                updated_display,
             ]
         )
     return _build_generic_table(headers, formatted_rows, use_unicode, use_color)
+
+
+def _format_memory_updated_date(updated_on: Optional[date]) -> str:
+    if updated_on is None:
+        return "-"
+
+    current = date.today()
+    if updated_on == current:
+        return "today"
+    if updated_on == current.fromordinal(current.toordinal() - 1):
+        return "yesterday"
+    if updated_on.year == current.year:
+        return f"{updated_on:%b} {updated_on.day}"
+    return updated_on.isoformat()
 
 
 def render_mcp_status_table(

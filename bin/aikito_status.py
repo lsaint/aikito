@@ -7,6 +7,7 @@ import re
 import sys
 import tomllib
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, Set, Tuple
 
@@ -410,6 +411,16 @@ def collect_memory_status_rows(
     total_notes = 0
     mem_issues = 0
 
+    def latest_memory_update(memory_dir: Path) -> date | None:
+        candidates = [memory_dir / "index.md"]
+        notes_dir = memory_dir / "notes"
+        if notes_dir.is_dir():
+            candidates.extend(notes_dir.glob("*.md"))
+        existing = [path for path in candidates if path.is_file()]
+        if not existing:
+            return None
+        return date.fromtimestamp(max(path.stat().st_mtime for path in existing))
+
     # Global Memory: Global memory has no ~/.agents/memory symlink requirement.
     global_mem_dir = aikito_dir / "memory"
     global_index = global_mem_dir / "index.md"
@@ -421,18 +432,13 @@ def collect_memory_status_rows(
     global_notes_count = len(list(notes_dir.glob("*.md"))) if notes_dir.is_dir() else 0
     total_notes += global_notes_count
 
-    try:
-        global_mem_target = f"~/{global_mem_dir.relative_to(home)}"
-    except ValueError:
-        global_mem_target = str(global_mem_dir)
-
     rows.append(
         MemoryStatusRow(
             name="Global Memory",
             scope="Global",
             status=global_index_status,
             notes_count=global_notes_count,
-            runtime_location=global_mem_target,
+            updated_on=latest_memory_update(global_mem_dir),
         )
     )
 
@@ -468,17 +474,9 @@ def collect_memory_status_rows(
                         )
 
                 p_link_status = "N/A"
-                p_link_target = None
-
                 if proj_path_val:
                     actual_proj_path = Path(proj_path_val).expanduser().resolve()
                     proj_agents_mem = actual_proj_path / ".agents" / "memory"
-
-                    try:
-                        rel_path = proj_agents_mem.relative_to(home)
-                        p_link_target = f"~/{rel_path}"
-                    except ValueError:
-                        p_link_target = str(proj_agents_mem)
 
                     if proj_agents_mem.is_symlink():
                         p_link_status = "OK"
@@ -493,7 +491,6 @@ def collect_memory_status_rows(
                         p_link_status = "MISSING"
                         mem_issues += 1
                 else:
-                    p_link_target = "(unbound)"
                     p_link_status = "N/A"
 
                 rows.append(
@@ -506,7 +503,7 @@ def collect_memory_status_rows(
                             else p_link_status
                         ),
                         notes_count=proj_notes_count,
-                        runtime_location=p_link_target,
+                        updated_on=latest_memory_update(proj_mem),
                     )
                 )
 
