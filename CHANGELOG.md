@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-08-28
+
+### Added
+
+- `aikito status` memory table gains a combined `Status` column covering
+  canonical `index.md` presence and runtime connection health, with a legend
+  explaining any warning symbols, and an `Updated` column showing the most
+  recent memory update date (today, yesterday, or the date itself) in place
+  of the runtime location.
+
+### Changed
+
+- `show mcp`, `show subagents`, and single-agent detail views render their
+  fields as aligned key-value blocks for consistent, readable output.
+
+### Fixed
+
+- `doctor` no longer suggests a destructive `rm -rf` command for empty orphan
+  skill directories; it now points at the directory for manual review.
+
 ## [1.19.0] - 2026-08-28
 
 ### Added
@@ -372,7 +392,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.19.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.20.0...HEAD
+[1.20.0]: https://github.com/lsaint/aikito/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/lsaint/aikito/compare/v1.18.1...v1.19.0
 [1.18.1]: https://github.com/lsaint/aikito/compare/v1.18.0...v1.18.1
 [1.18.0]: https://github.com/lsaint/aikito/compare/v1.17.0...v1.18.0

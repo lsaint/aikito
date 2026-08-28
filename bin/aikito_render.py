@@ -498,9 +498,7 @@ def render_mcp_details(
                             ("Agent key:", row.agent_name),
                             (
                                 "Status:",
-                                "synced"
-                                if row.status == "OK"
-                                else row.status.lower(),
+                                "synced" if row.status == "OK" else row.status.lower(),
                             ),
                             ("Config:", str(row.config_path)),
                             ("Format:", row.config_format),
@@ -807,9 +805,7 @@ def render_project_detail(
                 for message in messages
             )
     elif project.runtime_status == "PATH MISSING":
-        fields.append(
-            ("Issue:", f"Project: directory does not exist: {project.path}")
-        )
+        fields.append(("Issue:", f"Project: directory does not exist: {project.path}"))
     elif project.runtime_status == "UNBOUND":
         fields.append(("Issue:", "Project: no directory is registered"))
     return render_key_value_fields(fields)

@@ -195,9 +195,7 @@ class ProjectSummaryTest(unittest.TestCase):
             summary = collect_project_summaries(root, root)[0]
             detail = render_project_detail(summary, False, False)
 
-        memory_lines = [
-            line for line in detail.splitlines() if "Memory [" in line
-        ]
+        memory_lines = [line for line in detail.splitlines() if "Memory [" in line]
         self.assertEqual(len(memory_lines), 2)
         self.assertTrue(any("index.md:" in line for line in memory_lines))
         self.assertTrue(any("notes:" in line for line in memory_lines))
