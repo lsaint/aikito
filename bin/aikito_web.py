@@ -9,7 +9,7 @@ import re
 import threading
 import tomllib
 import webbrowser
-from datetime import datetime
+from datetime import date, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -42,6 +42,8 @@ def _json_value(value: Any) -> Any:
         }
     if isinstance(value, Path):
         return str(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
     if isinstance(value, dict):
         return {str(key): _json_value(item) for key, item in value.items()}
     if isinstance(value, (list, tuple, set)):

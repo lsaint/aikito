@@ -124,6 +124,20 @@ process.stdout.write(markdown(JSON.parse(process.argv[2]), JSON.parse(process.ar
         self.assertEqual(project_instructions["scope"], "Project: demo")
         self.assertEqual(project_instructions["content"], "# Demo instructions\n")
 
+    def test_overview_serializes_memory_update_dates(self) -> None:
+        # ConsoleData reads workspace files lazily per request, so give
+        # this test a valid empty subagent registry without touching setUp.
+        (self.root / "subagents.toml").write_text("[subagents]\n", encoding="utf-8")
+        overview = self.get_json("/api/overview")
+        self.assertEqual(overview["version"], "test")
+        scopes = overview["memory_scopes"]
+        self.assertTrue(scopes)
+        updated_values = [scope["updated_on"] for scope in scopes]
+        self.assertTrue(any(isinstance(value, str) for value in updated_values))
+        for value in updated_values:
+            if value is not None:
+                self.assertRegex(value, r"^\d{4}-\d{2}-\d{2}$")
+
     def test_redacts_sensitive_mcp_values(self) -> None:
         detail = self.get_json("/api/mcps/sample")
         self.assertEqual(detail["content"]["headers"]["Authorization"], "[configured]")

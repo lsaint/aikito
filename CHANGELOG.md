@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `doctor` no longer suggests a destructive `rm -rf` command for empty orphan
   skill directories; it now points at the directory for manual review.
+- Web Console `/api/overview` serializes memory update dates as ISO strings
+  instead of failing with a JSON serialization error.
 
 ## [1.19.0] - 2026-08-28
 
