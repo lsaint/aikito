@@ -91,7 +91,7 @@ MCP synchronization.
 
 ## Durable Memory
 
-The bundled [`durable-memory` skill](skills/durable-memory/SKILL.md) is the
+The bundled [`durable-memory` skill](templates/skills/durable-memory/SKILL.md) is the
 curation half of the equation. It guides coding agents to retrieve relevant
 notes before acting, distill durable conclusions from what they learn, update
 notes that went stale, and choose the right global or project scope.
@@ -183,7 +183,7 @@ permissions for synchronization and credential safety.
 <summary>Copy this prompt to your coding agent</summary>
 
 > Install and configure Aikito from https://github.com/lsaint/aikito. Read the
-> README, `skills/aikito/SKILL.md`, and any linked documentation relevant to the
+> README, `templates/skills/aikito/SKILL.md`, and any linked documentation relevant to the
 > setup, then follow their safety requirements to initialize the workspace,
 > synchronize its global resources, and verify the result with `aikito status`.
 > Before importing or changing any existing Agent configuration, show me the
@@ -309,7 +309,8 @@ guides, the CLI reference, safety details, the roadmap, and the
 Issues and pull requests are welcome. Before submitting code, run:
 
 ```bash
-python3 -m unittest discover -s tests
+python3 -m pip install pytest
+python3 -m pytest
 ```
 
 Report vulnerabilities privately according to the [Security Policy](SECURITY.md).

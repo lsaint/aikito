@@ -1,19 +1,11 @@
-"""Tests for aikito_link and aikito_doctor modules."""
-
 import json
-import sys
 import tempfile
 import tomllib
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bin"))
-
-from aikito_link import SymlinkVerdict, classify_symlink, symlink_verdict_to_status  # noqa: E402
-from aikito_mcp import AgentSpec  # noqa: E402
-from aikito_doctor import (  # noqa: E402
+from aikito_doctor import (
     check_config_syntax,
     check_drift,
     check_environment,
@@ -24,13 +16,17 @@ from aikito_doctor import (  # noqa: E402
     run_doctor,
     run_doctor_prune,
 )
-from aikito_render import (  # noqa: E402
+from aikito_link import SymlinkVerdict, classify_symlink, symlink_verdict_to_status
+from aikito_mcp import AgentSpec
+from aikito_render import (
     DoctorFinding,
     DoctorReport,
     DoctorSection,
     render_doctor_report,
 )
-from aikito_subagent import PlanItem  # noqa: E402
+from aikito_subagent import PlanItem
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 # ---------------------------------------------------------------------------
@@ -343,7 +339,7 @@ class CheckConfigSyntaxTest(unittest.TestCase):
         )
 
         with patch(
-            "aikito_doctor._detect_existing_agents",
+            "aikito_doctor.detect_existing_agents",
             return_value=[("Grok Build", self.home / ".grok")],
         ):
             section = check_config_syntax(self.aikito_dir, self.home)
@@ -351,7 +347,8 @@ class CheckConfigSyntaxTest(unittest.TestCase):
         warnings = [
             finding
             for finding in section.findings
-            if finding.status == "WARN" and "'grok' is not registered" in finding.message
+            if finding.status == "WARN"
+            and "'grok' is not registered" in finding.message
         ]
         self.assertTrue(warnings)
         self.assertTrue(all(f.fix_hint == "aikito doctor --fix" for f in warnings))

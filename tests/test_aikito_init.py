@@ -1,21 +1,16 @@
-import sys
 import tempfile
 import tomllib
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bin"))
+from aikito_init import init_project, init_workspace, project_sync_validation_error
+from aikito_mcp import load_agent_specs, load_agents
+from aikito_status import get_status_report_data
+from aikito_templates import filter_agents_template, load_default_memory_instruction
 
-from aikito_init import (  # noqa: E402
-    DEFAULT_MEMORY_INSTRUCTION,
-    init_project,
-    init_workspace,
-    project_sync_validation_error,
-)
-from aikito_mcp import load_agent_specs, load_agents  # noqa: E402
-from aikito_status import get_status_report_data  # noqa: E402
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_MEMORY_INSTRUCTION = load_default_memory_instruction()
 
 
 class AikitoInitTest(unittest.TestCase):
@@ -55,9 +50,9 @@ class AikitoInitTest(unittest.TestCase):
             self.assertEqual(
                 tomllib.load(skills_file)["skills"], ["aikito", "durable-memory"]
             )
-        self.assertIn(
-            DEFAULT_MEMORY_INSTRUCTION,
+        self.assertEqual(
             (self.target_path / "global" / "AGENTS.md").read_text(encoding="utf-8"),
+            DEFAULT_MEMORY_INSTRUCTION + "\n",
         )
 
         # Check leading slash rule in .gitignore
@@ -159,12 +154,20 @@ class AikitoInitTest(unittest.TestCase):
     def test_init_workspace_registers_only_detected_agents(self) -> None:
         (self.fake_home / ".claude").mkdir()
 
-        with patch("aikito_init.shutil.which", return_value=None):
+        with patch("aikito_templates.shutil.which", return_value=None):
             init_workspace(self.target_path, self.fake_home)
 
         with (self.target_path / "agents.toml").open("rb") as config_file:
             agents = tomllib.load(config_file)["agents"]
         self.assertEqual(set(agents), {"claude-code"})
+
+    def test_agent_template_selection_keeps_comments_with_their_agent(self) -> None:
+        rendered = filter_agents_template(("agy",))
+
+        self.assertIn("# Antigravity CLI", rendered)
+        self.assertIn("[agents.agy]", rendered)
+        self.assertNotIn("# Codex CLI", rendered)
+        self.assertNotIn("# OpenCode CLI", rendered)
 
     def test_init_workspace_skip_existing_unless_force(self) -> None:
         (self.fake_home / ".codex").mkdir()
@@ -212,7 +215,7 @@ class AikitoInitTest(unittest.TestCase):
             self.assertFalse((target / "agents.toml").exists())
 
     def test_init_workspace_requires_all_bundled_skills_before_writing(self) -> None:
-        with patch("aikito_init.BUNDLED_SKILL_NAMES", ("aikito", "missing-skill")):
+        with patch("aikito_templates.BUNDLED_SKILL_NAMES", ("aikito", "missing-skill")):
             success = init_workspace(self.target_path, self.fake_home)
 
         self.assertFalse(success)

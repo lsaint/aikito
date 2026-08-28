@@ -1,0 +1,20 @@
+# =============================================================================
+# Antigravity CLI
+# =============================================================================
+[agents.agy]
+display_name = "Antigravity CLI"
+instruction_path = ".gemini/GEMINI.md"
+project_instruction_path = "AGENTS.md"
+skills_path = ".gemini/antigravity-cli/skills"
+
+[agents.agy.runner]
+command = ["agy", "--prompt-interactive", "{prompt}"]
+
+[agents.agy.subagents]
+config_path = ".gemini/config/agents"
+config_format = "agy_markdown"
+
+[agents.agy.mcp]
+config_path = ".gemini/config/mcp_config.json"
+config_format = "agy_json"
+name_style = "verbatim"

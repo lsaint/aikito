@@ -16,8 +16,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from aikito_init import DEFAULT_MEMORY_INSTRUCTION, GLOBAL_AGENTS_TEMPLATE
 from aikito_subagent import has_aikito_marker
+from aikito_templates import (
+    load_default_memory_instruction,
+    load_global_agents_template,
+)
 
 
 def collect_source_files_for_backup(plan: AdoptPlan) -> List[Path]:
@@ -132,13 +135,14 @@ def _normalize_instructions_content(text: str) -> str:
 
 
 def _append_default_memory_instruction(content: str) -> str:
+    default_instruction = load_default_memory_instruction()
     normalized = _normalize_instructions_content(content)
-    default_rule = _normalize_instructions_content(DEFAULT_MEMORY_INSTRUCTION)
+    default_rule = _normalize_instructions_content(default_instruction)
     if default_rule in normalized:
         return normalized + "\n"
     if not normalized:
-        return DEFAULT_MEMORY_INSTRUCTION
-    return f"{normalized}\n\n{DEFAULT_MEMORY_INSTRUCTION}"
+        return default_instruction
+    return f"{normalized}\n\n{default_instruction}"
 
 
 def _merge_adopted_instructions(
@@ -150,7 +154,7 @@ def _merge_adopted_instructions(
     canonical_content = target_path.read_text(encoding="utf-8")
     canonical = _normalize_instructions_content(canonical_content)
     imported = _normalize_instructions_content(imported_content)
-    default_template = _normalize_instructions_content(GLOBAL_AGENTS_TEMPLATE)
+    default_template = _normalize_instructions_content(load_global_agents_template())
 
     if canonical == imported:
         return False, canonical_content

@@ -87,7 +87,7 @@ Pi 支持 instructions、skills 和 runner；安装 Pi 的可选 `subagent` 扩�
 
 ## 长期 Memory
 
-内置的 [`durable-memory` skill](skills/durable-memory/SKILL.md) 承担 memory 维护工作。
+内置的 [`durable-memory` skill](templates/skills/durable-memory/SKILL.md) 承担 memory 维护工作。
 它引导 Coding Agent 在动手前
 检索相关笔记、把学到的东西提炼成可长期复用的结论、更新已经过时的笔记，并选择正确的
 全局或项目作用域。
@@ -169,7 +169,7 @@ Aikito 的同步和凭据安全模型依赖软链接及 POSIX 文件权限，因
 <summary>复制这段提示词给你的 Coding Agent</summary>
 
 > 请从 https://github.com/lsaint/aikito 安装并配置 Aikito。阅读 README、
-> `skills/aikito/SKILL.md` 及其中与本次配置相关的链接文档，按照其安全要求初始化
+> `templates/skills/aikito/SKILL.md` 及其中与本次配置相关的链接文档，按照其安全要求初始化
 > workspace、同步全局资源，并使用 `aikito status` 验证结果。导入或更改任何已有的
 > Agent 配置前，先向我展示计划变更和冲突并等待确认。配置完成后，总结已经就绪的内容，
 > 并引导我完成下一步，包括是否注册第一个代码项目；未经我确认，不要注册项目。
@@ -284,7 +284,8 @@ CLI 参考、安全模型、路线图和[常见问题（FAQ，英文）](docs/fa
 欢迎提交 Issue 和 Pull Request。提交代码前请运行：
 
 ```bash
-python3 -m unittest discover -s tests
+python3 -m pip install pytest
+python3 -m pytest
 ```
 
 安全漏洞请按[安全策略](SECURITY.md)私下报告。

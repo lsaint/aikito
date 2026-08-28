@@ -1,24 +1,57 @@
-import importlib.machinery
-import importlib.util
 import io
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bin"))
+from aikito_cli_loader import load_cli
 
-LOADER = importlib.machinery.SourceFileLoader(
-    "aikito_cli", str(ROOT / "bin" / "aikito")
-)
-SPEC = importlib.util.spec_from_loader(LOADER.name, LOADER)
-assert SPEC is not None
-AIKITO_CLI = importlib.util.module_from_spec(SPEC)
-LOADER.exec_module(AIKITO_CLI)
-sys.modules["aikito_cli"] = AIKITO_CLI
+AIKITO_CLI = load_cli()
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class MissingTemplatesStartupTest(unittest.TestCase):
+    def test_version_does_not_require_templates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            install_root = Path(tmp) / "install"
+            shutil.copytree(ROOT / "bin", install_root / "bin")
+
+            result = subprocess.run(
+                [sys.executable, str(install_root / "bin" / "aikito"), "--version"],
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"aikito {AIKITO_CLI.__version__}", result.stdout)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_init_reports_missing_templates_without_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            install_root = Path(tmp) / "install"
+            workspace = Path(tmp) / "workspace"
+            shutil.copytree(ROOT / "bin", install_root / "bin")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(install_root / "bin" / "aikito"),
+                    "init",
+                    "workspace",
+                    str(workspace),
+                ],
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Workspace template not found", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
 
 
 class GlobalEntrySyncTest(unittest.TestCase):

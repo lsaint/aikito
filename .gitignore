@@ -1,0 +1,11 @@
+/.agents/
+/inbox
+__pycache__/
+*.py[cod]
+.DS_Store
+/dist/
+/.local/
+
+# Whitelist repository files from user-level global ignore
+!/.gitignore
+!/templates/**/AGENTS.md

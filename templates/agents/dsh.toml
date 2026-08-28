@@ -1,0 +1,20 @@
+# =============================================================================
+# DeepSeek Harness
+# =============================================================================
+[agents.dsh]
+display_name = "DeepSeek Harness"
+instruction_path = ".dsh/AGENTS.md"
+project_instruction_path = "AGENTS.md"
+skills_path = ".agents/skills"
+
+[agents.dsh.runner]
+command = ["dsh", "--profile", "headless", "{prompt}"]
+
+[agents.dsh.subagents]
+config_path = ".dsh/cordis.patch.yml"
+config_format = "dsh_cordis_subagent"
+
+[agents.dsh.mcp]
+config_path = ".dsh/cordis.patch.yml"
+config_format = "dsh_cordis"
+name_style = "verbatim"

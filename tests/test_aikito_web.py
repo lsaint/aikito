@@ -3,7 +3,6 @@ import importlib.machinery
 import importlib.util
 import json
 import subprocess
-import sys
 import tempfile
 import threading
 import unittest
@@ -13,10 +12,9 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bin"))
+from aikito_web import ConsoleData, make_handler
 
-from aikito_web import ConsoleData, make_handler  # noqa: E402
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class WebConsoleTest(unittest.TestCase):

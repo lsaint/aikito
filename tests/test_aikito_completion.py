@@ -1,23 +1,9 @@
-import importlib.machinery
-import importlib.util
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bin"))
-
-LOADER = importlib.machinery.SourceFileLoader(
-    "aikito_cli", str(ROOT / "bin" / "aikito")
-)
-SPEC = importlib.util.spec_from_loader(LOADER.name, LOADER)
-assert SPEC is not None
-AIKITO_CLI = importlib.util.module_from_spec(SPEC)
-LOADER.exec_module(AIKITO_CLI)
-sys.modules["aikito_cli"] = AIKITO_CLI
-
-from aikito_completion import (  # noqa: E402
+from aikito_cli_loader import load_cli
+from aikito_completion import (
     extract_cli_schema,
     generate_bash,
     generate_fish,
@@ -29,10 +15,13 @@ from aikito_completion import (  # noqa: E402
     list_projects,
     list_skills,
 )
-from aikito_memory import (  # noqa: E402
+from aikito_memory import (
     find_memory_files,
     resolve_memory_target,
 )
+
+ROOT = Path(__file__).resolve().parents[1]
+AIKITO_CLI = load_cli()
 
 
 class AikitoCompletionReflectionTest(unittest.TestCase):

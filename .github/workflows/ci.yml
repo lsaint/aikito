@@ -21,9 +21,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install test dependencies
+        run: python3 -m pip install pytest
+
       - name: Run unit tests
-        run: |
-          python3 -m unittest discover -s tests
+        run: python3 -m pytest
 
   smoke-test:
     runs-on: ubuntu-latest
@@ -87,6 +89,19 @@ jobs:
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito init workspace ${{ runner.temp }}/aikito-ws
           test -f ${{ runner.temp }}/aikito-ws/config.toml
+
+      - name: Source distribution includes workspace templates
+        run: |
+          mkdir -p ${{ runner.temp }}/aikito-install
+          cp -R bin web templates ${{ runner.temp }}/aikito-install/
+          HOME=${{ runner.temp }}/installed-home \
+            XDG_CONFIG_HOME=${{ runner.temp }}/installed-home/.config \
+            ${{ runner.temp }}/aikito-install/bin/aikito init workspace \
+              ${{ runner.temp }}/installed-workspace
+          test -f ${{ runner.temp }}/installed-workspace/config.toml
+          test -f ${{ runner.temp }}/installed-workspace/skills/aikito/SKILL.md
+          test -f \
+            ${{ runner.temp }}/installed-workspace/skills/durable-memory/SKILL.md
 
       - name: aikito workspace persistence
         run: |

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
 import tomllib
 from pathlib import Path
 from typing import List
@@ -257,29 +256,14 @@ def _get_schema(parser: argparse.ArgumentParser | None = None) -> dict:
     if parser is not None:
         return extract_cli_schema(parser)
 
-    # 1. Try sys.modules if loaded by test framework or caller
-    if "aikito_cli" in sys.modules:
-        return extract_cli_schema(sys.modules["aikito_cli"].build_parser())
+    try:
+        from aikito_cli_loader import load_cli
 
-    # 2. Try loading bin/aikito dynamically
-    import importlib.machinery
-    import importlib.util
-
-    aikito_path = Path(__file__).parent / "aikito"
-    if aikito_path.is_file():
-        try:
-            loader = importlib.machinery.SourceFileLoader(
-                "aikito_cli", str(aikito_path)
-            )
-            spec = importlib.util.spec_from_loader(loader.name, loader)
-            if spec:
-                mod = importlib.util.module_from_spec(spec)
-                loader.exec_module(mod)
-                return extract_cli_schema(mod.build_parser())
-        except Exception:
-            pass
-
-    raise RuntimeError("Failed to load ArgumentParser for shell completion generation.")
+        return extract_cli_schema(load_cli().build_parser())
+    except Exception as exc:
+        raise RuntimeError(
+            "Failed to load ArgumentParser for shell completion generation."
+        ) from exc
 
 
 def generate_zsh(parser: argparse.ArgumentParser | None = None) -> str:

@@ -1,18 +1,14 @@
-"""Unit tests for aikito add commands and bin/aikito_add.py."""
-
 import io
-import sys
 import tempfile
 import tomllib
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bin"))
+from aikito_add import add_mcp, add_skill, add_subagent, validate_resource_name
+from aikito_init import init_project, init_workspace
 
-from aikito_add import add_mcp, add_skill, add_subagent, validate_resource_name  # noqa: E402
-from aikito_init import init_project, init_workspace  # noqa: E402
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestAikitoAddValidation(unittest.TestCase):

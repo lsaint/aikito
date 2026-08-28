@@ -24,10 +24,10 @@ from aikito_config import (
     get_workspace_config_path,
     load_workspace_config,
 )
-from aikito_init import (
-    AGENTS_TOML_TEMPLATE,
-    _detect_existing_agents,
+from aikito_templates import (
+    detect_existing_agents,
     detected_agent_names,
+    load_agents_template,
 )
 from aikito_link import SymlinkVerdict, classify_symlink
 from aikito_mcp import (
@@ -692,7 +692,7 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
                     registered_agents = set(
                         tomllib.load(registry_file).get("agents", {})
                     )
-                installed_agents = detected_agent_names(_detect_existing_agents(home))
+                installed_agents = detected_agent_names(detect_existing_agents(home))
                 for agent_name in installed_agents:
                     if agent_name not in registered_agents:
                         findings.append(
@@ -712,7 +712,7 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
                             )
                         )
                 for agent_name, fields in missing_agent_fields(
-                    path, AGENTS_TOML_TEMPLATE
+                    path, load_agents_template()
                 ).items():
                     field_names = ", ".join(".".join(field) for field in fields)
                     findings.append(
@@ -1165,11 +1165,11 @@ def run_doctor_fixes(aikito_dir: Path, home: Optional[Path] = None) -> List[str]
     if agents_path.is_file():
         try:
             installed_agents = detected_agent_names(
-                _detect_existing_agents(resolved_home)
+                detect_existing_agents(resolved_home)
             )
             fixes.extend(
                 add_missing_agent_fields(
-                    agents_path, AGENTS_TOML_TEMPLATE, installed_agents
+                    agents_path, load_agents_template(), installed_agents
                 )
             )
         except (OSError, tomllib.TOMLDecodeError):

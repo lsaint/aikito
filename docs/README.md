@@ -6,7 +6,7 @@ model, an operational guide, or command details.
 
 ## Learn
 
-- [Aikito skill](../skills/aikito/SKILL.md) — let a coding agent install,
+- [Aikito skill](../templates/skills/aikito/SKILL.md) — let a coding agent install,
   configure, and operate Aikito on your behalf.
 - [Memory workflow](memory-workflow.md) — decide what knowledge should persist
   and where it belongs.

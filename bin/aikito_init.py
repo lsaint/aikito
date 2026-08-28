@@ -1,27 +1,33 @@
 """
 Workspace initialization module for Aikito.
 Creates workspace skeleton, configuration templates, .gitignore, and initializes git repo.
+
+Template content is owned by ``templates/`` next to ``bin/``; this module only
+enforces validation, source-root protection, and file placement. See
+``aikito_templates`` for template loading and per-agent filtering.
 """
 
-import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Optional
 
 import tomllib
 
-from aikito_mcp import (
-    AGENT_INSTALL_MARKERS,
-    MCPConfigError,
-    collect_project_instruction_targets,
-    is_agent_installed,
+from aikito_mcp import MCPConfigError, collect_project_instruction_targets
+from aikito_templates import (
+    BUNDLED_SKILL_NAMES,
+    bundled_skill_path,
+    detect_existing_agents,
+    detected_agent_names,
+    render_project_files,
+    render_workspace_files,
+    verify_templates,
 )
 
 
 CLI_SOURCE_ROOT = Path(__file__).resolve().parents[1]
-BUNDLED_SKILL_NAMES = ("aikito", "durable-memory")
 
 SOURCE_CHECKOUT_MARKERS = (
     Path("LICENSE"),
@@ -43,279 +49,17 @@ WORKSPACE_DIRECTORY_MARKERS = (
     Path("global"),
 )
 
-AGENTS_TOML_TEMPLATE = """# Aikito Agents Config
-# Defines the installed agent integration points. Add or remove sections as needed.
-# project_instruction_path is relative to each registered project directory.
-
-[agents.codex]
-display_name = "Codex"
-instruction_path = ".codex/AGENTS.md"
-project_instruction_path = "AGENTS.md"
-skills_path = ".agents/skills"
-
-[agents.codex.runner]
-command = ["codex", "-C", "{workdir}", "{prompt}"]
-
-# Optional per-runner environment overrides:
-# [agents.codex.runner.env]
-# HTTPS_PROXY = "http://127.0.0.1:1234"
-
-[agents.codex.subagents]
-config_path = ".codex/agents"
-config_format = "codex_toml"
-
-[agents.codex.mcp]
-config_path = ".codex/config.toml"
-config_format = "toml"
-name_style = "underscore"
-live_command = ["codex", "mcp", "list"]
-auth_command = ["codex", "mcp", "login", "{target}"]
-
-[agents.claude-code]
-display_name = "Claude Code"
-instruction_path = ".claude/CLAUDE.md"
-project_instruction_path = ".claude/CLAUDE.md"
-skills_path = ".claude/skills"
-
-[agents.claude-code.runner]
-command = ["claude", "{prompt}"]
-
-[agents.claude-code.subagents]
-config_path = ".claude/agents"
-config_format = "claude_markdown"
-
-[agents.claude-code.mcp]
-config_path = ".claude.json"
-config_format = "claude_json"
-name_style = "verbatim"
-live_command = ["claude", "mcp", "list"]
-auth_command = ["claude", "mcp", "login", "{target}"]
-
-[agents.agy]
-display_name = "Antigravity CLI"
-instruction_path = ".gemini/GEMINI.md"
-project_instruction_path = "AGENTS.md"
-skills_path = ".gemini/antigravity-cli/skills"
-
-[agents.agy.runner]
-command = ["agy", "--prompt-interactive", "{prompt}"]
-
-[agents.agy.subagents]
-config_path = ".gemini/config/agents"
-config_format = "agy_markdown"
-
-[agents.agy.mcp]
-config_path = ".gemini/config/mcp_config.json"
-config_format = "agy_json"
-name_style = "verbatim"
-
-[agents.opencode]
-display_name = "OpenCode"
-instruction_path = ".config/opencode/AGENTS.md"
-project_instruction_path = "AGENTS.md"
-skills_path = ".agents/skills"
-
-[agents.opencode.runner]
-command = ["opencode", "{workdir}", "--prompt", "{prompt}"]
-
-[agents.opencode.subagents]
-config_path = ".config/opencode/agents"
-config_format = "opencode_markdown"
-
-[agents.opencode.mcp]
-config_path = ".config/opencode/opencode.jsonc"
-config_format = "jsonc"
-name_style = "verbatim"
-live_command = ["opencode", "mcp", "list"]
-auth_command = ["opencode", "mcp", "auth", "{target}"]
-
-[agents.github-copilot]
-display_name = "GitHub Copilot CLI"
-instruction_path = ".copilot/copilot-instructions.md"
-project_instruction_path = "AGENTS.md"
-skills_path = ".agents/skills"
-
-[agents.github-copilot.runner]
-command = ["copilot", "-C", "{workdir}", "-i", "{prompt}"]
-
-[agents.github-copilot.subagents]
-config_path = ".copilot/agents"
-config_format = "copilot_markdown"
-
-[agents.github-copilot.mcp]
-config_path = ".copilot/mcp-config.json"
-config_format = "copilot_json"
-name_style = "verbatim"
-live_command = ["copilot", "mcp", "list"]
-
-[agents.dsh]
-display_name = "DeepSeek Harness"
-instruction_path = ".dsh/AGENTS.md"
-project_instruction_path = "AGENTS.md"
-skills_path = ".agents/skills"
-
-[agents.dsh.runner]
-command = ["dsh", "--profile", "headless", "{prompt}"]
-
-[agents.dsh.subagents]
-config_path = ".dsh/cordis.patch.yml"
-config_format = "dsh_cordis_subagent"
-
-[agents.dsh.mcp]
-config_path = ".dsh/cordis.patch.yml"
-config_format = "dsh_cordis"
-name_style = "verbatim"
-
-[agents.grok]
-display_name = "Grok Build"
-instruction_path = ".grok/rules/aikito.md"
-project_instruction_path = "AGENTS.md"
-skills_path = ".agents/skills"
-
-[agents.grok.runner]
-command = ["grok", "--cwd", "{workdir}", "-p", "{prompt}"]
-
-[agents.grok.subagents]
-config_path = ".grok/agents"
-config_format = "grok_markdown"
-
-[agents.grok.mcp]
-config_path = ".grok/config.toml"
-config_format = "toml"
-name_style = "verbatim"
-live_command = ["grok", "mcp", "list"]
-
-# Pi keeps its core small and pushes MCP and sub-agents into optional
-# extensions. Aikito enables subagent synchronization only when the extension
-# is installed, leaving the core-only behavior unchanged.
-# Pi natively discovers global skills in ~/.agents/skills and project skills in
-# .agents/skills. It intentionally has no mcp section.
-[agents.pi]
-display_name = "Pi"
-instruction_path = ".pi/agent/AGENTS.md"
-project_instruction_path = "AGENTS.md"
-skills_path = ".agents/skills"
-
-[agents.pi.runner]
-command = ["pi", "-p", "{prompt}"]
-
-[agents.pi.subagents]
-config_path = ".pi/agent/agents"
-config_format = "pi_markdown"
-requires_path = ".pi/agent/extensions/subagent/index.ts"
-"""
-
-MCPS_TOML_TEMPLATE = """# Aikito MCP Config
-# Central MCP server definitions synchronized across agents.
-# Add servers as [servers.<name>] tables when ready.
-
-[servers]
-"""
-
-SUBAGENTS_TOML_TEMPLATE = """# Aikito Subagents Config
-# Managed subagents definitions synchronized across agents.
-
-[subagents]
-"""
-
-MEMORY_INDEX_TEMPLATE = """# Memory Index
-
-Global atomic notes index across all workspaces.
-
-## Notes
-"""
-
-SKILLS_TOML_TEMPLATE = """# Global skills enabled for all supported agents.
-skills = ["aikito", "durable-memory"]
-"""
-
-CONFIG_TOML_TEMPLATE = """# Aikito Workspace Configuration
-
-[memory]
-# Number of days after which an untouched durable memory note is flagged as stale.
-stale_days = 30
-
-[inbox]
-# Staging directory for incoming distilled notes.
-path = "inbox"
-"""
-
-DEFAULT_MEMORY_INSTRUCTION = """## Persistent Memory
-
-- All tasks must follow the `durable-memory` skill. Its rules are the sole authority for when to use Memory, task boundaries, retrieval, evaluation, persistence, and commits.
-"""
-
-GLOBAL_AGENTS_TEMPLATE = f"""# Global Agent Directives
-
-{DEFAULT_MEMORY_INSTRUCTION}
-"""
-
-PROJECT_AGENTS_TEMPLATE = ""
-
-PROJECT_MEMORY_INDEX_TEMPLATE = """# Project Memory Index
-
-## Notes
-"""
-
-GITIGNORE_TEMPLATE = """# Aikito Git Ignore Rules
-# Note: Rules use leading slashes to strictly match top-level workspace items.
-/.DS_Store
-/__pycache__/
-/*.pyc
-/.venv/
-/.local/
-"""
-
-
-def _detect_existing_agents(home: Path) -> List[Tuple[str, Path]]:
-    """Return installed registry agents in template order."""
-    detected = []
-    for agent_name, (
-        display_name,
-        binary,
-        relative_marker,
-    ) in AGENT_INSTALL_MARKERS.items():
-        if not is_agent_installed(agent_name, home):
-            continue
-        executable = shutil.which(binary)
-        detected.append(
-            (display_name, Path(executable) if executable else home / relative_marker)
-        )
-    return detected
-
-
-def detected_agent_names(
-    detected_agents: List[Tuple[str, Path]],
-) -> tuple[str, ...]:
-    detected_display_names = {name for name, _ in detected_agents}
-    return tuple(
-        name
-        for name, (display_name, _binary, _marker) in AGENT_INSTALL_MARKERS.items()
-        if display_name in detected_display_names
-    )
-
-
-def _filter_agents_template(agent_names: tuple[str, ...]) -> str:
-    """Keep only detected top-level agent blocks from the bundled registry."""
-    matches = list(re.finditer(r"(?m)^\[agents\.([^.\]]+)\]\s*$", AGENTS_TOML_TEMPLATE))
-    preamble = AGENTS_TOML_TEMPLATE[: matches[0].start()].rstrip()
-    selected = set(agent_names)
-    blocks = []
-    for index, match in enumerate(matches):
-        end = (
-            matches[index + 1].start()
-            if index + 1 < len(matches)
-            else len(AGENTS_TOML_TEMPLATE)
-        )
-        if match.group(1) in selected:
-            blocks.append(AGENTS_TOML_TEMPLATE[match.start() : end].strip())
-    if not blocks:
-        blocks.append("[agents]")
-    return preamble + "\n\n" + "\n\n".join(blocks) + "\n"
-
-
-def _bundled_skill_path(name: str) -> Path:
-    return CLI_SOURCE_ROOT / "skills" / name
+__all__ = [
+    "CLI_SOURCE_ROOT",
+    "BUNDLED_SKILL_NAMES",
+    "SOURCE_CHECKOUT_MARKERS",
+    "WORKSPACE_FILE_MARKERS",
+    "WORKSPACE_DIRECTORY_MARKERS",
+    "init_workspace",
+    "init_project",
+    "project_validation_error",
+    "project_sync_validation_error",
+]
 
 
 def _target_validation_error(target_dir: Path) -> Optional[str]:
@@ -354,6 +98,12 @@ def _target_validation_error(target_dir: Path) -> Optional[str]:
     )
 
 
+def _load_templates_error() -> Optional[str]:
+    """Return a startup error if any required template asset is missing."""
+    errors = verify_templates()
+    return "\n".join(errors) if errors else None
+
+
 def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
     """
     Initializes an Aikito user data workspace in target_dir.
@@ -366,17 +116,13 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
         print(f"[ERROR] {validation_error}", file=sys.stderr)
         return False
 
-    missing_bundled_skills = [
-        name
-        for name in BUNDLED_SKILL_NAMES
-        if not (_bundled_skill_path(name) / "SKILL.md").is_file()
-    ]
-    if missing_bundled_skills:
-        print(
-            "[ERROR] Bundled skill(s) not found: " + ", ".join(missing_bundled_skills),
-            file=sys.stderr,
-        )
+    template_error = _load_templates_error()
+    if template_error:
+        print(f"[ERROR] {template_error}", file=sys.stderr)
         return False
+
+    detected_agents = detect_existing_agents(home)
+    installed_agent_names = detected_agent_names(detected_agents)
 
     print(f"[INFO] Initializing Aikito workspace in: {target_dir}")
 
@@ -396,39 +142,8 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
             d.mkdir(parents=True, exist_ok=True)
             print(f"[CREATE DIR] {d}")
 
-    # 2. Write configuration templates & files
-    detected_agents = _detect_existing_agents(home)
-    installed_agent_names = detected_agent_names(detected_agents)
-    files_to_create = [
-        (target_dir / "config.toml", CONFIG_TOML_TEMPLATE, "Workspace config template"),
-        (
-            target_dir / "agents.toml",
-            _filter_agents_template(installed_agent_names),
-            "Detected agents config",
-        ),
-        (target_dir / "skills.toml", SKILLS_TOML_TEMPLATE, "Global skills config"),
-        (
-            target_dir / "subagents.toml",
-            SUBAGENTS_TOML_TEMPLATE,
-            "Subagents config template",
-        ),
-        (
-            target_dir / "memory" / "index.md",
-            MEMORY_INDEX_TEMPLATE,
-            "Memory index file",
-        ),
-        (
-            target_dir / "global" / "AGENTS.md",
-            GLOBAL_AGENTS_TEMPLATE,
-            "Global agent instructions",
-        ),
-        (
-            target_dir / ".gitignore",
-            GITIGNORE_TEMPLATE,
-            "Workspace .gitignore with leading slashes",
-        ),
-    ]
-
+    # 2. Write template files
+    files_to_create = render_workspace_files(target_dir, installed_agent_names)
     for file_path, content, desc in files_to_create:
         if not file_path.exists() or force:
             file_path.write_text(content, encoding="utf-8")
@@ -441,10 +156,11 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
 
     for skill_name in BUNDLED_SKILL_NAMES:
         bundled_skill_target = target_dir / "skills" / skill_name
+        skill_source = bundled_skill_path(skill_name)
         if bundled_skill_target.exists():
             print(f"[SKIP DIR] {bundled_skill_target} (Already exists)")
             continue
-        shutil.copytree(_bundled_skill_path(skill_name), bundled_skill_target)
+        shutil.copytree(skill_source, bundled_skill_target)
         print(f"[CREATE DIR] {bundled_skill_target} (Bundled {skill_name} skill)")
 
     # 3. Git Init
@@ -486,6 +202,8 @@ def _display_path(path: Path, home: Path) -> str:
 
 
 def _validate_project_name(project_name: str) -> Optional[str]:
+    import re
+
     if not project_name or not re.fullmatch(
         r"[A-Za-z0-9][A-Za-z0-9._-]*", project_name
     ):
@@ -494,6 +212,56 @@ def _validate_project_name(project_name: str) -> Optional[str]:
             "letters, digits, dots, underscores, or hyphens."
         )
     return None
+
+
+def init_project(
+    aikito_dir: Path,
+    project_path: Path,
+    project_name: Optional[str] = None,
+    home: Optional[Path] = None,
+) -> Optional[str]:
+    """Create an idempotent canonical project definition and return its name."""
+    aikito_dir = aikito_dir.expanduser().resolve()
+    project_path = project_path.expanduser().resolve()
+    resolved_name = project_name or project_path.name
+    home = home or Path.home()
+
+    validation_error = project_validation_error(
+        aikito_dir, resolved_name, project_path, home
+    )
+    if validation_error:
+        print(f"[ERROR] {validation_error}", file=sys.stderr)
+        return None
+
+    project_dir = aikito_dir / "projects" / resolved_name
+    memory_dir = project_dir / "memory"
+    notes_dir = memory_dir / "notes"
+    notes_dir.mkdir(parents=True, exist_ok=True)
+
+    config_path = project_dir / "agent.toml"
+    if not config_path.exists():
+        display_path = _display_path(project_path, home)
+        config_path.write_text(
+            f'name = "{resolved_name}"\n'
+            f'path = "{display_path}"\n'
+            'sync_mode = "link"\n'
+            "skills = []\n",
+            encoding="utf-8",
+        )
+        print(f"[CREATE FILE] {config_path}")
+    else:
+        print(f"[SKIP FILE] {config_path} (Already exists)")
+
+    for file_path, content in render_project_files(project_dir):
+        if file_path.exists():
+            print(f"[SKIP FILE] {file_path} (Already exists)")
+            continue
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(content, encoding="utf-8")
+        print(f"[CREATE FILE] {file_path}")
+
+    print(f"[SUCCESS] Project '{resolved_name}' initialized in Aikito workspace.")
+    return resolved_name
 
 
 def _project_validation_error(
@@ -614,56 +382,3 @@ def project_sync_validation_error(
         home,
         reject_unexpected_entries=False,
     )
-
-
-def init_project(
-    aikito_dir: Path,
-    project_path: Path,
-    project_name: Optional[str] = None,
-    home: Optional[Path] = None,
-) -> Optional[str]:
-    """Create an idempotent canonical project definition and return its name."""
-    aikito_dir = aikito_dir.expanduser().resolve()
-    project_path = project_path.expanduser().resolve()
-    resolved_name = project_name or project_path.name
-    home = home or Path.home()
-
-    validation_error = project_validation_error(
-        aikito_dir, resolved_name, project_path, home
-    )
-    if validation_error:
-        print(f"[ERROR] {validation_error}", file=sys.stderr)
-        return None
-
-    project_dir = aikito_dir / "projects" / resolved_name
-    memory_dir = project_dir / "memory"
-    notes_dir = memory_dir / "notes"
-    notes_dir.mkdir(parents=True, exist_ok=True)
-
-    config_path = project_dir / "agent.toml"
-    if not config_path.exists():
-        display_path = _display_path(project_path, home)
-        config_path.write_text(
-            f'name = "{resolved_name}"\n'
-            f'path = "{display_path}"\n'
-            'sync_mode = "link"\n'
-            "skills = []\n",
-            encoding="utf-8",
-        )
-        print(f"[CREATE FILE] {config_path}")
-    else:
-        print(f"[SKIP FILE] {config_path} (Already exists)")
-
-    files_to_create = (
-        (project_dir / "AGENTS.md", PROJECT_AGENTS_TEMPLATE),
-        (memory_dir / "index.md", PROJECT_MEMORY_INDEX_TEMPLATE),
-    )
-    for file_path, content in files_to_create:
-        if file_path.exists():
-            print(f"[SKIP FILE] {file_path} (Already exists)")
-            continue
-        file_path.write_text(content, encoding="utf-8")
-        print(f"[CREATE FILE] {file_path}")
-
-    print(f"[SUCCESS] Project '{resolved_name}' initialized in Aikito workspace.")
-    return resolved_name

@@ -1,19 +1,20 @@
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bin"))
-
-from aikito_adopt import build_adopt_plan, execute_adoption  # noqa: E402
-from aikito_init import (  # noqa: E402
-    DEFAULT_MEMORY_INSTRUCTION,
-    GLOBAL_AGENTS_TEMPLATE,
+from aikito_adopt import build_adopt_plan, execute_adoption
+from aikito_templates import (
+    load_agents_template,
+    load_default_memory_instruction,
+    load_global_agents_template,
 )
-from aikito_mcp import load_agent_specs  # noqa: E402
-from aikito_subagent import load_subagent_definitions  # noqa: E402
+from aikito_mcp import load_agent_specs
+from aikito_subagent import load_subagent_definitions
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_MEMORY_INSTRUCTION = load_default_memory_instruction()
+GLOBAL_AGENTS_TEMPLATE = load_global_agents_template()
 
 
 class AikitoAdoptTest(unittest.TestCase):
@@ -324,7 +325,8 @@ class AikitoAdoptTest(unittest.TestCase):
         )
 
         (self.target_path / "agents.toml").write_text(
-            (ROOT / "agents.toml").read_text(encoding="utf-8"), encoding="utf-8"
+            load_agents_template(),
+            encoding="utf-8",
         )
 
         plan = build_adopt_plan(self.target_path, self.fake_home)

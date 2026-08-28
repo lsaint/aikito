@@ -43,7 +43,7 @@ the corresponding resource.
 
 ## Use or Adapt the Aikito Skill
 
-The complete [Aikito skill](../skills/aikito/SKILL.md) teaches a coding agent
+The complete [Aikito skill](../templates/skills/aikito/SKILL.md) teaches a coding agent
 how to install, configure, and operate an Aikito workspace. Use it as provided
 or adapt its workspace layout, Agent registry, synchronization policy, and
 review requirements to match your environment.

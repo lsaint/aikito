@@ -1,0 +1,25 @@
+# =============================================================================
+# Codex CLI
+# =============================================================================
+[agents.codex]
+display_name = "Codex"
+instruction_path = ".codex/AGENTS.md"
+project_instruction_path = "AGENTS.md"
+skills_path = ".agents/skills"
+
+[agents.codex.runner]
+command = ["codex", "-C", "{workdir}", "{prompt}"]
+
+# Local runner environment overrides are omitted from open-source exports.
+# [agents.codex.runner.env]
+# EXAMPLE_VARIABLE = "local-value"
+[agents.codex.subagents]
+config_path = ".codex/agents"
+config_format = "codex_toml"
+
+[agents.codex.mcp]
+config_path = ".codex/config.toml"
+config_format = "toml"
+name_style = "underscore"                       # server-name -> server_name
+live_command = ["codex", "mcp", "list"]
+auth_command = ["codex", "mcp", "login", "{target}"]

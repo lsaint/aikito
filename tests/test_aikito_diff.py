@@ -1,16 +1,11 @@
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bin"))
-
-from aikito_diff import collect_drift_diffs, render_drift_diffs  # noqa: E402
-from aikito_mcp import AgentSpec  # noqa: E402
-from aikito_subagent import PlanItem  # noqa: E402
+from aikito_diff import collect_drift_diffs, render_drift_diffs
+from aikito_mcp import AgentSpec
+from aikito_subagent import PlanItem
 
 
 class DriftDiffTest(unittest.TestCase):

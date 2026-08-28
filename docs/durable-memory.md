@@ -18,11 +18,8 @@ bundled `aikito` and `durable-memory` skills into `skills/`, selects both in
 `skills.toml`, and writes this rule to `global/AGENTS.md`:
 
 ```markdown
-## Persistent Memory
-
-- All tasks must follow the `durable-memory` skill. Its rules are the sole
-  authority for when to use Memory, task boundaries, retrieval, evaluation,
-  persistence, and commits.
+- All tasks must follow the `durable-memory` skill as the single source of truth
+  for durable memory boundaries, retrieval, evaluation, and persistence.
 ```
 
 Initialization changes only the Aikito workspace. The integration becomes
@@ -68,7 +65,7 @@ integration is disabled.
 
 ## Use or Adapt the Prompt
 
-The complete [durable-memory prompt](../skills/durable-memory/SKILL.md)
+The complete [durable-memory prompt](../templates/skills/durable-memory/SKILL.md)
 is plain Markdown. You can use it as provided or copy and adapt it to match your
 own storage layout, naming conventions, review process, and criteria for what
 deserves persistent memory. Review the prompt before enabling it so its scope

@@ -1,20 +1,16 @@
-"""Tests for aikito_config module."""
-
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bin"))
-
-from aikito_config import (  # noqa: E402
+from aikito_config import (
     DEFAULT_STALE_MEMORY_DAYS,
     get_inbox_path,
     get_project_memory_stale_days,
     get_workspace_config_path,
     load_workspace_config,
 )
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class AikitoConfigTest(unittest.TestCase):

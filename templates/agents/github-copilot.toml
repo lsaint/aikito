@@ -1,0 +1,21 @@
+# =============================================================================
+# GitHub Copilot CLI
+# =============================================================================
+[agents.github-copilot]
+display_name = "GitHub Copilot CLI"
+instruction_path = ".copilot/copilot-instructions.md"
+project_instruction_path = "AGENTS.md"
+skills_path = ".agents/skills"
+
+[agents.github-copilot.runner]
+command = ["copilot", "-C", "{workdir}", "-i", "{prompt}"]
+
+[agents.github-copilot.subagents]
+config_path = ".copilot/agents"
+config_format = "copilot_markdown"
+
+[agents.github-copilot.mcp]
+config_path = ".copilot/mcp-config.json"
+config_format = "copilot_json"
+name_style = "verbatim"
+live_command = ["copilot", "mcp", "list"]

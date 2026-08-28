@@ -1,0 +1,22 @@
+# =============================================================================
+# Claude Code CLI
+# =============================================================================
+[agents.claude-code]
+display_name = "Claude Code"
+instruction_path = ".claude/CLAUDE.md"
+project_instruction_path = ".claude/CLAUDE.md"
+skills_path = ".claude/skills"
+
+[agents.claude-code.runner]
+command = ["claude", "{prompt}"]
+
+[agents.claude-code.subagents]
+config_path = ".claude/agents"
+config_format = "claude_markdown"
+
+[agents.claude-code.mcp]
+config_path = ".claude.json"
+config_format = "claude_json"
+name_style = "verbatim"
+live_command = ["claude", "mcp", "list"]
+auth_command = ["claude", "mcp", "login", "{target}"]

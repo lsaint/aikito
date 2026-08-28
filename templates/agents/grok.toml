@@ -1,0 +1,21 @@
+# =============================================================================
+# Grok Build
+# =============================================================================
+[agents.grok]
+display_name = "Grok Build"
+instruction_path = ".grok/rules/aikito.md"
+project_instruction_path = "AGENTS.md"
+skills_path = ".agents/skills"
+
+[agents.grok.runner]
+command = ["grok", "--cwd", "{workdir}", "-p", "{prompt}"]
+
+[agents.grok.subagents]
+config_path = ".grok/agents"
+config_format = "grok_markdown"
+
+[agents.grok.mcp]
+config_path = ".grok/config.toml"
+config_format = "toml"
+name_style = "verbatim"
+live_command = ["grok", "mcp", "list"]

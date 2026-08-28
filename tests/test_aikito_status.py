@@ -1,14 +1,12 @@
-import sys
 import tempfile
 import unittest
 from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bin"))
-
-from aikito_render import (  # noqa: E402
+from aikito_init import init_workspace
+from aikito_mcp import LiveMCPResult
+from aikito_render import (
     AgentStatusRow,
     MCPServerRow,
     MemoryNoteRow,
@@ -24,8 +22,7 @@ from aikito_render import (  # noqa: E402
     render_status_report,
     render_subagents_status_table,
 )
-
-from aikito_status import (  # noqa: E402
+from aikito_status import (
     _summarize_subagent_status,
     collect_agent_status_rows,
     collect_mcp_details,
@@ -35,7 +32,7 @@ from aikito_status import (  # noqa: E402
     get_status_report_data,
 )
 
-from aikito_mcp import LiveMCPResult  # noqa: E402
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class AikitoStatusRenderTest(unittest.TestCase):
@@ -342,8 +339,15 @@ class AikitoStatusRenderTest(unittest.TestCase):
 
 class AikitoStatusCollectorTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.aikito_dir = ROOT
-        self.home = Path(tempfile.gettempdir())
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        root = Path(self.temporary_directory.name)
+        self.aikito_dir = root / "aikito"
+        self.home = root / "home"
+        (self.home / ".codex").mkdir(parents=True)
+        self.assertTrue(init_workspace(self.aikito_dir, self.home))
+
+    def tearDown(self) -> None:
+        self.temporary_directory.cleanup()
 
     def test_collect_status_data_structure(self) -> None:
         data = get_status_report_data(self.aikito_dir, self.home)

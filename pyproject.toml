@@ -1,0 +1,18 @@
+[project]
+name = "aikito"
+version = "1.20.0"
+description = "Durable workspace for governing context across AI agents"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+pythonpath = ["bin"]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+# E402 (module import not at top) appears in legacy files; keep it enabled so
+# new violations stand out, but tests get a free sys.path via pytest pythonpath.
+ignore = []

@@ -9,9 +9,6 @@ import argparse
 import errno
 import json
 import os
-import shutil
-import shlex
-import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -26,10 +23,24 @@ from aikito_init import (
     init_workspace,
     project_sync_validation_error,
 )
-from aikito_link import classify_symlink, symlink_verdict_to_status
 from aikito_maintain import MemoryMaintenanceError, run_memory_maintenance
+from aikito_resolve import (
+    collect_instruction_agent_status,
+    collect_project_instruction_status,
+    open_in_editor,
+    resolve_instruction_target,
+    resolve_mcp_target_for_command,
+    resolve_skill_target_for_command,
+    resolve_subagent_target_for_command,
+)
+from aikito_sync import (
+    apply_runtime_cleanup,
+    ensure_dir,
+    sync_global_entry,
+    sync_project_instruction,
+    sync_resource,
+)
 from aikito_memory import (
-    ensure_safe_path,
     remove_memory_note,
     rename_memory_note,
     resolve_memory_target_for_command,
@@ -58,7 +69,6 @@ from aikito_inbox import (
 )
 from aikito_render import (
     DoctorReport,
-    SkillRow,
     render_doctor_report,
     render_agent_mcp_table,
     render_agent_subagent_table,
@@ -86,7 +96,6 @@ from aikito_status import (
 )
 from aikito_subagent import (
     SubagentConfigError,
-    load_subagent_definitions,
     sync_subagent_configs,
 )
 from aikito_web import serve_console
@@ -133,178 +142,6 @@ def resolve_color_flags(args: argparse.Namespace) -> tuple[bool, bool]:
     use_unicode = is_tty
     use_color = is_tty and not no_color
     return use_unicode, use_color
-
-
-def ensure_dir(path: Path) -> None:
-    path.mkdir(parents=True, exist_ok=True)
-
-
-def sync_resource(
-    source: Path, target: Path, mode: str = "link", dry_run: bool = False
-) -> bool:
-    """
-    Syncs source path to target path using specified mode ('link' or 'copy').
-    """
-    if not source.exists():
-        print(f"[WARN] Source path does not exist: {source}", file=sys.stderr)
-        return False
-
-    mode = mode.lower()
-    if mode not in ("link", "copy"):
-        print(
-            f"[WARN] Invalid sync_mode '{mode}', defaulting to 'link'", file=sys.stderr
-        )
-        mode = "link"
-
-    if dry_run:
-        action = "LINK" if mode == "link" else "COPY"
-        print(f"[DRY RUN {action}] {source} -> {target}")
-        return True
-
-    # Remove existing target if needed (symlink, file, or directory)
-    if target.is_symlink() or target.exists():
-        try:
-            if target.is_symlink() or target.is_file():
-                target.unlink()
-            elif target.is_dir():
-                shutil.rmtree(target)
-        except Exception as e:
-            print(
-                f"[ERROR] Failed to remove existing target {target}: {e}",
-                file=sys.stderr,
-            )
-            return False
-
-    if mode == "link":
-        try:
-            target.symlink_to(source)
-            print(f"[LINK] {target} -> {source}")
-            return True
-        except Exception as e:
-            print(
-                f"[ERROR] Failed to create symlink {target} -> {source}: {e}",
-                file=sys.stderr,
-            )
-            return False
-    else:  # copy mode
-        try:
-            if source.is_dir():
-                shutil.copytree(source, target)
-                print(f"[COPY DIR] {source} -> {target}")
-            else:
-                shutil.copy2(source, target)
-                print(f"[COPY FILE] {source} -> {target}")
-            return True
-        except Exception as e:
-            print(f"[ERROR] Failed to copy {source} to {target}: {e}", file=sys.stderr)
-            return False
-
-
-def apply_runtime_cleanup(paths: tuple[Path, ...], dry_run: bool) -> None:
-    """Remove entries already proven to be Aikito-managed by a cleanup plan."""
-    for path in paths:
-        if dry_run:
-            print(f"[DRY RUN CLEANUP] Would remove stale managed item: {path}")
-        elif path.is_symlink() or path.is_file():
-            path.unlink()
-            print(f"[CLEANUP] Removed stale managed item: {path}")
-        elif path.is_dir():
-            shutil.rmtree(path)
-            print(f"[CLEANUP] Removed stale managed item: {path}")
-
-
-def sync_project_instruction(source: Path, target: Path, dry_run: bool) -> bool:
-    """Create a project instruction link without replacing existing content."""
-    expected = source.resolve(strict=False)
-    if target.is_symlink():
-        if target.resolve(strict=False) == expected:
-            print(f"[OK] Project instructions: {target} -> {source}")
-            return True
-        print(
-            f"[CONFLICT] Project instructions already exist: {target}",
-            file=sys.stderr,
-        )
-        return False
-    if target.exists():
-        print(
-            f"[CONFLICT] Project instructions already exist: {target}",
-            file=sys.stderr,
-        )
-        return False
-    if dry_run:
-        print(f"[DRY RUN LINK] {source} -> {target}")
-        return True
-    try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.symlink_to(source)
-        print(f"[LINK] {target} -> {source}")
-        return True
-    except OSError as exc:
-        print(
-            f"[ERROR] Failed to create symlink {target} -> {source}: {exc}",
-            file=sys.stderr,
-        )
-        return False
-
-
-def sync_global_entry(
-    source: Path,
-    target: Path,
-    agent_name: str,
-    resource_name: str,
-    dry_run: bool = False,
-    installed: bool | None = None,
-) -> bool:
-    """
-    Ensures an agent runtime entry points to its canonical global resource.
-
-    Existing regular files and directories are never overwritten because they
-    may contain unmanaged user resources.
-
-    ``installed`` reports the canonical install state of the owning agent
-    (None when unknown, e.g. a custom registry entry). A detected agent may
-    have its missing config parent directory created; anything else keeps the
-    historical parent-directory heuristic.
-    """
-    if not target.parent.exists():
-        if installed is True:
-            target.parent.mkdir(parents=True)
-        else:
-            print(f"[SKIP] {agent_name} not detected: {target.parent}")
-            return True
-
-    if target.resolve(strict=False) == source.resolve(strict=False):
-        print(f"[OK] {agent_name} {resource_name}: shared path {source}")
-        return True
-
-    expected_source = source.resolve()
-
-    if target.is_symlink():
-        if target.resolve(strict=False) == expected_source:
-            print(f"[OK] {agent_name} {resource_name}: {target} -> {source}")
-            return True
-
-        print(f"[RELINK] {agent_name} {resource_name}: {target} -> {source}")
-        if dry_run:
-            return True
-        target.unlink()
-        target.symlink_to(expected_source)
-        return True
-
-    if target.exists():
-        print(
-            f"[CONFLICT] {agent_name} {resource_name}: {target} is not a symlink; "
-            "move or merge it manually, then run 'aikito sync global' again.",
-            file=sys.stderr,
-        )
-        return False
-
-    if dry_run:
-        print(f"[DRY RUN LINK] {agent_name} {resource_name}: {target} -> {source}")
-    else:
-        target.symlink_to(expected_source)
-        print(f"[LINK] {agent_name} {resource_name}: {target} -> {source}")
-    return True
 
 
 def cmd_global_sync(args: argparse.Namespace) -> None:
@@ -850,177 +687,6 @@ def cmd_add_mcp(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-class SkillTargetConflictError(Exception):
-    def __init__(self, target: str, candidates: list[SkillRow]):
-        super().__init__(f"Multiple skills match '{target}'")
-        self.target = target
-        self.candidates = candidates
-
-
-def resolve_skill_target(aikito_dir: Path, target: str) -> SkillRow:
-    target_norm = target.strip()
-    rows = collect_skills_rows(aikito_dir)
-
-    exact_matches = [r for r in rows if r.skill_name == target_norm]
-    if len(exact_matches) == 1:
-        return exact_matches[0]
-
-    prefix_matches = [r for r in rows if r.skill_name.startswith(target_norm)]
-    if len(prefix_matches) == 1:
-        return prefix_matches[0]
-
-    if len(prefix_matches) > 1:
-        raise SkillTargetConflictError(target, prefix_matches)
-
-    print(f"[ERROR] Skill '{target}' not found.", file=sys.stderr)
-    print("Run 'aikito show skills' to view available skills.", file=sys.stderr)
-    sys.exit(1)
-
-
-def resolve_skill_target_for_command(
-    aikito_dir: Path, target: str, operation: str
-) -> Path:
-    try:
-        skill_row = resolve_skill_target(aikito_dir, target)
-    except SkillTargetConflictError as exc:
-        print(
-            f"[CONFLICT] Multiple skills match '{exc.target}':\n",
-            file=sys.stderr,
-        )
-        for item in exc.candidates:
-            print(f"  - {item.skill_name} ({item.scope})", file=sys.stderr)
-        print("\nPlease specify the exact skill name, e.g.:", file=sys.stderr)
-        for item in exc.candidates:
-            print(
-                f"  aikito {operation} skill {item.skill_name}",
-                file=sys.stderr,
-            )
-        sys.exit(1)
-
-    skills_root = aikito_dir / "skills"
-    skill_file = skills_root / skill_row.skill_name / "SKILL.md"
-
-    ensure_safe_path(skill_file, [skills_root], "skill")
-
-    if not skill_file.is_file():
-        print(
-            f"[ERROR] SKILL.md not found for skill '{skill_row.skill_name}' at {skill_file}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    return skill_file
-
-
-def resolve_subagent_target_for_command(
-    aikito_dir: Path, target: str, operation: str
-) -> Path:
-    try:
-        definitions = load_subagent_definitions(aikito_dir, allow_empty=True)
-    except SubagentConfigError as exc:
-        print(f"[ERROR] {exc}", file=sys.stderr)
-        sys.exit(1)
-
-    target_norm = target.strip()
-    names = sorted(definitions.keys())
-
-    exact_matches = [name for name in names if name == target_norm]
-    if len(exact_matches) == 1:
-        matched_name = exact_matches[0]
-    else:
-        prefix_matches = [name for name in names if name.startswith(target_norm)]
-        if len(prefix_matches) == 1:
-            matched_name = prefix_matches[0]
-        elif len(prefix_matches) > 1:
-            print(
-                f"[CONFLICT] Multiple subagents match '{target}':\n",
-                file=sys.stderr,
-            )
-            for name in prefix_matches:
-                print(f"  - {name}", file=sys.stderr)
-            print("\nPlease specify the exact subagent name, e.g.:", file=sys.stderr)
-            for name in prefix_matches:
-                print(
-                    f"  aikito {operation} subagent {name}",
-                    file=sys.stderr,
-                )
-            sys.exit(1)
-        else:
-            print(f"[ERROR] Subagent '{target}' not found.", file=sys.stderr)
-            print(
-                "Run 'aikito show subagents' to view available subagents.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-    subagents_root = aikito_dir / "subagents"
-    subagent_file = subagents_root / f"{matched_name}.md"
-
-    ensure_safe_path(subagent_file, [subagents_root], "subagent")
-
-    if not subagent_file.is_file():
-        print(
-            f"[ERROR] Instructions file for subagent '{matched_name}' not found at {subagent_file}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    return subagent_file
-
-
-def resolve_mcp_target_for_command(
-    aikito_dir: Path, target: str, operation: str
-) -> Path:
-    mcps_dir = aikito_dir / "mcps"
-    if not mcps_dir.is_dir():
-        print(f"[ERROR] MCP directory not found at {mcps_dir}", file=sys.stderr)
-        sys.exit(1)
-
-    target_norm = target.strip()
-    files = sorted(mcps_dir.glob("*.toml"))
-    names = [f.stem for f in files if f.is_file() and not f.name.startswith(".")]
-
-    exact_matches = [name for name in names if name == target_norm]
-    if len(exact_matches) == 1:
-        matched_name = exact_matches[0]
-    else:
-        prefix_matches = [name for name in names if name.startswith(target_norm)]
-        if len(prefix_matches) == 1:
-            matched_name = prefix_matches[0]
-        elif len(prefix_matches) > 1:
-            print(
-                f"[CONFLICT] Multiple MCP servers match '{target}':\n",
-                file=sys.stderr,
-            )
-            for name in prefix_matches:
-                print(f"  - {name}", file=sys.stderr)
-            print("\nPlease specify the exact MCP server name, e.g.:", file=sys.stderr)
-            for name in prefix_matches:
-                print(
-                    f"  aikito {operation} mcp {name}",
-                    file=sys.stderr,
-                )
-            sys.exit(1)
-        else:
-            print(f"[ERROR] MCP server '{target}' not found.", file=sys.stderr)
-            print(
-                "Run 'aikito show mcp' to view available MCP servers.", file=sys.stderr
-            )
-            sys.exit(1)
-
-    mcp_file = mcps_dir / f"{matched_name}.toml"
-    ensure_safe_path(mcp_file, [mcps_dir], "mcp")
-
-    if not mcp_file.is_file():
-        print(
-            f"[ERROR] Config file for MCP server '{matched_name}' not found at {mcp_file}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    return mcp_file
-
-
 def cmd_show_project(args: argparse.Namespace) -> None:
     projects = collect_project_summaries(get_aikito_dir(), Path.home())
     target = getattr(args, "target", None)
@@ -1069,120 +735,6 @@ def cmd_show_skill(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-def find_instruction_sources(
-    aikito_dir: Path, home: Path
-) -> list[tuple[str, Path, Path | None]]:
-    """Return instruction target, source file, and registered project path."""
-    sources = [("global", aikito_dir / "global" / "AGENTS.md", None)]
-    projects_dir = aikito_dir / "projects"
-    if not projects_dir.is_dir():
-        return sources
-
-    for project_dir in sorted(projects_dir.iterdir()):
-        config_path = project_dir / "agent.toml"
-        instructions_path = project_dir / "AGENTS.md"
-        if not project_dir.is_dir() or not config_path.is_file():
-            continue
-        try:
-            config = tomllib.loads(config_path.read_text(encoding="utf-8"))
-        except (OSError, tomllib.TOMLDecodeError) as exc:
-            print(f"[WARN] Failed to read {config_path}: {exc}", file=sys.stderr)
-            continue
-        raw_path = config.get("path")
-        project_path = None
-        if isinstance(raw_path, str) and raw_path:
-            project_path = (
-                home / raw_path[2:]
-                if raw_path.startswith("~/")
-                else Path(raw_path).expanduser()
-            ).resolve()
-        sources.append((project_dir.name, instructions_path, project_path))
-    return sources
-
-
-def resolve_instruction_target(
-    aikito_dir: Path, home: Path, target: str, cwd: Path
-) -> tuple[str, Path]:
-    sources = find_instruction_sources(aikito_dir, home)
-    if target == ".":
-        current = cwd.resolve()
-        matches = [
-            source
-            for source in sources
-            if source[2] is not None
-            and (current == source[2] or current.is_relative_to(source[2]))
-        ]
-        if matches:
-            name, instructions_path, _ = max(
-                matches, key=lambda source: len(source[2].parts)
-            )
-            return name, instructions_path
-        print(
-            f"[ERROR] Current directory is not inside a registered project: {current}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    for name, instructions_path, _ in sources:
-        if name == target:
-            return name, instructions_path
-
-    print(f"[ERROR] Instructions target '{target}' not found.", file=sys.stderr)
-    print("Run 'aikito show instructions' to view available targets.", file=sys.stderr)
-    sys.exit(1)
-
-
-def collect_instruction_agent_status(
-    aikito_dir: Path, home: Path
-) -> list[tuple[str, str, str]]:
-    source = aikito_dir / "global" / "AGENTS.md"
-    rows = []
-    status_names = {
-        "OK": "linked",
-        "MISSING": "missing",
-        "CONFLICT": "conflict",
-        "SKIP": "skipped",
-    }
-    for definition in load_agents(aikito_dir, home).values():
-        target = definition.instruction_path
-        if target is None or not target.parent.exists():
-            status = "SKIP"
-        else:
-            status = symlink_verdict_to_status(classify_symlink(target, source))
-        if target is None:
-            target_display = "-"
-        else:
-            try:
-                target_display = f"~/{target.relative_to(home)}"
-            except ValueError:
-                target_display = str(target)
-        rows.append(
-            (definition.display_name, target_display, status_names.get(status, status))
-        )
-    return rows
-
-
-def collect_project_instruction_status(
-    aikito_dir: Path, home: Path
-) -> list[tuple[str, str]]:
-    rows = []
-    status_names = {"OK": "linked", "MISSING": "missing", "CONFLICT": "conflict"}
-    for name, source, project_path in find_instruction_sources(aikito_dir, home)[1:]:
-        try:
-            has_content = source.is_file() and bool(
-                source.read_text(encoding="utf-8").strip()
-            )
-        except OSError:
-            has_content = False
-        if not has_content or project_path is None:
-            rows.append((name, "-"))
-            continue
-        target = project_path / ".agents" / "AGENTS.md"
-        status = symlink_verdict_to_status(classify_symlink(target, source))
-        rows.append((name, status_names.get(status, status.lower())))
-    return rows
-
-
 def cmd_show_instructions(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
     target = getattr(args, "target", None)
@@ -1208,31 +760,6 @@ def cmd_show_instructions(args: argparse.Namespace) -> None:
     if target == "." and name != "global":
         print("\nAlso active: global instructions", file=sys.stderr)
         print("View with: aikito show instructions global", file=sys.stderr)
-
-
-def open_in_editor(target_file: Path) -> None:
-    editor_env = (
-        (os.environ.get("VISUAL") or "").strip()
-        or (os.environ.get("EDITOR") or "").strip()
-        or "vi"
-    )
-    editor_parts = shlex.split(editor_env)
-    if not editor_parts:
-        editor_parts = ["vi"]
-        editor_env = "vi"
-
-    cmd_args = editor_parts + [str(target_file)]
-
-    try:
-        res = subprocess.run(cmd_args)
-        if res.returncode != 0:
-            sys.exit(res.returncode)
-    except Exception as exc:
-        print(
-            f"[ERROR] Failed to launch editor '{editor_env}': {exc}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
 
 
 def cmd_edit_instructions(args: argparse.Namespace) -> None:

@@ -1,0 +1,7 @@
+# Agent registry: the single source of truth for agent identity and paths.
+#
+# Every agent that aikito can target is defined in one file under agents/.
+# Optional capabilities are instruction_path, project_instruction_path,
+# skills_path, MCP, subagents, and runner configuration.
+#
+# mcps/*.toml's `agents = [...]` values must reference these file names.

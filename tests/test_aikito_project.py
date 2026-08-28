@@ -1,13 +1,11 @@
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bin"))
+from aikito_project import collect_project_summaries
+from aikito_render import render_project_detail, render_projects_table
 
-from aikito_project import collect_project_summaries  # noqa: E402
-from aikito_render import render_project_detail, render_projects_table  # noqa: E402
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class ProjectSummaryTest(unittest.TestCase):

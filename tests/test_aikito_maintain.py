@@ -1,19 +1,17 @@
 import tempfile
 import unittest
-import sys
 from pathlib import Path
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bin"))
-
-from aikito_maintain import (  # noqa: E402
+from aikito_maintain import (
     MemoryMaintenanceError,
     build_memory_maintenance_prompt,
     load_agent_runner,
     resolve_memory_maintenance_scope,
     run_memory_maintenance,
 )
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class MemoryMaintenanceTest(unittest.TestCase):

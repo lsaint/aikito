@@ -1,13 +1,9 @@
-import sys
 import tempfile
 import tomllib
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bin"))
-
-from aikito_subagent import (  # noqa: E402
+from aikito_subagent import (
     SubagentConfigError,
     build_plan,
     has_aikito_marker,
@@ -21,6 +17,8 @@ from aikito_subagent import (  # noqa: E402
     sync_subagent_configs,
     validate_platform_opts,
 )
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class SubagentSyncTest(unittest.TestCase):

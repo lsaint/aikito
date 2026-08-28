@@ -5,7 +5,7 @@ the user retains control over important decisions. In normal use, tell the
 Agent what outcome you want instead of translating the task into CLI commands.
 
 The prompts below are intentionally short. The bundled
-[Aikito skill](../skills/aikito/SKILL.md), the installed CLI help, and the
+[Aikito skill](../templates/skills/aikito/SKILL.md), the installed CLI help, and the
 relevant documentation provide the operating details.
 
 ## Expected Operating Loop

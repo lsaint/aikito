@@ -1,29 +1,24 @@
 import base64
 import json
 import os
-import sys
 import tempfile
 import tomllib
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bin"))
-
-from aikito_mcp import (  # noqa: E402
+from aikito_mcp import (
     STATE_FILE,
     AgentSpec,
     MCPConfigError,
     _agent_detected,
     authenticate_mcp,
     evaluate_spec_status,
+    get_agy_json_server,
     get_claude_json_server,
     get_copilot_json_server,
     get_dsh_cordis_server,
     get_jsonc_server,
-    get_agy_json_server,
     get_toml_server,
     is_agent_installed,
     load_agent_specs,
@@ -31,13 +26,15 @@ from aikito_mcp import (  # noqa: E402
     read_all_entries,
     redact_mcp_entry,
     sync_mcp_configs,
+    update_agy_json_server,
     update_claude_json_server,
     update_copilot_json_server,
     update_dsh_cordis_server,
     update_jsonc_server,
-    update_agy_json_server,
     update_toml_server,
 )
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 AGENTS_TOML = """

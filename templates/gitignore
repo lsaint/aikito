@@ -1,0 +1,7 @@
+# Aikito Git Ignore Rules
+# Note: Rules use leading slashes to strictly match top-level workspace items.
+/.DS_Store
+/__pycache__/
+/*.pyc
+/.venv/
+/.local/

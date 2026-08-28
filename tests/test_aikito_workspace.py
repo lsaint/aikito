@@ -1,20 +1,16 @@
-"""Tests for active workspace resolution."""
-
 import os
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "bin"))
-
-from aikito_workspace import (  # noqa: E402
+from aikito_workspace import (
     persist_workspace,
     resolve_workspace,
     resolve_workspace_with_source,
 )
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class AikitoWorkspaceTest(unittest.TestCase):
