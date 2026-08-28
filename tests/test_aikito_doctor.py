@@ -322,8 +322,13 @@ class CheckConfigSyntaxTest(unittest.TestCase):
 
         section = check_config_syntax(self.aikito_dir, self.home)
 
-        warnings = [finding for finding in section.findings if finding.status == "WARN"]
-        self.assertTrue(any("project_instruction_path" in f.message for f in warnings))
+        warnings = [
+            finding
+            for finding in section.findings
+            if finding.status == "WARN"
+            and "project_instruction_path" in finding.message
+        ]
+        self.assertTrue(warnings)
         self.assertTrue(all(f.fix_hint == "aikito doctor --fix" for f in warnings))
 
     def test_installed_unregistered_agent_produces_fixable_warning(self) -> None:
@@ -343,8 +348,12 @@ class CheckConfigSyntaxTest(unittest.TestCase):
         ):
             section = check_config_syntax(self.aikito_dir, self.home)
 
-        warnings = [finding for finding in section.findings if finding.status == "WARN"]
-        self.assertTrue(any("'grok' is not registered" in f.message for f in warnings))
+        warnings = [
+            finding
+            for finding in section.findings
+            if finding.status == "WARN" and "'grok' is not registered" in finding.message
+        ]
+        self.assertTrue(warnings)
         self.assertTrue(all(f.fix_hint == "aikito doctor --fix" for f in warnings))
 
     def test_registered_undetected_agent_suggests_prune(self) -> None:
