@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.20.1] - 2026-08-29
+
+### Changed
+
+- Isolated the bundled workspace templates and skills under `templates/` so
+  source checkouts no longer contain workspace-shaped runtime files; packaged
+  installations continue to initialize complete workspaces and serve the Web
+  Console.
+
 ## [1.20.0] - 2026-08-28
 
 ### Added
@@ -394,7 +403,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.20.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.20.1...HEAD
+[1.20.1]: https://github.com/lsaint/aikito/compare/v1.20.0...v1.20.1
 [1.20.0]: https://github.com/lsaint/aikito/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/lsaint/aikito/compare/v1.18.1...v1.19.0
 [1.18.1]: https://github.com/lsaint/aikito/compare/v1.18.0...v1.18.1
