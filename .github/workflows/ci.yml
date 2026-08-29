@@ -204,7 +204,7 @@ jobs:
             python3 bin/aikito show mcp ci-mcp | grep -q "https://example.com/mcp"
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito show instructions global | \
-            grep -q "# Global Agent Directives"
+            grep -q "durable-memory"
 
       - name: aikito status
         run: |
