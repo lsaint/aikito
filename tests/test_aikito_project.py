@@ -23,7 +23,8 @@ class ProjectSummaryTest(unittest.TestCase):
             (runtime / "skills").mkdir(parents=True)
             (runtime / "memory").mkdir()
             (definition / "agent.toml").write_text(
-                f'path = "{project}"\nsync_mode = "link"\n'
+                f'path = "{project}"\ndescription = "Demo service"\n'
+                'sync_mode = "link"\n'
                 'skills = ["example"]\nmemory = []\n',
                 encoding="utf-8",
             )
@@ -51,6 +52,7 @@ class ProjectSummaryTest(unittest.TestCase):
         self.assertEqual(len(summaries), 1)
         summary = summaries[0]
         self.assertEqual(summary.name, "demo")
+        self.assertEqual(summary.description, "Demo service")
         self.assertEqual(summary.instructions_status, "OK")
         self.assertEqual(summary.skills_count, 1)
         self.assertEqual(summary.memory_notes_count, 1)
@@ -61,6 +63,7 @@ class ProjectSummaryTest(unittest.TestCase):
         self.assertIn("| 1      |", rendered)
         self.assertIn(f"Canonical directory:  {definition}", detail)
         self.assertIn("Project directory:", detail)
+        self.assertIn("Description:  Demo service", detail)
         self.assertIn("configured", detail)
         self.assertIn("Selected skills:", detail)
         self.assertIn("1 notes | 0 references", detail)
@@ -75,6 +78,20 @@ class ProjectSummaryTest(unittest.TestCase):
         self.assertIn("OK", detail)
         self.assertNotIn("Issue:", detail)
         self.assertNotIn("Resource     | Canonical", detail)
+
+    def test_rejects_non_string_project_description(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            definition = root / "projects" / "demo"
+            definition.mkdir(parents=True)
+            (definition / "agent.toml").write_text(
+                'path = "/tmp/demo"\ndescription = 42\n', encoding="utf-8"
+            )
+
+            summary = collect_project_summaries(root, root)[0]
+
+        self.assertEqual(summary.runtime_status, "INVALID CONFIG")
+        self.assertEqual(summary.error, "Project description must be a string")
 
     def test_reports_missing_project_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

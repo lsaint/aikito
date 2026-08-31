@@ -21,7 +21,7 @@ version.
 | --- | --- |
 | `aikito init workspace [path]` | Create a workspace, detect installed Agents, initialize Git, and remember an explicit path |
 | `aikito path workspace` | Print the resolved active workspace path |
-| `aikito init project [name] [path]` | Register a code project and synchronize its `.agents/` runtime |
+| `aikito init project [name] [path] [--description <text>]` | Register a code project and synchronize its `.agents/` runtime |
 | `aikito add skill <name>` | Create a canonical skill skeleton and register it in `skills.toml` or project config |
 | `aikito add subagent <name>` | Create a canonical subagent skeleton and register it in `subagents.toml` |
 | `aikito add mcp <name>` | Create a canonical MCP server configuration in `mcps/<name>.toml` |
@@ -227,7 +227,8 @@ aikito init project
 Both values can be explicit:
 
 ```bash
-aikito init project example ~/code/example
+aikito init project example ~/code/example \
+  --description "Example service workspace"
 ```
 
 Project initialization creates `agent.toml`, `AGENTS.md`, and the project
@@ -236,6 +237,7 @@ project's `.agents/` runtime and each workspace-registered Agent's native projec
 instruction path. Targets shared by multiple agents are linked once.
 Existing unmanaged files are reported as conflicts and are never replaced. The
 initial `AGENTS.md` is empty until project-specific instructions are added.
+The optional description is display-only metadata stored in `agent.toml`.
 Initialization is idempotent. A
 project name already bound to another path, or unmanaged resources at a target
 runtime path, is reported as a conflict rather than overwritten.

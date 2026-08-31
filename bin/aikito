@@ -459,8 +459,7 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
                 target
                 for target in possible_stale_targets
                 if target.is_symlink()
-                and target.resolve(strict=False)
-                == proj_agents_md.resolve(strict=False)
+                and target.resolve(strict=False) == proj_agents_md.resolve(strict=False)
             )
         )
         apply_runtime_cleanup(managed_stale_targets, dry_run)
@@ -628,7 +627,12 @@ def cmd_path_workspace(args: argparse.Namespace) -> None:
 
 def cmd_init_project(args: argparse.Namespace) -> None:
     project_path = Path(args.project_path) if args.project_path else Path.cwd()
-    project_name = init_project(get_aikito_dir(), project_path, args.project_name)
+    project_name = init_project(
+        get_aikito_dir(),
+        project_path,
+        args.project_name,
+        description=getattr(args, "description", None),
+    )
     if not project_name:
         sys.exit(1)
 
@@ -1023,9 +1027,7 @@ def cmd_rm_inbox(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
     inbox_dir = get_inbox_path(aikito_dir)
     op = "remove" if getattr(args, "remove_target", None) else "rm"
-    target_file = resolve_inbox_target_for_command(
-        inbox_dir, args.target, operation=op
-    )
+    target_file = resolve_inbox_target_for_command(inbox_dir, args.target, operation=op)
 
     try:
         rel = target_file.relative_to(inbox_dir)
@@ -1335,6 +1337,10 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="?",
         default=None,
         help="Code project directory (default: current directory)",
+    )
+    p_init_project.add_argument(
+        "--description",
+        help="Initial human-readable project description",
     )
     p_init_project.set_defaults(func=cmd_init_project)
 

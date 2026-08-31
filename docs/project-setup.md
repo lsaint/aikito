@@ -21,7 +21,8 @@ aikito init project
 This uses the directory name as the project name. To specify both explicitly:
 
 ```bash
-aikito init project example ~/code/example
+aikito init project example ~/code/example \
+  --description "Example service workspace"
 ```
 
 The command creates and synchronizes:
@@ -47,13 +48,16 @@ resources:
 
 ```toml
 name = "example"
+description = "Example service workspace"
 path = "~/code/example"
 sync_mode = "link"
 skills = ["durable-memory"]
 ```
 
-The project name identifies its workspace configuration. The `path` points to
-the project receiving the managed resources. Native project instruction paths
+The project name identifies its workspace configuration. The optional
+`description` is human-readable display metadata and does not affect project
+resolution or synchronization. The `path` points to the project receiving the
+managed resources. Native project instruction paths
 come from the workspace root `agents.toml`; project configs do not duplicate
 that list. `sync_mode` controls only the selected project skills:
 

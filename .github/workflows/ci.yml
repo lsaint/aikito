@@ -127,9 +127,13 @@ jobs:
         run: |
           mkdir -p ${{ runner.temp }}/example-project
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito init project example ${{ runner.temp }}/example-project
+            python3 bin/aikito init project example \
+            ${{ runner.temp }}/example-project \
+            --description "CI example project"
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito init project example ${{ runner.temp }}/example-project
+          grep -q 'description = "CI example project"' \
+            ${{ runner.temp }}/aikito-ws/projects/example/agent.toml
           test ! -e ${{ runner.temp }}/example-project/.agents/AGENTS.md
           test ! -e ${{ runner.temp }}/example-project/AGENTS.md
           test ! -e ${{ runner.temp }}/example-project/.claude/CLAUDE.md
@@ -140,7 +144,7 @@ jobs:
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito show projects
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito show project example
+            python3 bin/aikito show project example | grep -q "CI example project"
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito sync project example --dry-run
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \

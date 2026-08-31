@@ -779,6 +779,7 @@ def render_project_detail(
 
     fields = [
         ("Project:", project.name),
+        ("Description:", project.description or "-"),
         ("Canonical directory:", str(project.config_path.parent)),
         ("Project directory:", str(project.path)),
         ("Sync mode:", project.sync_mode),

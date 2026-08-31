@@ -64,6 +64,10 @@ name_style = "verbatim"
         project = self.root / "projects" / "demo"
         project.mkdir(parents=True)
         (project / "AGENTS.md").write_text("# Demo instructions\n", encoding="utf-8")
+        (project / "agent.toml").write_text(
+            f'path = "{self.root}"\ndescription = "Demo service"\n',
+            encoding="utf-8",
+        )
         self.web = self.root / "web"
         self.web.mkdir()
         (self.web / "index.html").write_text("console", encoding="utf-8")
@@ -121,6 +125,9 @@ process.stdout.write(markdown(JSON.parse(process.argv[2]), JSON.parse(process.ar
         project_instructions = self.get_json("/api/instructions/demo")
         self.assertEqual(project_instructions["scope"], "Project: demo")
         self.assertEqual(project_instructions["content"], "# Demo instructions\n")
+
+        project = self.get_json("/api/projects/demo")
+        self.assertEqual(project["content"]["description"], "Demo service")
 
     def test_overview_serializes_memory_update_dates(self) -> None:
         # ConsoleData reads workspace files lazily per request, so give

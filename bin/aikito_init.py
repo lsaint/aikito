@@ -7,6 +7,7 @@ enforces validation, source-root protection, and file placement. See
 ``aikito_templates`` for template loading and per-agent filtering.
 """
 
+import json
 import shutil
 import subprocess
 import sys
@@ -219,6 +220,7 @@ def init_project(
     project_path: Path,
     project_name: Optional[str] = None,
     home: Optional[Path] = None,
+    description: Optional[str] = None,
 ) -> Optional[str]:
     """Create an idempotent canonical project definition and return its name."""
     aikito_dir = aikito_dir.expanduser().resolve()
@@ -241,13 +243,19 @@ def init_project(
     config_path = project_dir / "agent.toml"
     if not config_path.exists():
         display_path = _display_path(project_path, home)
-        config_path.write_text(
-            f'name = "{resolved_name}"\n'
-            f'path = "{display_path}"\n'
-            'sync_mode = "link"\n'
-            "skills = []\n",
-            encoding="utf-8",
+        config_lines = [f'name = "{resolved_name}"']
+        if description and description.strip():
+            config_lines.append(
+                f"description = {json.dumps(description.strip(), ensure_ascii=False)}"
+            )
+        config_lines.extend(
+            [
+                f'path = "{display_path}"',
+                'sync_mode = "link"',
+                "skills = []",
+            ]
         )
+        config_path.write_text("\n".join(config_lines) + "\n", encoding="utf-8")
         print(f"[CREATE FILE] {config_path}")
     else:
         print(f"[SKIP FILE] {config_path} (Already exists)")

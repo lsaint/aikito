@@ -426,13 +426,22 @@ class InitSubcommandParserTest(unittest.TestCase):
         self.assertEqual(project_args.init_target, "project")
         self.assertIsNone(project_args.project_name)
         self.assertIsNone(project_args.project_path)
+        self.assertIsNone(project_args.description)
         self.assertEqual(project_args.func, AIKITO_CLI.cmd_init_project)
 
         explicit_args = parser.parse_args(
-            ["init", "project", "example", "~/code/example"]
+            [
+                "init",
+                "project",
+                "example",
+                "~/code/example",
+                "--description",
+                "Example service",
+            ]
         )
         self.assertEqual(explicit_args.project_name, "example")
         self.assertEqual(explicit_args.project_path, "~/code/example")
+        self.assertEqual(explicit_args.description, "Example service")
 
     def test_legacy_init_syntax_is_rejected(self) -> None:
         parser = AIKITO_CLI.build_parser()

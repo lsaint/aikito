@@ -260,7 +260,25 @@ class AikitoInitTest(unittest.TestCase):
         config = (project_dir / "agent.toml").read_text(encoding="utf-8")
         self.assertIn('name = "example"', config)
         self.assertIn('sync_mode = "link"', config)
+        self.assertNotIn("description", config)
         self.assertNotIn("agents =", config)
+
+    def test_init_project_writes_optional_description_as_toml(self) -> None:
+        init_workspace(self.target_path, self.fake_home)
+        project_path = Path(self.tmp_dir.name) / "example"
+        project_path.mkdir()
+
+        init_project(
+            self.target_path,
+            project_path,
+            home=self.fake_home,
+            description='  中文 "workspace" \\ tools  ',
+        )
+
+        config_path = self.target_path / "projects" / "example" / "agent.toml"
+        with config_path.open("rb") as config_file:
+            config = tomllib.load(config_file)
+        self.assertEqual(config["description"], '中文 "workspace" \\ tools')
 
     def test_project_operations_allow_workspace_at_cli_source_root(self) -> None:
         init_workspace(self.target_path, self.fake_home)

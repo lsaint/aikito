@@ -43,6 +43,7 @@ class ProjectSummary:
     memory_notes_count: int
     runtime_status: str
     config_path: Path
+    description: str = ""
     skill_names: tuple[str, ...] = ()
     memory_refs: tuple[str, ...] = ()
     details: tuple[ProjectResourceDetail, ...] = ()
@@ -224,6 +225,23 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
             continue
 
         project_path = _resolve_project_path(config.get("path"), home)
+        description = config.get("description", "")
+        if not isinstance(description, str):
+            summaries.append(
+                ProjectSummary(
+                    name=project_dir.name,
+                    path=_display_path(project_path, home),
+                    sync_mode=str(config.get("sync_mode", "link")).lower(),
+                    instructions_status="MISSING",
+                    skills_count=0,
+                    memory_notes_count=0,
+                    runtime_status="INVALID CONFIG",
+                    config_path=config_path,
+                    error="Project description must be a string",
+                )
+            )
+            continue
+        description = description.strip()
         sync_mode = str(config.get("sync_mode", "link")).lower()
         skill_names = tuple(sorted(str(name) for name in config.get("skills", [])))
         memory_refs = tuple(sorted(str(name) for name in config.get("memory", [])))
@@ -418,6 +436,7 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
                 memory_notes_count=memory_notes_count,
                 runtime_status=runtime_status,
                 config_path=config_path,
+                description=description,
                 skill_names=skill_names,
                 memory_refs=memory_refs,
                 details=tuple(details),
