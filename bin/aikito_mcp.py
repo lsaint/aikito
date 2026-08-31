@@ -926,7 +926,6 @@ def _build_desired(
     if config_format == "toml":
         desired: dict[str, Any] = {"url": url}
         if authentication:
-            desired["auth"] = "oauth"
             desired["env_http_headers"] = {
                 "Authorization": authentication.authorization_env
             }

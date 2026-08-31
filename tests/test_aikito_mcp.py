@@ -698,6 +698,7 @@ authorization_env = "TEST_MCP_AUTHORIZATION"
             specs["claude-code"].desired["headers"],
             {"Authorization": "${TEST_MCP_AUTHORIZATION}"},
         )
+        self.assertNotIn("auth", specs["codex"].desired)
         self.assertFalse(specs["opencode"].desired["oauth"])
         expected = base64.b64encode(b"user@example.com:test-token").decode()
         self.assertEqual(
