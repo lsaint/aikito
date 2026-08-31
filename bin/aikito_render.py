@@ -432,6 +432,29 @@ def render_mcp_status_table(
     return _build_generic_table(headers, formatted_rows, use_unicode, use_color)
 
 
+def render_mcp_runtime_table(
+    rows: List[Any], use_unicode: bool, use_color: bool
+) -> str:
+    formatted_rows = []
+    for row in rows:
+        unavailable = "–" if use_unicode else "-"
+        tools = str(len(row.tool_names)) if row.connect_status == "OK" else unavailable
+        formatted_rows.append(
+            [
+                row.agent_display_name,
+                _format_status_badge(row.connect_status, use_unicode, use_color),
+                row.auth_method,
+                tools,
+            ]
+        )
+    return _build_generic_table(
+        ["Agent", "Connect", "Auth method", "Tools"],
+        formatted_rows,
+        use_unicode,
+        use_color,
+    )
+
+
 def render_agent_mcp_table(rows: List[Any], use_unicode: bool, use_color: bool) -> str:
     formatted_rows = [
         [

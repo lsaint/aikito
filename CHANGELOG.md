@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `aikito show mcp --live` now discovers and renders live tool counts in the
+  global matrix view, and `aikito show mcp <server> --live` compares remote
+  connectivity, configured authentication methods, and read-only `tools/list`
+  counts across Agent-native configurations; narrowing with `--agent` also
+  prints tool names.
+
+### Fixed
+
+- Centralized live MCP probe error redaction and refused credential-bearing
+  plaintext HTTP requests to non-loopback endpoints.
+
 ## [1.21.0] - 2026-08-31
 
 ### Added

@@ -13,13 +13,13 @@ from typing import Any, Dict, List, Set, Tuple
 
 from aikito_link import SymlinkVerdict, classify_symlink, symlink_verdict_to_status
 from aikito_mcp import (
-    load_agents,
-    load_agent_specs,
     evaluate_spec_status,
+    load_agent_specs,
+    load_agents,
+    probe_mcp_tools_for_specs,
     read_all_entries,
     read_entry,
     redact_mcp_entry,
-    run_live_mcp_commands,
 )
 from aikito_subagent import build_plan
 from aikito_render import (
@@ -45,6 +45,16 @@ class MCPDetailRow:
     config_path: Path
     config_format: str
     entry: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class MCPRuntimeRow:
+    agent_name: str
+    agent_display_name: str
+    connect_status: str
+    auth_method: str
+    tool_names: tuple[str, ...]
+    error: str = ""
 
 
 @dataclass(frozen=True)
@@ -141,6 +151,46 @@ def collect_mcp_details(
                     )
                 )
     return rows
+
+
+def collect_mcp_runtime(
+    aikito_dir: Path,
+    home: Path,
+    server_target: str,
+    agent_target: str | None = None,
+) -> tuple[str, list[MCPRuntimeRow]]:
+    """Probe one managed MCP server through each selected Agent-native config."""
+    agents = load_agents(aikito_dir, home)
+    specs = load_agent_specs(aikito_dir, home)
+    server_names = sorted({spec.server for spec in specs if spec.enabled})
+    server_name = _resolve_name(server_target, server_names, "MCP server")
+    agent_name = (
+        _resolve_name(agent_target, sorted(agents), "agent") if agent_target else None
+    )
+    selected_specs = [
+        spec
+        for spec in specs
+        if spec.enabled
+        and spec.server == server_name
+        and (agent_name is None or spec.agent == agent_name)
+    ]
+    if not selected_specs:
+        selection = f"{server_name}/{agent_name}" if agent_name else server_name
+        raise ValueError(f"No MCP configuration found for '{selection}'")
+
+    results = probe_mcp_tools_for_specs(selected_specs)
+    rows = [
+        MCPRuntimeRow(
+            agent_name=result.agent,
+            agent_display_name=agents[result.agent].display_name,
+            connect_status=result.status,
+            auth_method=result.auth_method,
+            tool_names=result.tool_names,
+            error=result.error,
+        )
+        for result in results
+    ]
+    return server_name, rows
 
 
 def collect_subagent_details(
@@ -556,23 +606,23 @@ def collect_mcp_matrix(
         servers[srv_name][ag_display] = st
 
     if live:
-        live_commands = {}
-        for spec in specs:
-            agent_status = servers[spec.server].get(
+        live_specs = [
+            spec
+            for spec in specs
+            if spec.enabled
+            and spec.agent in agents_dict
+            and servers.get(spec.server, {}).get(
                 agent_key_to_display.get(spec.agent, spec.agent)
             )
-            if agent_status == "OK" and spec.live_command:
-                live_commands.setdefault(spec.agent, spec.live_command)
-
-        for result in run_live_mcp_commands(live_commands):
-            display_name = agent_key_to_display[result.agent]
-            for server_statuses in servers.values():
-                if server_statuses.get(display_name) != "OK":
-                    continue
-                if result.status == "OK":
-                    server_statuses[display_name] = "OK_LIVE"
-                elif result.status in ("ERROR", "TIMEOUT"):
-                    server_statuses[display_name] = "ERROR"
+            == "OK"
+        ]
+        probe_results = probe_mcp_tools_for_specs(live_specs)
+        for spec, result in zip(live_specs, probe_results):
+            display_name = agent_key_to_display.get(spec.agent, spec.agent)
+            if result.status == "OK":
+                servers[spec.server][display_name] = f"OK ({len(result.tool_names)})"
+            elif result.status == "ERROR":
+                servers[spec.server][display_name] = "ERROR"
 
     for srv_name, st_dict in servers.items():
         for ag_display in agent_names:

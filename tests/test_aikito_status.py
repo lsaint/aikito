@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aikito_init import init_workspace
-from aikito_mcp import LiveMCPResult
+from aikito_mcp import MCPToolProbeResult
 from aikito_render import (
     AgentStatusRow,
     MCPServerRow,
@@ -17,16 +17,19 @@ from aikito_render import (
     SubagentRow,
     render_key_value_fields,
     render_mcp_status_table,
+    render_mcp_runtime_table,
     render_memory_notes_table,
     render_skills_table,
     render_status_report,
     render_subagents_status_table,
 )
 from aikito_status import (
+    MCPRuntimeRow,
     _summarize_subagent_status,
     collect_agent_status_rows,
     collect_mcp_details,
     collect_mcp_matrix,
+    collect_mcp_runtime,
     collect_skills_rows,
     collect_subagents_matrix,
     get_status_report_data,
@@ -204,6 +207,23 @@ class AikitoStatusRenderTest(unittest.TestCase):
         self.assertIn("atlassian-rovo", rendered)
         self.assertIn("✓", rendered)
         self.assertIn("–", rendered)
+
+    def test_render_mcp_runtime_table(self) -> None:
+        rows = [
+            MCPRuntimeRow(
+                agent_name="codex",
+                agent_display_name="Codex",
+                connect_status="OK",
+                auth_method="Basic · env header",
+                tool_names=("one", "two", "three"),
+            )
+        ]
+        rendered = render_mcp_runtime_table(rows, use_unicode=True, use_color=False)
+        self.assertIn("Connect", rendered)
+        self.assertIn("Auth method", rendered)
+        self.assertIn("✓", rendered)
+        self.assertIn("Basic · env header", rendered)
+        self.assertIn("3", rendered)
 
     def test_render_subagents_status_table(self) -> None:
         subagent_rows = [
@@ -402,6 +422,59 @@ class AikitoStatusCollectorTest(unittest.TestCase):
         self.assertIsInstance(rows, list)
         self.assertIsInstance(agents, list)
 
+    def test_collect_mcp_runtime_compares_agents_for_one_server(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            home = root / "home"
+            aikito_dir = root / "aikito"
+            (home / ".codex").mkdir(parents=True)
+            (home / ".gemini/config").mkdir(parents=True)
+            (aikito_dir / "mcps").mkdir(parents=True)
+            (aikito_dir / "agents.toml").write_text(
+                """
+[agents.codex]
+display_name = "Codex"
+[agents.codex.mcp]
+config_path = ".codex/config.toml"
+config_format = "toml"
+name_style = "underscore"
+
+[agents.agy]
+display_name = "Antigravity CLI"
+[agents.agy.mcp]
+config_path = ".gemini/config/mcp_config.json"
+config_format = "agy_json"
+name_style = "verbatim"
+""".lstrip()
+            )
+            (aikito_dir / "mcps/managed.toml").write_text(
+                'transport = "remote"\nurl = "https://example.com/mcp"\n'
+                'agents = ["codex", "agy"]\n'
+            )
+            (home / ".codex/config.toml").write_text(
+                '[mcp_servers.managed]\nurl = "https://example.com/mcp"\n'
+            )
+            (home / ".gemini/config/mcp_config.json").write_text(
+                '{"mcpServers":{"managed":{"serverUrl":"https://example.com/mcp"}}}'
+            )
+
+            with patch(
+                "aikito_status.probe_mcp_tools_for_specs",
+                return_value=[
+                    MCPToolProbeResult(
+                        "codex", "OK", "Basic · env header", ("one", "two")
+                    ),
+                    MCPToolProbeResult("agy", "OK", "Basic · inline header", ("one",)),
+                ],
+            ):
+                server_name, rows = collect_mcp_runtime(aikito_dir, home, "man")
+
+            self.assertEqual(server_name, "managed")
+            self.assertEqual(
+                [row.agent_display_name for row in rows], ["Codex", "Antigravity CLI"]
+            )
+            self.assertEqual([len(row.tool_names) for row in rows], [2, 1])
+
     def test_collect_mcp_details_lists_unmanaged_and_redacts_authorization(
         self,
     ) -> None:
@@ -483,20 +556,21 @@ agents = ["codex"]
             )
 
             with patch(
-                "aikito_status.run_live_mcp_commands",
+                "aikito_status.probe_mcp_tools_for_specs",
                 return_value=[
-                    LiveMCPResult(
+                    MCPToolProbeResult(
                         agent="codex",
-                        command=("codex", "mcp", "list"),
                         status="OK",
-                        returncode=0,
+                        auth_method="None",
+                        tool_names=("one", "two"),
                     )
                 ],
             ) as live_check:
                 rows, _ = collect_mcp_matrix(aikito_dir, home, live=True)
 
-            self.assertEqual(rows[0].agent_statuses["Codex"], "OK_LIVE")
-            live_check.assert_called_once_with({"codex": ("codex", "mcp", "list")})
+            self.assertEqual(rows[0].agent_statuses["Codex"], "OK (2)")
+            self.assertEqual(len(live_check.call_args.args[0]), 1)
+            self.assertEqual(live_check.call_args.args[0][0].agent, "codex")
 
     def test_collect_subagents_matrix(self) -> None:
         sub_rows, orphans, agents = collect_subagents_matrix(self.aikito_dir, self.home)

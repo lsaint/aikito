@@ -73,6 +73,7 @@ from aikito_render import (
     render_agent_mcp_table,
     render_agent_subagent_table,
     render_mcp_details,
+    render_mcp_runtime_table,
     render_subagent_details,
     render_instruction_agent_status,
     render_key_value_fields,
@@ -86,8 +87,9 @@ from aikito_render import (
     render_subagents_status_table,
 )
 from aikito_status import (
-    collect_mcp_matrix,
     collect_mcp_details,
+    collect_mcp_matrix,
+    collect_mcp_runtime,
     collect_subagent_details,
     collect_memory_notes_rows,
     collect_skills_rows,
@@ -801,12 +803,51 @@ def cmd_show_mcp(args: argparse.Namespace) -> None:
         agent_flag_passed = raw_agent is not None
         agent_target = None if raw_agent is True else raw_agent
 
-        if getattr(args, "live", False) and (target or agent_flag_passed):
+        if getattr(args, "live", False) and not target and agent_flag_passed:
             print(
-                "[ERROR] --live is only supported by the MCP matrix view",
+                "[ERROR] --agent with --live requires an MCP server target",
                 file=sys.stderr,
             )
             sys.exit(2)
+
+        if getattr(args, "live", False) and target:
+            try:
+                server_name, rows = collect_mcp_runtime(
+                    aikito_dir=aikito_dir,
+                    home=home,
+                    server_target=target,
+                    agent_target=agent_target,
+                )
+            except ValueError as exc:
+                raise MCPConfigError(str(exc)) from exc
+            print(
+                render_key_value_fields(
+                    [
+                        ("MCP Server:", server_name),
+                        (
+                            "Canonical source:",
+                            str(aikito_dir / "mcps" / f"{server_name}.toml"),
+                        ),
+                    ]
+                )
+            )
+            print()
+            print(render_mcp_runtime_table(rows, use_unicode, use_color))
+
+            errors = [row for row in rows if row.error]
+            if errors:
+                print()
+                for row in errors:
+                    print(
+                        f"[{row.connect_status}] {row.agent_display_name}: {row.error}"
+                    )
+
+            if agent_target is not None and len(rows) == 1 and rows[0].tool_names:
+                print()
+                print(f"Tools ({len(rows[0].tool_names)}):")
+                for tool_name in rows[0].tool_names:
+                    print(f"- {tool_name}")
+            return
 
         # 1. Detail / Agent view across agents when --agent is passed
         # - show mcp <target> --agent: detail view of <target> across all agents
@@ -1626,7 +1667,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_show_mcp.add_argument(
         "--live",
         action="store_true",
-        help="Also invoke each agent's MCP status command",
+        help="Run live checks, or discover tools for a targeted MCP server",
     )
     add_color_args(p_show_mcp)
     p_show_mcp.set_defaults(func=cmd_show_mcp)

@@ -5,14 +5,21 @@ import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from urllib.error import URLError
 from unittest.mock import patch
 
 from aikito_mcp import (
     STATE_FILE,
     AgentSpec,
     MCPConfigError,
+    _MCPProbeError,
     _agent_detected,
+    _list_remote_mcp_tools,
+    _post_mcp_message,
+    _redact_probe_error,
+    _response_message,
     authenticate_mcp,
+    describe_mcp_auth,
     evaluate_spec_status,
     get_agy_json_server,
     get_claude_json_server,
@@ -23,6 +30,7 @@ from aikito_mcp import (
     is_agent_installed,
     load_agent_specs,
     load_agents,
+    probe_mcp_tools,
     read_all_entries,
     redact_mcp_entry,
     sync_mcp_configs,
@@ -856,6 +864,298 @@ class RedactMCPEntryTest(unittest.TestCase):
         self.assertEqual(redacted["compatibility"], "full")
         self.assertEqual(redacted["pat"], "<redacted>")
         self.assertEqual(redacted["my_pat"], "<redacted>")
+
+
+class DescribeMCPAuthTest(unittest.TestCase):
+    def test_describes_environment_and_inline_authorization(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "BASIC_AUTH": "Basic secret",
+                "BEARER_AUTH": "Bearer secret",
+            },
+        ):
+            self.assertEqual(
+                describe_mcp_auth(
+                    {"env_http_headers": {"Authorization": "BASIC_AUTH"}}
+                ),
+                "Basic · env header",
+            )
+            self.assertEqual(
+                describe_mcp_auth({"headers": {"Authorization": "${BEARER_AUTH}"}}),
+                "Bearer · env header",
+            )
+        self.assertEqual(
+            describe_mcp_auth({"headers": {"Authorization": "Basic inline-secret"}}),
+            "Basic · inline header",
+        )
+
+    def test_describes_oauth_and_no_auth(self) -> None:
+        self.assertEqual(describe_mcp_auth({"auth": "oauth"}), "OAuth")
+        self.assertEqual(describe_mcp_auth({"oauth": True}), "OAuth")
+        self.assertEqual(describe_mcp_auth({"url": "https://example.com"}), "None")
+
+
+class MCPToolProbeTest(unittest.TestCase):
+    def test_error_redaction_handles_short_credentials_only(self) -> None:
+        redacted = _redact_probe_error(
+            "token=x version=1",
+            {"Authorization": "Basic x", "X-Version": "1"},
+        )
+
+        self.assertEqual(redacted, "token=<redacted> version=1")
+
+    def test_list_remote_tools_initializes_then_lists(self) -> None:
+        initialize_response = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {"protocolVersion": "2025-11-25", "capabilities": {}},
+            }
+        ).encode()
+        tools_response = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "result": {"tools": [{"name": "one"}, {"name": "two"}]},
+            }
+        ).encode()
+        with patch(
+            "aikito_mcp._post_mcp_message",
+            side_effect=[
+                (initialize_response, "session-id"),
+                (b"", ""),
+                (tools_response, ""),
+            ],
+        ) as post_message:
+            tools = _list_remote_mcp_tools(
+                "https://example.com/mcp", {"Authorization": "Basic secret"}, 5
+            )
+
+        self.assertEqual(tools, ("one", "two"))
+        self.assertEqual(post_message.call_count, 3)
+        self.assertEqual(
+            post_message.call_args_list[1].args[1]["method"],
+            "notifications/initialized",
+        )
+        self.assertEqual(post_message.call_args_list[2].args[1]["method"], "tools/list")
+        self.assertEqual(
+            post_message.call_args_list[2].kwargs["session_id"], "session-id"
+        )
+
+    def test_probe_uses_agent_native_auth_without_exposing_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.toml"
+            config_path.write_text(
+                """
+[mcp_servers.managed]
+url = "https://example.com/mcp"
+env_http_headers = { Authorization = "TEST_AUTH" }
+""".lstrip()
+            )
+            spec = AgentSpec(
+                agent="codex",
+                server="managed",
+                config_path=config_path,
+                config_format="toml",
+                target_name="managed",
+                desired={},
+            )
+            with (
+                patch.dict(os.environ, {"TEST_AUTH": "Basic secret"}),
+                patch(
+                    "aikito_mcp._list_remote_mcp_tools",
+                    return_value=("one", "two"),
+                ) as list_tools,
+            ):
+                result = probe_mcp_tools(spec)
+
+        self.assertEqual(result.status, "OK")
+        self.assertEqual(result.auth_method, "Basic · env header")
+        self.assertEqual(result.tool_names, ("one", "two"))
+        self.assertNotIn("secret", repr(result))
+        self.assertEqual(
+            list_tools.call_args.args[1], {"Authorization": "Basic secret"}
+        )
+
+    def test_probe_redacts_credentials_from_all_error_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.toml"
+            config_path.write_text(
+                """
+[mcp_servers.managed]
+url = "https://example.com/mcp"
+env_http_headers = { Authorization = "TEST_AUTH" }
+""".lstrip()
+            )
+            spec = AgentSpec(
+                agent="codex",
+                server="managed",
+                config_path=config_path,
+                config_format="toml",
+                target_name="managed",
+                desired={},
+            )
+            failures = (
+                _MCPProbeError(
+                    "server echoed Basic echoed-token-123 and echoed-token-123\x1b[31m"
+                ),
+                URLError("transport echoed Basic echoed-token-123"),
+            )
+            with patch.dict(os.environ, {"TEST_AUTH": "Basic echoed-token-123"}):
+                for failure in failures:
+                    with (
+                        self.subTest(failure=type(failure).__name__),
+                        patch(
+                            "aikito_mcp._list_remote_mcp_tools",
+                            side_effect=failure,
+                        ),
+                    ):
+                        result = probe_mcp_tools(spec)
+
+                    self.assertEqual(result.status, "ERROR")
+                    self.assertNotIn("echoed-token-123", result.error)
+                    self.assertNotIn("\x1b", result.error)
+                    self.assertIn("<redacted>", result.error)
+
+    def test_probe_redacts_jsonrpc_error_before_truncating(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.toml"
+            config_path.write_text(
+                """
+[mcp_servers.managed]
+url = "https://example.com/mcp"
+env_http_headers = { Authorization = "TEST_AUTH" }
+""".lstrip()
+            )
+            spec = AgentSpec(
+                agent="codex",
+                server="managed",
+                config_path=config_path,
+                config_format="toml",
+                target_name="managed",
+                desired={},
+            )
+            error_response = json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "error": {
+                        "code": -32000,
+                        "message": "x" * 230 + " Basic echoed-token-123",
+                    },
+                }
+            ).encode()
+            with (
+                patch.dict(os.environ, {"TEST_AUTH": "Basic echoed-token-123"}),
+                patch(
+                    "aikito_mcp._post_mcp_message",
+                    return_value=(error_response, ""),
+                ),
+            ):
+                result = probe_mcp_tools(spec)
+
+        self.assertEqual(result.status, "ERROR")
+        self.assertNotIn("echoed-token-123", result.error)
+        self.assertNotIn("Basic echoed", result.error)
+        self.assertIn("<redacted>", result.error)
+
+    def test_probe_refuses_credentials_over_non_loopback_http(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.toml"
+            config_path.write_text(
+                """
+[mcp_servers.managed]
+url = "http://example.com/mcp"
+env_http_headers = { Authorization = "TEST_AUTH" }
+""".lstrip()
+            )
+            spec = AgentSpec(
+                agent="codex",
+                server="managed",
+                config_path=config_path,
+                config_format="toml",
+                target_name="managed",
+                desired={},
+            )
+            with (
+                patch.dict(os.environ, {"TEST_AUTH": "Basic secret"}),
+                patch("aikito_mcp._list_remote_mcp_tools") as list_tools,
+            ):
+                result = probe_mcp_tools(spec)
+
+        self.assertEqual(result.status, "SKIP")
+        self.assertIn("non-loopback HTTP", result.error)
+        list_tools.assert_not_called()
+
+    def test_probe_allows_credentials_over_loopback_http(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.toml"
+            config_path.write_text(
+                """
+[mcp_servers.managed]
+url = "http://127.0.0.2:8080/mcp"
+env_http_headers = { Authorization = "TEST_AUTH" }
+""".lstrip()
+            )
+            spec = AgentSpec(
+                agent="codex",
+                server="managed",
+                config_path=config_path,
+                config_format="toml",
+                target_name="managed",
+                desired={},
+            )
+            with (
+                patch.dict(os.environ, {"TEST_AUTH": "Basic secret"}),
+                patch(
+                    "aikito_mcp._list_remote_mcp_tools",
+                    return_value=("one",),
+                ) as list_tools,
+            ):
+                result = probe_mcp_tools(spec)
+
+        self.assertEqual(result.status, "OK")
+        self.assertEqual(result.tool_names, ("one",))
+        list_tools.assert_called_once()
+
+    def test_probe_sends_user_agent_header(self) -> None:
+        with (
+            patch("aikito_mcp.build_opener") as mock_opener,
+            patch("aikito_mcp.Request") as mock_request,
+        ):
+            mock_resp = unittest.mock.MagicMock()
+            mock_resp.read.return_value = b"{}"
+            mock_resp.headers = {}
+            mock_opener.return_value.open.return_value.__enter__.return_value = (
+                mock_resp
+            )
+            _post_mcp_message(
+                "https://example.com/mcp",
+                {"method": "test"},
+                {"Authorization": "Bearer token"},
+                timeout=5,
+            )
+            mock_request.assert_called_once()
+            headers = (
+                mock_request.call_args.kwargs.get("headers")
+                or mock_request.call_args.args[2]
+            )
+            self.assertEqual(headers.get("User-Agent"), "aikito")
+
+    def test_response_message_extracts_detail_and_title(self) -> None:
+        self.assertEqual(
+            _response_message(b'{"detail": "Blocked by browser signature"}'),
+            "Blocked by browser signature",
+        )
+        self.assertEqual(
+            _response_message(b'{"title": "Forbidden"}'),
+            "Forbidden",
+        )
+        self.assertEqual(
+            _response_message(b'{"error": {"message": "Invalid JSON-RPC"}}'),
+            "Invalid JSON-RPC",
+        )
 
 
 class AgentDetectionTest(unittest.TestCase):

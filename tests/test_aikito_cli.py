@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from aikito_cli_loader import load_cli
+from aikito_status import MCPRuntimeRow
 
 AIKITO_CLI = load_cli()
 
@@ -1175,6 +1176,90 @@ url = "http://custom.example.com"
         self.assertIn("| Codex", output)
         self.assertIn("Managed entry:", output)
         self.assertIn('"url": "http://ex.com"', output)
+
+    def test_show_targeted_mcp_live_compares_agents(self) -> None:
+        rows = [
+            MCPRuntimeRow(
+                "codex",
+                "Codex",
+                "OK",
+                "Basic · env header",
+                ("one", "two", "three"),
+            ),
+            MCPRuntimeRow(
+                "agy",
+                "Antigravity CLI",
+                "OK",
+                "Basic · inline header",
+                ("one",),
+            ),
+        ]
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch.object(
+                AIKITO_CLI,
+                "collect_mcp_runtime",
+                return_value=("managed", rows),
+            ) as collect_runtime,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "mcp", "managed", "--live", "--color", "never"]
+            )
+            args.func(args)
+
+        output = mock_stdout.getvalue()
+        self.assertIn("Connect", output)
+        self.assertIn("Auth method", output)
+        self.assertIn("Basic · env header", output)
+        self.assertIn("Antigravity CLI", output)
+        self.assertIn("3", output)
+        collect_runtime.assert_called_once_with(
+            aikito_dir=self.aikito_dir,
+            home=self.home,
+            server_target="managed",
+            agent_target=None,
+        )
+
+    def test_show_targeted_mcp_live_for_one_agent_lists_tool_names(self) -> None:
+        rows = [
+            MCPRuntimeRow(
+                "codex",
+                "Codex",
+                "OK",
+                "Basic · env header",
+                ("one", "two"),
+            )
+        ]
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch.object(
+                AIKITO_CLI,
+                "collect_mcp_runtime",
+                return_value=("managed", rows),
+            ),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                [
+                    "show",
+                    "mcp",
+                    "managed",
+                    "--agent",
+                    "codex",
+                    "--live",
+                    "--color",
+                    "never",
+                ]
+            )
+            args.func(args)
+
+        output = mock_stdout.getvalue()
+        self.assertIn("Tools (2):", output)
+        self.assertIn("- one", output)
+        self.assertIn("- two", output)
 
     def test_show_subagents(self) -> None:
         with (

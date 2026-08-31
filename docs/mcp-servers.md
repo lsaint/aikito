@@ -27,8 +27,10 @@ aikito sync mcp
 aikito show mcp
 aikito show mcp --live
 aikito show mcp <server>
+aikito show mcp <server> --live
 aikito show mcp <server> --agent
 aikito show mcp <server> --agent <agent>
+aikito show mcp <server> --agent <agent> --live
 aikito show mcp --agent <agent>
 aikito edit mcp <server>
 ```
@@ -37,6 +39,27 @@ The normal show command compares canonical definitions with managed Agent
 configuration. `aikito show mcp <server>` displays the canonical configuration file
 content (`mcps/<server>.toml`), fully aligned with `show skill` and `show subagents`.
 Live status performs additional runtime checks where supported.
+
+Targeted live inspection connects to the remote MCP endpoint through each
+Agent-native configuration, completes the MCP initialization lifecycle, and
+runs only `tools/list`. It compares connection status, configured authentication
+method, and visible tool count across Agents:
+
+```text
+┌─────────────────┬─────────┬───────────────────────┬───────┐
+│ Agent           │ Connect │ Auth method           │ Tools │
+├─────────────────┼─────────┼───────────────────────┼───────┤
+│ Codex           │ ✓       │ Basic · env header    │ 3     │
+│ Antigravity CLI │ ✓       │ Basic · inline header │ 27    │
+└─────────────────┴─────────┴───────────────────────┴───────┘
+```
+
+Adding `--agent <agent>` narrows the probe to one Agent and prints its tool
+names below the table. The live probe never calls an MCP tool. OAuth credentials
+owned by an Agent runtime cannot be reused by Aikito and are reported as skipped.
+Credential values remain redacted, redirects are rejected, responses are bounded,
+and connection failures are summarized below the table. Aikito refuses to send
+configured credentials over plaintext HTTP unless the endpoint is loopback.
 
 Example `aikito show mcp` output from a configured workspace:
 

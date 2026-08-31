@@ -34,7 +34,7 @@ version.
 | `aikito sync mcp` | Synchronize MCP entries |
 | `aikito sync subagents` | Render and synchronize subagents |
 | `aikito auth mcp <agent> <server>` | Authenticate a configured MCP server |
-| `aikito show mcp [server] [--agent agent]` | Inspect the MCP matrix or drill into a server, Agent, or managed entry |
+| `aikito show mcp [server] [--agent agent] [--live]` | Inspect MCP configuration or compare a server's live tool discovery across Agents |
 | `aikito show subagents [target] [--agent agent]` | Inspect the subagent matrix, drill into platform options per agent, or print instructions |
 | `aikito show project [name]` | List registered projects or inspect one project's configuration and sync status |
 | `aikito show instructions [global|project|.]` | List or print global and project instructions |

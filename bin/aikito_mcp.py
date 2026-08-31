@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+import ipaddress
 import json
 import os
 import queue
@@ -12,11 +13,14 @@ import subprocess
 import tempfile
 import threading
 import tomllib
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
 STATE_VERSION = 1
@@ -175,6 +179,17 @@ class LiveMCPResult:
     status: str
     returncode: int | None
     output: str = ""
+
+
+@dataclass(frozen=True)
+class MCPToolProbeResult:
+    """Read-only result of discovering one Agent's tools for one MCP server."""
+
+    agent: str
+    status: str
+    auth_method: str
+    tool_names: tuple[str, ...] = ()
+    error: str = ""
 
 
 def _resolve_home_path(home: Path, value: Any, field: str, agent: str) -> Path:
@@ -1162,6 +1177,395 @@ def run_live_mcp_commands(
         status = "OK" if result.returncode == 0 else "ERROR"
         results.append(LiveMCPResult(agent, command, status, result.returncode, output))
     return results
+
+
+class _MCPProbeError(RuntimeError):
+    pass
+
+
+class _RejectRedirects(HTTPRedirectHandler):
+    """Keep configured credentials on exactly the configured MCP origin."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
+_MCP_PROTOCOL_VERSION = "2025-11-25"
+_MCP_USER_AGENT = "aikito"
+_MAX_MCP_RESPONSE_BYTES = 8 * 1024 * 1024
+_ENV_REFERENCE_PATTERNS = (
+    re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$"),
+    re.compile(r"^\{env:([A-Za-z_][A-Za-z0-9_]*)\}$"),
+    re.compile(r"^!!js process\.env\.([A-Za-z_][A-Za-z0-9_]*)$"),
+)
+_CREDENTIAL_HEADER_FRAGMENTS = (
+    "authorization",
+    "token",
+    "secret",
+    "password",
+    "api-key",
+    "api_key",
+    "apikey",
+)
+
+
+def _environment_reference(value: str) -> str | None:
+    for pattern in _ENV_REFERENCE_PATTERNS:
+        match = pattern.fullmatch(value)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _authorization_label(value: str | None, source: str) -> str:
+    scheme = value.split(None, 1)[0].title() if value and value.strip() else ""
+    if scheme not in {"Basic", "Bearer"}:
+        return "Environment header" if source == "env" else "Unknown"
+    suffix = "env header" if source == "env" else "inline header"
+    return f"{scheme} · {suffix}"
+
+
+def describe_mcp_auth(entry: dict[str, Any]) -> str:
+    """Describe configured authentication without exposing credential values."""
+    env_headers = entry.get("env_http_headers")
+    if isinstance(env_headers, dict):
+        for name, env_name in env_headers.items():
+            if str(name).lower() != "authorization" or not isinstance(env_name, str):
+                continue
+            return _authorization_label(os.environ.get(env_name), "env")
+
+    for container_name in ("headers", "http_headers"):
+        headers = entry.get(container_name)
+        if not isinstance(headers, dict):
+            continue
+        for name, raw_value in headers.items():
+            if str(name).lower() != "authorization" or not isinstance(raw_value, str):
+                continue
+            env_name = _environment_reference(raw_value)
+            value = os.environ.get(env_name) if env_name else raw_value
+            return _authorization_label(value, "env" if env_name else "inline")
+
+    bearer_env = entry.get("bearer_token_env_var")
+    if isinstance(bearer_env, str) and bearer_env:
+        return "Bearer · env token"
+    if entry.get("auth") == "oauth" or entry.get("oauth") is True:
+        return "OAuth"
+    return "None"
+
+
+def _resolve_mcp_headers(entry: dict[str, Any]) -> dict[str, str]:
+    resolved: dict[str, str] = {}
+
+    env_headers = entry.get("env_http_headers")
+    if isinstance(env_headers, dict):
+        for name, env_name in env_headers.items():
+            if not isinstance(name, str) or not isinstance(env_name, str):
+                continue
+            value = os.environ.get(env_name)
+            if value is None:
+                raise _MCPProbeError(
+                    f"credential environment variable '{env_name}' is unavailable"
+                )
+            resolved[name] = value
+
+    for container_name in ("headers", "http_headers"):
+        headers = entry.get(container_name)
+        if not isinstance(headers, dict):
+            continue
+        for name, raw_value in headers.items():
+            if not isinstance(name, str) or not isinstance(raw_value, str):
+                continue
+            env_name = _environment_reference(raw_value)
+            if env_name:
+                value = os.environ.get(env_name)
+                if value is None:
+                    raise _MCPProbeError(
+                        f"credential environment variable '{env_name}' is unavailable"
+                    )
+                resolved[name] = value
+            else:
+                resolved[name] = raw_value
+
+    bearer_env = entry.get("bearer_token_env_var")
+    if isinstance(bearer_env, str) and bearer_env:
+        token = os.environ.get(bearer_env)
+        if token is None:
+            raise _MCPProbeError(
+                f"credential environment variable '{bearer_env}' is unavailable"
+            )
+        resolved["Authorization"] = f"Bearer {token}"
+    return resolved
+
+
+def _response_message(body: bytes) -> str:
+    text = body.decode("utf-8", errors="replace").strip()
+    if not text:
+        return ""
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        message = text
+    else:
+        if not isinstance(payload, dict):
+            return ""
+        error = payload.get("error")
+        if isinstance(error, dict) and isinstance(error.get("message"), str):
+            message = error["message"]
+        elif isinstance(payload.get("detail"), str):
+            message = payload["detail"]
+        elif isinstance(payload.get("message"), str):
+            message = payload["message"]
+        elif isinstance(payload.get("title"), str):
+            message = payload["title"]
+        else:
+            return ""
+
+    return message
+
+
+def _is_credential_header(name: str) -> bool:
+    return any(fragment in name.lower() for fragment in _CREDENTIAL_HEADER_FRAGMENTS)
+
+
+def _redact_probe_error(text: str, headers: dict[str, str]) -> str:
+    """Redact runtime credentials and terminal control characters at the boundary."""
+    secrets = set()
+    for name, value in headers.items():
+        if not value or not _is_credential_header(name):
+            continue
+        secrets.add(value)
+        if name.lower() == "authorization":
+            _scheme, separator, credential = value.partition(" ")
+            if separator and credential:
+                secrets.add(credential)
+
+    redacted = text
+    for secret in sorted(secrets, key=len, reverse=True):
+        redacted = redacted.replace(secret, "<redacted>")
+    printable = "".join(
+        character if character.isprintable() else " " for character in redacted
+    )
+    return " ".join(printable.split())[:300]
+
+
+def _is_loopback_url(url: str) -> bool:
+    host = urlsplit(url).hostname
+    if not host:
+        return False
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _headers_contain_credentials(headers: dict[str, str]) -> bool:
+    return any(_is_credential_header(name) for name in headers)
+
+
+def _decode_mcp_response(body: bytes, request_id: int) -> dict[str, Any]:
+    text = body.decode("utf-8", errors="strict").strip()
+    candidates: list[str] = []
+    if text.startswith("data:") or "\ndata:" in text:
+        for event in re.split(r"\r?\n\r?\n", text):
+            data = "\n".join(
+                line[5:].lstrip()
+                for line in event.splitlines()
+                if line.startswith("data:")
+            )
+            if data:
+                candidates.append(data)
+    elif text:
+        candidates.append(text)
+
+    for candidate in candidates:
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict) and payload.get("id") == request_id:
+            error = payload.get("error")
+            if isinstance(error, dict):
+                message = str(error.get("message", "MCP request failed"))
+                raise _MCPProbeError(message)
+            result = payload.get("result")
+            if isinstance(result, dict):
+                return result
+            raise _MCPProbeError("MCP response has no result object")
+    raise _MCPProbeError("MCP response did not contain the requested JSON-RPC result")
+
+
+def _post_mcp_message(
+    url: str,
+    payload: dict[str, Any],
+    headers: dict[str, str],
+    *,
+    timeout: int,
+    session_id: str = "",
+    protocol_version: str = "",
+) -> tuple[bytes, str]:
+    method = str(payload.get("method", ""))
+    request_headers = dict(headers)
+    request_headers.setdefault("User-Agent", _MCP_USER_AGENT)
+    request_headers.update(
+        {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            "Mcp-Method": method,
+        }
+    )
+    if session_id:
+        request_headers["Mcp-Session-Id"] = session_id
+    if protocol_version:
+        request_headers["MCP-Protocol-Version"] = protocol_version
+
+    request = Request(
+        url,
+        data=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
+        headers=request_headers,
+        method="POST",
+    )
+    try:
+        with build_opener(_RejectRedirects()).open(
+            request, timeout=timeout
+        ) as response:
+            body = response.read(_MAX_MCP_RESPONSE_BYTES + 1)
+            if len(body) > _MAX_MCP_RESPONSE_BYTES:
+                raise _MCPProbeError("MCP response exceeded the 8 MiB safety limit")
+            return body, response.headers.get("Mcp-Session-Id", "")
+    except HTTPError as exc:
+        body = exc.read(4096)
+        detail = _response_message(body)
+        suffix = f": {detail}" if detail else ""
+        raise _MCPProbeError(f"HTTP {exc.code}{suffix}") from exc
+    except URLError as exc:
+        raise _MCPProbeError(f"connection failed: {exc.reason}") from exc
+    except TimeoutError as exc:
+        raise _MCPProbeError("connection timed out") from exc
+
+
+def _list_remote_mcp_tools(
+    url: str, headers: dict[str, str], timeout: int
+) -> tuple[str, ...]:
+    initialize = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": _MCP_PROTOCOL_VERSION,
+            "capabilities": {},
+            "clientInfo": {"name": "aikito", "version": "1"},
+        },
+    }
+    body, session_id = _post_mcp_message(url, initialize, headers, timeout=timeout)
+    initialized = _decode_mcp_response(body, 1)
+    protocol_version = initialized.get("protocolVersion")
+    if not isinstance(protocol_version, str) or not protocol_version:
+        raise _MCPProbeError("MCP initialize response has no protocol version")
+
+    _post_mcp_message(
+        url,
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        headers,
+        timeout=timeout,
+        session_id=session_id,
+        protocol_version=protocol_version,
+    )
+
+    names: list[str] = []
+    cursor: str | None = None
+    for request_id in range(2, 102):
+        params = {"cursor": cursor} if cursor else {}
+        body, _ = _post_mcp_message(
+            url,
+            {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": "tools/list",
+                "params": params,
+            },
+            headers,
+            timeout=timeout,
+            session_id=session_id,
+            protocol_version=protocol_version,
+        )
+        result = _decode_mcp_response(body, request_id)
+        tools = result.get("tools")
+        if not isinstance(tools, list):
+            raise _MCPProbeError("MCP tools/list response has no tools array")
+        for tool in tools:
+            if isinstance(tool, dict) and isinstance(tool.get("name"), str):
+                names.append(tool["name"])
+        cursor = result.get("nextCursor")
+        if not isinstance(cursor, str) or not cursor:
+            return tuple(names)
+    raise _MCPProbeError("MCP tools/list pagination exceeded 100 pages")
+
+
+def probe_mcp_tools(spec: AgentSpec, timeout: int = 15) -> MCPToolProbeResult:
+    """Discover tools through one Agent-native remote MCP configuration."""
+    if not spec.config_path.is_file():
+        return MCPToolProbeResult(
+            spec.agent, "ERROR", "Unknown", error="config missing"
+        )
+    auth_method = "Unknown"
+    headers: dict[str, str] = {}
+    try:
+        entry = read_entry(spec, spec.config_path.read_text(encoding="utf-8"))
+        if entry is None:
+            return MCPToolProbeResult(
+                spec.agent, "ERROR", "Unknown", error="managed entry missing"
+            )
+        auth_method = describe_mcp_auth(entry)
+        if auth_method == "OAuth":
+            return MCPToolProbeResult(
+                spec.agent,
+                "SKIP",
+                auth_method,
+                error="OAuth credentials are managed by the Agent runtime",
+            )
+        url = entry.get("url") or entry.get("serverUrl")
+        if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+            return MCPToolProbeResult(
+                spec.agent,
+                "SKIP",
+                auth_method,
+                error="only remote HTTP MCP servers are supported",
+            )
+        headers = _resolve_mcp_headers(entry)
+        parsed_url = urlsplit(url)
+        has_url_credentials = bool(parsed_url.username or parsed_url.password)
+        if (
+            parsed_url.scheme == "http"
+            and not _is_loopback_url(url)
+            and (_headers_contain_credentials(headers) or has_url_credentials)
+        ):
+            return MCPToolProbeResult(
+                spec.agent,
+                "SKIP",
+                auth_method,
+                error="refusing to send MCP credentials over non-loopback HTTP",
+            )
+        tool_names = _list_remote_mcp_tools(url, headers, timeout)
+        return MCPToolProbeResult(spec.agent, "OK", auth_method, tool_names)
+    except (MCPConfigError, OSError, UnicodeError, _MCPProbeError) as exc:
+        return MCPToolProbeResult(
+            spec.agent,
+            "ERROR",
+            auth_method,
+            error=_redact_probe_error(str(exc), headers),
+        )
+
+
+def probe_mcp_tools_for_specs(
+    specs: list[AgentSpec], timeout: int = 15
+) -> list[MCPToolProbeResult]:
+    """Run independent read-only probes concurrently while preserving Agent order."""
+    if not specs:
+        return []
+    with ThreadPoolExecutor(max_workers=min(8, len(specs))) as executor:
+        return list(executor.map(lambda spec: probe_mcp_tools(spec, timeout), specs))
 
 
 def read_entry(spec: AgentSpec, text: str) -> dict[str, Any] | None:
