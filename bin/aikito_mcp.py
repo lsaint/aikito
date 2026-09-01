@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -1503,6 +1504,7 @@ def _post_mcp_message(
     timeout: int,
     session_id: str = "",
     protocol_version: str = "",
+    retries: int = 2,
 ) -> tuple[bytes, str]:
     method = str(payload.get("method", ""))
     request_headers = dict(headers)
@@ -1519,29 +1521,40 @@ def _post_mcp_message(
     if protocol_version:
         request_headers["MCP-Protocol-Version"] = protocol_version
 
-    request = Request(
-        url,
-        data=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
-        headers=request_headers,
-        method="POST",
-    )
-    try:
-        with build_opener(_RejectRedirects()).open(
-            request, timeout=timeout
-        ) as response:
-            body = response.read(_MAX_MCP_RESPONSE_BYTES + 1)
-            if len(body) > _MAX_MCP_RESPONSE_BYTES:
-                raise _MCPProbeError("MCP response exceeded the 8 MiB safety limit")
-            return body, response.headers.get("Mcp-Session-Id", "")
-    except HTTPError as exc:
-        body = exc.read(4096)
-        detail = _response_message(body)
-        suffix = f": {detail}" if detail else ""
-        raise _MCPProbeError(f"HTTP {exc.code}{suffix}") from exc
-    except URLError as exc:
-        raise _MCPProbeError(f"connection failed: {exc.reason}") from exc
-    except TimeoutError as exc:
-        raise _MCPProbeError("connection timed out") from exc
+    data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    for attempt in range(retries + 1):
+        request = Request(
+            url,
+            data=data,
+            headers=request_headers,
+            method="POST",
+        )
+        try:
+            with build_opener(_RejectRedirects()).open(
+                request, timeout=timeout
+            ) as response:
+                body = response.read(_MAX_MCP_RESPONSE_BYTES + 1)
+                if len(body) > _MAX_MCP_RESPONSE_BYTES:
+                    raise _MCPProbeError("MCP response exceeded the 8 MiB safety limit")
+                return body, response.headers.get("Mcp-Session-Id", "")
+        except HTTPError as exc:
+            body = exc.read(4096)
+            detail = _response_message(body)
+            suffix = f": {detail}" if detail else ""
+            if exc.code in (429, 500, 502, 503, 504) and attempt < retries:
+                time.sleep(0.3 * (2**attempt))
+                continue
+            raise _MCPProbeError(f"HTTP {exc.code}{suffix}") from exc
+        except (URLError, TimeoutError, OSError) as exc:
+            if attempt < retries:
+                time.sleep(0.3 * (2**attempt))
+                continue
+            if isinstance(exc, TimeoutError):
+                raise _MCPProbeError("connection timed out") from exc
+            if isinstance(exc, URLError):
+                raise _MCPProbeError(f"connection failed: {exc.reason}") from exc
+            raise _MCPProbeError(f"connection failed: {exc}") from exc
+    raise _MCPProbeError("MCP request failed after retries")
 
 
 def _list_remote_mcp_tools(

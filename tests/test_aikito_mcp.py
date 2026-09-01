@@ -7,8 +7,8 @@ import time
 import tomllib
 import unittest
 from pathlib import Path
-from urllib.error import URLError
-from unittest.mock import patch
+from urllib.error import HTTPError, URLError
+from unittest.mock import MagicMock, patch
 
 from aikito_mcp import (
     STATE_FILE,
@@ -1147,6 +1147,52 @@ env_http_headers = { Authorization = "TEST_AUTH" }
                 or mock_request.call_args.args[2]
             )
             self.assertEqual(headers.get("User-Agent"), "aikito")
+
+    def test_post_mcp_message_retries_on_rate_limit(self) -> None:
+        mock_success = MagicMock()
+        mock_success.read.return_value = b'{"result": 1}'
+        mock_success.headers = {}
+        mock_cm = MagicMock()
+        mock_cm.__enter__.return_value = mock_success
+
+        err_fp = io.BytesIO(b'{"detail": "Rate limited"}')
+        http_429 = HTTPError(
+            "https://example.com/mcp", 429, "Too Many Requests", {}, err_fp
+        )
+
+        with (
+            patch("aikito_mcp.build_opener") as mock_opener,
+            patch("aikito_mcp.time.sleep") as mock_sleep,
+        ):
+            mock_opener.return_value.open.side_effect = [http_429, mock_cm]
+            body, _ = _post_mcp_message(
+                "https://example.com/mcp",
+                {"method": "test"},
+                {},
+                timeout=5,
+            )
+            self.assertEqual(body, b'{"result": 1}')
+            self.assertEqual(mock_opener.return_value.open.call_count, 2)
+            mock_sleep.assert_called_once()
+
+    def test_post_mcp_message_does_not_retry_on_401(self) -> None:
+        err_fp = io.BytesIO(b'{"detail": "Unauthorized"}')
+        http_401 = HTTPError("https://example.com/mcp", 401, "Unauthorized", {}, err_fp)
+
+        with (
+            patch("aikito_mcp.build_opener") as mock_opener,
+            patch("aikito_mcp.time.sleep") as mock_sleep,
+        ):
+            mock_opener.return_value.open.side_effect = http_401
+            with self.assertRaises(_MCPProbeError):
+                _post_mcp_message(
+                    "https://example.com/mcp",
+                    {"method": "test"},
+                    {},
+                    timeout=5,
+                )
+            self.assertEqual(mock_opener.return_value.open.call_count, 1)
+            mock_sleep.assert_not_called()
 
     def test_response_message_extracts_detail_and_title(self) -> None:
         self.assertEqual(
