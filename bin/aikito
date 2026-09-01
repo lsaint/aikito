@@ -108,7 +108,7 @@ from aikito_workspace import (
     resolve_workspace_with_source,
 )
 
-__version__ = "1.21.0"
+__version__ = "1.22.0"
 
 
 def get_aikito_dir() -> Path:
