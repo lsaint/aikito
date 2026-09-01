@@ -1,7 +1,9 @@
 import base64
+import io
 import json
 import os
 import tempfile
+import time
 import tomllib
 import unittest
 from pathlib import Path
@@ -12,6 +14,8 @@ from aikito_mcp import (
     STATE_FILE,
     AgentSpec,
     MCPConfigError,
+    MCPToolProbeResult,
+    _LiveLoadingIndicator,
     _MCPProbeError,
     _agent_detected,
     _list_remote_mcp_tools,
@@ -31,6 +35,7 @@ from aikito_mcp import (
     load_agent_specs,
     load_agents,
     probe_mcp_tools,
+    probe_mcp_tools_for_specs,
     read_all_entries,
     redact_mcp_entry,
     sync_mcp_configs,
@@ -1229,6 +1234,72 @@ class AgentDetectionTest(unittest.TestCase):
         self.assertFalse(_agent_detected(spec))
         (self.home / ".grok").mkdir()
         self.assertTrue(_agent_detected(spec))
+
+    def test_live_loading_indicator_animates_dots_with_dim_color(self) -> None:
+        stream = io.StringIO()
+        with _LiveLoadingIndicator(
+            stream=stream, animate=True, use_color=True, interval=0.05
+        ) as indicator:
+            indicator.add("codex")
+            time.sleep(0.18)
+
+        output = stream.getvalue()
+        self.assertIn("\033[2mcodex loading .\033[0m", output)
+        self.assertIn("\033[2mcodex loading ..\033[0m", output)
+        self.assertIn("\033[2mcodex loading ...\033[0m", output)
+        self.assertTrue(output.endswith("\r\033[K"))
+
+    def test_live_loading_indicator_no_color(self) -> None:
+        stream = io.StringIO()
+        with _LiveLoadingIndicator(
+            stream=stream, animate=True, use_color=False, interval=0.05
+        ) as indicator:
+            indicator.add("codex")
+            time.sleep(0.08)
+
+        output = stream.getvalue()
+        self.assertIn("codex loading .", output)
+        self.assertNotIn("\033[2m", output)
+        self.assertTrue(output.endswith("\r\033[K"))
+
+    def test_live_loading_indicator_inactive_by_default_on_non_tty(self) -> None:
+        stream = io.StringIO()
+        with _LiveLoadingIndicator(stream=stream) as indicator:
+            indicator.add("codex")
+            time.sleep(0.05)
+
+        self.assertEqual(stream.getvalue(), "")
+
+    def test_live_loading_indicator_multiple_agents(self) -> None:
+        stream = io.StringIO()
+        with _LiveLoadingIndicator(
+            stream=stream, animate=True, use_color=False, interval=0.05
+        ) as indicator:
+            indicator.add("codex")
+            indicator.add("claude")
+            time.sleep(0.08)
+
+        output = stream.getvalue()
+        self.assertIn("claude, codex loading .", output)
+
+    def test_probe_mcp_tools_for_specs_with_animation(self) -> None:
+        spec = self._spec("codex", self.home / ".codex" / "config.toml")
+        stream = io.StringIO()
+
+        def _slow_probe(_spec: AgentSpec, _timeout: int = 15) -> MCPToolProbeResult:
+            time.sleep(0.08)
+            return MCPToolProbeResult("codex", "OK", "env", ("tool1",))
+
+        with patch("aikito_mcp.probe_mcp_tools", side_effect=_slow_probe):
+            results = probe_mcp_tools_for_specs(
+                [spec], animate=True, stream=stream, use_color=True
+            )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].status, "OK")
+        output = stream.getvalue()
+        self.assertIn("\033[2mcodex loading .\033[0m", output)
+        self.assertTrue(output.endswith("\r\033[K"))
 
 
 if __name__ == "__main__":

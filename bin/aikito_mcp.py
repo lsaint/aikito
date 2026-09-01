@@ -10,6 +10,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import threading
 import tomllib
@@ -1150,32 +1151,130 @@ def load_agent_specs(aikito_dir: Path, home: Path) -> list[AgentSpec]:
     return specs
 
 
+class _LiveLoadingIndicator:
+    """Animated loading indicator on stderr for live operations."""
+
+    def __init__(
+        self,
+        *,
+        stream: Any = None,
+        animate: bool | None = None,
+        use_color: bool | None = None,
+        interval: float = 0.25,
+    ) -> None:
+        self._stream = stream if stream is not None else sys.stderr
+        self._animate = (
+            animate
+            if animate is not None
+            else getattr(self._stream, "isatty", lambda: False)()
+        )
+        self._use_color = (
+            use_color if use_color is not None else not bool(os.environ.get("NO_COLOR"))
+        )
+        self._interval = interval
+        self._lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._wake_event = threading.Event()
+        self._active_counts: dict[str, int] = {}
+        self._thread: threading.Thread | None = None
+
+    def add(self, label: str) -> None:
+        with self._lock:
+            self._active_counts[label] = self._active_counts.get(label, 0) + 1
+        self._wake_event.set()
+
+    def remove(self, label: str) -> None:
+        with self._lock:
+            if label in self._active_counts:
+                self._active_counts[label] -= 1
+                if self._active_counts[label] <= 0:
+                    del self._active_counts[label]
+        self._wake_event.set()
+
+    def __enter__(self) -> "_LiveLoadingIndicator":
+        if self._animate:
+            self._thread = threading.Thread(target=self._loop, daemon=True)
+            self._thread.start()
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        if self._animate and self._thread is not None:
+            self._stop_event.set()
+            self._wake_event.set()
+            self._thread.join(timeout=1.0)
+            try:
+                self._stream.write("\r\033[K")
+                self._stream.flush()
+            except Exception:
+                pass
+
+    def _loop(self) -> None:
+        frame = 0
+        while not self._stop_event.is_set():
+            self._wake_event.clear()
+            with self._lock:
+                labels = sorted(self._active_counts.keys())
+            if labels:
+                label_str = ", ".join(labels)
+                dots = "." * ((frame % 3) + 1)
+                text = f"{label_str} loading {dots}"
+                styled = f"\033[2m{text}\033[0m" if self._use_color else text
+                try:
+                    self._stream.write(f"\r{styled}\033[K")
+                    self._stream.flush()
+                except Exception:
+                    break
+                frame += 1
+                if self._stop_event.wait(timeout=self._interval):
+                    break
+            else:
+                if self._stop_event.is_set():
+                    break
+                self._wake_event.wait(timeout=self._interval)
+
+
 def run_live_mcp_commands(
-    commands: dict[str, tuple[str, ...]], timeout: int = 45
+    commands: dict[str, tuple[str, ...]],
+    timeout: int = 45,
+    *,
+    animate: bool | None = None,
+    stream: Any = None,
+    use_color: bool | None = None,
 ) -> list[LiveMCPResult]:
     """Run one live MCP status command per agent and normalize its outcome."""
     results = []
-    for agent, command in commands.items():
-        if shutil.which(command[0]) is None:
-            results.append(LiveMCPResult(agent, command, "SKIP", None))
-            continue
-        try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-            )
-        except subprocess.TimeoutExpired:
-            results.append(LiveMCPResult(agent, command, "TIMEOUT", None))
-            continue
+    with _LiveLoadingIndicator(
+        stream=stream, animate=animate, use_color=use_color
+    ) as indicator:
+        for agent, command in commands.items():
+            indicator.add(agent)
+            try:
+                if shutil.which(command[0]) is None:
+                    results.append(LiveMCPResult(agent, command, "SKIP", None))
+                    continue
+                try:
+                    result = subprocess.run(
+                        command,
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout,
+                        check=False,
+                    )
+                except subprocess.TimeoutExpired:
+                    results.append(LiveMCPResult(agent, command, "TIMEOUT", None))
+                    continue
 
-        output = "\n".join(
-            part.strip() for part in (result.stdout, result.stderr) if part.strip()
-        )
-        status = "OK" if result.returncode == 0 else "ERROR"
-        results.append(LiveMCPResult(agent, command, status, result.returncode, output))
+                output = "\n".join(
+                    part.strip()
+                    for part in (result.stdout, result.stderr)
+                    if part.strip()
+                )
+                status = "OK" if result.returncode == 0 else "ERROR"
+                results.append(
+                    LiveMCPResult(agent, command, status, result.returncode, output)
+                )
+            finally:
+                indicator.remove(agent)
     return results
 
 
@@ -1559,13 +1658,30 @@ def probe_mcp_tools(spec: AgentSpec, timeout: int = 15) -> MCPToolProbeResult:
 
 
 def probe_mcp_tools_for_specs(
-    specs: list[AgentSpec], timeout: int = 15
+    specs: list[AgentSpec],
+    timeout: int = 15,
+    *,
+    animate: bool | None = None,
+    stream: Any = None,
+    use_color: bool | None = None,
 ) -> list[MCPToolProbeResult]:
     """Run independent read-only probes concurrently while preserving Agent order."""
     if not specs:
         return []
-    with ThreadPoolExecutor(max_workers=min(8, len(specs))) as executor:
-        return list(executor.map(lambda spec: probe_mcp_tools(spec, timeout), specs))
+    with _LiveLoadingIndicator(
+        stream=stream, animate=animate, use_color=use_color
+    ) as indicator:
+        for spec in specs:
+            indicator.add(spec.agent)
+
+        def _probe_worker(spec: AgentSpec) -> MCPToolProbeResult:
+            try:
+                return probe_mcp_tools(spec, timeout)
+            finally:
+                indicator.remove(spec.agent)
+
+        with ThreadPoolExecutor(max_workers=min(8, len(specs))) as executor:
+            return list(executor.map(_probe_worker, specs))
 
 
 def read_entry(spec: AgentSpec, text: str) -> dict[str, Any] | None:
