@@ -5,6 +5,7 @@ __pycache__/
 .DS_Store
 /dist/
 /.local/
+uv.lock
 
 # Whitelist repository files from user-level global ignore
 !/.gitignore
