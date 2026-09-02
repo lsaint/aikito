@@ -25,9 +25,10 @@ class MemoryMaintenanceTest(unittest.TestCase):
         self.project_memory.mkdir(parents=True)
         self.project_path.mkdir(parents=True)
         (self.project_memory.parent / "agent.toml").write_text(
-            f'name = "example"\npath = "{self.project_path}"\n',
+            f'name = "example"\npath = "{self.project_path.as_posix()}"\n',
             encoding="utf-8",
         )
+
         (self.aikito_dir / "agents.toml").write_text(
             """[agents.codex.runner]
 command = ["fake-agent", "{workdir}", "{prompt}"]
@@ -170,7 +171,8 @@ command = "not-an-array"
         command = run_mock.call_args.args[0]
         prompt = command[-1]
         self.assertEqual(command[:2], ["fake-agent", str(self.project_path.resolve())])
-        self.assertIn(str(self.project_memory), prompt)
+        self.assertIn(str(self.project_memory.resolve()), prompt)
+
         self.assertIn("review the complete selected scope", prompt)
         self.assertIn("Do not modify files", prompt)
         self.assertEqual(run_mock.call_args.kwargs["cwd"], self.project_path.resolve())

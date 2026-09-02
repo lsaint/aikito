@@ -17,6 +17,7 @@ from typing import Optional
 import tomllib
 
 from aikito_mcp import MCPConfigError, collect_project_instruction_targets
+from aikito_platform import safe_relative_path
 from aikito_templates import (
     BUNDLED_SKILL_NAMES,
     bundled_skill_path,
@@ -172,8 +173,11 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
                 ["git", "init", str(target_dir)],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=True,
             )
+
             print(f"[GIT INIT] Initialized Git repository in {target_dir}")
         except subprocess.CalledProcessError as e:
             print(f"[ERROR] Failed to run 'git init': {e.stderr.strip()}")
@@ -196,10 +200,7 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
 
 
 def _display_path(path: Path, home: Path) -> str:
-    try:
-        return f"~/{path.relative_to(home)}"
-    except ValueError:
-        return str(path)
+    return safe_relative_path(path, home)
 
 
 def _validate_project_name(project_name: str) -> Optional[str]:

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from aikito_mcp import MCPConfigError, collect_project_instruction_targets
+from aikito_platform import safe_relative_path
 
 
 @dataclass(frozen=True)
@@ -55,20 +56,19 @@ class ProjectSummary:
 def _resolve_project_path(raw_path: object, home: Path) -> Path | None:
     if not isinstance(raw_path, str) or not raw_path:
         return None
-    if raw_path == "~":
+    raw = raw_path.strip()
+    if raw == "~":
         return home.resolve()
-    if raw_path.startswith("~/"):
-        return (home / raw_path[2:]).resolve()
-    return Path(raw_path).expanduser().resolve()
+    normalized = raw.replace("\\", "/")
+    if normalized.startswith("~/"):
+        return (home / normalized[2:]).resolve()
+    return Path(raw).expanduser().resolve()
 
 
 def _display_path(path: Path | None, home: Path) -> str:
     if path is None:
         return "-"
-    try:
-        return f"~/{path.relative_to(home.resolve())}"
-    except ValueError:
-        return str(path)
+    return safe_relative_path(path, home)
 
 
 def _link_status(target: Path, expected: Path) -> str:

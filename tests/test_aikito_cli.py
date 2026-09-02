@@ -111,6 +111,29 @@ class GlobalEntrySyncTest(unittest.TestCase):
         self.assertTrue(result)
         self.assertFalse((self.root / ".grok").exists())
 
+    def test_sync_global_entry_fails_when_symlinks_unavailable(self) -> None:
+        (self.source / "SKILL.md").write_text("# Skill", encoding="utf-8")
+        target = self.root / ".agent" / "skills"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with patch("aikito_platform.can_symlink", return_value=False):
+            with patch("sys.stderr"):
+                with self.assertRaises(SystemExit) as cm:
+                    AIKITO_CLI.sync_global_entry(
+                        self.source, target, "Test Agent", "skills"
+                    )
+                self.assertEqual(cm.exception.code, 1)
+
+    def test_sync_project_instruction_conflict_protection(self) -> None:
+        source = self.root / "AGENTS.md"
+        source.write_text("# Instructions", encoding="utf-8")
+        target = self.root / "proj" / "AGENTS.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("# Custom Instructions", encoding="utf-8")
+        self.assertFalse(
+            AIKITO_CLI.sync_project_instruction(source, target, dry_run=False)
+        )
+        self.assertEqual(target.read_text(encoding="utf-8"), "# Custom Instructions")
+
 
 class SyncSubcommandParserTest(unittest.TestCase):
     def test_diff_command(self) -> None:
@@ -940,7 +963,7 @@ class EditInstructionsTest(unittest.TestCase):
         self.instructions_file = project_dir / "AGENTS.md"
         self.instructions_file.write_text("", encoding="utf-8")
         (project_dir / "agent.toml").write_text(
-            f'name = "doxturbo"\npath = "{self.project_path}"\n',
+            f'name = "doxturbo"\npath = "{self.project_path.as_posix()}"\n',
             encoding="utf-8",
         )
 
@@ -1019,6 +1042,7 @@ class EditSkillTest(unittest.TestCase):
     def test_edit_skill_whitespace_editor_fallback_to_vi(self) -> None:
         mock_proc = MagicMock()
         mock_proc.returncode = 0
+        expected_editor = "notepad" if sys.platform == "win32" else "vi"
 
         with (
             patch("os.environ", {"VISUAL": "   ", "EDITOR": "   "}),
@@ -1027,7 +1051,7 @@ class EditSkillTest(unittest.TestCase):
         ):
             args = AIKITO_CLI.build_parser().parse_args(["edit", "skill", "dur"])
             args.func(args)
-            mock_run.assert_called_once_with(["vi", str(self.skill_file)])
+            mock_run.assert_called_once_with([expected_editor, str(self.skill_file)])
 
     def test_edit_skill_conflict_suggests_edit_command(self) -> None:
         s1 = self.aikito_dir / "skills" / "gino-code-review"
@@ -1437,7 +1461,7 @@ url = "http://custom.example.com"
         )
         (project_dir / "AGENTS.md").write_text("project rules\n")
         (project_dir / "agent.toml").write_text(
-            f'name = "example"\npath = "{project_path}"\n'
+            f'name = "example"\npath = "{project_path.as_posix()}"\n'
         )
         (project_path / ".agents").mkdir(parents=True)
         (project_path / ".agents" / "AGENTS.md").symlink_to(project_dir / "AGENTS.md")
@@ -1445,7 +1469,7 @@ url = "http://custom.example.com"
         empty_project_dir.mkdir()
         (empty_project_dir / "AGENTS.md").write_text("\n")
         (empty_project_dir / "agent.toml").write_text(
-            f'name = "empty"\npath = "{self.aikito_dir / "empty-code"}"\n'
+            f'name = "empty"\npath = "{(self.aikito_dir / "empty-code").as_posix()}"\n'
         )
 
         with (
@@ -1496,7 +1520,7 @@ url = "http://custom.example.com"
         project_dir.mkdir(parents=True)
         (project_dir / "AGENTS.md").write_text("project rules\n")
         (project_dir / "agent.toml").write_text(
-            f'name = "example"\npath = "{project_path}"\n'
+            f'name = "example"\npath = "{project_path.as_posix()}"\n'
         )
 
         with (
@@ -1925,10 +1949,11 @@ class TestDoctorFixCli(unittest.TestCase):
         self.aikito_dir = Path(self.tmp.name)
         (self.aikito_dir / "memory" / "notes").mkdir(parents=True)
         (self.aikito_dir / "memory" / "notes" / "bare.md").write_text(
-            "# Bare Note Title\nBody"
+            "# Bare Note Title\nBody", encoding="utf-8"
         )
         (self.aikito_dir / "memory" / "index.md").write_text(
-            "- [[ghost-note|Ghost]]\n- [[bare]] — Some Description\n"
+            "- [[ghost-note|Ghost]]\n- [[bare]] — Some Description\n",
+            encoding="utf-8",
         )
 
     def tearDown(self) -> None:

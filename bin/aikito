@@ -100,8 +100,17 @@ from aikito_subagent import (
     SubagentConfigError,
     sync_subagent_configs,
 )
+from aikito_platform import init_console_encoding, require_symlink_support, safe_relative_path
+
 from aikito_web import serve_console
-from aikito_completion import generate_bash, generate_fish, generate_zsh, get_candidates
+
+from aikito_completion import (
+    generate_bash,
+    generate_fish,
+    generate_powershell,
+    generate_zsh,
+    get_candidates,
+)
 from aikito_workspace import (
     persist_workspace,
     resolve_workspace,
@@ -147,8 +156,10 @@ def resolve_color_flags(args: argparse.Namespace) -> tuple[bool, bool]:
 
 
 def cmd_global_sync(args: argparse.Namespace) -> None:
+    require_symlink_support()
     aikito_dir = get_aikito_dir()
     skills_toml_path = aikito_dir / "skills.toml"
+
     agents_skills_dir = get_agents_dir() / "skills"
     global_instruction_source = aikito_dir / "global" / "AGENTS.md"
     dry_run = getattr(args, "dry_run", False)
@@ -265,6 +276,8 @@ def cmd_global_sync(args: argparse.Namespace) -> None:
         if definition.skills_path is not None
     ]
 
+
+
     if not all((*instruction_results, *skill_entry_results)):
         print(
             "[ERROR] Global resources were synced, but one or more Agent "
@@ -281,8 +294,10 @@ def cmd_global_sync(args: argparse.Namespace) -> None:
 
 
 def cmd_project_sync(args: argparse.Namespace) -> None:
+    require_symlink_support()
     project_name = args.project_name
     aikito_dir = get_aikito_dir()
+
     agent_toml_path = aikito_dir / "projects" / project_name / "agent.toml"
 
     if args.project_path:
@@ -497,13 +512,10 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
 
 def save_project_path(agent_toml_path: Path, project_path: Path) -> None:
     home = Path.home()
-    try:
-        rel = project_path.relative_to(home)
-        path_str = f"~/{rel}"
-    except ValueError:
-        path_str = str(project_path)
+    path_str = safe_relative_path(project_path, home)
 
     lines = []
+
     if agent_toml_path.exists():
         lines = agent_toml_path.read_text().splitlines()
 
@@ -612,6 +624,7 @@ def cmd_diff(args: argparse.Namespace) -> None:
 
 
 def cmd_init(args: argparse.Namespace) -> None:
+    require_symlink_support()
     target = Path(args.workspace_path) if args.workspace_path else get_aikito_dir()
     home = Path.home()
     success = init_workspace(target, home, force=args.force)
@@ -628,7 +641,9 @@ def cmd_path_workspace(args: argparse.Namespace) -> None:
 
 
 def cmd_init_project(args: argparse.Namespace) -> None:
+    require_symlink_support()
     project_path = Path(args.project_path) if args.project_path else Path.cwd()
+
     project_name = init_project(
         get_aikito_dir(),
         project_path,
@@ -1072,9 +1087,10 @@ def cmd_rm_inbox(args: argparse.Namespace) -> None:
 
     try:
         rel = target_file.relative_to(inbox_dir)
-        ident = str(rel.with_suffix(""))
+        ident = rel.with_suffix("").as_posix()
     except ValueError:
         ident = target_file.stem
+
 
     try:
         remove_inbox_note(inbox_dir, target_file)
@@ -1199,8 +1215,11 @@ def cmd_rm_memory(args: argparse.Namespace) -> None:
 
 
 def cmd_adopt(args: argparse.Namespace) -> None:
+    if args.apply and not args.dry_run:
+        require_symlink_support()
     target = Path(args.target) if args.target else get_aikito_dir()
     home = Path.home()
+
     try:
         plan = build_adopt_plan(target, home)
         dry_run = not args.apply or args.dry_run
@@ -1297,6 +1316,8 @@ def cmd_completion(args: argparse.Namespace) -> None:
             print(generate_bash(parser), end="")
         elif target == "fish":
             print(generate_fish(parser), end="")
+        elif target == "powershell":
+            print(generate_powershell(parser), end="")
 
 
 def cmd_maintain_memory(args: argparse.Namespace) -> None:
@@ -1930,7 +1951,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="shell_or_sub", required=True
     )
 
-    for _shell in ("zsh", "bash", "fish"):
+    for _shell in ("zsh", "bash", "fish", "powershell"):
         _p = completion_subparsers.add_parser(
             _shell,
             help=f"Output {_shell.capitalize()} completion script",
@@ -1969,6 +1990,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    init_console_encoding()
     parser = build_parser()
     args = parser.parse_args()
     args.func(args)

@@ -231,7 +231,9 @@ class AikitoInboxTest(unittest.TestCase):
         (custom_inbox / "custom-note.md").write_text("# Custom note body")
 
         config_file = self.aikito_dir / "config.toml"
-        config_file.write_text(f'[inbox]\npath = "{custom_inbox}"\n', encoding="utf-8")
+        config_file.write_text(
+            f'[inbox]\npath = "{custom_inbox.as_posix()}"\n', encoding="utf-8"
+        )
 
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
@@ -418,7 +420,9 @@ class AikitoInboxTest(unittest.TestCase):
         note.write_text("# Temp")
 
         config_file = self.aikito_dir / "config.toml"
-        config_file.write_text(f'[inbox]\npath = "{custom_inbox}"\n', encoding="utf-8")
+        config_file.write_text(
+            f'[inbox]\npath = "{custom_inbox.as_posix()}"\n', encoding="utf-8"
+        )
 
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,

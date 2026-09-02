@@ -121,8 +121,10 @@ Aikito separates global and project-specific resources explicitly instead of dep
 * **Capability Asymmetry**: Supported agents do not expose identical resource models. Aikito normalizes only the capabilities available for each agent runtime.
 * **File-Based Context Boundary**: Aikito manages durable files and configurations. It does not automatically decide which memory should be injected into every prompt; context loading remains subject to each agent's native behavior.
 
-### Platform Limitations
-* **macOS / Linux / WSL2**: Relies on POSIX file permissions and symbolic links; native Windows is currently unsupported.
+### Platform Support
+* **macOS / Linux / Windows / WSL2**: Supported natively across macOS, Linux, and Windows (PowerShell/CMD). Uses POSIX permissions and symlinks on Unix, with NTFS ACL security hardening (`icacls`) and Developer Mode symlink support on Windows.
+
+
 
 ---
 

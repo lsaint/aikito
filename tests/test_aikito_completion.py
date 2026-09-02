@@ -286,7 +286,7 @@ class AikitoCompletionTest(unittest.TestCase):
         project_config = self.aikito_dir / "projects" / "example" / "agent.toml"
         project_config.parent.mkdir(parents=True)
         project_config.write_text(
-            f'name = "example"\npath = "{project_root}"\n', encoding="utf-8"
+            f'name = "example"\npath = "{project_root.as_posix()}"\n', encoding="utf-8"
         )
 
         self.assertEqual(

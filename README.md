@@ -10,8 +10,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.12 | 3.13 | 3.14](https://img.shields.io/badge/Python-3.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org/downloads/)
-![Platform: macOS | Linux](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg)
+![Platform: macOS | Linux | Windows](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)
 ![Dependencies: stdlib only](https://img.shields.io/badge/dependencies-stdlib%20only-brightgreen.svg)
+
 
 [简体中文](README.zh-CN.md) · [Documentation](docs/README.md)
 
@@ -168,12 +169,9 @@ Aikito governs the workspace, your agent reasons and maintains the memory, and y
 
 ## Requirements
 
-- macOS or Linux; Windows users should use WSL2.
+- macOS, Linux, or Windows (Windows 10/11 with Developer Mode enabled for symlinks).
 - Python 3.12, 3.13, or 3.14.
 - Git.
-
-Native Windows is not supported: Aikito relies on symbolic links and POSIX file
-permissions for synchronization and credential safety.
 
 ## Quick Start
 
@@ -202,6 +200,8 @@ maintenance prompts, see [Agent-first workflows](docs/agent-workflow.md).
 
 ### Option 2: Set It Up Manually
 
+**macOS / Linux** — install via Homebrew:
+
 ```bash
 brew install lsaint/tap/aikito
 
@@ -210,14 +210,43 @@ aikito sync global
 aikito status
 ```
 
-Installing via Homebrew automatically sets up Tab completion for Zsh, Bash,
+Installing via Homebrew automatically sets up tab completion for Zsh, Bash,
 and Fish — no extra configuration needed.
 
-For manual installs, add one line to `~/.zshrc`:
+For manual installs (non-Homebrew), add one line to `~/.zshrc`:
 
 ```zsh
 eval "$(aikito completion zsh)"
 ```
+
+**Windows** — one-liner installer (PowerShell, no admin required):
+
+> **Prerequisite:** [Windows Developer Mode](https://learn.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development)
+> must be enabled so that Aikito can create symbolic links.
+> Enable it in **Settings → System → For developers → Developer Mode**.
+
+```powershell
+irm https://raw.githubusercontent.com/lsaint/aikito/main/install.ps1 | iex
+```
+
+The script checks for Python 3.12+, validates Developer Mode, downloads the
+latest release from GitHub, installs to `%LOCALAPPDATA%\Programs\aikito`, and
+adds `bin\` to your User `PATH` automatically.
+
+After the installer finishes, open a **new terminal** and run:
+
+```powershell
+aikito init workspace $env:USERPROFILE\aikito
+aikito sync global
+aikito status
+```
+
+Enable PowerShell tab completion by adding one line to your `$PROFILE`:
+
+```powershell
+Invoke-Expression (& aikito completion powershell | Out-String)
+```
+
 
 The workspace is the single Git-managed home for all Aikito resources. You
 normally initialize one workspace per user or machine.

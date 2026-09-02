@@ -8,7 +8,6 @@ import mimetypes
 import re
 import threading
 import tomllib
-import webbrowser
 from datetime import date, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -20,6 +19,8 @@ from aikito_diff import collect_drift_diffs
 from aikito_doctor import run_doctor
 from aikito_inbox import collect_inbox_rows
 from aikito_mcp import load_agents
+from aikito_platform import launch_browser
+
 from aikito_project import collect_project_summaries
 from aikito_status import (
     collect_mcp_details,
@@ -299,12 +300,12 @@ class ConsoleData:
         inbox = get_inbox_path(self.aikito_dir)
         if inbox.is_dir():
             for path in inbox.rglob("*.md"):
-                add(path, "inbox", str(path.relative_to(inbox).with_suffix("")))
+                add(path, "inbox", path.relative_to(inbox).with_suffix("").as_posix())
 
         global_notes = self.aikito_dir / "memory" / "notes"
         if global_notes.is_dir():
             for path in global_notes.rglob("*.md"):
-                name = str(path.relative_to(global_notes).with_suffix(""))
+                name = path.relative_to(global_notes).with_suffix("").as_posix()
                 add(path, "memory", f"Global/{name}")
 
         projects = self.aikito_dir / "projects"
@@ -314,7 +315,7 @@ class ConsoleData:
                 if not notes.is_dir():
                     continue
                 for path in notes.rglob("*.md"):
-                    name = str(path.relative_to(notes).with_suffix(""))
+                    name = path.relative_to(notes).with_suffix("").as_posix()
                     add(path, "memory", f"{project.name}/{name}")
         return resources
 
@@ -442,7 +443,7 @@ def serve_console(
     print("Aikito Console")
     print(url)
     if open_browser:
-        threading.Timer(0.15, webbrowser.open, args=(url,)).start()
+        threading.Timer(0.15, launch_browser, args=(url,)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

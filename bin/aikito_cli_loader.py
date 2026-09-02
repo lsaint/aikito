@@ -31,3 +31,8 @@ def load_cli() -> ModuleType:
         sys.modules.pop("aikito_cli", None)
         raise
     return module
+
+
+def main() -> None:
+    """Entry point for installed console script."""
+    load_cli().main()

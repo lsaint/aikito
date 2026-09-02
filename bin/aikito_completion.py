@@ -120,7 +120,7 @@ def list_inbox_completions(aikito_dir: Path) -> List[str]:
     for f in files:
         try:
             rel = f.relative_to(inbox_dir)
-            ident = str(rel.with_suffix(""))
+            ident = rel.with_suffix("").as_posix()
         except ValueError:
             ident = f.stem
         completions.append(ident)
@@ -739,3 +739,10 @@ def generate_fish(parser: argparse.ArgumentParser | None = None) -> str:
         + dyn_lines
     )
     return "\n".join(parts) + "\n"
+
+
+def generate_powershell(parser: argparse.ArgumentParser | None = None) -> str:
+    """Generate a native PowerShell completion script for aikito."""
+    from aikito_completion_powershell import generate_powershell as _gen_pwsh
+
+    return _gen_pwsh(parser)

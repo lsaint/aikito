@@ -5,9 +5,13 @@ entries, and safe project instruction linking. The CLI entry only wires them
 into command handlers; keeping them here keeps the entry thin and importable.
 """
 
+from __future__ import annotations
+
 import shutil
 import sys
 from pathlib import Path
+
+from aikito_platform import require_symlink_support, safe_symlink
 
 
 def ensure_dir(path: Path) -> None:
@@ -17,9 +21,7 @@ def ensure_dir(path: Path) -> None:
 def sync_resource(
     source: Path, target: Path, mode: str = "link", dry_run: bool = False
 ) -> bool:
-    """
-    Syncs source path to target path using specified mode ('link' or 'copy').
-    """
+    """Syncs source path to target path using specified mode ('link' or 'copy')."""
     if not source.exists():
         print(f"[WARN] Source path does not exist: {source}", file=sys.stderr)
         return False
@@ -36,6 +38,10 @@ def sync_resource(
         print(f"[DRY RUN {action}] {source} -> {target}")
         return True
 
+    # Gate symlink capability before any destructive operation
+    if mode == "link":
+        require_symlink_support()
+
     # Remove existing target if needed (symlink, file, or directory)
     if target.is_symlink() or target.exists():
         try:
@@ -51,17 +57,12 @@ def sync_resource(
             return False
 
     if mode == "link":
-        try:
-            target.symlink_to(source)
+        if safe_symlink(source, target):
             print(f"[LINK] {target} -> {source}")
             return True
-        except Exception as e:
-            print(
-                f"[ERROR] Failed to create symlink {target} -> {source}: {e}",
-                file=sys.stderr,
-            )
-            return False
-    else:  # copy mode
+        return False
+
+    if mode == "copy":
         try:
             if source.is_dir():
                 shutil.copytree(source, target)
@@ -73,6 +74,7 @@ def sync_resource(
         except Exception as e:
             print(f"[ERROR] Failed to copy {source} to {target}: {e}", file=sys.stderr)
             return False
+    return False
 
 
 def apply_runtime_cleanup(paths: tuple[Path, ...], dry_run: bool) -> None:
@@ -109,17 +111,12 @@ def sync_project_instruction(source: Path, target: Path, dry_run: bool) -> bool:
     if dry_run:
         print(f"[DRY RUN LINK] {source} -> {target}")
         return True
-    try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.symlink_to(source)
+    require_symlink_support()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if safe_symlink(source, target):
         print(f"[LINK] {target} -> {source}")
         return True
-    except OSError as exc:
-        print(
-            f"[ERROR] Failed to create symlink {target} -> {source}: {exc}",
-            file=sys.stderr,
-        )
-        return False
+    return False
 
 
 def sync_global_entry(
@@ -130,16 +127,10 @@ def sync_global_entry(
     dry_run: bool = False,
     installed: bool | None = None,
 ) -> bool:
-    """
-    Ensures an agent runtime entry points to its canonical global resource.
+    """Ensures an agent runtime entry points to its canonical global resource.
 
     Existing regular files and directories are never overwritten because they
     may contain unmanaged user resources.
-
-    ``installed`` reports the canonical install state of the owning agent
-    (None when unknown, e.g. a custom registry entry). A detected agent may
-    have its missing config parent directory created; anything else keeps the
-    historical parent-directory heuristic.
     """
     if not target.parent.exists():
         if installed is True:
@@ -163,8 +154,8 @@ def sync_global_entry(
         if dry_run:
             return True
         target.unlink()
-        target.symlink_to(expected_source)
-        return True
+        require_symlink_support()
+        return safe_symlink(expected_source, target)
 
     if target.exists():
         print(
@@ -176,7 +167,9 @@ def sync_global_entry(
 
     if dry_run:
         print(f"[DRY RUN LINK] {agent_name} {resource_name}: {target} -> {source}")
-    else:
-        target.symlink_to(expected_source)
+        return True
+    require_symlink_support()
+    if safe_symlink(expected_source, target):
         print(f"[LINK] {agent_name} {resource_name}: {target} -> {source}")
-    return True
+        return True
+    return False

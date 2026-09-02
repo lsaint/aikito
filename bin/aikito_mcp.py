@@ -24,6 +24,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from aikito_platform import resolve_executable, secure_file_permissions
+
 
 STATE_VERSION = 1
 DEFAULT_MCPS_DIR = Path("mcps")
@@ -38,6 +40,7 @@ import os
 import shutil
 import subprocess
 import sys
+import webbrowser
 from pathlib import Path
 
 
@@ -48,21 +51,33 @@ if url_file and urls:
         handle.writelines(f"{url}\\n" for url in urls)
 
 if os.environ.get("AIKITO_OPEN_BROWSER") == "1":
-    browser_env = os.environ.copy()
-    browser_env.pop("BROWSER", None)
-    if sys.platform == "darwin":
-        command = ["/usr/bin/open"]
-    else:
-        opener = shutil.which("xdg-open")
-        command = [opener] if opener else []
     for url in urls:
-        if command:
+        if sys.platform == "win32" and hasattr(os, "startfile"):
+            try:
+                os.startfile(url)
+                continue
+            except OSError:
+                pass
+        browser_env = os.environ.copy()
+        browser_env.pop("BROWSER", None)
+        if sys.platform == "darwin":
             subprocess.Popen(
-                [*command, url],
+                ["/usr/bin/open", url],
                 env=browser_env,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
+        else:
+            opener = shutil.which("xdg-open")
+            if opener:
+                subprocess.Popen(
+                    [opener, url],
+                    env=browser_env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            else:
+                webbrowser.open(url)
 """
 
 
@@ -878,7 +893,7 @@ def _load_state(home: Path) -> dict[str, Any]:
     return state
 
 
-def _atomic_write(path: Path, content: str) -> None:
+def _atomic_write(path: Path, content: str, secure_permissions: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else None
     with tempfile.NamedTemporaryFile(
@@ -886,8 +901,17 @@ def _atomic_write(path: Path, content: str) -> None:
     ) as handle:
         handle.write(content)
         temp_path = Path(handle.name)
-    if mode is not None:
-        temp_path.chmod(mode)
+    if secure_permissions:
+        if not secure_file_permissions(temp_path):
+            print(
+                f"[WARN] Could not secure file permissions on credential file: {path}",
+                file=sys.stderr,
+            )
+    elif mode is not None:
+        try:
+            temp_path.chmod(mode)
+        except OSError:
+            pass
     os.replace(temp_path, path)
 
 
@@ -1250,17 +1274,21 @@ def run_live_mcp_commands(
         for agent, command in commands.items():
             indicator.add(agent)
             try:
-                if shutil.which(command[0]) is None:
+                resolved_cmd = resolve_executable(command)
+                if shutil.which(resolved_cmd[0]) is None:
                     results.append(LiveMCPResult(agent, command, "SKIP", None))
                     continue
                 try:
                     result = subprocess.run(
-                        command,
+                        resolved_cmd,
                         capture_output=True,
                         text=True,
+                        encoding="utf-8",
+                        errors="replace",
                         timeout=timeout,
                         check=False,
                     )
+
                 except subprocess.TimeoutExpired:
                     results.append(LiveMCPResult(agent, command, "TIMEOUT", None))
                     continue
@@ -1908,8 +1936,16 @@ def _redact_sensitive_urls(text: str) -> str:
 
 
 def _write_browser_helper(directory: Path) -> Path:
+    if sys.platform == "win32":
+        py_helper = directory / "aikito-browser.py"
+        py_helper.write_text(BROWSER_HELPER, encoding="utf-8")
+        cmd_helper = directory / "aikito-browser.cmd"
+        cmd_helper.write_text(
+            f'@echo off\r\n"{sys.executable}" "{py_helper}" %*\r\n', encoding="utf-8"
+        )
+        return cmd_helper
     helper = directory / "aikito-browser"
-    helper.write_text(BROWSER_HELPER)
+    helper.write_text(BROWSER_HELPER, encoding="utf-8")
     helper.chmod(0o700)
     return helper
 
@@ -1966,13 +2002,16 @@ def authenticate_mcp(
             }
         )
         process = subprocess.Popen(
-            spec.auth_command,
+            resolve_executable(spec.auth_command),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
             env=environment,
         )
+
         if process.stdout is None:
             raise MCPConfigError("Authentication command output is unavailable")
 
@@ -2107,9 +2146,9 @@ def sync_mcp_configs(
             else _backup_config(home, spec)
         )
         updated = _update_entry(spec, text)
-        _atomic_write(spec.config_path, updated)
-        if spec.contains_secret:
-            spec.config_path.chmod(0o600)
+        _atomic_write(
+            spec.config_path, updated, secure_permissions=spec.contains_secret
+        )
         entries[spec.state_key] = {
             "fingerprint": desired_fingerprint,
             "config_path": str(spec.config_path),

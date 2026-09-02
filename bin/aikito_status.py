@@ -369,6 +369,7 @@ def collect_agent_status_rows(
                     verdict = classify_symlink(skill_target, expected_source)
                     if verdict == SymlinkVerdict.OK:
                         ok_skills += 1
+
                 if ok_skills == total_global_skills and total_global_skills > 0:
                     skills_status = f"OK ({total_global_skills})"
                 elif total_global_skills > 0:

@@ -1,11 +1,13 @@
-"""
-Shared symlink classification utilities for aikito.
+"""Shared symlink classification utilities for aikito.
 
 Both aikito_status and aikito_doctor depend on this module so that they
 produce consistent verdicts about the same filesystem state. Neither
 command module imports the other.
 """
 
+from __future__ import annotations
+
+import os
 from enum import Enum
 from pathlib import Path
 
@@ -30,12 +32,14 @@ def classify_symlink(path: Path, expected_source: Path) -> SymlinkVerdict:
     """
     if path.is_symlink():
         # Use strict=True so dangling symlinks raise OSError rather than
-        # silently resolving to a non-existent path (the old strict=False bug).
+        # silently resolving to a non-existent path.
         try:
             resolved = path.resolve(strict=True)
         except OSError:
             return SymlinkVerdict.DANGLING
-        if resolved == expected_source.resolve():
+        if os.path.normcase(str(resolved)) == os.path.normcase(
+            str(expected_source.resolve())
+        ):
             return SymlinkVerdict.OK
         return SymlinkVerdict.WRONG_TARGET
     if path.exists():
@@ -58,7 +62,7 @@ def symlink_verdict_to_status(verdict: SymlinkVerdict) -> str:
 
     This mapping is intentionally conservative: any broken symlink state
     becomes ``"CONFLICT"`` so that ``aikito status`` surfaces it without
-    exposing fine-grained detail.  ``aikito doctor`` uses the verdict
+    exposing fine-grained detail. ``aikito doctor`` uses the verdict
     directly for precise diagnostics.
     """
     return _STATUS_MAP[verdict]

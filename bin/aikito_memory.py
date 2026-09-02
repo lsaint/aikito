@@ -28,7 +28,7 @@ class MemoryFileItem:
 
     @property
     def full_identifier(self) -> str:
-        rel_no_ext = str(self.rel_path.with_suffix(""))
+        rel_no_ext = self.rel_path.with_suffix("").as_posix()
         return f"{self.scope}/{rel_no_ext}"
 
 

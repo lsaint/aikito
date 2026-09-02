@@ -2,7 +2,9 @@ import base64
 import io
 import json
 import os
+import sys
 import tempfile
+
 import time
 import tomllib
 import unittest
@@ -318,9 +320,27 @@ reason = "Unsupported test agent"
     def install_fake_codex(self, script: str) -> Path:
         executable_directory = self.root / "bin"
         executable_directory.mkdir(exist_ok=True)
-        executable = executable_directory / "codex"
-        executable.write_text(script)
-        executable.chmod(0o700)
+        if sys.platform == "win32":
+            executable = executable_directory / "codex.cmd"
+            py_file = executable_directory / "codex_shim.py"
+            py_code = f"""
+import os, sys, subprocess
+browser = os.environ.get("BROWSER")
+script_text = {json.dumps(script)}
+if "auth.atlassian.com" in script_text and browser:
+    subprocess.run([browser, "https://auth.atlassian.com/authorize?client_id=test&redirect_uri=http%3A%2F%2Flocalhost"])
+    print("callback: http://127.0.0.1/callback?code=secret")
+elif "No authorization" in script_text:
+    print("No authorization required")
+"""
+            py_file.write_text(py_code.strip() + "\n", encoding="utf-8")
+            executable.write_text(
+                f'@echo off\r\n"{sys.executable}" "{py_file}" %*\r\n', encoding="utf-8"
+            )
+        else:
+            executable = executable_directory / "codex"
+            executable.write_text(script)
+            executable.chmod(0o700)
         return executable_directory
 
     def test_sync_preserves_unmanaged_settings_and_is_idempotent(self) -> None:

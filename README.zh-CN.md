@@ -10,8 +10,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.12 | 3.13 | 3.14](https://img.shields.io/badge/Python-3.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org/downloads/)
-![Platform: macOS | Linux](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg)
+![Platform: macOS | Linux | Windows](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)
 ![Dependencies: stdlib only](https://img.shields.io/badge/dependencies-stdlib%20only-brightgreen.svg)
+
 
 [English](README.md) · [详细文档（英文）](docs/README.md)
 
@@ -153,13 +154,11 @@ Aikito 管理持久化文件、显式作用域与可控同步。为了保持轻�
 
 Aikito 治理工作区，Agent 负责推理与维护 memory，而一切由你把关。
 
-## 环境要求
+## 环境运行要求
 
-- macOS 或 Linux；Windows 用户使用 WSL2。
+- macOS、Linux 或 Windows（Windows 10/11 需开启“开发者模式”以支持符号链接）。
 - Python 3.12、3.13 或 3.14。
 - Git。
-
-Aikito 的同步和凭据安全模型依赖软链接及 POSIX 文件权限，因此暂不支持原生 Windows。
 
 ## 快速开始
 
@@ -183,6 +182,8 @@ Aikito 的同步和凭据安全模型依赖软链接及 POSIX 文件权限，因
 
 ### 选项 2：手动配置
 
+**macOS / Linux** — 通过 Homebrew 安装：
+
 ```bash
 brew install lsaint/tap/aikito
 
@@ -193,11 +194,39 @@ aikito status
 
 通过 Homebrew 安装后，Zsh、Bash、Fish 的 Tab 补全会自动配置，无需额外操作。
 
-手动安装时，在 `~/.zshrc` 中添加一行：
+手动安装（非 Homebrew）时，在 `~/.zshrc` 中添加一行：
 
 ```zsh
 eval "$(aikito completion zsh)"
 ```
+
+**Windows** — 一键安装（PowerShell，无需管理员权限）：
+
+> **前提条件：** 必须开启 [Windows 开发者模式](https://learn.microsoft.com/zh-cn/windows/apps/get-started/enable-your-device-for-development)，
+> 以允许 Aikito 创建符号链接。
+> 路径：**设置 → 系统 → 开发者选项 → 开发者模式**（开启）。
+
+```powershell
+irm https://raw.githubusercontent.com/lsaint/aikito/main/install.ps1 | iex
+```
+
+脚本会自动检查 Python 3.12+、验证开发者模式、从 GitHub 下载最新版本，
+安装到 `%LOCALAPPDATA%\Programs\aikito`，并将 `bin\` 自动加入当前用户 PATH。
+
+安装完成后，**打开新终端**运行：
+
+```powershell
+aikito init workspace $env:USERPROFILE\aikito
+aikito sync global
+aikito status
+```
+
+在 `$PROFILE` 中添加以下行以开启 PowerShell Tab 补全：
+
+```powershell
+Invoke-Expression (& aikito completion powershell | Out-String)
+```
+
 
 Workspace 是 Aikito 所有资源的 Git 管理中心。通常每个用户或每台机器只需初始化一份。
 
