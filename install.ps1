@@ -264,6 +264,6 @@ Write-Host "    3. Sync global resources:" -ForegroundColor DarkGray
 Write-Host "         aikito sync global" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "    4. (Optional) Enable PowerShell tab completion." -ForegroundColor DarkGray
-Write-Host "       Add the following line to your `$PROFILE:" -ForegroundColor DarkGray
-Write-Host "         Invoke-Expression (& aikito completion powershell | Out-String)" -ForegroundColor Cyan
+Write-Host "       Run this to append it to your `$PROFILE automatically:" -ForegroundColor DarkGray
+Write-Host '         if (!(Test-Path $PROFILE)) { New-Item -ItemType File -Path $PROFILE -Force | Out-Null }; Add-Content $PROFILE "`nInvoke-Expression (& aikito completion powershell | Out-String)"' -ForegroundColor Cyan
 Write-Host ""
