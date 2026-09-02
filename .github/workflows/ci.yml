@@ -346,6 +346,8 @@ jobs:
           if ($LASTEXITCODE -eq 0) { throw ".cmd did not propagate non-zero exit code" }
           pwsh -NoProfile -Command "& .\bin\aikito.ps1 invalid-subcommand 2>NUL; exit `$LASTEXITCODE"
           if ($LASTEXITCODE -eq 0) { throw ".ps1 did not propagate non-zero exit code" }
+          $global:LASTEXITCODE = 0
+
 
 
 
