@@ -3,12 +3,14 @@
 import os
 from pathlib import Path
 
+from aikito_platform import get_workspace_config_dir
+
+
 
 def get_workspace_pointer_path(home: Path) -> Path:
     """Return the user-level file that stores the default workspace path."""
-    config_home = os.environ.get("XDG_CONFIG_HOME")
-    base_dir = Path(config_home).expanduser() if config_home else home / ".config"
-    return base_dir / "aikito" / "workspace"
+    return get_workspace_config_dir(home) / "workspace"
+
 
 
 def resolve_workspace_with_source(home: Path) -> tuple[Path, str]:

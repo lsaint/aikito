@@ -9,6 +9,8 @@ import shutil
 import sys
 from pathlib import Path
 
+from aikito_platform import safe_symlink
+
 
 def ensure_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
@@ -51,16 +53,11 @@ def sync_resource(
             return False
 
     if mode == "link":
-        try:
-            target.symlink_to(source)
+        if safe_symlink(source, target):
             print(f"[LINK] {target} -> {source}")
             return True
-        except Exception as e:
-            print(
-                f"[ERROR] Failed to create symlink {target} -> {source}: {e}",
-                file=sys.stderr,
-            )
-            return False
+        return False
+
     else:  # copy mode
         try:
             if source.is_dir():
@@ -109,17 +106,11 @@ def sync_project_instruction(source: Path, target: Path, dry_run: bool) -> bool:
     if dry_run:
         print(f"[DRY RUN LINK] {source} -> {target}")
         return True
-    try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.symlink_to(source)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if safe_symlink(source, target):
         print(f"[LINK] {target} -> {source}")
         return True
-    except OSError as exc:
-        print(
-            f"[ERROR] Failed to create symlink {target} -> {source}: {exc}",
-            file=sys.stderr,
-        )
-        return False
+    return False
 
 
 def sync_global_entry(
@@ -163,8 +154,7 @@ def sync_global_entry(
         if dry_run:
             return True
         target.unlink()
-        target.symlink_to(expected_source)
-        return True
+        return safe_symlink(expected_source, target)
 
     if target.exists():
         print(
@@ -176,7 +166,9 @@ def sync_global_entry(
 
     if dry_run:
         print(f"[DRY RUN LINK] {agent_name} {resource_name}: {target} -> {source}")
-    else:
-        target.symlink_to(expected_source)
+        return True
+    if safe_symlink(expected_source, target):
         print(f"[LINK] {agent_name} {resource_name}: {target} -> {source}")
-    return True
+        return True
+    return False
+

@@ -2,16 +2,21 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'windows-*' ]
   pull_request:
     branches: [ main ]
 
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: [ubuntu-latest, windows-latest]
         python-version: ["3.12", "3.13", "3.14-dev"]
+        exclude:
+          - os: windows-latest
+            python-version: "3.14-dev"
 
     steps:
       - uses: actions/checkout@v4
@@ -22,10 +27,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install test dependencies
-        run: python3 -m pip install pytest
+        run: python -m pip install pytest
 
       - name: Run unit tests
-        run: python3 -m pytest
+        run: python -m pytest
+
 
   smoke-test:
     runs-on: ubuntu-latest
@@ -319,3 +325,41 @@ jobs:
             python3 bin/aikito completion candidates skills
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito completion candidates projects
+
+  windows-smoke-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify Windows CLI Help and Version
+        shell: pwsh
+        run: |
+          python bin/aikito --help
+          python bin/aikito version
+          & .\bin\aikito.cmd --help
+          & .\bin\aikito.ps1 --help
+
+      - name: Test PowerShell Completion Generator and Loading
+        shell: pwsh
+        run: |
+          $compScript = python bin/aikito completion powershell
+          Invoke-Expression ($compScript | Out-String)
+          python bin/aikito completion candidates projects
+          python bin/aikito completion candidates skills
+          python bin/aikito completion candidates memories
+
+      - name: Test Workspace Init, Global Sync and Doctor on Windows
+        shell: pwsh
+        run: |
+          $wsDir = Join-Path $env:RUNNER_TEMP "aikito-ws"
+          $env:AIKITO_DIR = $wsDir
+          python bin/aikito init workspace "$wsDir"
+          python bin/aikito sync global
+          python bin/aikito doctor
+          python bin/aikito status
+

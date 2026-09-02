@@ -5,9 +5,9 @@ to canonical workspace files. This module keeps that logic out of the entry
 script so the entry stays a thin parser plus dispatch.
 """
 
-import os
 import shlex
 import subprocess
+
 import sys
 import tomllib
 from pathlib import Path
@@ -17,9 +17,11 @@ from aikito_inbox import resolve_inbox_target_for_command
 from aikito_link import classify_symlink, symlink_verdict_to_status
 from aikito_mcp import load_agents
 from aikito_memory import ensure_safe_path
+from aikito_platform import get_default_editor, resolve_executable
 from aikito_render import SkillRow
 from aikito_status import collect_skills_rows
 from aikito_subagent import SubagentConfigError, load_subagent_definitions
+
 
 
 class SkillTargetConflictError(Exception):
@@ -308,20 +310,16 @@ def collect_project_instruction_status(
 
 
 def open_in_editor(target_file: Path) -> None:
-    editor_env = (
-        (os.environ.get("VISUAL") or "").strip()
-        or (os.environ.get("EDITOR") or "").strip()
-        or "vi"
-    )
+    editor_env = get_default_editor()
     editor_parts = shlex.split(editor_env)
     if not editor_parts:
-        editor_parts = ["vi"]
-        editor_env = "vi"
+        editor_parts = [editor_env]
 
-    cmd_args = editor_parts + [str(target_file)]
+    cmd_args = resolve_executable(editor_parts) + [str(target_file)]
 
     try:
         res = subprocess.run(cmd_args)
+
         if res.returncode != 0:
             sys.exit(res.returncode)
     except Exception as exc:

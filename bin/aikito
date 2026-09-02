@@ -100,8 +100,15 @@ from aikito_subagent import (
     SubagentConfigError,
     sync_subagent_configs,
 )
+from aikito_platform import init_console_encoding
 from aikito_web import serve_console
-from aikito_completion import generate_bash, generate_fish, generate_zsh, get_candidates
+from aikito_completion import (
+    generate_bash,
+    generate_fish,
+    generate_powershell,
+    generate_zsh,
+    get_candidates,
+)
 from aikito_workspace import (
     persist_workspace,
     resolve_workspace,
@@ -1297,6 +1304,8 @@ def cmd_completion(args: argparse.Namespace) -> None:
             print(generate_bash(parser), end="")
         elif target == "fish":
             print(generate_fish(parser), end="")
+        elif target == "powershell":
+            print(generate_powershell(parser), end="")
 
 
 def cmd_maintain_memory(args: argparse.Namespace) -> None:
@@ -1930,7 +1939,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="shell_or_sub", required=True
     )
 
-    for _shell in ("zsh", "bash", "fish"):
+    for _shell in ("zsh", "bash", "fish", "powershell"):
         _p = completion_subparsers.add_parser(
             _shell,
             help=f"Output {_shell.capitalize()} completion script",
@@ -1969,6 +1978,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    init_console_encoding()
     parser = build_parser()
     args = parser.parse_args()
     args.func(args)
@@ -1976,3 +1986,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

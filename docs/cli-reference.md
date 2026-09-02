@@ -51,8 +51,9 @@ version.
 | `aikito edit skill <target>` | Open a skill's SKILL.md in `$VISUAL` or `$EDITOR` |
 | `aikito edit subagent <target>` | Open a subagent's instruction markdown in `$VISUAL` or `$EDITOR` |
 | `aikito doctor [--fix]` | Run deep workspace diagnostics (and auto-repair fixable index issues) |
-| `aikito completion zsh\|bash\|fish` | Print a shell completion script |
+| `aikito completion zsh\|bash\|fish\|powershell` | Print a shell completion script |
 | `aikito completion candidates projects\|skills\|subagents\|mcps\|memories\|memory-completions\|inbox\|inbox-completions\|paths [prefix]` | List dynamic completion candidates |
+
 | `aikito version` | Print the CLI version |
 
 ## Discovery
@@ -263,6 +264,13 @@ eval "$(aikito completion bash)"
 ```fish
 aikito completion fish > ~/.config/fish/completions/aikito.fish
 ```
+
+**PowerShell** — add one line to your `$PROFILE`:
+
+```powershell
+Invoke-Expression (& aikito completion powershell | Out-String)
+```
+
 
 Completion covers all commands, subcommands, and options statically.
 When tab-completing a memory note, skill name, or project name, Aikito

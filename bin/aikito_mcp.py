@@ -24,6 +24,9 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from aikito_platform import resolve_executable
+
+
 
 STATE_VERSION = 1
 DEFAULT_MCPS_DIR = Path("mcps")
@@ -52,6 +55,8 @@ if os.environ.get("AIKITO_OPEN_BROWSER") == "1":
     browser_env.pop("BROWSER", None)
     if sys.platform == "darwin":
         command = ["/usr/bin/open"]
+    elif sys.platform == "win32":
+        command = ["cmd", "/c", "start"]
     else:
         opener = shutil.which("xdg-open")
         command = [opener] if opener else []
@@ -62,8 +67,10 @@ if os.environ.get("AIKITO_OPEN_BROWSER") == "1":
                 env=browser_env,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                shell=(sys.platform == "win32"),
             )
 """
+
 
 
 class MCPConfigError(RuntimeError):
@@ -1250,17 +1257,19 @@ def run_live_mcp_commands(
         for agent, command in commands.items():
             indicator.add(agent)
             try:
-                if shutil.which(command[0]) is None:
+                resolved_cmd = resolve_executable(command)
+                if shutil.which(resolved_cmd[0]) is None:
                     results.append(LiveMCPResult(agent, command, "SKIP", None))
                     continue
                 try:
                     result = subprocess.run(
-                        command,
+                        resolved_cmd,
                         capture_output=True,
                         text=True,
                         timeout=timeout,
                         check=False,
                     )
+
                 except subprocess.TimeoutExpired:
                     results.append(LiveMCPResult(agent, command, "TIMEOUT", None))
                     continue
@@ -1966,13 +1975,14 @@ def authenticate_mcp(
             }
         )
         process = subprocess.Popen(
-            spec.auth_command,
+            resolve_executable(spec.auth_command),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
             env=environment,
         )
+
         if process.stdout is None:
             raise MCPConfigError("Authentication command output is unavailable")
 

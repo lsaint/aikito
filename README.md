@@ -10,8 +10,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.12 | 3.13 | 3.14](https://img.shields.io/badge/Python-3.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org/downloads/)
-![Platform: macOS | Linux](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg)
+![Platform: macOS | Linux | Windows](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)
 ![Dependencies: stdlib only](https://img.shields.io/badge/dependencies-stdlib%20only-brightgreen.svg)
+
 
 [简体中文](README.zh-CN.md) · [Documentation](docs/README.md)
 
@@ -168,12 +169,9 @@ Aikito governs the workspace, your agent reasons and maintains the memory, and y
 
 ## Requirements
 
-- macOS or Linux; Windows users should use WSL2.
+- macOS, Linux, or Windows (Windows 10/11 with Developer Mode enabled for symlinks).
 - Python 3.12, 3.13, or 3.14.
 - Git.
-
-Native Windows is not supported: Aikito relies on symbolic links and POSIX file
-permissions for synchronization and credential safety.
 
 ## Quick Start
 
@@ -218,6 +216,13 @@ For manual installs, add one line to `~/.zshrc`:
 ```zsh
 eval "$(aikito completion zsh)"
 ```
+
+For PowerShell on Windows, add one line to your `$PROFILE`:
+
+```powershell
+Invoke-Expression (& aikito completion powershell | Out-String)
+```
+
 
 The workspace is the single Git-managed home for all Aikito resources. You
 normally initialize one workspace per user or machine.

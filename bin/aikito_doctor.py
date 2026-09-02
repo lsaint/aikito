@@ -10,8 +10,8 @@ import json
 import os
 import re
 import shutil
-import stat
 import subprocess
+
 import sys
 import time
 import tomllib
@@ -24,7 +24,14 @@ from aikito_config import (
     get_workspace_config_path,
     load_workspace_config,
 )
+from aikito_platform import (
+    check_credential_permissions,
+    get_permission_fix_cmd,
+    is_developer_mode_enabled,
+    is_windows,
+)
 from aikito_templates import (
+
     detect_existing_agents,
     detected_agent_names,
     load_agents_template,
@@ -1017,16 +1024,20 @@ def check_security(aikito_dir: Path, home: Path) -> DoctorSection:
     """Check file permissions and security-sensitive configurations."""
     findings: List[DoctorFinding] = []
 
-    # 5a. Platform warning for Windows
-    if sys.platform == "win32":
-        findings.append(
-            _warn(
-                "Running on Windows: chmod(0o600) is a no-op, credential files may be world-readable",
-                "Use WSL2 for full symlink and permission support",
+    # 5a. Platform diagnostics for Windows
+    if is_windows():
+        dev_mode = is_developer_mode_enabled()
+        if dev_mode is False:
+            findings.append(
+                _warn(
+                    "Windows Developer Mode is disabled: standard symlinks require Developer Mode or Administrator privileges",
+                    "Enable in Settings -> System -> For developers -> Developer Mode, or use 'sync_mode = \"copy\"'",
+                )
             )
-        )
+        elif dev_mode is True:
+            findings.append(_ok("Windows Developer Mode: enabled (unprivileged symlinks supported)"))
 
-    # 5b. Credential config files must be chmod 0600
+    # 5b. Credential config files must have secure permissions
     try:
         specs = load_agent_specs(aikito_dir, home)
         cred_issues = 0
@@ -1039,24 +1050,26 @@ def check_security(aikito_dir: Path, home: Path) -> DoctorSection:
             if not spec.config_path.exists():
                 continue
             cred_checked += 1
-            mode = stat.S_IMODE(spec.config_path.stat().st_mode)
-            if mode != 0o600:
+            is_secure, desc = check_credential_permissions(spec.config_path)
+            if not is_secure:
                 cred_issues += 1
                 display = _home_rel(spec.config_path, home)
+                fix_cmd = get_permission_fix_cmd(display)
                 findings.append(
                     _fail(
-                        f"Credential file has insecure permissions {oct(mode)}: {display}",
-                        f"chmod 600 {display}",
+                        f"Credential file has insecure permissions ({desc}): {display}",
+                        fix_cmd,
                     )
                 )
         if cred_checked > 0 and cred_issues == 0:
             findings.append(
-                _ok(f"Credential file permissions OK ({cred_checked} files, mode 0600)")
+                _ok(f"Credential file permissions OK ({cred_checked} files)")
             )
         elif cred_checked == 0:
             findings.append(_ok("No secret-bearing credential config files detected"))
     except MCPConfigError:
         pass
+
 
     # 5c. .gitignore covers .local/state/
     gitignore = aikito_dir / ".gitignore"

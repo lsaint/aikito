@@ -739,3 +739,11 @@ def generate_fish(parser: argparse.ArgumentParser | None = None) -> str:
         + dyn_lines
     )
     return "\n".join(parts) + "\n"
+
+
+def generate_powershell(parser: argparse.ArgumentParser | None = None) -> str:
+    """Generate a native PowerShell completion script for aikito."""
+    from aikito_completion_powershell import generate_powershell as _gen_pwsh
+
+    return _gen_pwsh(parser)
+

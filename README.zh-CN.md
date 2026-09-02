@@ -10,8 +10,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.12 | 3.13 | 3.14](https://img.shields.io/badge/Python-3.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org/downloads/)
-![Platform: macOS | Linux](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg)
+![Platform: macOS | Linux | Windows](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)
 ![Dependencies: stdlib only](https://img.shields.io/badge/dependencies-stdlib%20only-brightgreen.svg)
+
 
 [English](README.md) · [详细文档（英文）](docs/README.md)
 
@@ -153,13 +154,11 @@ Aikito 管理持久化文件、显式作用域与可控同步。为了保持轻�
 
 Aikito 治理工作区，Agent 负责推理与维护 memory，而一切由你把关。
 
-## 环境要求
+## 环境运行要求
 
-- macOS 或 Linux；Windows 用户使用 WSL2。
+- macOS、Linux 或 Windows（Windows 10/11 需开启“开发者模式”以支持符号链接）。
 - Python 3.12、3.13 或 3.14。
 - Git。
-
-Aikito 的同步和凭据安全模型依赖软链接及 POSIX 文件权限，因此暂不支持原生 Windows。
 
 ## 快速开始
 
@@ -198,6 +197,13 @@ aikito status
 ```zsh
 eval "$(aikito completion zsh)"
 ```
+
+对于 Windows PowerShell 用户，在 `$PROFILE` 中添加一行：
+
+```powershell
+Invoke-Expression (& aikito completion powershell | Out-String)
+```
+
 
 Workspace 是 Aikito 所有资源的 Git 管理中心。通常每个用户或每台机器只需初始化一份。
 
