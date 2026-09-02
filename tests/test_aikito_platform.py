@@ -181,8 +181,9 @@ class AikitoPlatformTest(unittest.TestCase):
             win_cmd = r'C:\Users\test\code.cmd --wait "C:\My Files\doc.txt"'
             res = split_command(win_cmd)
             self.assertEqual(
-                res, [r"C:\Users\test\code.cmd", "--wait", r'"C:\My Files\doc.txt"']
+                res, [r"C:\Users\test\code.cmd", "--wait", r"C:\My Files\doc.txt"]
             )
+
 
     def test_launch_browser(self) -> None:
         with patch("aikito_platform.is_windows", return_value=True):

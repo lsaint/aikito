@@ -217,16 +217,35 @@ def split_command(cmd: str) -> list[str]:
     """Split a command line string into arguments handling platform escaping.
 
     On POSIX: uses shlex.split(cmd, posix=True).
-    On Windows: uses shlex.split(cmd, posix=False) so backslashes in paths are preserved.
+    On Windows: uses shlex.split(cmd, posix=False) so backslashes in paths are preserved,
+    and strips outer enclosing quotes from tokens.
     """
     if not cmd.strip():
         return []
     import shlex
 
+    if not is_windows():
+        try:
+            return shlex.split(cmd, posix=True)
+        except ValueError:
+            return cmd.split()
+
     try:
-        return shlex.split(cmd, posix=(not is_windows()))
+        raw_parts = shlex.split(cmd, posix=False)
     except ValueError:
-        return cmd.split()
+        raw_parts = cmd.split()
+
+    parts: list[str] = []
+    for arg in raw_parts:
+        if len(arg) >= 2 and (
+            (arg.startswith('"') and arg.endswith('"'))
+            or (arg.startswith("'") and arg.endswith("'"))
+        ):
+            parts.append(arg[1:-1])
+        else:
+            parts.append(arg)
+    return parts
+
 
 
 def get_workspace_config_dir(home: Path) -> Path:
