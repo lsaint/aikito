@@ -174,8 +174,11 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
                 ["git", "init", str(target_dir)],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=True,
             )
+
             print(f"[GIT INIT] Initialized Git repository in {target_dir}")
         except subprocess.CalledProcessError as e:
             print(f"[ERROR] Failed to run 'git init': {e.stderr.strip()}")

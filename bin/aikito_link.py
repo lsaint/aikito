@@ -6,11 +6,11 @@ produce consistent verdicts about the same filesystem state. Neither
 command module imports the other.
 """
 
+import os
 from enum import Enum
 from pathlib import Path
 
 from aikito_platform import can_symlink
-
 
 
 class SymlinkVerdict(Enum):
@@ -69,7 +69,9 @@ def classify_symlink(path: Path, expected_source: Path) -> SymlinkVerdict:
             resolved = path.resolve(strict=True)
         except OSError:
             return SymlinkVerdict.DANGLING
-        if resolved == expected_source.resolve():
+        if os.path.normcase(str(resolved)) == os.path.normcase(
+            str(expected_source.resolve())
+        ):
             return SymlinkVerdict.OK
         return SymlinkVerdict.WRONG_TARGET
     if path.exists():
@@ -77,6 +79,7 @@ def classify_symlink(path: Path, expected_source: Path) -> SymlinkVerdict:
             return SymlinkVerdict.COPIED
         return SymlinkVerdict.NOT_SYMLINK
     return SymlinkVerdict.MISSING
+
 
 
 

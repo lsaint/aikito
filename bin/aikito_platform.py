@@ -37,12 +37,34 @@ def init_console_encoding() -> None:
             pass
 
 
-def can_symlink() -> bool:
-    """Return True if symlinks can be created in the current environment."""
+def is_developer_mode_enabled() -> bool | None:
+    """Check if Windows Developer Mode is enabled in the registry.
+
+    Returns:
+        True: Developer Mode is enabled in registry.
+        False: Developer Mode is disabled in registry.
+        None: Not running on Windows or unable to query registry.
+    """
     if not is_windows():
-        return True
-    dev_mode = is_developer_mode_enabled()
-    if dev_mode is True:
+        return None
+    try:
+        import winreg
+
+        key_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
+            val, _ = winreg.QueryValueEx(key, "AllowDevelopmentWithoutDevLicense")
+            return val == 1
+    except Exception:
+        return None
+
+
+def can_symlink() -> bool:
+    """Return True if symlinks can be created in the current environment.
+
+    Probes actual symlink creation in a temporary directory on Windows, which
+    reliably detects both Developer Mode and unprivileged/Administrator capabilities.
+    """
+    if not is_windows():
         return True
     try:
         import tempfile
@@ -90,27 +112,6 @@ def safe_symlink(source: Path, target: Path, quiet: bool = False) -> bool:
                     file=sys.stderr,
                 )
         return False
-
-
-def is_developer_mode_enabled() -> bool | None:
-    """Check if Windows Developer Mode is enabled.
-
-    Returns:
-        True: Developer Mode is enabled.
-        False: Developer Mode is disabled.
-        None: Not running on Windows or unable to query.
-    """
-    if not is_windows():
-        return None
-    try:
-        import winreg
-
-        key_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
-        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
-            val, _ = winreg.QueryValueEx(key, "AllowDevelopmentWithoutDevLicense")
-            return val == 1
-    except Exception:
-        return None
 
 
 def secure_file_permissions(path: Path) -> bool:
@@ -195,7 +196,6 @@ def get_permission_fix_cmd(display_path: str) -> str:
     return f"chmod 600 {display_path}"
 
 
-
 def resolve_executable(command: Sequence[str]) -> list[str]:
     """Resolve the command binary to its absolute path if needed.
 
@@ -211,6 +211,22 @@ def resolve_executable(command: Sequence[str]) -> list[str]:
         if resolved:
             cmd_list[0] = resolved
     return cmd_list
+
+
+def split_command(cmd: str) -> list[str]:
+    """Split a command line string into arguments handling platform escaping.
+
+    On POSIX: uses shlex.split(cmd, posix=True).
+    On Windows: uses shlex.split(cmd, posix=False) so backslashes in paths are preserved.
+    """
+    if not cmd.strip():
+        return []
+    import shlex
+
+    try:
+        return shlex.split(cmd, posix=(not is_windows()))
+    except ValueError:
+        return cmd.split()
 
 
 def get_workspace_config_dir(home: Path) -> Path:
@@ -239,14 +255,17 @@ def safe_relative_path(path: Path, base: Path) -> str:
     """Return a display string relative to base with ~/ prefix, or absolute path.
 
     Gracefully handles cross-drive paths on Windows where relative_to raises ValueError.
-    Always uses forward slashes on Windows so paths can safely be embedded into TOML files.
+    Always uses forward slashes so paths can safely be embedded in TOML or rendered consistently.
     """
     try:
-        rel = path.relative_to(base)
-        return f"~/{rel.as_posix()}" if is_windows() else f"~/{rel}"
+        rel = path.resolve().relative_to(base.resolve())
+        return f"~/{rel.as_posix()}"
     except ValueError:
-        return path.as_posix() if is_windows() else str(path)
-
+        try:
+            rel = path.relative_to(base)
+            return f"~/{rel.as_posix()}"
+        except ValueError:
+            return path.as_posix()
 
 
 def launch_browser(url: str) -> None:
@@ -258,3 +277,4 @@ def launch_browser(url: str) -> None:
         except Exception:
             pass
     webbrowser.open(url)
+

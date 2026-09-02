@@ -14,8 +14,10 @@ class AikitoCompletionPowerShellTest(unittest.TestCase):
         script = generate_powershell(parser)
 
         # Completer registration
-        self.assertIn("Register-ArgumentCompleter -Native -CommandName aikito", script)
+        self.assertIn("Register-ArgumentCompleter -Native -CommandName $cmdName", script)
+        self.assertIn("$script:AikitoCommandNames", script)
         self.assertIn("param($wordToComplete, $commandAst, $cursorPosition)", script)
+
 
         # Commands and flags
         self.assertIn('"show"', script)

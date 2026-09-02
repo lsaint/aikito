@@ -5,9 +5,7 @@ to canonical workspace files. This module keeps that logic out of the entry
 script so the entry stays a thin parser plus dispatch.
 """
 
-import shlex
 import subprocess
-
 import sys
 import tomllib
 from pathlib import Path
@@ -17,10 +15,16 @@ from aikito_inbox import resolve_inbox_target_for_command
 from aikito_link import classify_symlink, symlink_verdict_to_status
 from aikito_mcp import load_agents
 from aikito_memory import ensure_safe_path
-from aikito_platform import get_default_editor, resolve_executable
+from aikito_platform import (
+    get_default_editor,
+    resolve_executable,
+    safe_relative_path,
+    split_command,
+)
 from aikito_render import SkillRow
 from aikito_status import collect_skills_rows
 from aikito_subagent import SubagentConfigError, load_subagent_definitions
+
 
 
 
@@ -276,13 +280,7 @@ def collect_instruction_agent_status(
             status = "SKIP"
         else:
             status = symlink_verdict_to_status(classify_symlink(target, source))
-        if target is None:
-            target_display = "-"
-        else:
-            try:
-                target_display = f"~/{target.relative_to(home).as_posix()}"
-            except ValueError:
-                target_display = target.as_posix()
+        target_display = "-" if target is None else safe_relative_path(target, home)
         rows.append(
             (definition.display_name, target_display, status_names.get(status, status))
         )
@@ -318,7 +316,7 @@ def collect_project_instruction_status(
 
 def open_in_editor(target_file: Path) -> None:
     editor_env = get_default_editor()
-    editor_parts = shlex.split(editor_env)
+    editor_parts = split_command(editor_env)
     if not editor_parts:
         editor_parts = [editor_env]
 
@@ -326,6 +324,7 @@ def open_in_editor(target_file: Path) -> None:
 
     try:
         res = subprocess.run(cmd_args)
+
 
         if res.returncode != 0:
             sys.exit(res.returncode)

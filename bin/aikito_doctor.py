@@ -29,7 +29,9 @@ from aikito_platform import (
     get_permission_fix_cmd,
     is_developer_mode_enabled,
     is_windows,
+    safe_relative_path,
 )
+
 from aikito_templates import (
 
     detect_existing_agents,
@@ -96,10 +98,7 @@ def _warn(message: str, fix_hint: str = "") -> DoctorFinding:
 
 
 def _home_rel(path: Path, home: Path) -> str:
-    try:
-        return f"~/{path.relative_to(home)}"
-    except ValueError:
-        return str(path)
+    return safe_relative_path(path, home)
 
 
 # ---------------------------------------------------------------------------
@@ -498,8 +497,11 @@ def _git_last_commit_epoch(repo_dir: Path, file_path: Path) -> int | None:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
         )
+
     except (OSError, subprocess.TimeoutExpired):
         return None
     output = result.stdout.strip()
@@ -1136,28 +1138,43 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
             )
         )
 
-    # 6b. Interpreter consistency: $PATH python3 vs sys.executable
-    path_python3 = shutil.which("python3")
+    # 6b. Interpreter consistency: $PATH python/python3 vs sys.executable
+    if is_windows():
+        path_python = (
+            shutil.which("python")
+            or shutil.which("py")
+            or shutil.which("python3")
+        )
+    else:
+        path_python = shutil.which("python3") or shutil.which("python")
+
     running = sys.executable
-    if path_python3:
+    if path_python:
         try:
-            path_resolved = Path(path_python3).resolve()
+            path_resolved = Path(path_python).resolve()
             running_resolved = Path(running).resolve()
-            if path_resolved != running_resolved:
+            if os.path.normcase(str(path_resolved)) != os.path.normcase(str(running_resolved)):
+                fix_hint = (
+                    "Adjust PATH so the intended Python environment is first"
+                    if is_windows()
+                    else "Adjust $PATH or the aikito shebang to use the same interpreter"
+                )
                 findings.append(
                     _warn(
-                        f"$PATH python3 ({path_python3}) differs from running interpreter ({running})",
-                        "Adjust $PATH or the aikito shebang to use the same interpreter",
+                        f"$PATH interpreter ({path_python}) differs from running interpreter ({running})",
+                        fix_hint,
                     )
                 )
             else:
-                findings.append(_ok(f"Interpreter consistent: {path_python3}"))
+                findings.append(_ok(f"Interpreter consistent: {path_python}"))
         except Exception:
             findings.append(_warn("Cannot compare interpreter paths"))
     else:
-        findings.append(_warn("python3 not found in $PATH"))
+        name = "python or py" if is_windows() else "python3"
+        findings.append(_warn(f"{name} not found in $PATH"))
 
     # 6c. Agent CLI availability
+
     cli_map = {
         "codex": "codex",
         "claude": "claude",

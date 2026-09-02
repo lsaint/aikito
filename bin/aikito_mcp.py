@@ -42,6 +42,7 @@ import os
 import shutil
 import subprocess
 import sys
+import webbrowser
 from pathlib import Path
 
 
@@ -52,25 +53,35 @@ if url_file and urls:
         handle.writelines(f"{url}\\n" for url in urls)
 
 if os.environ.get("AIKITO_OPEN_BROWSER") == "1":
-    browser_env = os.environ.copy()
-    browser_env.pop("BROWSER", None)
-    if sys.platform == "darwin":
-        command = ["/usr/bin/open"]
-    elif sys.platform == "win32":
-        command = ["cmd", "/c", "start"]
-    else:
-        opener = shutil.which("xdg-open")
-        command = [opener] if opener else []
     for url in urls:
-        if command:
+        if sys.platform == "win32" and hasattr(os, "startfile"):
+            try:
+                os.startfile(url)
+                continue
+            except OSError:
+                pass
+        browser_env = os.environ.copy()
+        browser_env.pop("BROWSER", None)
+        if sys.platform == "darwin":
             subprocess.Popen(
-                [*command, url],
+                ["/usr/bin/open", url],
                 env=browser_env,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                shell=(sys.platform == "win32"),
             )
+        else:
+            opener = shutil.which("xdg-open")
+            if opener:
+                subprocess.Popen(
+                    [opener, url],
+                    env=browser_env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            else:
+                webbrowser.open(url)
 """
+
 
 
 
@@ -1267,9 +1278,12 @@ def run_live_mcp_commands(
                         resolved_cmd,
                         capture_output=True,
                         text=True,
+                        encoding="utf-8",
+                        errors="replace",
                         timeout=timeout,
                         check=False,
                     )
+
 
                 except subprocess.TimeoutExpired:
                     results.append(LiveMCPResult(agent, command, "TIMEOUT", None))
@@ -1989,9 +2003,12 @@ def authenticate_mcp(
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
             env=environment,
         )
+
 
         if process.stdout is None:
             raise MCPConfigError("Authentication command output is unavailable")

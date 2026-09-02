@@ -25,7 +25,6 @@ def generate_powershell(parser: argparse.ArgumentParser | None = None) -> str:
         "@(" + ", ".join(json.dumps(c) for c in sorted(schema["commands"].keys())) + ")"
     )
 
-
     # Build commands and subcommands lookup tables for PowerShell
     cmd_sub_dict: dict[str, list[str]] = {}
     cmd_flags_dict: dict[str, list[str]] = {}
@@ -51,7 +50,7 @@ def generate_powershell(parser: argparse.ArgumentParser | None = None) -> str:
 #   To view or edit your profile, run:
 #     notepad $PROFILE
 
-Register-ArgumentCompleter -Native -CommandName aikito -ScriptBlock {{
+$script:AikitoCompleterBlock = {{
     param($wordToComplete, $commandAst, $cursorPosition)
 
     $topFlags = {top_flags}
@@ -80,16 +79,22 @@ Register-ArgumentCompleter -Native -CommandName aikito -ScriptBlock {{
     $results = [System.Collections.ArrayList]::new()
 
     function Add-Candidate([string]$val, [string]$tooltip) {{
-        if ($val -like "$wordToComplete*") {{
+        if ([string]::IsNullOrEmpty($wordToComplete) -or $val.StartsWith($wordToComplete, [System.StringComparison]::OrdinalIgnoreCase)) {{
             $tip = if ($tooltip) {{ $tooltip }} else {{ $val }}
             [void]$results.Add([System.Management.Automation.CompletionResult]::new($val, $val, 'ParameterValue', $tip))
         }}
     }}
 
-
     function Invoke-Candidates([string]$category) {{
         try {{
-            $raw = & aikito completion candidates $category 2>$null
+            $caller = if ($tokens.Count -gt 0 -and (Test-Path $tokens[0])) {{ $tokens[0] }} else {{ 'aikito' }}
+            $raw = if ($caller -like "*.ps1") {{
+                & pwsh -NoProfile -File $caller completion candidates $category 2>$null
+            }} elseif ($caller -like "*.cmd" -or $caller -like "*.bat") {{
+                & cmd /c $caller completion candidates $category 2>$null
+            }} else {{
+                & $caller completion candidates $category 2>$null
+            }}
             if ($raw) {{
                 $lines = $raw -split "`r?`n" | Where-Object {{ $_ -ne '' }}
                 foreach ($line in $lines) {{
@@ -204,4 +209,10 @@ Register-ArgumentCompleter -Native -CommandName aikito -ScriptBlock {{
 
     return $results
 }}
+
+$script:AikitoCommandNames = @('aikito', 'aikito.cmd', 'aikito.ps1', '.\\bin\\aikito', 'bin\\aikito', '.\\bin\\aikito.cmd', '.\\bin\\aikito.ps1')
+foreach ($cmdName in $script:AikitoCommandNames) {{
+    Register-ArgumentCompleter -Native -CommandName $cmdName -ScriptBlock $script:AikitoCompleterBlock
+}}
 """
+

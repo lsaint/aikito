@@ -340,7 +340,14 @@ jobs:
           python bin/aikito --help
           python bin/aikito version
           & .\bin\aikito.cmd --help
+          if ($LASTEXITCODE -ne 0) { throw ".cmd help failed with exit code $LASTEXITCODE" }
           & .\bin\aikito.ps1 --help
+          if ($LASTEXITCODE -ne 0) { throw ".ps1 help failed with exit code $LASTEXITCODE" }
+          # Test failure exit code propagation
+          $null = & .\bin\aikito.cmd invalid-subcommand 2>$null
+          if ($LASTEXITCODE -eq 0) { throw ".cmd did not propagate non-zero exit code on failure" }
+          $null = & .\bin\aikito.ps1 invalid-subcommand 2>$null
+          if ($LASTEXITCODE -eq 0) { throw ".ps1 did not propagate non-zero exit code on failure" }
 
       - name: Test PowerShell Completion Generator and Loading
         shell: pwsh
@@ -360,4 +367,5 @@ jobs:
           python bin/aikito sync global
           python bin/aikito doctor
           python bin/aikito status
+
 

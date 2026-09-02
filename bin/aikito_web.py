@@ -8,7 +8,6 @@ import mimetypes
 import re
 import threading
 import tomllib
-import webbrowser
 from datetime import date, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -20,6 +19,8 @@ from aikito_diff import collect_drift_diffs
 from aikito_doctor import run_doctor
 from aikito_inbox import collect_inbox_rows
 from aikito_mcp import load_agents
+from aikito_platform import launch_browser
+
 from aikito_project import collect_project_summaries
 from aikito_status import (
     collect_mcp_details,
@@ -443,8 +444,9 @@ def serve_console(
     print("Aikito Console")
     print(url)
     if open_browser:
-        threading.Timer(0.15, webbrowser.open, args=(url,)).start()
+        threading.Timer(0.15, launch_browser, args=(url,)).start()
     try:
+
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nAikito Console stopped.")
