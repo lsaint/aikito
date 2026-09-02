@@ -279,10 +279,11 @@ def collect_instruction_agent_status(
             target_display = "-"
         else:
             try:
-                target_display = f"~/{target.relative_to(home)}"
+                target_display = f"~/{target.relative_to(home).as_posix()}"
             except ValueError:
-                target_display = str(target)
+                target_display = target.as_posix()
         rows.append(
+
             (definition.display_name, target_display, status_names.get(status, status))
         )
     return rows

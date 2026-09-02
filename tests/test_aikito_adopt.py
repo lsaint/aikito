@@ -1,7 +1,9 @@
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
 
 from aikito_adopt import build_adopt_plan, execute_adoption
 from aikito_templates import (
@@ -249,11 +251,12 @@ class AikitoAdoptTest(unittest.TestCase):
         claude_dir = self.fake_home / ".claude"
         claude_dir.mkdir(parents=True, exist_ok=True)
         config_json = claude_dir / "claude_desktop_config.json"
+        server_key = "ev.il" if sys.platform == "win32" else 'ev"il'
         config_json.write_text(
             json.dumps(
                 {
                     "mcpServers": {
-                        'ev"il': {
+                        server_key: {
                             "command": "npx",
                             "args": ["test"],
                         }
@@ -267,10 +270,11 @@ class AikitoAdoptTest(unittest.TestCase):
         self.assertEqual(len(plan.mcp_servers), 1)
 
         execute_adoption(plan, dry_run=False)
-        mcps_toml = self.target_path / "mcps" / 'ev"il.toml'
+        mcps_toml = self.target_path / "mcps" / f"{server_key}.toml"
         self.assertTrue(mcps_toml.is_file())
         content = mcps_toml.read_text(encoding="utf-8")
         self.assertIn('command = "npx"', content)
+
 
         # Verify tomllib.loads succeeds on generated TOML
         import tomllib
