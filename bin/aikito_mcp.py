@@ -1917,10 +1917,19 @@ def _redact_sensitive_urls(text: str) -> str:
 
 
 def _write_browser_helper(directory: Path) -> Path:
+    if sys.platform == "win32":
+        py_helper = directory / "aikito-browser.py"
+        py_helper.write_text(BROWSER_HELPER, encoding="utf-8")
+        cmd_helper = directory / "aikito-browser.cmd"
+        cmd_helper.write_text(
+            f'@echo off\r\n"{sys.executable}" "{py_helper}" %*\r\n', encoding="utf-8"
+        )
+        return cmd_helper
     helper = directory / "aikito-browser"
-    helper.write_text(BROWSER_HELPER)
+    helper.write_text(BROWSER_HELPER, encoding="utf-8")
     helper.chmod(0o700)
     return helper
+
 
 
 def _find_agent_spec(specs: list[AgentSpec], agent: str, server: str) -> AgentSpec:
