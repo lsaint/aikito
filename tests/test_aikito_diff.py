@@ -20,9 +20,10 @@ class DriftDiffTest(unittest.TestCase):
             runtime.mkdir(parents=True)
             project_config.mkdir(parents=True)
             (project_config / "agent.toml").write_text(
-                f'path = "{project}"\nsync_mode = "copy"\nskills = ["example"]\n',
+                f'path = "{project.as_posix()}"\nsync_mode = "copy"\nskills = ["example"]\n',
                 encoding="utf-8",
             )
+
             (canonical / "SKILL.md").write_text("canonical\n", encoding="utf-8")
             (runtime / "SKILL.md").write_text("runtime\n", encoding="utf-8")
             (canonical / "asset.bin").write_bytes(b"\0canonical")

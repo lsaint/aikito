@@ -2,7 +2,9 @@ import base64
 import io
 import json
 import os
+import sys
 import tempfile
+
 import time
 import tomllib
 import unittest
@@ -318,10 +320,22 @@ reason = "Unsupported test agent"
     def install_fake_codex(self, script: str) -> Path:
         executable_directory = self.root / "bin"
         executable_directory.mkdir(exist_ok=True)
-        executable = executable_directory / "codex"
-        executable.write_text(script)
-        executable.chmod(0o700)
+        if sys.platform == "win32":
+            executable = executable_directory / "codex.cmd"
+            cmd_script = (
+                script.replace("#!/bin/sh\n", "@echo off\r\n")
+                .replace('"$BROWSER"', '"%BROWSER%"')
+                .replace("$BROWSER", "%BROWSER%")
+                .replace("printf '%s\\n' ", "echo ")
+                .replace("printf '%s\\\\n' ", "echo ")
+            )
+            executable.write_text(cmd_script, encoding="utf-8")
+        else:
+            executable = executable_directory / "codex"
+            executable.write_text(script)
+            executable.chmod(0o700)
         return executable_directory
+
 
     def test_sync_preserves_unmanaged_settings_and_is_idempotent(self) -> None:
         codex_config = self.home / ".codex/config.toml"

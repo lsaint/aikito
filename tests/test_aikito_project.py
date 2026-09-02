@@ -23,11 +23,12 @@ class ProjectSummaryTest(unittest.TestCase):
             (runtime / "skills").mkdir(parents=True)
             (runtime / "memory").mkdir()
             (definition / "agent.toml").write_text(
-                f'path = "{project}"\ndescription = "Demo service"\n'
+                f'path = "{project.as_posix()}"\ndescription = "Demo service"\n'
                 'sync_mode = "link"\n'
                 'skills = ["example"]\nmemory = []\n',
                 encoding="utf-8",
             )
+
             (workspace / "agents.toml").write_text(
                 '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n'
                 '[agents.claude-code]\nproject_instruction_path = ".claude/CLAUDE.md"\n',
@@ -99,7 +100,7 @@ class ProjectSummaryTest(unittest.TestCase):
             definition = root / "projects" / "missing"
             definition.mkdir(parents=True)
             (definition / "agent.toml").write_text(
-                f'path = "{root / "gone"}"\nskills = []\n', encoding="utf-8"
+                f'path = "{(root / "gone").as_posix()}"\nskills = []\n', encoding="utf-8"
             )
 
             summary = collect_project_summaries(root, root)[0]
@@ -117,7 +118,7 @@ class ProjectSummaryTest(unittest.TestCase):
             project.mkdir()
             definition.mkdir(parents=True)
             (definition / "agent.toml").write_text(
-                f'path = "{project}"\nskills = []\n', encoding="utf-8"
+                f'path = "{project.as_posix()}"\nskills = []\n', encoding="utf-8"
             )
             (root / "agents.toml").write_text(
                 '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n',
@@ -145,7 +146,7 @@ class ProjectSummaryTest(unittest.TestCase):
             definition.mkdir(parents=True)
             (project_owned / "SKILL.md").write_text("Local\n", encoding="utf-8")
             (definition / "agent.toml").write_text(
-                f'path = "{project}"\nskills = []\n', encoding="utf-8"
+                f'path = "{project.as_posix()}"\nskills = []\n', encoding="utf-8"
             )
             (root / "agents.toml").write_text("[agents]\n", encoding="utf-8")
             (definition / "AGENTS.md").write_text("", encoding="utf-8")
@@ -166,7 +167,7 @@ class ProjectSummaryTest(unittest.TestCase):
             project.mkdir()
             definition.mkdir(parents=True)
             (definition / "agent.toml").write_text(
-                f'path = "{project}"\nskills = []\n', encoding="utf-8"
+                f'path = "{project.as_posix()}"\nskills = []\n', encoding="utf-8"
             )
             (root / "agents.toml").write_text(
                 '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n',
@@ -194,8 +195,9 @@ class ProjectSummaryTest(unittest.TestCase):
             project.mkdir()
             definition.mkdir(parents=True)
             (definition / "agent.toml").write_text(
-                f'path = "{project}"\nskills = []\n', encoding="utf-8"
+                f'path = "{project.as_posix()}"\nskills = []\n', encoding="utf-8"
             )
+
             (root / "agents.toml").write_text("[agents]\n", encoding="utf-8")
             (definition / "AGENTS.md").write_text("", encoding="utf-8")
             memory = definition / "memory"

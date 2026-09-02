@@ -74,14 +74,15 @@ Register-ArgumentCompleter -Native -CommandName aikito -ScriptBlock {{
     $sub = if ($count -gt 2) {{ $tokens[2] }} else {{ '' }}
     $pair = if ($cmd -and $sub) {{ "$cmd $sub" }} else {{ '' }}
 
-    $results = [System.Collections.Generic.List[System.Management.Automation.CompletionResult]]::new()
+    $results = [System.Collections.ArrayList]::new()
 
     function Add-Candidate([string]$val, [string]$tooltip) {{
         if ($val -like "$wordToComplete*") {{
             $tip = if ($tooltip) {{ $tooltip }} else {{ $val }}
-            $results.Add([System.Management.Automation.CompletionResult]::new($val, $val, 'ParameterValue', $tip))
+            [void]$results.Add([System.Management.Automation.CompletionResult]::new($val, $val, 'ParameterValue', $tip))
         }}
     }}
+
 
     function Invoke-Candidates([string]$category) {{
         try {{

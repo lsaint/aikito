@@ -25,9 +25,10 @@ class MemoryMaintenanceTest(unittest.TestCase):
         self.project_memory.mkdir(parents=True)
         self.project_path.mkdir(parents=True)
         (self.project_memory.parent / "agent.toml").write_text(
-            f'name = "example"\npath = "{self.project_path}"\n',
+            f'name = "example"\npath = "{self.project_path.as_posix()}"\n',
             encoding="utf-8",
         )
+
         (self.aikito_dir / "agents.toml").write_text(
             """[agents.codex.runner]
 command = ["fake-agent", "{workdir}", "{prompt}"]

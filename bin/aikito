@@ -100,7 +100,8 @@ from aikito_subagent import (
     SubagentConfigError,
     sync_subagent_configs,
 )
-from aikito_platform import init_console_encoding
+from aikito_platform import init_console_encoding, safe_relative_path
+
 from aikito_web import serve_console
 from aikito_completion import (
     generate_bash,
@@ -504,13 +505,10 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
 
 def save_project_path(agent_toml_path: Path, project_path: Path) -> None:
     home = Path.home()
-    try:
-        rel = project_path.relative_to(home)
-        path_str = f"~/{rel}"
-    except ValueError:
-        path_str = str(project_path)
+    path_str = safe_relative_path(project_path, home)
 
     lines = []
+
     if agent_toml_path.exists():
         lines = agent_toml_path.read_text().splitlines()
 

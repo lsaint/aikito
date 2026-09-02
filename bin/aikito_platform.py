@@ -181,12 +181,14 @@ def safe_relative_path(path: Path, base: Path) -> str:
     """Return a display string relative to base with ~/ prefix, or absolute path.
 
     Gracefully handles cross-drive paths on Windows where relative_to raises ValueError.
+    Always uses forward slashes on Windows so paths can safely be embedded into TOML files.
     """
     try:
         rel = path.relative_to(base)
         return f"~/{rel.as_posix()}" if is_windows() else f"~/{rel}"
     except ValueError:
-        return str(path)
+        return path.as_posix() if is_windows() else str(path)
+
 
 
 def launch_browser(url: str) -> None:

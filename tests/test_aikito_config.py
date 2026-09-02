@@ -69,10 +69,14 @@ class AikitoConfigTest(unittest.TestCase):
     def test_inbox_config_custom_path(self) -> None:
         config_file = self.root / "config.toml"
         custom_target = self.root / "custom_inbox"
-        config_file.write_text(f'[inbox]\npath = "{custom_target}"\n', encoding="utf-8")
+        config_file.write_text(
+            f'[inbox]\npath = "{custom_target.as_posix()}"\n', encoding="utf-8"
+        )
+
 
         cfg = load_workspace_config(self.root)
-        self.assertEqual(cfg.inbox.path, str(custom_target))
+        self.assertEqual(cfg.inbox.path, custom_target.as_posix())
+
 
         inbox_dir = get_inbox_path(self.root)
         self.assertEqual(inbox_dir, custom_target.resolve())

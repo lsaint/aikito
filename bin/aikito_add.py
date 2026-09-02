@@ -11,6 +11,9 @@ import tomllib
 from pathlib import Path
 from typing import List, Optional
 
+from aikito_platform import safe_relative_path
+
+
 
 NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 
@@ -62,10 +65,8 @@ def _titleize(name: str) -> str:
 
 
 def _display_path(path: Path, home: Path) -> str:
-    try:
-        return f"~/{path.relative_to(home)}"
-    except ValueError:
-        return str(path)
+    return safe_relative_path(path, home)
+
 
 
 def _find_matching_bracket(text: str, start_bracket_pos: int) -> int:

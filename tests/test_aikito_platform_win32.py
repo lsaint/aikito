@@ -70,16 +70,22 @@ class AikitoPlatformWin32Test(unittest.TestCase):
             tmp = Path(tmpdir)
             f = tmp / "cred.json"
             f.write_text("{}")
-            f.chmod(0o600)
+
+            mock_stat_600 = MagicMock()
+            mock_stat_600.st_mode = 0o100600
+            mock_stat_644 = MagicMock()
+            mock_stat_644.st_mode = 0o100644
 
             with patch("aikito_platform.is_windows", return_value=False):
-                is_secure, desc = check_credential_permissions(f)
-                self.assertTrue(is_secure)
-                self.assertEqual(desc, "0o600")
+                with patch.object(Path, "stat", return_value=mock_stat_600):
+                    is_secure, desc = check_credential_permissions(f)
+                    self.assertTrue(is_secure)
+                    self.assertEqual(desc, "0o600")
 
-                f.chmod(0o644)
-                is_secure, desc = check_credential_permissions(f)
-                self.assertFalse(is_secure)
+                with patch.object(Path, "stat", return_value=mock_stat_644):
+                    is_secure, desc = check_credential_permissions(f)
+                    self.assertFalse(is_secure)
+
 
     def test_check_credential_permissions_windows_icacls(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

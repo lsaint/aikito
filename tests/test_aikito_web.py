@@ -65,9 +65,10 @@ name_style = "verbatim"
         project.mkdir(parents=True)
         (project / "AGENTS.md").write_text("# Demo instructions\n", encoding="utf-8")
         (project / "agent.toml").write_text(
-            f'path = "{self.root}"\ndescription = "Demo service"\n',
+            f'path = "{self.root.as_posix()}"\ndescription = "Demo service"\n',
             encoding="utf-8",
         )
+
         self.web = self.root / "web"
         self.web.mkdir()
         (self.web / "index.html").write_text("console", encoding="utf-8")
