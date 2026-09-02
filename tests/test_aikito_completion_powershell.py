@@ -41,6 +41,11 @@ class AikitoCompletionPowerShellTest(unittest.TestCase):
         self.assertIn("subagents", script)
         self.assertIn("mcps", script)
 
+        # AST extraction fix and platform guards
+        self.assertIn("$commandAst.CommandElements", script)
+        self.assertIn("Set-Alias -Name aikito", script)
+        self.assertIn("Get-Command pwsh", script)
+
     def test_direct_generator_matches_wrapper(self) -> None:
         parser = AIKITO_CLI.build_parser()
         self.assertEqual(generate_powershell(parser), gen_pwsh_direct(parser))

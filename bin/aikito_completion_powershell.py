@@ -60,7 +60,8 @@ $script:AikitoCompleterBlock = {{
 {sub_flags_json}
 '@
 
-    $tokens = @($commandAst.Elements | ForEach-Object {{ $_.Extent.Text }} | Where-Object {{ $_ -ne $null -and $_.Trim() -ne '' }})
+    $astElements = if ($commandAst.CommandElements) {{ $commandAst.CommandElements }} else {{ $commandAst.Elements }}
+    $tokens = @($astElements | ForEach-Object {{ $_.Extent.Text }} | Where-Object {{ $_ -ne $null -and $_.Trim() -ne '' }})
     $count = $tokens.Count
 
     # If the current word being typed is an empty string or partial word at the end
@@ -84,7 +85,8 @@ $script:AikitoCompleterBlock = {{
         try {{
             $caller = if ($tokens.Count -gt 0 -and (Test-Path $tokens[0])) {{ $tokens[0] }} else {{ 'aikito' }}
             $raw = if ($caller -like "*.ps1") {{
-                & pwsh -NoProfile -File $caller completion candidates $category 2>$null
+                $ps = if (Get-Command pwsh -ErrorAction SilentlyContinue) {{ 'pwsh' }} else {{ 'powershell' }}
+                & $ps -NoProfile -File $caller completion candidates $category 2>$null
             }} elseif ($caller -like "*.cmd" -or $caller -like "*.bat") {{
                 & cmd /c $caller completion candidates $category 2>$null
             }} else {{
@@ -203,6 +205,11 @@ $script:AikitoCompleterBlock = {{
     }}
 
     return $results
+}}
+
+if ((-not (Get-Alias aikito -ErrorAction SilentlyContinue)) -and (Get-Command aikito.ps1 -ErrorAction SilentlyContinue)) {{
+    $targetPs1 = (Get-Command aikito.ps1).Source
+    Set-Alias -Name aikito -Value $targetPs1 -Scope Global -ErrorAction SilentlyContinue
 }}
 
 $script:AikitoCommandNames = @('aikito', 'aikito.cmd', 'aikito.ps1', '.\\bin\\aikito', 'bin\\aikito', '.\\bin\\aikito.cmd', '.\\bin\\aikito.ps1')
