@@ -111,8 +111,27 @@ class GlobalEntrySyncTest(unittest.TestCase):
         self.assertTrue(result)
         self.assertFalse((self.root / ".grok").exists())
 
+    def test_windows_fallback_copies_when_cannot_symlink(self) -> None:
+        (self.source / "SKILL.md").write_text("# Skill", encoding="utf-8")
+        target = self.root / ".agent" / "skills"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with (
+            patch("aikito_sync.is_windows", return_value=True),
+            patch("aikito_sync.can_symlink", return_value=False),
+        ):
+            result = AIKITO_CLI.sync_global_entry(
+                self.source, target, "Test Agent", "skills"
+            )
+            self.assertTrue(result)
+            self.assertTrue(target.is_dir())
+            self.assertFalse(target.is_symlink())
+            self.assertEqual(
+                (target / "SKILL.md").read_text(encoding="utf-8"), "# Skill"
+            )
+
 
 class SyncSubcommandParserTest(unittest.TestCase):
+
     def test_diff_command(self) -> None:
         parser = AIKITO_CLI.build_parser()
 

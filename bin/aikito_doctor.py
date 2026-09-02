@@ -131,9 +131,10 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
         instr_total += 1
         verdict = classify_symlink(target, global_instruction_source)
         display = _home_rel(target, home)
-        if verdict == SymlinkVerdict.OK:
+        if verdict in (SymlinkVerdict.OK, SymlinkVerdict.COPIED):
             instr_ok += 1
         elif verdict == SymlinkVerdict.DANGLING:
+
             findings.append(
                 _fail(
                     f"{definition.display_name} instructions: dangling symlink ({display})",
@@ -195,7 +196,9 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
             verdict = classify_symlink(skill_target, expected)
             display = _home_rel(skill_target, home)
             skills_checked_count += 1
-            if verdict == SymlinkVerdict.DANGLING:
+            if verdict in (SymlinkVerdict.OK, SymlinkVerdict.COPIED):
+                pass
+            elif verdict == SymlinkVerdict.DANGLING:
                 skills_fail_count += 1
                 findings.append(
                     _fail(
@@ -227,6 +230,7 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
                         "aikito sync global",
                     )
                 )
+
 
     if global_skills and skills_fail_count == 0 and skills_checked_count > 0:
         findings.append(
@@ -1055,13 +1059,22 @@ def check_security(aikito_dir: Path, home: Path) -> DoctorSection:
                 cred_issues += 1
                 display = _home_rel(spec.config_path, home)
                 fix_cmd = get_permission_fix_cmd(display)
-                findings.append(
-                    _fail(
-                        f"Credential file has insecure permissions ({desc}): {display}",
-                        fix_cmd,
+                if desc.startswith("ACL unchecked"):
+                    findings.append(
+                        _warn(
+                            f"Credential file ACL could not be verified ({desc}): {display}",
+                            fix_cmd,
+                        )
                     )
-                )
+                else:
+                    findings.append(
+                        _fail(
+                            f"Credential file has insecure permissions ({desc}): {display}",
+                            fix_cmd,
+                        )
+                    )
         if cred_checked > 0 and cred_issues == 0:
+
             findings.append(
                 _ok(f"Credential file permissions OK ({cred_checked} files)")
             )

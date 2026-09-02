@@ -24,7 +24,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from aikito_platform import resolve_executable
+from aikito_platform import resolve_executable, secure_file_permissions
+
 
 
 
@@ -2128,8 +2129,9 @@ def sync_mcp_configs(
         updated = _update_entry(spec, text)
         _atomic_write(spec.config_path, updated)
         if spec.contains_secret:
-            spec.config_path.chmod(0o600)
+            secure_file_permissions(spec.config_path)
         entries[spec.state_key] = {
+
             "fingerprint": desired_fingerprint,
             "config_path": str(spec.config_path),
             "target_name": spec.target_name,

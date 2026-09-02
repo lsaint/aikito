@@ -80,11 +80,20 @@ Canonical MCP configuration should contain environment-variable references,
 not plaintext credentials. Adoption converts recognized secrets to references,
 but users must still inspect imported configuration before committing it.
 
-## Platform Constraints
+## Platform Support and Constraints
 
-Native Windows is not supported because the synchronization and credential
-safety model relies on symbolic links and POSIX file permissions. Windows users
-should use WSL2.
+Aikito provides native support across macOS, Linux, and Windows (PowerShell and
+Command Prompt):
+
+- **Symbolic Links**: On POSIX systems, standard symbolic links are used. On Windows,
+  unprivileged symlink creation requires Windows Developer Mode (or Administrator
+  privileges). When Developer Mode is disabled, Aikito automatically falls back to
+  copy-based synchronization for global and project resources.
+- **Credential File Permissions**: On POSIX systems, credential-bearing configuration
+  files are restricted to owner read/write (`0600`). On Windows, Aikito hardens NTFS
+  Access Control Lists (`icacls`) by disabling inheritance and granting read/write
+  access strictly to the active user account, stripping broad group permissions.
+
 
 ## Managed Project Directories
 

@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from aikito_platform import (
+    can_symlink,
     check_credential_permissions,
     get_default_editor,
     get_permission_fix_cmd,
@@ -14,6 +15,7 @@ from aikito_platform import (
     resolve_executable,
     safe_relative_path,
     safe_symlink,
+    secure_file_permissions,
 )
 
 
@@ -22,6 +24,25 @@ class AikitoPlatformWin32Test(unittest.TestCase):
     def test_is_windows(self) -> None:
         expected = sys.platform == "win32"
         self.assertEqual(is_windows(), expected)
+
+    def test_can_symlink(self) -> None:
+        result = can_symlink()
+        self.assertIsInstance(result, bool)
+
+    def test_secure_file_permissions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            f = Path(tmpdir) / "secret.toml"
+            f.write_text("secret = 123", encoding="utf-8")
+            with patch("aikito_platform.is_windows", return_value=False):
+                self.assertTrue(secure_file_permissions(f))
+
+            with patch("aikito_platform.is_windows", return_value=True):
+                mock_proc = MagicMock(returncode=0)
+                with patch("subprocess.run", return_value=mock_proc) as mock_run:
+                    self.assertTrue(secure_file_permissions(f))
+                    self.assertIn("icacls", mock_run.call_args.args[0][0])
+                    self.assertIn("/inheritance:r", mock_run.call_args.args[0])
+
 
     def test_safe_symlink_posix(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -95,7 +116,7 @@ class AikitoPlatformWin32Test(unittest.TestCase):
 
             with patch("aikito_platform.is_windows", return_value=True):
                 # Mock secure icacls output
-                mock_res = MagicMock()
+                mock_res = MagicMock(returncode=0)
                 mock_res.stdout = "NT AUTHORITY\\SYSTEM:(F)\nDESKTOP-TEST\\user:(R)\n"
                 with patch("subprocess.run", return_value=mock_res):
                     is_secure, desc = check_credential_permissions(f)
@@ -106,6 +127,7 @@ class AikitoPlatformWin32Test(unittest.TestCase):
                 with patch("subprocess.run", return_value=mock_res):
                     is_secure, desc = check_credential_permissions(f)
                     self.assertFalse(is_secure)
+
 
     def test_get_permission_fix_cmd(self) -> None:
         with patch("aikito_platform.is_windows", return_value=False):

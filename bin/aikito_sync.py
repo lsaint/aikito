@@ -9,11 +9,37 @@ import shutil
 import sys
 from pathlib import Path
 
-from aikito_platform import safe_symlink
+from aikito_link import _files_or_dirs_match
+from aikito_platform import can_symlink, is_windows, safe_symlink
 
 
 def ensure_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
+
+
+def _copy_global_entry(
+    source: Path, target: Path, agent_name: str, resource_name: str
+) -> bool:
+    """Copy a global file or directory into agent target location."""
+    try:
+        if target.is_symlink() or target.exists():
+            if target.is_dir() and not target.is_symlink():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+        if source.is_dir():
+            shutil.copytree(source, target)
+            print(f"[COPY DIR] {agent_name} {resource_name}: {target} <- {source}")
+        else:
+            shutil.copy2(source, target)
+            print(f"[COPY FILE] {agent_name} {resource_name}: {target} <- {source}")
+        return True
+    except Exception as exc:
+        print(
+            f"[ERROR] Failed to copy {source} to {target}: {exc}",
+            file=sys.stderr,
+        )
+        return False
 
 
 def sync_resource(
@@ -53,12 +79,16 @@ def sync_resource(
             return False
 
     if mode == "link":
-        if safe_symlink(source, target):
+        if can_symlink() and safe_symlink(source, target, quiet=is_windows()):
             print(f"[LINK] {target} -> {source}")
             return True
-        return False
+        if is_windows():
+            # Automatically fallback to copy on Windows when symlink cannot be created
+            mode = "copy"
+        else:
+            return False
 
-    else:  # copy mode
+    if mode == "copy":
         try:
             if source.is_dir():
                 shutil.copytree(source, target)
@@ -70,6 +100,7 @@ def sync_resource(
         except Exception as e:
             print(f"[ERROR] Failed to copy {source} to {target}: {e}", file=sys.stderr)
             return False
+    return False
 
 
 def apply_runtime_cleanup(paths: tuple[Path, ...], dry_run: bool) -> None:
@@ -98,17 +129,32 @@ def sync_project_instruction(source: Path, target: Path, dry_run: bool) -> bool:
         )
         return False
     if target.exists():
+        if _files_or_dirs_match(target, source):
+            print(f"[OK] Project instructions: {target} -> {source}")
+            return True
+        if is_windows() and not can_symlink():
+            if dry_run:
+                print(f"[DRY RUN COPY] {source} -> {target}")
+                return True
+            shutil.copy2(source, target)
+            print(f"[COPY FILE] {target} <- {source}")
+            return True
         print(
             f"[CONFLICT] Project instructions already exist: {target}",
             file=sys.stderr,
         )
         return False
     if dry_run:
-        print(f"[DRY RUN LINK] {source} -> {target}")
+        action = "LINK" if can_symlink() else "COPY"
+        print(f"[DRY RUN {action}] {source} -> {target}")
         return True
     target.parent.mkdir(parents=True, exist_ok=True)
-    if safe_symlink(source, target):
+    if can_symlink() and safe_symlink(source, target, quiet=is_windows()):
         print(f"[LINK] {target} -> {source}")
+        return True
+    if is_windows():
+        shutil.copy2(source, target)
+        print(f"[COPY FILE] {target} <- {source}")
         return True
     return False
 
@@ -125,12 +171,8 @@ def sync_global_entry(
     Ensures an agent runtime entry points to its canonical global resource.
 
     Existing regular files and directories are never overwritten because they
-    may contain unmanaged user resources.
-
-    ``installed`` reports the canonical install state of the owning agent
-    (None when unknown, e.g. a custom registry entry). A detected agent may
-    have its missing config parent directory created; anything else keeps the
-    historical parent-directory heuristic.
+    may contain unmanaged user resources (unless running copy-fallback sync on Windows
+    with matching content).
     """
     if not target.parent.exists():
         if installed is True:
@@ -154,9 +196,28 @@ def sync_global_entry(
         if dry_run:
             return True
         target.unlink()
-        return safe_symlink(expected_source, target)
+        if can_symlink() and safe_symlink(expected_source, target, quiet=is_windows()):
+            return True
+        if is_windows():
+            return _copy_global_entry(
+                expected_source, target, agent_name, resource_name
+            )
+        return False
 
     if target.exists():
+        if is_windows() and _files_or_dirs_match(target, expected_source):
+            print(f"[OK] {agent_name} {resource_name}: {target} -> {source}")
+            return True
+        if is_windows() and not can_symlink():
+            if dry_run:
+                print(
+                    f"[DRY RUN COPY] {agent_name} {resource_name}: {target} <- {source}"
+                )
+                return True
+            return _copy_global_entry(
+                expected_source, target, agent_name, resource_name
+            )
+
         print(
             f"[CONFLICT] {agent_name} {resource_name}: {target} is not a symlink; "
             "move or merge it manually, then run 'aikito sync global' again.",
@@ -165,10 +226,14 @@ def sync_global_entry(
         return False
 
     if dry_run:
-        print(f"[DRY RUN LINK] {agent_name} {resource_name}: {target} -> {source}")
+        action = "LINK" if can_symlink() else "COPY"
+        print(f"[DRY RUN {action}] {agent_name} {resource_name}: {target} -> {source}")
         return True
-    if safe_symlink(expected_source, target):
+    if can_symlink() and safe_symlink(expected_source, target, quiet=is_windows()):
         print(f"[LINK] {agent_name} {resource_name}: {target} -> {source}")
         return True
+    if is_windows():
+        return _copy_global_entry(expected_source, target, agent_name, resource_name)
     return False
+
 

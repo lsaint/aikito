@@ -265,6 +265,7 @@ def collect_instruction_agent_status(
     rows = []
     status_names = {
         "OK": "linked",
+        "OK (copy)": "copied",
         "MISSING": "missing",
         "CONFLICT": "conflict",
         "SKIP": "skipped",
@@ -283,7 +284,6 @@ def collect_instruction_agent_status(
             except ValueError:
                 target_display = target.as_posix()
         rows.append(
-
             (definition.display_name, target_display, status_names.get(status, status))
         )
     return rows
@@ -293,7 +293,13 @@ def collect_project_instruction_status(
     aikito_dir: Path, home: Path
 ) -> list[tuple[str, str]]:
     rows = []
-    status_names = {"OK": "linked", "MISSING": "missing", "CONFLICT": "conflict"}
+    status_names = {
+        "OK": "linked",
+        "OK (copy)": "copied",
+        "MISSING": "missing",
+        "CONFLICT": "conflict",
+    }
+
     for name, source, project_path in find_instruction_sources(aikito_dir, home)[1:]:
         try:
             has_content = source.is_file() and bool(

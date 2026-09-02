@@ -7,7 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Native Windows and PowerShell support with dedicated entry point wrappers
+  (`bin/aikito.cmd`, `bin/aikito.ps1`).
+- Native PowerShell dynamic shell completion script generator accessible via
+  `aikito completion powershell`.
+- Cross-platform platform layer (`bin/aikito_platform.py`) encapsulating Windows
+  Developer Mode detection, console UTF-8 initialization, and executable resolution.
+- Automatic copy-based synchronization fallback for global and project resources
+  when Windows symlink privileges / Developer Mode are unavailable.
+- Active NTFS Access Control List (`icacls`) hardening for secret-bearing
+  configuration files on Windows, stripping inherited group permissions.
+- Windows CI test matrix on Python 3.12, 3.13, and 3.14 on `windows-latest`
+  alongside dedicated PowerShell smoke testing.
+
+### Changed
+
+- Updated documentation (`docs/safety.md`, `docs/comparison.md`) to reflect
+  native Windows support, Developer Mode prerequisites, copy fallback, and
+  NTFS credential security models.
+
 ## [1.22.0] - 2026-09-01
+
 
 ### Added
 
