@@ -129,10 +129,10 @@ def sync_project_instruction(source: Path, target: Path, dry_run: bool) -> bool:
         )
         return False
     if target.exists():
-        if _files_or_dirs_match(target, source):
-            print(f"[OK] Project instructions: {target} -> {source}")
-            return True
         if is_windows() and not can_symlink():
+            if _files_or_dirs_match(target, source):
+                print(f"[OK] Project instructions: {target} -> {source}")
+                return True
             if dry_run:
                 print(f"[DRY RUN COPY] {source} -> {target}")
                 return True
@@ -143,6 +143,7 @@ def sync_project_instruction(source: Path, target: Path, dry_run: bool) -> bool:
             f"[CONFLICT] Project instructions already exist: {target}",
             file=sys.stderr,
         )
+
         return False
     if dry_run:
         action = "LINK" if can_symlink() else "COPY"
@@ -205,10 +206,10 @@ def sync_global_entry(
         return False
 
     if target.exists():
-        if is_windows() and _files_or_dirs_match(target, expected_source):
-            print(f"[OK] {agent_name} {resource_name}: {target} -> {source}")
-            return True
         if is_windows() and not can_symlink():
+            if _files_or_dirs_match(target, expected_source):
+                print(f"[OK] {agent_name} {resource_name}: {target} -> {source}")
+                return True
             if dry_run:
                 print(
                     f"[DRY RUN COPY] {agent_name} {resource_name}: {target} <- {source}"
@@ -224,6 +225,7 @@ def sync_global_entry(
             file=sys.stderr,
         )
         return False
+
 
     if dry_run:
         action = "LINK" if can_symlink() else "COPY"

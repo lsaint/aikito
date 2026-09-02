@@ -9,6 +9,9 @@ command module imports the other.
 from enum import Enum
 from pathlib import Path
 
+from aikito_platform import can_symlink
+
+
 
 class SymlinkVerdict(Enum):
     OK = "OK"  # is_symlink, target exists, resolves to expected
@@ -70,10 +73,11 @@ def classify_symlink(path: Path, expected_source: Path) -> SymlinkVerdict:
             return SymlinkVerdict.OK
         return SymlinkVerdict.WRONG_TARGET
     if path.exists():
-        if _files_or_dirs_match(path, expected_source):
+        if not can_symlink() and _files_or_dirs_match(path, expected_source):
             return SymlinkVerdict.COPIED
         return SymlinkVerdict.NOT_SYMLINK
     return SymlinkVerdict.MISSING
+
 
 
 # Coarse-grained mappings used by status (backwards-compatible labels)
