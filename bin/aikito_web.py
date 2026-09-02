@@ -299,12 +299,12 @@ class ConsoleData:
         inbox = get_inbox_path(self.aikito_dir)
         if inbox.is_dir():
             for path in inbox.rglob("*.md"):
-                add(path, "inbox", str(path.relative_to(inbox).with_suffix("")))
+                add(path, "inbox", path.relative_to(inbox).with_suffix("").as_posix())
 
         global_notes = self.aikito_dir / "memory" / "notes"
         if global_notes.is_dir():
             for path in global_notes.rglob("*.md"):
-                name = str(path.relative_to(global_notes).with_suffix(""))
+                name = path.relative_to(global_notes).with_suffix("").as_posix()
                 add(path, "memory", f"Global/{name}")
 
         projects = self.aikito_dir / "projects"
@@ -314,9 +314,10 @@ class ConsoleData:
                 if not notes.is_dir():
                     continue
                 for path in notes.rglob("*.md"):
-                    name = str(path.relative_to(notes).with_suffix(""))
+                    name = path.relative_to(notes).with_suffix("").as_posix()
                     add(path, "memory", f"{project.name}/{name}")
         return resources
+
 
     def _resolve_wikilinks(
         self, source: Path, content: str

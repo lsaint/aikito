@@ -63,7 +63,7 @@ def collect_inbox_rows(inbox_dir: Path) -> List[InboxNoteRow]:
 
         try:
             rel = f.relative_to(inbox_dir)
-            rel_stem = str(rel.with_suffix(""))
+            rel_stem = rel.with_suffix("").as_posix()
         except ValueError:
             rel_stem = f.stem
 
@@ -82,7 +82,7 @@ def collect_inbox_rows(inbox_dir: Path) -> List[InboxNoteRow]:
 
 def resolve_inbox_target(inbox_dir: Path, target: str) -> Path:
     """Resolve inbox note target by exact match or unique prefix."""
-    target_raw = target.strip()
+    target_raw = target.strip().replace("\\", "/")
     if target_raw.endswith("…"):
         target_raw = target_raw[:-1]
     target_norm = target_raw[:-3] if target_raw.endswith(".md") else target_raw
@@ -106,10 +106,12 @@ def resolve_inbox_target(inbox_dir: Path, target: str) -> Path:
     for f in files:
         try:
             rel = f.relative_to(inbox_dir)
-            rel_no_ext = str(rel.with_suffix(""))
+            rel_no_ext = rel.with_suffix("").as_posix()
+            rel_str = rel.as_posix()
         except ValueError:
             rel_no_ext = f.stem
-        keys = (f.stem, rel_no_ext, f.name, str(rel))
+            rel_str = f.name
+        keys = (f.stem, rel_no_ext, f.name, rel_str)
         file_keys_map[f] = keys
 
     exact_matches = [
@@ -151,7 +153,7 @@ def resolve_inbox_target_for_command(
         for item in exc.candidates:
             try:
                 rel = item.relative_to(inbox_dir)
-                ident = str(rel.with_suffix(""))
+                ident = rel.with_suffix("").as_posix()
             except ValueError:
                 ident = item.stem
             print(f"  - {ident}", file=sys.stderr)
@@ -159,7 +161,7 @@ def resolve_inbox_target_for_command(
         for item in exc.candidates:
             try:
                 rel = item.relative_to(inbox_dir)
-                ident = str(rel.with_suffix(""))
+                ident = rel.with_suffix("").as_posix()
             except ValueError:
                 ident = item.stem
             print(
@@ -167,6 +169,7 @@ def resolve_inbox_target_for_command(
                 file=sys.stderr,
             )
         sys.exit(1)
+
 
 
 def remove_inbox_note(inbox_dir: Path, target: str | Path) -> Path:

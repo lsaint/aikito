@@ -120,11 +120,12 @@ def list_inbox_completions(aikito_dir: Path) -> List[str]:
     for f in files:
         try:
             rel = f.relative_to(inbox_dir)
-            ident = str(rel.with_suffix(""))
+            ident = rel.with_suffix("").as_posix()
         except ValueError:
             ident = f.stem
         completions.append(ident)
     return sorted(set(completions))
+
 
 
 def _registered_search_roots(aikito_dir: Path) -> List[Path]:

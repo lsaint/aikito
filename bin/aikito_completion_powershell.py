@@ -20,8 +20,11 @@ def generate_powershell(parser: argparse.ArgumentParser | None = None) -> str:
     from aikito_completion import _get_schema
 
     schema = _get_schema(parser)
-    top_flags = json.dumps(sorted(schema["flags"]))
-    top_commands = json.dumps(sorted(schema["commands"].keys()))
+    top_flags = "@(" + ", ".join(json.dumps(f) for f in sorted(schema["flags"])) + ")"
+    top_commands = (
+        "@(" + ", ".join(json.dumps(c) for c in sorted(schema["commands"].keys())) + ")"
+    )
+
 
     # Build commands and subcommands lookup tables for PowerShell
     cmd_sub_dict: dict[str, list[str]] = {}

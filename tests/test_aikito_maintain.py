@@ -171,7 +171,8 @@ command = "not-an-array"
         command = run_mock.call_args.args[0]
         prompt = command[-1]
         self.assertEqual(command[:2], ["fake-agent", str(self.project_path.resolve())])
-        self.assertIn(str(self.project_memory), prompt)
+        self.assertIn(str(self.project_memory.resolve()), prompt)
+
         self.assertIn("review the complete selected scope", prompt)
         self.assertIn("Do not modify files", prompt)
         self.assertEqual(run_mock.call_args.kwargs["cwd"], self.project_path.resolve())

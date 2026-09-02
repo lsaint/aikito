@@ -1077,9 +1077,10 @@ def cmd_rm_inbox(args: argparse.Namespace) -> None:
 
     try:
         rel = target_file.relative_to(inbox_dir)
-        ident = str(rel.with_suffix(""))
+        ident = rel.with_suffix("").as_posix()
     except ValueError:
         ident = target_file.stem
+
 
     try:
         remove_inbox_note(inbox_dir, target_file)

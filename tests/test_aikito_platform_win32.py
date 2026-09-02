@@ -158,7 +158,9 @@ class AikitoPlatformWin32Test(unittest.TestCase):
         self.assertEqual(safe_relative_path(sub, home), "~/projects/demo")
 
         other_drive = Path("/other/path")
-        self.assertEqual(safe_relative_path(other_drive, home), str(other_drive))
+        expected_other = other_drive.as_posix() if is_windows() else str(other_drive)
+        self.assertEqual(safe_relative_path(other_drive, home), expected_other)
+
 
 
 if __name__ == "__main__":

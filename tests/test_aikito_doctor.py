@@ -219,7 +219,7 @@ class CheckProjectsTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (definition / "agent.toml").write_text(
-                f'path = "{project}"\nskills = []\n', encoding="utf-8"
+                f'path = "{project.as_posix()}"\nskills = []\n', encoding="utf-8"
             )
             (definition / "AGENTS.md").write_text("Rules\n", encoding="utf-8")
             (definition / "memory").mkdir()
@@ -246,8 +246,9 @@ class CheckProjectsTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (definition / "agent.toml").write_text(
-                f'path = "{project}"\nskills = []\n', encoding="utf-8"
+                f'path = "{project.as_posix()}"\nskills = []\n', encoding="utf-8"
             )
+
             (definition / "AGENTS.md").write_text("Rules\n", encoding="utf-8")
             (definition / "memory").mkdir()
             (project / "AGENTS.md").write_text("Unmanaged\n", encoding="utf-8")
@@ -1232,21 +1233,31 @@ display_name = "Pi"
         from aikito_doctor import run_doctor_fixes
 
         # 1. Existing note
-        (self.notes_dir / "existing-note.md").write_text("# Existing Title\nContent")
+        (self.notes_dir / "existing-note.md").write_text(
+            "# Existing Title\nContent", encoding="utf-8"
+        )
         # 2. Missing note (not in index)
-        (self.notes_dir / "missing-note.md").write_text("# Missing Title\nContent")
+        (self.notes_dir / "missing-note.md").write_text(
+            "# Missing Title\nContent", encoding="utf-8"
+        )
         # 3. Bare note (format normalization)
-        (self.notes_dir / "bare-note.md").write_text("# Bare Note Title\nContent")
+        (self.notes_dir / "bare-note.md").write_text(
+            "# Bare Note Title\nContent", encoding="utf-8"
+        )
         # 4. Old format note
-        (self.notes_dir / "old-format.md").write_text("# Old Title\nContent")
+        (self.notes_dir / "old-format.md").write_text(
+            "# Old Title\nContent", encoding="utf-8"
+        )
 
         # index.md with dangling note, bare note, old format note, but missing "missing-note"
         self.index_file.write_text(
             "- [[existing-note|Existing Title]]\n"
             "- [[ghost-note|Dangling Note]]\n"
             "- [[bare-note]]\n"
-            "- [[old-format]] — Custom Description\n"
+            "- [[old-format]] — Custom Description\n",
+            encoding="utf-8",
         )
+
 
         fixes = run_doctor_fixes(self.aikito_dir)
         self.assertTrue(any("ghost-note" in f for f in fixes))
