@@ -720,6 +720,27 @@ agents = ["claude-code"]
         self.assertEqual(section.name, "Security")
         self.assertTrue(len(section.findings) > 0)
 
+    def test_check_security_windows_developer_mode(self) -> None:
+        (self.aikito_dir / ".gitignore").write_text("/.local/\n")
+        with patch("aikito_doctor.is_windows", return_value=True):
+            with patch("aikito_doctor.can_symlink", return_value=True):
+                sec = check_security(self.aikito_dir, self.home)
+                self.assertTrue(
+                    any(
+                        "Developer Mode" in f.message and f.status == "OK"
+                        for f in sec.findings
+                    )
+                )
+
+            with patch("aikito_doctor.can_symlink", return_value=False):
+                sec = check_security(self.aikito_dir, self.home)
+                self.assertTrue(
+                    any(
+                        "Developer Mode" in f.message and f.status == "FAIL"
+                        for f in sec.findings
+                    )
+                )
+
     def test_missing_managed_subagent_is_reported_in_drift(self) -> None:
         missing_target = self.home / ".copilot" / "agents" / "formatter.agent.md"
         plan = [
@@ -1257,7 +1278,6 @@ display_name = "Pi"
             "- [[old-format]] — Custom Description\n",
             encoding="utf-8",
         )
-
 
         fixes = run_doctor_fixes(self.aikito_dir)
         self.assertTrue(any("ghost-note" in f for f in fixes))

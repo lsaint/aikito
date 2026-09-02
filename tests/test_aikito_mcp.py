@@ -343,8 +343,6 @@ elif "No authorization" in script_text:
             executable.chmod(0o700)
         return executable_directory
 
-
-
     def test_sync_preserves_unmanaged_settings_and_is_idempotent(self) -> None:
         codex_config = self.home / ".codex/config.toml"
         opencode_config = self.home / ".config/opencode/opencode.jsonc"

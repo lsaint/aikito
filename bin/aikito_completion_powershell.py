@@ -5,21 +5,16 @@ Generates a native PowerShell Register-ArgumentCompleter script based on
 argparse reflection schema.
 """
 
-from __future__ import annotations
-
 import argparse
 import json
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    pass
+from aikito_completion import _get_schema
 
 
 def generate_powershell(parser: argparse.ArgumentParser | None = None) -> str:
     """Generate a native PowerShell completion script for aikito."""
-    from aikito_completion import _get_schema
-
     schema = _get_schema(parser)
+
     top_flags = "@(" + ", ".join(json.dumps(f) for f in sorted(schema["flags"])) + ")"
     top_commands = (
         "@(" + ", ".join(json.dumps(c) for c in sorted(schema["commands"].keys())) + ")"
@@ -215,4 +210,3 @@ foreach ($cmdName in $script:AikitoCommandNames) {{
     Register-ArgumentCompleter -Native -CommandName $cmdName -ScriptBlock $script:AikitoCompleterBlock
 }}
 """
-

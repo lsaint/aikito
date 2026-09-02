@@ -275,7 +275,6 @@ class AikitoAdoptTest(unittest.TestCase):
         content = mcps_toml.read_text(encoding="utf-8")
         self.assertIn('command = "npx"', content)
 
-
         # Verify tomllib.loads succeeds on generated TOML
         import tomllib
 

@@ -100,7 +100,8 @@ class ProjectSummaryTest(unittest.TestCase):
             definition = root / "projects" / "missing"
             definition.mkdir(parents=True)
             (definition / "agent.toml").write_text(
-                f'path = "{(root / "gone").as_posix()}"\nskills = []\n', encoding="utf-8"
+                f'path = "{(root / "gone").as_posix()}"\nskills = []\n',
+                encoding="utf-8",
             )
 
             summary = collect_project_summaries(root, root)[0]

@@ -6,11 +6,9 @@ from pathlib import Path
 from aikito_platform import get_workspace_config_dir
 
 
-
 def get_workspace_pointer_path(home: Path) -> Path:
     """Return the user-level file that stores the default workspace path."""
     return get_workspace_config_dir(home) / "workspace"
-
 
 
 def resolve_workspace_with_source(home: Path) -> tuple[Path, str]:

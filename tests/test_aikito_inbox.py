@@ -235,7 +235,6 @@ class AikitoInboxTest(unittest.TestCase):
             f'[inbox]\npath = "{custom_inbox.as_posix()}"\n', encoding="utf-8"
         )
 
-
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
@@ -424,7 +423,6 @@ class AikitoInboxTest(unittest.TestCase):
         config_file.write_text(
             f'[inbox]\npath = "{custom_inbox.as_posix()}"\n', encoding="utf-8"
         )
-
 
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,

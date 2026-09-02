@@ -27,8 +27,6 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from aikito_platform import resolve_executable, secure_file_permissions
 
 
-
-
 STATE_VERSION = 1
 DEFAULT_MCPS_DIR = Path("mcps")
 DEFAULT_AGENTS_CONFIG = Path("agents.toml")
@@ -81,8 +79,6 @@ if os.environ.get("AIKITO_OPEN_BROWSER") == "1":
             else:
                 webbrowser.open(url)
 """
-
-
 
 
 class MCPConfigError(RuntimeError):
@@ -897,7 +893,7 @@ def _load_state(home: Path) -> dict[str, Any]:
     return state
 
 
-def _atomic_write(path: Path, content: str) -> None:
+def _atomic_write(path: Path, content: str, secure_permissions: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else None
     with tempfile.NamedTemporaryFile(
@@ -905,8 +901,17 @@ def _atomic_write(path: Path, content: str) -> None:
     ) as handle:
         handle.write(content)
         temp_path = Path(handle.name)
-    if mode is not None:
-        temp_path.chmod(mode)
+    if secure_permissions:
+        if not secure_file_permissions(temp_path):
+            print(
+                f"[WARN] Could not secure file permissions on credential file: {path}",
+                file=sys.stderr,
+            )
+    elif mode is not None:
+        try:
+            temp_path.chmod(mode)
+        except OSError:
+            pass
     os.replace(temp_path, path)
 
 
@@ -1283,7 +1288,6 @@ def run_live_mcp_commands(
                         timeout=timeout,
                         check=False,
                     )
-
 
                 except subprocess.TimeoutExpired:
                     results.append(LiveMCPResult(agent, command, "TIMEOUT", None))
@@ -1946,7 +1950,6 @@ def _write_browser_helper(directory: Path) -> Path:
     return helper
 
 
-
 def _find_agent_spec(specs: list[AgentSpec], agent: str, server: str) -> AgentSpec:
     try:
         return next(
@@ -2008,7 +2011,6 @@ def authenticate_mcp(
             bufsize=1,
             env=environment,
         )
-
 
         if process.stdout is None:
             raise MCPConfigError("Authentication command output is unavailable")
@@ -2144,11 +2146,10 @@ def sync_mcp_configs(
             else _backup_config(home, spec)
         )
         updated = _update_entry(spec, text)
-        _atomic_write(spec.config_path, updated)
-        if spec.contains_secret:
-            secure_file_permissions(spec.config_path)
+        _atomic_write(
+            spec.config_path, updated, secure_permissions=spec.contains_secret
+        )
         entries[spec.state_key] = {
-
             "fingerprint": desired_fingerprint,
             "config_path": str(spec.config_path),
             "target_name": spec.target_name,

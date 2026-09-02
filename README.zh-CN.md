@@ -182,6 +182,8 @@ Aikito 治理工作区，Agent 负责推理与维护 memory，而一切由你把
 
 ### 选项 2：手动配置
 
+**macOS / Linux** — 通过 Homebrew 安装：
+
 ```bash
 brew install lsaint/tap/aikito
 
@@ -192,13 +194,34 @@ aikito status
 
 通过 Homebrew 安装后，Zsh、Bash、Fish 的 Tab 补全会自动配置，无需额外操作。
 
-手动安装时，在 `~/.zshrc` 中添加一行：
+手动安装（非 Homebrew）时，在 `~/.zshrc` 中添加一行：
 
 ```zsh
 eval "$(aikito completion zsh)"
 ```
 
-对于 Windows PowerShell 用户，在 `$PROFILE` 中添加一行：
+**Windows** — 一键安装（PowerShell，无需管理员权限）：
+
+> **前提条件：** 必须开启 [Windows 开发者模式](https://learn.microsoft.com/zh-cn/windows/apps/get-started/enable-your-device-for-development)，
+> 以允许 Aikito 创建符号链接。
+> 路径：**设置 → 系统 → 开发者选项 → 开发者模式**（开启）。
+
+```powershell
+irm https://raw.githubusercontent.com/lsaint/aikito/main/install.ps1 | iex
+```
+
+脚本会自动检查 Python 3.12+、验证开发者模式、从 GitHub 下载最新版本，
+安装到 `%LOCALAPPDATA%\Programs\aikito`，并将 `bin\` 自动加入当前用户 PATH。
+
+安装完成后，**打开新终端**运行：
+
+```powershell
+aikito init workspace $env:USERPROFILE\aikito
+aikito sync global
+aikito status
+```
+
+在 `$PROFILE` 中添加以下行以开启 PowerShell Tab 补全：
 
 ```powershell
 Invoke-Expression (& aikito completion powershell | Out-String)

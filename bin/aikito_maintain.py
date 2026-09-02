@@ -9,7 +9,6 @@ from pathlib import Path
 from aikito_platform import resolve_executable
 
 
-
 class MemoryMaintenanceError(RuntimeError):
     """Raised when a maintenance scope or Agent runner cannot be resolved."""
 
@@ -187,7 +186,6 @@ def run_memory_maintenance(
             resolve_executable(command), cwd=scope.workdir, env=process_env
         ).returncode
     except OSError as exc:
-
         raise MemoryMaintenanceError(
             f"Failed to launch Agent '{agent_name}': {exc}"
         ) from exc

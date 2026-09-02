@@ -111,27 +111,31 @@ class GlobalEntrySyncTest(unittest.TestCase):
         self.assertTrue(result)
         self.assertFalse((self.root / ".grok").exists())
 
-    def test_windows_fallback_copies_when_cannot_symlink(self) -> None:
+    def test_sync_global_entry_fails_when_symlinks_unavailable(self) -> None:
         (self.source / "SKILL.md").write_text("# Skill", encoding="utf-8")
         target = self.root / ".agent" / "skills"
         target.parent.mkdir(parents=True, exist_ok=True)
-        with (
-            patch("aikito_sync.is_windows", return_value=True),
-            patch("aikito_sync.can_symlink", return_value=False),
-        ):
-            result = AIKITO_CLI.sync_global_entry(
-                self.source, target, "Test Agent", "skills"
-            )
-            self.assertTrue(result)
-            self.assertTrue(target.is_dir())
-            self.assertFalse(target.is_symlink())
-            self.assertEqual(
-                (target / "SKILL.md").read_text(encoding="utf-8"), "# Skill"
-            )
+        with patch("aikito_platform.can_symlink", return_value=False):
+            with patch("sys.stderr"):
+                with self.assertRaises(SystemExit) as cm:
+                    AIKITO_CLI.sync_global_entry(
+                        self.source, target, "Test Agent", "skills"
+                    )
+                self.assertEqual(cm.exception.code, 1)
+
+    def test_sync_project_instruction_conflict_protection(self) -> None:
+        source = self.root / "AGENTS.md"
+        source.write_text("# Instructions", encoding="utf-8")
+        target = self.root / "proj" / "AGENTS.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("# Custom Instructions", encoding="utf-8")
+        self.assertFalse(
+            AIKITO_CLI.sync_project_instruction(source, target, dry_run=False)
+        )
+        self.assertEqual(target.read_text(encoding="utf-8"), "# Custom Instructions")
 
 
 class SyncSubcommandParserTest(unittest.TestCase):
-
     def test_diff_command(self) -> None:
         parser = AIKITO_CLI.build_parser()
 
@@ -963,7 +967,6 @@ class EditInstructionsTest(unittest.TestCase):
             encoding="utf-8",
         )
 
-
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
 
@@ -1049,7 +1052,6 @@ class EditSkillTest(unittest.TestCase):
             args = AIKITO_CLI.build_parser().parse_args(["edit", "skill", "dur"])
             args.func(args)
             mock_run.assert_called_once_with([expected_editor, str(self.skill_file)])
-
 
     def test_edit_skill_conflict_suggests_edit_command(self) -> None:
         s1 = self.aikito_dir / "skills" / "gino-code-review"
@@ -1521,7 +1523,6 @@ url = "http://custom.example.com"
             f'name = "example"\npath = "{project_path.as_posix()}"\n'
         )
 
-
         with (
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
             patch.object(Path, "home", return_value=self.home),
@@ -1954,7 +1955,6 @@ class TestDoctorFixCli(unittest.TestCase):
             "- [[ghost-note|Ghost]]\n- [[bare]] — Some Description\n",
             encoding="utf-8",
         )
-
 
     def tearDown(self) -> None:
         self.tmp.cleanup()

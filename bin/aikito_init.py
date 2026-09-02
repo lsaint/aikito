@@ -19,7 +19,6 @@ import tomllib
 from aikito_mcp import MCPConfigError, collect_project_instruction_targets
 from aikito_platform import safe_relative_path
 from aikito_templates import (
-
     BUNDLED_SKILL_NAMES,
     bundled_skill_path,
     detect_existing_agents,
@@ -202,7 +201,6 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
 
 def _display_path(path: Path, home: Path) -> str:
     return safe_relative_path(path, home)
-
 
 
 def _validate_project_name(project_name: str) -> Optional[str]:

@@ -14,10 +14,11 @@ class AikitoCompletionPowerShellTest(unittest.TestCase):
         script = generate_powershell(parser)
 
         # Completer registration
-        self.assertIn("Register-ArgumentCompleter -Native -CommandName $cmdName", script)
+        self.assertIn(
+            "Register-ArgumentCompleter -Native -CommandName $cmdName", script
+        )
         self.assertIn("$script:AikitoCommandNames", script)
         self.assertIn("param($wordToComplete, $commandAst, $cursorPosition)", script)
-
 
         # Commands and flags
         self.assertIn('"show"', script)
@@ -46,7 +47,9 @@ class AikitoCompletionPowerShellTest(unittest.TestCase):
 
     def test_powershell_profile_install_instructions_included(self) -> None:
         script = generate_powershell()
-        self.assertIn("Invoke-Expression (& aikito completion powershell | Out-String)", script)
+        self.assertIn(
+            "Invoke-Expression (& aikito completion powershell | Out-String)", script
+        )
         self.assertIn("$PROFILE", script)
 
 

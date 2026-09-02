@@ -32,7 +32,6 @@ class MemoryFileItem:
         return f"{self.scope}/{rel_no_ext}"
 
 
-
 class MemoryTargetConflictError(Exception):
     def __init__(self, target: str, candidates: list[MemoryFileItem]):
         super().__init__(f"Multiple memory notes match '{target}'")

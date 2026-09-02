@@ -2,10 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [ main, 'windows-*' ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
-
+  workflow_dispatch:
 
 jobs:
   test:
@@ -16,7 +16,6 @@ jobs:
         python-version: ["3.12", "3.13", "3.14"]
 
     steps:
-
       - uses: actions/checkout@v4
 
       - name: Set up Python ${{ matrix.python-version }}
@@ -29,7 +28,6 @@ jobs:
 
       - name: Run unit tests
         run: python -m pytest
-
 
   smoke-test:
     runs-on: ubuntu-latest
@@ -348,10 +346,6 @@ jobs:
           if ($LASTEXITCODE -eq 0) { throw ".ps1 did not propagate non-zero exit code" }
           $global:LASTEXITCODE = 0
 
-
-
-
-
       - name: Test PowerShell Completion Generator and Loading
         shell: pwsh
         run: |
@@ -371,4 +365,17 @@ jobs:
           python bin/aikito doctor
           python bin/aikito status
 
+      - name: Verify Graceful Failure When Symlinks Unavailable
+        shell: pwsh
+        run: |
+          $noSymWs = Join-Path $env:RUNNER_TEMP "aikito-no-symlink-ws"
+          $env:AIKITO_DIR = $noSymWs
+          $env:AIKITO_FORCE_NO_SYMLINK = "1"
+          $output = python bin/aikito init workspace "$noSymWs" 2>&1
+          if ($LASTEXITCODE -eq 0) { throw "Expected init workspace to fail without symlink support" }
+          if (-not ($output | Out-String | Select-String "Developer Mode")) {
+            throw "Expected Developer Mode guidance in failure output"
+          }
+          $global:LASTEXITCODE = 0
+          $env:AIKITO_FORCE_NO_SYMLINK = ""
 

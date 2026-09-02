@@ -200,6 +200,8 @@ maintenance prompts, see [Agent-first workflows](docs/agent-workflow.md).
 
 ### Option 2: Set It Up Manually
 
+**macOS / Linux** — install via Homebrew:
+
 ```bash
 brew install lsaint/tap/aikito
 
@@ -208,16 +210,38 @@ aikito sync global
 aikito status
 ```
 
-Installing via Homebrew automatically sets up Tab completion for Zsh, Bash,
+Installing via Homebrew automatically sets up tab completion for Zsh, Bash,
 and Fish — no extra configuration needed.
 
-For manual installs, add one line to `~/.zshrc`:
+For manual installs (non-Homebrew), add one line to `~/.zshrc`:
 
 ```zsh
 eval "$(aikito completion zsh)"
 ```
 
-For PowerShell on Windows, add one line to your `$PROFILE`:
+**Windows** — one-liner installer (PowerShell, no admin required):
+
+> **Prerequisite:** [Windows Developer Mode](https://learn.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development)
+> must be enabled so that Aikito can create symbolic links.
+> Enable it in **Settings → System → For developers → Developer Mode**.
+
+```powershell
+irm https://raw.githubusercontent.com/lsaint/aikito/main/install.ps1 | iex
+```
+
+The script checks for Python 3.12+, validates Developer Mode, downloads the
+latest release from GitHub, installs to `%LOCALAPPDATA%\Programs\aikito`, and
+adds `bin\` to your User `PATH` automatically.
+
+After the installer finishes, open a **new terminal** and run:
+
+```powershell
+aikito init workspace $env:USERPROFILE\aikito
+aikito sync global
+aikito status
+```
+
+Enable PowerShell tab completion by adding one line to your `$PROFILE`:
 
 ```powershell
 Invoke-Expression (& aikito completion powershell | Out-String)

@@ -319,7 +319,6 @@ class ConsoleData:
                     add(path, "memory", f"{project.name}/{name}")
         return resources
 
-
     def _resolve_wikilinks(
         self, source: Path, content: str
     ) -> dict[str, dict[str, str]]:
@@ -446,7 +445,6 @@ def serve_console(
     if open_browser:
         threading.Timer(0.15, launch_browser, args=(url,)).start()
     try:
-
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nAikito Console stopped.")

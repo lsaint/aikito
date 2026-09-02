@@ -9,7 +9,6 @@ from aikito_mcp import MCPConfigError, collect_project_instruction_targets
 from aikito_platform import safe_relative_path
 
 
-
 @dataclass(frozen=True)
 class ProjectSkillState:
     project_name: str
@@ -70,7 +69,6 @@ def _display_path(path: Path | None, home: Path) -> str:
     if path is None:
         return "-"
     return safe_relative_path(path, home)
-
 
 
 def _link_status(target: Path, expected: Path) -> str:

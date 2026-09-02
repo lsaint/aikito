@@ -1,7 +1,7 @@
 """Platform abstraction and compatibility layer for Aikito.
 
 Encapsulates OS-specific behavior for Windows, macOS, and Linux:
-- Symlink creation with Windows Developer Mode detection and WinError 1314 guidance
+- Strict symbolic link requirement and Windows Developer Mode detection
 - Credential file permission inspection (POSIX mode 0600 vs Windows ACL via icacls)
 - Windows CLI executable resolution (.cmd/.bat) for subprocess invocations
 - Cross-platform configuration directory and path display normalization
@@ -10,14 +10,26 @@ Encapsulates OS-specific behavior for Windows, macOS, and Linux:
 
 from __future__ import annotations
 
+import functools
 import os
+import shlex
 import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import webbrowser
 from pathlib import Path
 from typing import Sequence
+
+SYMLINK_REQUIREMENT_GUIDANCE = (
+    "[ERROR] Aikito requires symbolic link support to manage Agent resources.\n"
+    "On Windows, symbolic links require enabling Developer Mode (no restart required):\n\n"
+    "  Option 1 (Windows Settings GUI):\n"
+    "    Settings -> System -> For developers -> Developer Mode -> Turn On\n\n"
+    "  Option 2 (PowerShell / Command Prompt as Administrator):\n"
+    '    reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AppModelUnlock" /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"\n'
+)
 
 
 def is_windows() -> bool:
@@ -37,38 +49,20 @@ def init_console_encoding() -> None:
             pass
 
 
-def is_developer_mode_enabled() -> bool | None:
-    """Check if Windows Developer Mode is enabled in the registry.
-
-    Returns:
-        True: Developer Mode is enabled in registry.
-        False: Developer Mode is disabled in registry.
-        None: Not running on Windows or unable to query registry.
-    """
-    if not is_windows():
-        return None
-    try:
-        import winreg
-
-        key_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
-        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
-            val, _ = winreg.QueryValueEx(key, "AllowDevelopmentWithoutDevLicense")
-            return val == 1
-    except Exception:
-        return None
-
-
+@functools.lru_cache(maxsize=1)
 def can_symlink() -> bool:
     """Return True if symlinks can be created in the current environment.
 
     Probes actual symlink creation in a temporary directory on Windows, which
-    reliably detects both Developer Mode and unprivileged/Administrator capabilities.
+    reliably detects Developer Mode and Administrator capabilities.
+    Can be forced to False via AIKITO_FORCE_NO_SYMLINK=1.
     """
+    if os.environ.get("AIKITO_FORCE_NO_SYMLINK") == "1":
+        return False
     if not is_windows():
         return True
-    try:
-        import tempfile
 
+    try:
         with tempfile.TemporaryDirectory(prefix="aikito-symlink-probe-") as temp_dir:
             temp_path = Path(temp_dir)
             probe_src = temp_path / "probe_src"
@@ -80,37 +74,30 @@ def can_symlink() -> bool:
         return False
 
 
-def safe_symlink(source: Path, target: Path, quiet: bool = False) -> bool:
+def require_symlink_support() -> None:
+    """Ensure the environment supports symlink creation; exit with actionable instructions if not."""
+    if not can_symlink():
+        print(SYMLINK_REQUIREMENT_GUIDANCE, file=sys.stderr)
+        sys.exit(1)
+
+
+def safe_symlink(source: Path, target: Path) -> bool:
     """Create a symbolic link from target to source.
 
-    Handles Windows directory symlinks explicitly and catches WinError 1314
-    (privilege not held) to output actionable guidance for enabling Developer Mode.
+    Handles Windows directory symlinks explicitly (target_is_directory=True).
     """
     try:
         if is_windows():
-            # In Windows, directory symlinks require target_is_directory=True
             is_dir = source.is_dir() if source.exists() else False
             target.symlink_to(source, target_is_directory=is_dir)
         else:
             target.symlink_to(source)
         return True
     except OSError as exc:
-        winerror = getattr(exc, "winerror", None)
-        if winerror == 1314 or (is_windows() and exc.errno in (1, 13)):  # EPERM / EACCES
-            if not quiet:
-                print(
-                    "[ERROR] Windows requires Developer Mode or Administrator privileges to create symlinks.\n"
-                    "  - To enable Developer Mode: Settings -> System -> For developers -> Developer Mode (On)\n"
-                    "  - Or run PowerShell as Administrator: reg add \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AppModelUnlock\" /t REG_DWORD /f /v \"AllowDevelopmentWithoutDevLicense\" /d \"1\"\n"
-                    "  - Or use copy-based synchronization.",
-                    file=sys.stderr,
-                )
-        else:
-            if not quiet:
-                print(
-                    f"[ERROR] Failed to create symlink {target} -> {source}: {exc}",
-                    file=sys.stderr,
-                )
+        print(
+            f"[ERROR] Failed to create symlink {target} -> {source}: {exc}",
+            file=sys.stderr,
+        )
         return False
 
 
@@ -149,7 +136,16 @@ def check_credential_permissions(path: Path) -> tuple[bool, str]:
     """Check that a secret-bearing configuration file has secure permissions.
 
     On POSIX: checks stat mode is 0600.
-    On Windows: queries icacls to verify Everyone or standard Users cannot read.
+    On Windows: uses PowerShell Get-Acl with SID-based principal matching so
+    that the result is locale-independent (icacls output is localized on
+    non-English Windows).
+
+    Safe SIDs (access is acceptable):
+      - File owner (current user, detected via whoami /user)
+      - S-1-5-18  SYSTEM
+      - S-1-5-32-544  Administrators
+
+    Any other SID with granted access is treated as insecure.
 
     Returns:
         (is_secure, description)
@@ -163,37 +159,79 @@ def check_credential_permissions(path: Path) -> tuple[bool, str]:
             return True, oct(mode)
         return False, oct(mode)
 
-    # Windows NTFS permissions check via icacls
+    # --- Windows: SID-based ACL check via PowerShell (locale-independent) ---
+    # Step 1: get current user's SID
     try:
-        result = subprocess.run(
-            ["icacls", str(path)],
+        sid_result = subprocess.run(
+            ["whoami", "/user", "/fo", "csv", "/nh"],
             capture_output=True,
             text=True,
             check=False,
             timeout=5,
         )
+        owner_sid: str | None = None
+        if sid_result.returncode == 0:
+            # output: "DOMAIN\\user","S-1-5-21-..."
+            parts = [p.strip().strip('"') for p in sid_result.stdout.strip().split(",")]
+            if len(parts) >= 2:
+                owner_sid = parts[1]
+    except Exception:
+        owner_sid = None
+
+    # Known-safe SIDs (locale-independent)
+    safe_sids = {
+        "S-1-5-18",  # SYSTEM
+        "S-1-5-32-544",  # Administrators
+    }
+    if owner_sid:
+        safe_sids.add(owner_sid)
+
+    # Step 2: query ACL via PowerShell Get-Acl
+    # Escape single quotes in path for PowerShell string literal ('' = escaped ')
+    ps_path = str(path).replace("'", "''")
+    ps_script = (
+        f"$acl = Get-Acl -LiteralPath '{ps_path}';"
+        "$acl.Access | ForEach-Object {"
+        "$sid = $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value;"
+        "Write-Output $sid"
+        "}"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps_script],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
         if result.returncode != 0:
-            return False, f"ACL unchecked (icacls exit {result.returncode})"
-        output = result.stdout.upper()
-        # Insecure if Everyone, Users (BUILTIN\Users), or Authenticated Users have access
-        insecure_principals = [
-            "\\EVERYONE:",
-            "BUILTIN\\USERS:",
-            "NT AUTHORITY\\AUTHENTICATED USERS:",
-        ]
-        for principal in insecure_principals:
-            if principal in output:
-                return False, "ACL allows group access"
+            return False, f"ACL unchecked (PowerShell exit {result.returncode})"
+
+        granted_sids = {
+            line.strip() for line in result.stdout.splitlines() if line.strip()
+        }
+        unknown = granted_sids - safe_sids
+        if unknown:
+            return (
+                False,
+                f"ACL allows access to unexpected SIDs: {', '.join(sorted(unknown))}",
+            )
         return True, "ACL restricted"
     except Exception as exc:
         return False, f"ACL unchecked ({exc})"
 
 
-def get_permission_fix_cmd(display_path: str) -> str:
-    """Return platform-specific remediation command to secure a credential file."""
+def get_permission_fix_cmd(path: Path) -> str:
+    """Return platform-specific remediation command to secure a credential file.
+
+    Takes the absolute Path so the Windows icacls command never contains
+    ~ (which cmd.exe and PowerShell do not expand for external programs).
+    """
     if is_windows():
-        return f'icacls {display_path} /inheritance:r /grant:r "%USERNAME%:(R,W)"'
-    return f"chmod 600 {display_path}"
+        abs_path = str(path.expanduser().resolve())
+        return f'icacls "{abs_path}" /inheritance:r /grant:r "%USERNAME%:(R,W)"'
+    # Quote path to handle spaces
+    return f'chmod 600 "{path}"'
 
 
 def resolve_executable(command: Sequence[str]) -> list[str]:
@@ -222,7 +260,6 @@ def split_command(cmd: str) -> list[str]:
     """
     if not cmd.strip():
         return []
-    import shlex
 
     if not is_windows():
         try:
@@ -247,7 +284,6 @@ def split_command(cmd: str) -> list[str]:
     return parts
 
 
-
 def get_workspace_config_dir(home: Path) -> Path:
     """Return the configuration base directory (~/.config or %APPDATA%)."""
     if is_windows():
@@ -261,30 +297,25 @@ def get_workspace_config_dir(home: Path) -> Path:
 
 def get_default_editor() -> str:
     """Return the default editor name when $VISUAL and $EDITOR are unset."""
-    env_editor = (
-        (os.environ.get("VISUAL") or "").strip()
-        or (os.environ.get("EDITOR") or "").strip()
-    )
+    env_editor = (os.environ.get("VISUAL") or "").strip() or (
+        os.environ.get("EDITOR") or ""
+    ).strip()
     if env_editor:
         return env_editor
     return "notepad" if is_windows() else "vi"
 
 
 def safe_relative_path(path: Path, base: Path) -> str:
-    """Return a display string relative to base with ~/ prefix, or absolute path.
+    """Return a display string relative to base with ~/ prefix, or fallback to posix string.
 
-    Gracefully handles cross-drive paths on Windows where relative_to raises ValueError.
-    Always uses forward slashes so paths can safely be embedded in TOML or rendered consistently.
+    Never resolves symbolic links to avoid side effects during path display.
+    Cross-drive paths on Windows gracefully fallback to the posix path string.
     """
     try:
-        rel = path.resolve().relative_to(base.resolve())
+        rel = path.relative_to(base)
         return f"~/{rel.as_posix()}"
     except ValueError:
-        try:
-            rel = path.relative_to(base)
-            return f"~/{rel.as_posix()}"
-        except ValueError:
-            return path.as_posix()
+        return path.as_posix()
 
 
 def launch_browser(url: str) -> None:
@@ -296,4 +327,3 @@ def launch_browser(url: str) -> None:
         except Exception:
             pass
     webbrowser.open(url)
-

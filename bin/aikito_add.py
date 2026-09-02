@@ -14,7 +14,6 @@ from typing import List, Optional
 from aikito_platform import safe_relative_path
 
 
-
 NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 
 DEFAULT_SUBAGENT_AGENTS = ["codex", "claude-code", "agy", "github-copilot"]
@@ -66,7 +65,6 @@ def _titleize(name: str) -> str:
 
 def _display_path(path: Path, home: Path) -> str:
     return safe_relative_path(path, home)
-
 
 
 def _find_matching_bracket(text: str, start_bracket_pos: int) -> int:

@@ -289,7 +289,6 @@ class AikitoCompletionTest(unittest.TestCase):
             f'name = "example"\npath = "{project_root.as_posix()}"\n', encoding="utf-8"
         )
 
-
         self.assertEqual(
             list_paths(self.aikito_dir, "agent"),
             sorted(

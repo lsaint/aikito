@@ -127,7 +127,6 @@ def list_inbox_completions(aikito_dir: Path) -> List[str]:
     return sorted(set(completions))
 
 
-
 def _registered_search_roots(aikito_dir: Path) -> List[Path]:
     """Return existing workspace and registered project roots without duplicates."""
     roots = [aikito_dir.resolve()]
@@ -747,4 +746,3 @@ def generate_powershell(parser: argparse.ArgumentParser | None = None) -> str:
     from aikito_completion_powershell import generate_powershell as _gen_pwsh
 
     return _gen_pwsh(parser)
-

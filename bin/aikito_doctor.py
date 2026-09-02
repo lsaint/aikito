@@ -25,15 +25,15 @@ from aikito_config import (
     load_workspace_config,
 )
 from aikito_platform import (
+    can_symlink,
     check_credential_permissions,
     get_permission_fix_cmd,
-    is_developer_mode_enabled,
     is_windows,
     safe_relative_path,
 )
 
-from aikito_templates import (
 
+from aikito_templates import (
     detect_existing_agents,
     detected_agent_names,
     load_agents_template,
@@ -117,9 +117,10 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
         return DoctorSection(name="Symlinks", findings=findings)
 
     global_instruction_source = aikito_dir / "global" / "AGENTS.md"
+    agents_skills_dir = home / ".agents" / "skills"
 
     # 1a. Per-agent instruction symlinks
-    instr_ok = 0
+    inst_fail_count = 0
     instr_total = 0
     for name, definition in agents.items():
         if definition.instruction_path is None:
@@ -130,43 +131,49 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
         instr_total += 1
         verdict = classify_symlink(target, global_instruction_source)
         display = _home_rel(target, home)
-        if verdict in (SymlinkVerdict.OK, SymlinkVerdict.COPIED):
-            instr_ok += 1
-        elif verdict == SymlinkVerdict.DANGLING:
+        if verdict == SymlinkVerdict.OK:
+            pass
 
+        elif verdict == SymlinkVerdict.DANGLING:
+            inst_fail_count += 1
             findings.append(
                 _fail(
-                    f"{definition.display_name} instructions: dangling symlink ({display})",
+                    f"{definition.display_name}: dangling symlink ({display})",
                     "aikito sync global",
                 )
             )
         elif verdict == SymlinkVerdict.WRONG_TARGET:
+            inst_fail_count += 1
             findings.append(
                 _fail(
-                    f"{definition.display_name} instructions: points elsewhere ({display})",
+                    f"{definition.display_name}: points elsewhere ({display})",
                     "aikito sync global",
                 )
             )
         elif verdict == SymlinkVerdict.NOT_SYMLINK:
+            inst_fail_count += 1
             findings.append(
                 _fail(
-                    f"{definition.display_name} instructions: not a symlink ({display})",
+                    f"{definition.display_name}: not a symlink ({display})",
                     "aikito sync global",
                 )
             )
-        else:  # MISSING
+        elif verdict == SymlinkVerdict.MISSING:
+            inst_fail_count += 1
             findings.append(
                 _fail(
-                    f"{definition.display_name} instructions: missing ({display})",
+                    f"{definition.display_name}: missing ({display})",
                     "aikito sync global",
                 )
             )
 
-    if instr_total > 0 and instr_ok == instr_total:
-        findings.append(_ok(f"Global instructions OK ({instr_ok} agents)"))
+    if instr_total > 0 and inst_fail_count == 0:
+        findings.append(_ok(f"Global instructions OK ({instr_total} agents)"))
 
-    # 1b. Per-agent skills directory symlinks
-    agents_skills_dir = home / ".agents" / "skills"
+    # 1b. Check skills directories and entries
+    skills_checked_count = 0
+    skills_fail_count = 0
+    seen_skill_targets: set[Path] = set()
     skills_toml_path = aikito_dir / "skills.toml"
     global_skills: List[str] = []
     if skills_toml_path.exists():
@@ -177,10 +184,7 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
         except tomllib.TOMLDecodeError:
             pass
 
-    skills_fail_count = 0
-    skills_checked_count = 0
-    seen_skill_targets: set[Path] = set()
-    for name, definition in agents.items():
+    for definition in agents.values():
         if definition.skills_path is None:
             continue
         skills_dir = definition.skills_path
@@ -195,8 +199,9 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
             verdict = classify_symlink(skill_target, expected)
             display = _home_rel(skill_target, home)
             skills_checked_count += 1
-            if verdict in (SymlinkVerdict.OK, SymlinkVerdict.COPIED):
+            if verdict == SymlinkVerdict.OK:
                 pass
+
             elif verdict == SymlinkVerdict.DANGLING:
                 skills_fail_count += 1
                 findings.append(
@@ -229,7 +234,6 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
                         "aikito sync global",
                     )
                 )
-
 
     if global_skills and skills_fail_count == 0 and skills_checked_count > 0:
         findings.append(
@@ -1030,18 +1034,17 @@ def check_security(aikito_dir: Path, home: Path) -> DoctorSection:
     """Check file permissions and security-sensitive configurations."""
     findings: List[DoctorFinding] = []
 
-    # 5a. Platform diagnostics for Windows
+    # 5a. Platform synchronization capability
     if is_windows():
-        dev_mode = is_developer_mode_enabled()
-        if dev_mode is False:
+        if can_symlink():
+            findings.append(_ok("Windows Developer Mode / symlink support: enabled"))
+        else:
             findings.append(
-                _warn(
-                    "Windows Developer Mode is disabled: standard symlinks require Developer Mode or Administrator privileges",
-                    "Enable in Settings -> System -> For developers -> Developer Mode, or use 'sync_mode = \"copy\"'",
+                _fail(
+                    "Windows Developer Mode is disabled: symbolic links cannot be created",
+                    "Enable Developer Mode in Windows Settings: Settings -> System -> For developers -> Developer Mode (On)",
                 )
             )
-        elif dev_mode is True:
-            findings.append(_ok("Windows Developer Mode: enabled (unprivileged symlinks supported)"))
 
     # 5b. Credential config files must have secure permissions
     try:
@@ -1060,7 +1063,8 @@ def check_security(aikito_dir: Path, home: Path) -> DoctorSection:
             if not is_secure:
                 cred_issues += 1
                 display = _home_rel(spec.config_path, home)
-                fix_cmd = get_permission_fix_cmd(display)
+                fix_cmd = get_permission_fix_cmd(spec.config_path)
+
                 if desc.startswith("ACL unchecked"):
                     findings.append(
                         _warn(
@@ -1076,7 +1080,6 @@ def check_security(aikito_dir: Path, home: Path) -> DoctorSection:
                         )
                     )
         if cred_checked > 0 and cred_issues == 0:
-
             findings.append(
                 _ok(f"Credential file permissions OK ({cred_checked} files)")
             )
@@ -1084,7 +1087,6 @@ def check_security(aikito_dir: Path, home: Path) -> DoctorSection:
             findings.append(_ok("No secret-bearing credential config files detected"))
     except MCPConfigError:
         pass
-
 
     # 5c. .gitignore covers .local/state/
     gitignore = aikito_dir / ".gitignore"
@@ -1141,9 +1143,7 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
     # 6b. Interpreter consistency: $PATH python/python3 vs sys.executable
     if is_windows():
         path_python = (
-            shutil.which("python")
-            or shutil.which("py")
-            or shutil.which("python3")
+            shutil.which("python") or shutil.which("py") or shutil.which("python3")
         )
     else:
         path_python = shutil.which("python3") or shutil.which("python")
@@ -1153,7 +1153,9 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
         try:
             path_resolved = Path(path_python).resolve()
             running_resolved = Path(running).resolve()
-            if os.path.normcase(str(path_resolved)) != os.path.normcase(str(running_resolved)):
+            if os.path.normcase(str(path_resolved)) != os.path.normcase(
+                str(running_resolved)
+            ):
                 fix_hint = (
                     "Adjust PATH so the intended Python environment is first"
                     if is_windows()

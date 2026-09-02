@@ -171,7 +171,6 @@ def resolve_inbox_target_for_command(
         sys.exit(1)
 
 
-
 def remove_inbox_note(inbox_dir: Path, target: str | Path) -> Path:
     """Remove an inbox note file."""
     if isinstance(target, Path):

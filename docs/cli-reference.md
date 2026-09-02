@@ -53,7 +53,6 @@ version.
 | `aikito doctor [--fix]` | Run deep workspace diagnostics (and auto-repair fixable index issues) |
 | `aikito completion zsh\|bash\|fish\|powershell` | Print a shell completion script |
 | `aikito completion candidates projects\|skills\|subagents\|mcps\|memories\|memory-completions\|inbox\|inbox-completions\|paths [prefix]` | List dynamic completion candidates |
-
 | `aikito version` | Print the CLI version |
 
 ## Discovery

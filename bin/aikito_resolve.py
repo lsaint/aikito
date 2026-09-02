@@ -26,8 +26,6 @@ from aikito_status import collect_skills_rows
 from aikito_subagent import SubagentConfigError, load_subagent_definitions
 
 
-
-
 class SkillTargetConflictError(Exception):
     def __init__(self, target: str, candidates: list[SkillRow]):
         super().__init__(f"Multiple skills match '{target}'")
@@ -269,7 +267,6 @@ def collect_instruction_agent_status(
     rows = []
     status_names = {
         "OK": "linked",
-        "OK (copy)": "copied",
         "MISSING": "missing",
         "CONFLICT": "conflict",
         "SKIP": "skipped",
@@ -293,7 +290,6 @@ def collect_project_instruction_status(
     rows = []
     status_names = {
         "OK": "linked",
-        "OK (copy)": "copied",
         "MISSING": "missing",
         "CONFLICT": "conflict",
     }
@@ -324,7 +320,6 @@ def open_in_editor(target_file: Path) -> None:
 
     try:
         res = subprocess.run(cmd_args)
-
 
         if res.returncode != 0:
             sys.exit(res.returncode)

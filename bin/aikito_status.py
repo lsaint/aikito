@@ -349,7 +349,7 @@ def collect_agent_status_rows(
             else:
                 verdict = classify_symlink(target, global_instruction_source)
                 instructions_status = symlink_verdict_to_status(verdict)
-                if instructions_status not in ("OK", "OK (copy)"):
+                if instructions_status != "OK":
                     agent_issues += 1
 
         # 2. Skills Status
@@ -367,8 +367,9 @@ def collect_agent_status_rows(
                     skill_target = skills_dir / skill_name
                     expected_source = aikito_dir / "skills" / skill_name
                     verdict = classify_symlink(skill_target, expected_source)
-                    if verdict in (SymlinkVerdict.OK, SymlinkVerdict.COPIED):
+                    if verdict == SymlinkVerdict.OK:
                         ok_skills += 1
+
                 if ok_skills == total_global_skills and total_global_skills > 0:
                     skills_status = f"OK ({total_global_skills})"
                 elif total_global_skills > 0:
@@ -376,7 +377,6 @@ def collect_agent_status_rows(
                     agent_issues += 1
                 else:
                     skills_status = "OK (0)"
-
 
         # 3. MCP Status
         mcp_status = "SKIP"

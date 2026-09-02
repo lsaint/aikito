@@ -85,14 +85,17 @@ but users must still inspect imported configuration before committing it.
 Aikito provides native support across macOS, Linux, and Windows (PowerShell and
 Command Prompt):
 
-- **Symbolic Links**: On POSIX systems, standard symbolic links are used. On Windows,
-  unprivileged symlink creation requires Windows Developer Mode (or Administrator
-  privileges). When Developer Mode is disabled, Aikito automatically falls back to
-  copy-based synchronization for global and project resources.
+- **Symbolic Links**: On POSIX systems and Windows, Aikito uses symbolic links to
+  connect runtime Agent configurations with canonical resources. On Windows,
+  creating unprivileged symbolic links requires enabling Windows Developer Mode
+  (or running with Administrator privileges). When Developer Mode is disabled,
+  Aikito cleanly refuses synchronization upfront and displays actionable steps to
+  enable it.
 - **Credential File Permissions**: On POSIX systems, credential-bearing configuration
   files are restricted to owner read/write (`0600`). On Windows, Aikito hardens NTFS
   Access Control Lists (`icacls`) by disabling inheritance and granting read/write
   access strictly to the active user account, stripping broad group permissions.
+
 
 
 ## Managed Project Directories

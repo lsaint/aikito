@@ -12,7 +12,6 @@ from aikito_platform import (
     get_permission_fix_cmd,
     get_workspace_config_dir,
     init_console_encoding,
-    is_developer_mode_enabled,
     is_windows,
     launch_browser,
     resolve_executable,
@@ -32,15 +31,30 @@ class AikitoPlatformTest(unittest.TestCase):
         init_console_encoding()
 
     def test_can_symlink(self) -> None:
+        can_symlink.cache_clear()
         result = can_symlink()
         self.assertIsInstance(result, bool)
 
-    def test_is_developer_mode_enabled(self) -> None:
-        result = is_developer_mode_enabled()
-        if not is_windows():
-            self.assertIsNone(result)
+    def test_can_symlink_force_copy_env(self) -> None:
+        can_symlink.cache_clear()
+        with patch.dict(os.environ, {"AIKITO_FORCE_NO_SYMLINK": "1"}):
+            self.assertFalse(can_symlink())
+        can_symlink.cache_clear()
+
+    def test_require_symlink_support(self) -> None:
+        from aikito_platform import require_symlink_support
+
+        with patch("aikito_platform.can_symlink", return_value=True):
+            require_symlink_support()
+
+        with patch("aikito_platform.can_symlink", return_value=False):
+            with patch("sys.stderr"):
+                with self.assertRaises(SystemExit) as cm:
+                    require_symlink_support()
+                self.assertEqual(cm.exception.code, 1)
 
     def test_secure_file_permissions(self) -> None:
+
         with tempfile.TemporaryDirectory() as tmpdir:
             f = Path(tmpdir) / "secret.toml"
             f.write_text("secret = 123", encoding="utf-8")
@@ -117,41 +131,100 @@ class AikitoPlatformTest(unittest.TestCase):
                     is_secure, desc = check_credential_permissions(f)
                     self.assertFalse(is_secure)
 
-    def test_check_credential_permissions_windows_icacls(self) -> None:
+    def test_check_credential_permissions_windows_sid_based(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
             f = tmp / "cred.json"
             f.write_text("{}")
 
             with patch("aikito_platform.is_windows", return_value=True):
-                # Mock secure icacls output
-                mock_res = MagicMock(returncode=0)
-                mock_res.stdout = "NT AUTHORITY\\SYSTEM:(F)\nDESKTOP-TEST\\user:(R)\n"
-                with patch("subprocess.run", return_value=mock_res):
+                owner_sid = "S-1-5-21-1234-5678-9012-1001"
+
+                def make_run(whoami_out: str, ps_out: str, ps_rc: int = 0):
+                    whoami_res = MagicMock(returncode=0, stdout=whoami_out)
+                    ps_res = MagicMock(returncode=ps_rc, stdout=ps_out)
+                    return [whoami_res, ps_res]
+
+                # Secure: only owner, SYSTEM, Administrators
+                safe_ps_out = f"{owner_sid}\nS-1-5-18\nS-1-5-32-544\n"
+                with patch(
+                    "subprocess.run",
+                    side_effect=make_run(
+                        f'"DOMAIN\\\\user","{owner_sid}"', safe_ps_out
+                    ),
+                ):
                     is_secure, desc = check_credential_permissions(f)
                     self.assertTrue(is_secure)
 
-                # Mock insecure icacls output containing Everyone
-                mock_res.stdout = "NT AUTHORITY\\SYSTEM:(F)\n\\EVERYONE:(R)\n"
-                with patch("subprocess.run", return_value=mock_res):
+                # Insecure: EVERYONE SID (S-1-1-0) granted — locale-independent
+                insecure_ps_out = f"{owner_sid}\nS-1-5-18\nS-1-1-0\n"
+                with patch(
+                    "subprocess.run",
+                    side_effect=make_run(
+                        f'"DOMAIN\\\\user","{owner_sid}"', insecure_ps_out
+                    ),
+                ):
                     is_secure, desc = check_credential_permissions(f)
                     self.assertFalse(is_secure)
+                    self.assertIn("S-1-1-0", desc)
 
-                # Mock icacls error returncode
-                mock_res.returncode = 1
-                with patch("subprocess.run", return_value=mock_res):
+                # PowerShell failure → unchecked
+                with patch(
+                    "subprocess.run",
+                    side_effect=make_run(
+                        f'"DOMAIN\\\\user","{owner_sid}"', "", ps_rc=1
+                    ),
+                ):
                     is_secure, desc = check_credential_permissions(f)
                     self.assertFalse(is_secure)
                     self.assertIn("ACL unchecked", desc)
 
     def test_get_permission_fix_cmd(self) -> None:
+        # POSIX: quoted path for spaces
+        p = Path("/home/user/my files/.claude.json")
         with patch("aikito_platform.is_windows", return_value=False):
-            self.assertEqual(
-                get_permission_fix_cmd("~/.claude.json"), "chmod 600 ~/.claude.json"
-            )
+            cmd = get_permission_fix_cmd(p)
+            self.assertIn("chmod 600", cmd)
+            self.assertIn('"', cmd)  # path must be quoted
 
+        # Windows: absolute path, no bare ~
+        win_path = Path("C:/Users/user/.claude.json")
         with patch("aikito_platform.is_windows", return_value=True):
-            self.assertIn("icacls", get_permission_fix_cmd("~/.claude.json"))
+            cmd = get_permission_fix_cmd(win_path)
+            self.assertIn("icacls", cmd)
+            self.assertNotIn("icacls ~", cmd)  # ~ must not appear as first path char
+
+    def test_check_credential_permissions_windows_ps_path_single_quote(self) -> None:
+        """Paths containing single quotes must not break the PowerShell script."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            f = Path(tmpdir) / "cred.json"
+            f.write_text("{}")
+            with patch("aikito_platform.is_windows", return_value=True):
+                owner_sid = "S-1-5-21-9999"
+                whoami_out = f'"DOMAIN\\\\user","{owner_sid}"'
+                ps_out = f"{owner_sid}\nS-1-5-18\n"
+
+                captured: list[list] = []
+
+                def fake_run(args, **kw):
+                    captured.append(list(args))
+                    if "whoami" in args[0]:
+                        return MagicMock(returncode=0, stdout=whoami_out)
+                    return MagicMock(returncode=0, stdout=ps_out)
+
+                with patch("subprocess.run", side_effect=fake_run):
+                    # Patch path to include a single quote
+                    tricky = Path("/home/user/o'brien/.claude.json")
+                    with patch.object(Path, "exists", return_value=True):
+                        with patch("aikito_platform.is_windows", return_value=True):
+                            check_credential_permissions(tricky)
+                # The PowerShell command arg must escape single quotes with ''
+                ps_call = next(c for c in captured if "powershell" in c[0])
+                ps_cmd = ps_call[-1]
+                self.assertNotIn(
+                    "o'brien", ps_cmd
+                )  # raw unescaped quote must not appear
+                self.assertIn("o''brien", ps_cmd)  # doubled quote must appear
 
     def test_resolve_executable(self) -> None:
         cmd = ["claude", "mcp", "list"]
@@ -183,7 +256,6 @@ class AikitoPlatformTest(unittest.TestCase):
             self.assertEqual(
                 res, [r"C:\Users\test\code.cmd", "--wait", r"C:\My Files\doc.txt"]
             )
-
 
     def test_launch_browser(self) -> None:
         with patch("aikito_platform.is_windows", return_value=True):
@@ -231,9 +303,7 @@ class AikitoPlatformTest(unittest.TestCase):
         self.assertEqual(safe_relative_path(sub, home), "~/projects/demo")
 
         other_drive = Path("/other/path")
-        self.assertEqual(
-            safe_relative_path(other_drive, home), other_drive.as_posix()
-        )
+        self.assertEqual(safe_relative_path(other_drive, home), other_drive.as_posix())
 
     def test_wrappers_content_and_structure(self) -> None:
         bin_dir = Path(__file__).resolve().parent.parent / "bin"
@@ -252,4 +322,3 @@ class AikitoPlatformTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
