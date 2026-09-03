@@ -2084,5 +2084,120 @@ class TestCliGlobalExceptionHandler(unittest.TestCase):
             self.assertEqual(ctx.exception.code, 0)
 
 
+class ProjectSyncCliTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        self.aikito_dir = self.root / "workspace"
+        self.aikito_dir.mkdir()
+        (self.aikito_dir / "skills" / "demo-skill").mkdir(parents=True)
+        (self.aikito_dir / "skills" / "demo-skill" / "SKILL.md").write_text(
+            "demo", encoding="utf-8"
+        )
+        (self.aikito_dir / "agents.toml").write_text(
+            '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n',
+            encoding="utf-8",
+        )
+        self.proj_dir = self.aikito_dir / "projects" / "myproj"
+        self.proj_dir.mkdir(parents=True)
+        (self.proj_dir / "AGENTS.md").write_text("rules", encoding="utf-8")
+        (self.proj_dir / "memory").mkdir(parents=True)
+
+        self.p1 = self.root / "repo1"
+        self.p2 = self.root / "repo2"
+        self.p1.mkdir()
+        self.p2.mkdir()
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_sync_multi_active_paths_and_dry_run(self) -> None:
+        (self.proj_dir / "agent.toml").write_text(
+            f'name = "myproj"\n'
+            f'paths = ["{self.p1.as_posix()}", "{self.p2.as_posix()}"]\n'
+            'skills = ["demo-skill"]\n',
+            encoding="utf-8",
+        )
+
+        with (
+            patch.dict(os.environ, {"AIKITO_DIR": str(self.aikito_dir)}),
+            patch(
+                "sys.argv",
+                ["aikito", "sync", "project", "myproj", "--dry-run"],
+            ),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            AIKITO_CLI.main()
+            out = mock_stdout.getvalue()
+            self.assertIn("across 2 active paths", out)
+            self.assertFalse((self.p1 / ".agents").exists())
+            self.assertFalse((self.p2 / ".agents").exists())
+
+        with (
+            patch.dict(os.environ, {"AIKITO_DIR": str(self.aikito_dir)}),
+            patch("sys.argv", ["aikito", "sync", "project", "myproj"]),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            AIKITO_CLI.main()
+            out = mock_stdout.getvalue()
+            self.assertIn("across 2 active paths", out)
+            skill1 = self.p1 / ".agents" / "skills" / "demo-skill"
+            skill2 = self.p2 / ".agents" / "skills" / "demo-skill"
+            self.assertTrue(skill1.is_symlink())
+            self.assertTrue(skill2.is_symlink())
+
+    def test_sync_all_offline_paths_fails(self) -> None:
+        offline1 = self.root / "nonexistent1"
+        offline2 = self.root / "nonexistent2"
+        (self.proj_dir / "agent.toml").write_text(
+            f'name = "myproj"\n'
+            f'paths = ["{offline1.as_posix()}", "{offline2.as_posix()}"]\n',
+            encoding="utf-8",
+        )
+
+        with (
+            patch.dict(os.environ, {"AIKITO_DIR": str(self.aikito_dir)}),
+            patch("sys.argv", ["aikito", "sync", "project", "myproj"]),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            AIKITO_CLI.main()
+
+        self.assertEqual(ctx.exception.code, 1)
+        err = mock_stderr.getvalue()
+        self.assertIn("None of the configured paths for project 'myproj' exist", err)
+        self.assertIn(str(offline1), err)
+        self.assertIn(str(offline2), err)
+
+    def test_sync_explicit_path_append_failure_aborts(self) -> None:
+        (self.proj_dir / "agent.toml").write_text(
+            f'name = "myproj"\npath = "{self.p1.as_posix()}"\n',
+            encoding="utf-8",
+        )
+        p3 = self.root / "repo3"
+        p3.mkdir()
+
+        with (
+            patch.dict(os.environ, {"AIKITO_DIR": str(self.aikito_dir)}),
+            patch.object(
+                AIKITO_CLI,
+                "append_candidate_path_to_config",
+                side_effect=ValueError("Corrupt TOML"),
+            ),
+            patch(
+                "sys.argv",
+                ["aikito", "sync", "project", "myproj", str(p3)],
+            ),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            AIKITO_CLI.main()
+
+        self.assertEqual(ctx.exception.code, 1)
+        err = mock_stderr.getvalue()
+        self.assertIn("Failed to save candidate path", err)
+        self.assertFalse((p3 / ".agents").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

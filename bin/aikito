@@ -11,6 +11,7 @@ import json
 import os
 import sys
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
@@ -58,10 +59,13 @@ from aikito_mcp import (
 )
 from aikito_templates import TemplateError
 from aikito_project import (
+    RuntimeCleanupPlan,
+    append_candidate_path_to_config,
     collect_project_summaries,
-    collect_project_skill_states,
+    collect_single_project_skill_states,
     find_selected_runtime_conflicts,
     plan_runtime_cleanup,
+    resolve_project_binding,
 )
 
 from aikito_config import get_inbox_path
@@ -301,71 +305,160 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
     require_symlink_support()
     project_name = args.project_name
     aikito_dir = get_aikito_dir()
+    home = Path.home()
 
     agent_toml_path = aikito_dir / "projects" / project_name / "agent.toml"
-
-    if args.project_path:
-        project_path = Path(args.project_path).expanduser().resolve()
-    else:
-        project_path = None
-        if agent_toml_path.exists():
+    data: dict = {}
+    if agent_toml_path.exists():
+        try:
             with open(agent_toml_path, "rb") as f:
                 data = tomllib.load(f)
-            saved_path = data.get("path")
-            if saved_path:
-                project_path = Path(saved_path).expanduser().resolve()
-
-        if not project_path:
-            print(
-                f"[ERROR] Project path not provided and no saved path found in {agent_toml_path}.\n"
-                f"Usage: aikito sync project {project_name} <project_path>",
-                file=sys.stderr,
-            )
+        except (OSError, tomllib.TOMLDecodeError) as exc:
+            print(f"[ERROR] Failed to read {agent_toml_path}: {exc}", file=sys.stderr)
             sys.exit(1)
 
-    if not project_path.exists():
-        print(f"[ERROR] Project path does not exist: {project_path}", file=sys.stderr)
-        sys.exit(1)
-
-    validation_error = project_sync_validation_error(
-        aikito_dir, project_name, project_path, Path.home()
-    )
-    if validation_error:
-        print(f"[ERROR] {validation_error}", file=sys.stderr)
-        sys.exit(1)
-
+    binding = resolve_project_binding(data, home)
     dry_run = getattr(args, "dry_run", False)
+    force = getattr(args, "force", False)
+
+    if args.project_path:
+        target_path = Path(args.project_path).expanduser().resolve()
+        if not target_path.exists():
+            print(f"[ERROR] Project path does not exist: {target_path}", file=sys.stderr)
+            sys.exit(1)
+        if not target_path.is_dir():
+            print(f"[ERROR] Project path is not a directory: {target_path}", file=sys.stderr)
+            sys.exit(1)
+
+        errors = _preflight_project_path_sync(
+            aikito_dir, project_name, target_path, data, home, force=force
+        )
+        if errors:
+            for err in errors:
+                print(f"[ERROR] {err}", file=sys.stderr)
+            print("[ERROR] Project synchronization aborted.", file=sys.stderr)
+            sys.exit(1)
+
+        if not dry_run:
+            try:
+                appended = append_candidate_path_to_config(
+                    agent_toml_path, safe_relative_path(target_path, home), home
+                )
+                if appended:
+                    print(f"[INFO] Added new candidate path to {agent_toml_path}")
+            except Exception as exc:
+                print(
+                    f"[ERROR] Failed to save candidate path to {agent_toml_path}: {exc}\n"
+                    f"Please manually add '{target_path}' to {agent_toml_path}.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
+        _sync_single_project_path(
+            aikito_dir, project_name, target_path, data, dry_run=dry_run
+        )
+        result = "sync preview completed" if dry_run else "synced successfully"
+        print(f"[SUCCESS] Project '{project_name}' {result} at {target_path}.")
+        return
+
+    if not binding.entries:
+        print(
+            f"[ERROR] Project path not provided and no saved path found in {agent_toml_path}.\n"
+            f"Usage: aikito sync project {project_name} <project_path>",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if not binding.active_entries:
+        offline_list = "\n".join(
+            f"  - [{e.label}] {e.resolved_path}" for e in binding.offline_entries
+        )
+        print(
+            f"[ERROR] None of the configured paths for project '{project_name}' "
+            f"exist on this machine:\n"
+            f"{offline_list}\n\n"
+            f"Please clone/create the project directory or specify the path explicitly:\n"
+            f"  aikito sync project {project_name} <project_path>",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    multi = len(binding.active_entries) > 1
+
+    # Phase 1: Preflight check all active entries (fail fast, no partial writes)
+    all_errors: list[str] = []
+    for entry in binding.active_entries:
+        errors = _preflight_project_path_sync(
+            aikito_dir, project_name, entry.resolved_path, data, home, force=force
+        )
+        for err in errors:
+            prefix = f"[{entry.label}] " if multi else ""
+            all_errors.append(f"{prefix}{err}")
+
+    if all_errors:
+        for err in all_errors:
+            print(f"[ERROR] {err}", file=sys.stderr)
+        print("[ERROR] Project synchronization aborted.", file=sys.stderr)
+        sys.exit(1)
+
+    # Phase 2: Perform synchronization across all paths
+    if multi:
+        operation = "Previewing sync for" if dry_run else "Syncing"
+        print(
+            f"[INFO] {operation} project '{project_name}' across "
+            f"{len(binding.active_entries)} active paths:"
+        )
+
+    for idx, entry in enumerate(binding.active_entries, start=1):
+        if multi:
+            count = len(binding.active_entries)
+            print(
+                f"\n[INFO] === [{idx}/{count}] Path [{entry.label}]: "
+                f"{entry.resolved_path} ==="
+            )
+        _sync_single_project_path(
+            aikito_dir, project_name, entry.resolved_path, data, dry_run=dry_run
+        )
+
+    result = "sync preview completed" if dry_run else "synced successfully"
+    print(f"[SUCCESS] Project '{project_name}' {result}.")
+
+
+@dataclass(frozen=True)
+class _ProjectSyncInputs:
+    skills: list[str]
+    memory_files: list[str]
+    sync_mode: str
+    agents_dir: Path
+    agents_skills_dir: Path
+    agents_memory_dir: Path
+    proj_mem_source: Path
+    skill_cleanup: RuntimeCleanupPlan
+    memory_cleanup: RuntimeCleanupPlan
+    cleanup_conflicts: tuple[Path, ...]
+
+
+def _resolve_project_sync_inputs(
+    aikito_dir: Path,
+    project_name: str,
+    project_path: Path,
+    data: dict,
+) -> _ProjectSyncInputs:
+    skills = [str(name) for name in data.get("skills", [])]
+    memory_files = [str(name) for name in data.get("memory", [])]
+    sync_mode = str(data.get("sync_mode", "link")).lower()
 
     agents_dir = project_path / ".agents"
     agents_skills_dir = agents_dir / "skills"
     agents_memory_dir = agents_dir / "memory"
 
-    agent_toml_path = aikito_dir / "projects" / project_name / "agent.toml"
-    skills = []
-    memory_files = []
-    sync_mode = "link"
-
-    if agent_toml_path.exists():
-        with open(agent_toml_path, "rb") as f:
-            data = tomllib.load(f)
-        skills = data.get("skills", [])
-        memory_files = data.get("memory", [])
-        sync_mode = str(data.get("sync_mode", "link")).lower()
-    else:
-        print(
-            f"[INFO] Config {agent_toml_path} not found. Proceeding with default project sync."
-        )
-
-    operation = "Previewing sync for" if dry_run else "Syncing"
-    print(f"[INFO] {operation} project '{project_name}' (mode: {sync_mode})")
-
     proj_mem_source = aikito_dir / "projects" / project_name / "memory"
     if not proj_mem_source.exists():
         proj_mem_source = aikito_dir / "memory" / project_name
 
-    selected_skills = {str(name) for name in skills}
+    selected_skills = set(skills)
     selected_memory = {
-        Path(str(name)).parts[0] for name in memory_files if Path(str(name)).parts
+        Path(name).parts[0] for name in memory_files if Path(name).parts
     }
     if proj_mem_source.is_dir():
         selected_memory.update(item.name for item in proj_mem_source.iterdir())
@@ -392,20 +485,49 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
         *memory_cleanup.conflicts,
         *selected_skill_conflicts,
     )
-    if cleanup_conflicts:
-        for path in cleanup_conflicts:
-            print(f"[CONFLICT] Unmanaged project runtime item: {path}", file=sys.stderr)
-        print("[ERROR] Project synchronization aborted.", file=sys.stderr)
-        sys.exit(1)
-    for path in skill_cleanup.conflicts:
-        print(f"[INFO] Preserving project-owned skill: {path}")
 
-    if sync_mode == "copy":
-        states = [
-            state
-            for state in collect_project_skill_states(aikito_dir, Path.home())
-            if state.project_name == project_name
-        ]
+    return _ProjectSyncInputs(
+        skills=skills,
+        memory_files=memory_files,
+        sync_mode=sync_mode,
+        agents_dir=agents_dir,
+        agents_skills_dir=agents_skills_dir,
+        agents_memory_dir=agents_memory_dir,
+        proj_mem_source=proj_mem_source,
+        skill_cleanup=skill_cleanup,
+        memory_cleanup=memory_cleanup,
+        cleanup_conflicts=cleanup_conflicts,
+    )
+
+
+def _preflight_project_path_sync(
+    aikito_dir: Path,
+    project_name: str,
+    project_path: Path,
+    data: dict,
+    home: Path,
+    *,
+    force: bool,
+) -> list[str]:
+    """Run all validation and conflict checks for a project path without modifying anything."""
+    errors: list[str] = []
+    val_err = project_sync_validation_error(
+        aikito_dir, project_name, project_path, home
+    )
+    if val_err:
+        errors.append(val_err)
+
+    inputs = _resolve_project_sync_inputs(
+        aikito_dir, project_name, project_path, data
+    )
+
+    for path in inputs.cleanup_conflicts:
+        errors.append(f"Unmanaged project runtime item: {path}")
+
+    if inputs.sync_mode == "copy":
+        states = collect_single_project_skill_states(
+            aikito_dir, project_name, project_path, inputs.skills
+        )
         conflicts = [state for state in states if state.status == "CONFLICT"]
         missing_sources = [
             state
@@ -414,54 +536,69 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
         ]
         drifted = [state for state in states if state.status == "DRIFT"]
         for state in (*conflicts, *missing_sources):
-            print(
-                f"[CONFLICT] Project skill {project_name}/{state.skill_name}: "
-                f"{state.reason}",
-                file=sys.stderr,
+            errors.append(
+                f"Project skill {project_name}/{state.skill_name}: {state.reason}"
             )
-        if conflicts or missing_sources:
-            print("[ERROR] Project synchronization aborted.", file=sys.stderr)
-            sys.exit(1)
-        if drifted and not getattr(args, "force", False):
+        if drifted and not force:
             for state in drifted:
-                print(
-                    f"[DRIFT] Project skill {project_name}/{state.skill_name}: "
-                    f"{state.runtime_path}",
-                    file=sys.stderr,
+                errors.append(
+                    f"Project skill {project_name}/{state.skill_name} drifted "
+                    f"at {state.runtime_path}"
                 )
-            print(
-                "[ERROR] Copied project skills contain drift. Run 'aikito diff' "
-                "and reconcile changes, or use --force after review.",
-                file=sys.stderr,
+            errors.append(
+                "Copied project skills contain drift. Run 'aikito diff' "
+                "and reconcile changes, or use --force after review."
             )
-            sys.exit(1)
 
-    apply_runtime_cleanup((*skill_cleanup.cleanup, *memory_cleanup.cleanup), dry_run)
+    return errors
+
+
+def _sync_single_project_path(
+    aikito_dir: Path,
+    project_name: str,
+    project_path: Path,
+    data: dict,
+    *,
+    dry_run: bool,
+) -> None:
+    inputs = _resolve_project_sync_inputs(
+        aikito_dir, project_name, project_path, data
+    )
+
+    operation = "Previewing sync for" if dry_run else "Syncing"
+    print(f"[INFO] {operation} project '{project_name}' (mode: {inputs.sync_mode})")
+
+    for path in inputs.skill_cleanup.conflicts:
+        print(f"[INFO] Preserving project-owned skill: {path}")
+
+    apply_runtime_cleanup(
+        (*inputs.skill_cleanup.cleanup, *inputs.memory_cleanup.cleanup), dry_run
+    )
 
     if not dry_run:
-        ensure_dir(agents_dir)
-        ensure_dir(agents_skills_dir)
-        ensure_dir(agents_memory_dir)
+        ensure_dir(inputs.agents_dir)
+        ensure_dir(inputs.agents_skills_dir)
+        ensure_dir(inputs.agents_memory_dir)
 
     # 1. Sync project skills
-    for skill_name in skills:
+    for skill_name in inputs.skills:
         source = aikito_dir / "skills" / skill_name
-        target = agents_skills_dir / skill_name
-        sync_resource(source, target, mode=sync_mode, dry_run=dry_run)
+        target = inputs.agents_skills_dir / skill_name
+        sync_resource(source, target, mode=inputs.sync_mode, dry_run=dry_run)
 
     # 2. Sync project memory files (always link)
-    for mem_file in memory_files:
+    for mem_file in inputs.memory_files:
         source = aikito_dir / "memory" / mem_file
-        target = agents_memory_dir / mem_file
+        target = inputs.agents_memory_dir / mem_file
         sync_resource(source, target, mode="link", dry_run=dry_run)
 
-    # 3. Sync project's own memory directory contents (index.md, notes, README.md, etc.) (always link)
-    if proj_mem_source.exists() and proj_mem_source.is_dir():
-        for item in proj_mem_source.iterdir():
-            target = agents_memory_dir / item.name
+    # 3. Sync project's own memory directory contents (always link)
+    if inputs.proj_mem_source.exists() and inputs.proj_mem_source.is_dir():
+        for item in inputs.proj_mem_source.iterdir():
+            target = inputs.agents_memory_dir / item.name
             sync_resource(item, target, mode="link", dry_run=dry_run)
     else:
-        print(f"[INFO] No project memory dir found at {proj_mem_source}")
+        print(f"[INFO] No project memory dir found at {inputs.proj_mem_source}")
 
     # 4. Sync project instructions to the selected agent-native entry points.
     proj_agents_md = aikito_dir / "projects" / project_name / "AGENTS.md"
@@ -472,7 +609,7 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
         instructions_enabled = bool(
             proj_agents_md.read_text(encoding="utf-8", errors="replace").strip()
         )
-        possible_stale_targets = {agents_dir / "AGENTS.md"}
+        possible_stale_targets = {inputs.agents_dir / "AGENTS.md"}
         if not instructions_enabled:
             possible_stale_targets.update(instruction_targets)
         managed_stale_targets = tuple(
@@ -505,37 +642,6 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
         print(
             f"[INFO] No AGENTS.md found for project '{project_name}' at {proj_agents_md}"
         )
-
-    # 5. Persist local project path to agent.toml
-    if not dry_run:
-        save_project_path(agent_toml_path, project_path)
-
-    result = "sync preview completed" if dry_run else "synced successfully"
-    print(f"[SUCCESS] Project '{project_name}' {result} using mode '{sync_mode}'.")
-
-
-def save_project_path(agent_toml_path: Path, project_path: Path) -> None:
-    home = Path.home()
-    path_str = safe_relative_path(project_path, home)
-
-    lines = []
-
-    if agent_toml_path.exists():
-        lines = agent_toml_path.read_text().splitlines()
-
-    has_path = False
-    new_lines = []
-    for line in lines:
-        if line.strip().startswith("path =") or line.strip().startswith("path="):
-            new_lines.append(f'path = "{path_str}"')
-            has_path = True
-        else:
-            new_lines.append(line)
-    if not has_path:
-        new_lines.append(f'path = "{path_str}"')
-
-    agent_toml_path.parent.mkdir(parents=True, exist_ok=True)
-    agent_toml_path.write_text("\n".join(new_lines).strip() + "\n")
 
 
 def cmd_mcp_sync(args: argparse.Namespace) -> None:

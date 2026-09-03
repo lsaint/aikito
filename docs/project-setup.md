@@ -44,22 +44,47 @@ of being overwritten.
 ## Configure Project Resources
 
 Edit the generated `<workspace>/projects/example/agent.toml` to select shared
-resources:
+resources and configure target paths:
 
 ```toml
 name = "example"
 description = "Example service workspace"
-path = "~/code/example"
 sync_mode = "link"
 skills = ["durable-memory"]
+
+# Candidate paths can be configured in one of three ways:
+# 1. Single path:
+path = "~/code/example"
+
+# 2. Path list (e.g. multiple local checkouts or git worktrees):
+# paths = ["~/code/example", "~/code/example-worktree"]
+
+# 3. Named path table (ideal for cross-platform roaming across Mac/Win/Linux):
+# [paths]
+# mac = "~/code/example"
+# win = "D:/code/example"
+# worktree = "~/code/example-feature"
 ```
 
 The project name identifies its workspace configuration. The optional
 `description` is human-readable display metadata and does not affect project
-resolution or synchronization. The `path` points to the project receiving the
-managed resources. Native project instruction paths
-come from the workspace root `agents.toml`; project configs do not duplicate
-that list. `sync_mode` controls only the selected project skills:
+resolution or synchronization.
+
+### Path Resolution, Primary Path, and Offline Semantics
+
+Aikito evaluates candidate paths dynamically on the local machine:
+- **Active paths**: Candidate directories that currently exist on the local filesystem.
+- **Offline paths**: Candidate directories that do not exist locally (for example,
+  Windows paths when running on macOS, or a secondary worktree not yet cloned).
+  Offline paths are non-fatal as long as at least one active path exists on the host.
+  `aikito status` and `aikito doctor` report the project as healthy, preserving
+  offline paths for seamless roaming across multiple machines through Git.
+- **Primary path**: For single-target display and default resolution, Aikito selects
+  the **first active path** in configuration order. If no candidates exist locally, it
+  falls back to the first defined candidate.
+
+Native project instruction paths come from the workspace root `agents.toml`; project
+configs do not duplicate that list. `sync_mode` controls only the selected project skills:
 
 An empty canonical project `AGENTS.md` disables instruction synchronization.
 Aikito removes only its own obsolete links and leaves a repository-owned
@@ -76,6 +101,20 @@ Project instructions and memory always remain linked, regardless of
 review and reconcile collaborator changes before running a synchronization that
 would replace them. See [Architecture](architecture.md#project-skill-sync-modes)
 for the full design trade-off.
+
+### Multi-Active Synchronization Behavior
+
+- `aikito sync project <name>`: Automatically synchronizes instructions, skills,
+  and memory across **all active paths** detected on the machine. This allows multiple
+  Git worktrees for the same repository to share agent instructions and memory
+  effortlessly without separate project registrations.
+- `aikito sync project <name> <project_path>`: Synchronizes a specific target path.
+  If the target path is not yet present in `agent.toml`, Aikito automatically appends
+  it as a new candidate.
+- **Fail-Fast Preflight Validation**: Synchronization performs all validation,
+  conflict checks, and drift detection across all active paths *before* writing any
+  links or copying any files to disk. If any path fails preflight checks, the entire
+  operation aborts without leaving any path in a half-synchronized state.
 
 ## Synchronize and Verify
 

@@ -15,6 +15,7 @@ from aikito_inbox import resolve_inbox_target_for_command
 from aikito_link import classify_symlink, symlink_verdict_to_status
 from aikito_mcp import load_agents
 from aikito_memory import ensure_safe_path
+from aikito_project import resolve_project_binding
 from aikito_platform import (
     get_default_editor,
     resolve_executable,
@@ -216,15 +217,22 @@ def find_instruction_sources(
         except (OSError, tomllib.TOMLDecodeError) as exc:
             print(f"[WARN] Failed to read {config_path}: {exc}", file=sys.stderr)
             continue
-        raw_path = config.get("path")
-        project_path = None
-        if isinstance(raw_path, str) and raw_path:
-            project_path = (
-                home / raw_path[2:]
-                if raw_path.startswith("~/")
-                else Path(raw_path).expanduser()
-            ).resolve()
-        sources.append((project_dir.name, instructions_path, project_path))
+        binding = resolve_project_binding(config, home)
+        if binding.active_entries:
+            for entry in binding.active_entries:
+                sources.append(
+                    (project_dir.name, instructions_path, entry.resolved_path)
+                )
+        elif binding.entries:
+            sources.append(
+                (
+                    project_dir.name,
+                    instructions_path,
+                    binding.entries[0].resolved_path,
+                )
+            )
+        else:
+            sources.append((project_dir.name, instructions_path, None))
     return sources
 
 

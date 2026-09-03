@@ -370,6 +370,26 @@ class CheckConfigSyntaxTest(unittest.TestCase):
         )
         self.assertEqual(warning.fix_hint, "aikito doctor --prune")
 
+    def test_project_config_reports_offline_candidate_details(self) -> None:
+        self._write_minimal_toml_files()
+        proj_dir = self.aikito_dir / "projects" / "p1"
+        proj_dir.mkdir(parents=True)
+        (proj_dir / "agent.toml").write_text(
+            '[paths]\nmac = "~/nonexistent_mac"\nwin = "D:/nonexistent_win"\n',
+            encoding="utf-8",
+        )
+        section = check_config_syntax(self.aikito_dir, self.home)
+        failures = [
+            finding
+            for finding in section.findings
+            if finding.status == "FAIL" and "projects/p1/agent.toml" in finding.message
+        ]
+        self.assertTrue(failures)
+        fail_msg = failures[0].message
+        self.assertIn("no configured paths exist on this host", fail_msg)
+        self.assertIn("[mac] ~/nonexistent_mac", fail_msg)
+        self.assertIn("[win] D:/nonexistent_win", fail_msg)
+
 
 class CheckSymlinksTest(unittest.TestCase):
     def setUp(self) -> None:

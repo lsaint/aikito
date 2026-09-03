@@ -274,6 +274,9 @@ This creates the project's canonical resources under
 `<workspace>/projects/example/` and connects them to `./.agents/`. One workspace
 can manage many projects; a project registration represents one code directory
 and its project-specific Agent resources, not the project source code itself.
+Projects support multiple candidate paths (`[paths]` named tables or `paths`
+arrays) for Git worktrees and cross-platform roaming across Mac, Windows, and
+Linux.
 
 When initialized at a custom path, Aikito remembers it for future commands.
 Use `aikito path workspace` to print the active path. `AIKITO_DIR` provides a

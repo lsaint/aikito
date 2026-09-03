@@ -1,8 +1,14 @@
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
-from aikito_project import collect_project_summaries
+from aikito_project import (
+    append_candidate_path_to_config,
+    collect_project_summaries,
+    collect_single_project_skill_states,
+    resolve_project_binding,
+)
 from aikito_render import render_project_detail, render_projects_table
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -217,6 +223,233 @@ class ProjectSummaryTest(unittest.TestCase):
         self.assertEqual(len(memory_lines), 2)
         self.assertTrue(any("index.md:" in line for line in memory_lines))
         self.assertTrue(any("notes:" in line for line in memory_lines))
+
+    def test_resolve_project_binding_named_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            p1 = root / "mac"
+            p1.mkdir()
+            config = {
+                "paths": {
+                    "mac": p1.as_posix(),
+                    "win": "D:/nonexistent/win",
+                }
+            }
+            binding = resolve_project_binding(config, root)
+            self.assertEqual(len(binding.entries), 2)
+            self.assertEqual(len(binding.active_entries), 1)
+            self.assertEqual(binding.active_entries[0].label, "mac")
+            self.assertEqual(binding.active_entries[0].resolved_path, p1.resolve())
+            self.assertEqual(len(binding.offline_entries), 1)
+            self.assertEqual(binding.offline_entries[0].label, "win")
+
+    def test_resolve_project_binding_paths_list(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            p1 = root / "p1"
+            p2 = root / "p2"
+            p1.mkdir()
+            p2.mkdir()
+            config = {"paths": [p1.as_posix(), p2.as_posix()]}
+            binding = resolve_project_binding(config, root)
+            self.assertEqual(len(binding.active_entries), 2)
+            self.assertEqual(binding.active_entries[0].label, "1")
+            self.assertEqual(binding.active_entries[1].label, "2")
+
+    def test_multi_active_paths_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            workspace = root / "workspace"
+            p1 = root / "main"
+            p2 = root / "worktree"
+            definition = workspace / "projects" / "multi"
+            p1.mkdir()
+            p2.mkdir()
+            definition.mkdir(parents=True)
+            (definition / "agent.toml").write_text(
+                f'paths = ["{p1.as_posix()}", "{p2.as_posix()}"]\nskills = []\n',
+                encoding="utf-8",
+            )
+            (workspace / "agents.toml").write_text(
+                '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n',
+                encoding="utf-8",
+            )
+            (definition / "AGENTS.md").write_text("Multi rules\n", encoding="utf-8")
+            (definition / "memory").mkdir()
+            (p1 / "AGENTS.md").symlink_to(definition / "AGENTS.md")
+            (p2 / "AGENTS.md").symlink_to(definition / "AGENTS.md")
+
+            summary = collect_project_summaries(workspace, root)[0]
+            self.assertEqual(summary.runtime_status, "OK")
+            self.assertIn("(+1 active)", summary.path)
+            self.assertEqual(len(summary.active_paths), 2)
+            detail = render_project_detail(summary, False, False)
+            self.assertIn("Active paths:", detail)
+
+    def test_partially_offline_paths_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            workspace = root / "workspace"
+            p1 = root / "main"
+            definition = workspace / "projects" / "roam"
+            p1.mkdir()
+            definition.mkdir(parents=True)
+            (definition / "agent.toml").write_text(
+                f'[paths]\nmac = "{p1.as_posix()}"\nwin = "D:/offline/win"\n',
+                encoding="utf-8",
+            )
+            (workspace / "agents.toml").write_text(
+                '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n',
+                encoding="utf-8",
+            )
+            (definition / "AGENTS.md").write_text("Roam rules\n", encoding="utf-8")
+            (definition / "memory").mkdir()
+            (p1 / "AGENTS.md").symlink_to(definition / "AGENTS.md")
+
+            summary = collect_project_summaries(workspace, root)[0]
+            self.assertEqual(summary.runtime_status, "OK")
+            self.assertIn("(1 offline)", summary.path)
+            self.assertEqual(len(summary.active_paths), 1)
+            self.assertEqual(len(summary.offline_paths), 1)
+            detail = render_project_detail(summary, False, False)
+            self.assertIn("Offline paths:", detail)
+
+    def test_append_candidate_path_to_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            toml_path = root / "agent.toml"
+            toml_path.write_text('name = "demo"\npath = "~/p1"\n', encoding="utf-8")
+
+            # Appending a new path upgrades path = ... to paths = [...]
+            appended = append_candidate_path_to_config(toml_path, "~/p2", root)
+            self.assertTrue(appended)
+            content = toml_path.read_text(encoding="utf-8")
+            self.assertIn("paths =", content)
+            self.assertIn('"~/p1"', content)
+            self.assertIn('"~/p2"', content)
+
+            # Duplicate should not be appended
+            appended_again = append_candidate_path_to_config(toml_path, "~/p2", root)
+            self.assertFalse(appended_again)
+
+    def test_resolve_project_binding_deduplication(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            p1 = root / "main"
+            p1.mkdir()
+            config = {
+                "paths": {
+                    "mac": p1.as_posix(),
+                    "alias": p1.as_posix(),
+                }
+            }
+            binding = resolve_project_binding(config, root)
+            self.assertEqual(len(binding.entries), 1)
+            self.assertEqual(binding.entries[0].label, "mac")
+
+    def test_append_candidate_path_to_config_inline_table(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            toml_path = root / "agent.toml"
+            toml_path.write_text('paths = {mac = "~/a"}\n', encoding="utf-8")
+
+            appended = append_candidate_path_to_config(toml_path, "~/b", root)
+            self.assertTrue(appended)
+            content = toml_path.read_text(encoding="utf-8")
+            data = tomllib.loads(content)
+            self.assertIn("paths", data)
+            self.assertEqual(len(data["paths"]), 2)
+            self.assertIn("~/b", data["paths"].values())
+
+    def test_append_candidate_path_to_config_named_table_section(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            toml_path = root / "agent.toml"
+            toml_path.write_text('[paths]\nmac = "~/a"\n', encoding="utf-8")
+
+            appended = append_candidate_path_to_config(toml_path, "~/b", root)
+            self.assertTrue(appended)
+            content = toml_path.read_text(encoding="utf-8")
+            data = tomllib.loads(content)
+            self.assertIn("paths", data)
+            self.assertEqual(data["paths"]["mac"], "~/a")
+            self.assertEqual(len(data["paths"]), 2)
+            self.assertIn("~/b", data["paths"].values())
+
+    def test_append_candidate_path_to_config_pathological_key(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            toml_path = root / "agent.toml"
+            toml_path.write_text('pathological = "x"\npath = "~/a"\n', encoding="utf-8")
+
+            appended = append_candidate_path_to_config(toml_path, "~/b", root)
+            self.assertTrue(appended)
+            content = toml_path.read_text(encoding="utf-8")
+            data = tomllib.loads(content)
+            self.assertEqual(data.get("pathological"), "x")
+            self.assertEqual(data.get("paths"), ["~/a", "~/b"])
+
+    def test_append_candidate_path_to_config_section_context(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            toml_path = root / "agent.toml"
+            toml_path.write_text('[other]\npath = "~/z"\n', encoding="utf-8")
+
+            appended = append_candidate_path_to_config(toml_path, "~/b", root)
+            self.assertTrue(appended)
+            content = toml_path.read_text(encoding="utf-8")
+            data = tomllib.loads(content)
+            self.assertEqual(data.get("other", {}).get("path"), "~/z")
+            self.assertEqual(data.get("paths"), ["~/b"])
+
+    def test_append_candidate_path_to_config_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            missing_path = root / "missing.toml"
+            with self.assertRaises(FileNotFoundError):
+                append_candidate_path_to_config(missing_path, "~/b", root)
+
+            corrupt_path = root / "corrupt.toml"
+            corrupt_path.write_text("bad toml = =", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                append_candidate_path_to_config(corrupt_path, "~/b", root)
+
+    def test_collect_single_project_skill_states_nested_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            aikito_dir = root / "aikito"
+            (aikito_dir / "skills" / "demo").mkdir(parents=True)
+            (aikito_dir / "skills" / "demo" / "SKILL.md").write_text(
+                "ok", encoding="utf-8"
+            )
+
+            main_repo = root / "main"
+            worktree = main_repo / "worktree"
+            main_repo.mkdir()
+            worktree.mkdir()
+
+            (main_repo / ".agents" / "skills" / "demo").mkdir(parents=True)
+            (main_repo / ".agents" / "skills" / "demo" / "SKILL.md").write_text(
+                "ok", encoding="utf-8"
+            )
+
+            states_main = collect_single_project_skill_states(
+                aikito_dir, "myproj", main_repo, ["demo"]
+            )
+            states_wt = collect_single_project_skill_states(
+                aikito_dir, "myproj", worktree, ["demo"]
+            )
+
+            self.assertEqual(states_main[0].status, "OK")
+            self.assertEqual(states_wt[0].status, "MISSING")
+            self.assertEqual(
+                states_main[0].runtime_path,
+                main_repo / ".agents" / "skills" / "demo",
+            )
+            self.assertEqual(
+                states_wt[0].runtime_path,
+                worktree / ".agents" / "skills" / "demo",
+            )
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from aikito_platform import resolve_executable
+from aikito_project import resolve_project_binding
 
 
 class MemoryMaintenanceError(RuntimeError):
@@ -35,10 +36,10 @@ def _load_project(project_dir: Path) -> tuple[Path, Path] | None:
         config = tomllib.loads(config_path.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise MemoryMaintenanceError(f"Failed to read {config_path}: {exc}") from exc
-    raw_path = config.get("path")
-    if not isinstance(raw_path, str) or not raw_path:
+    binding = resolve_project_binding(config, Path.home())
+    if not binding.entries or binding.primary_path is None:
         raise MemoryMaintenanceError(f"Project path is missing in {config_path}")
-    return memory_dir.resolve(), Path(raw_path).expanduser().resolve()
+    return memory_dir.resolve(), binding.primary_path
 
 
 def _resolved_project_scope(

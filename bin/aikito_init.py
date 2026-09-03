@@ -18,6 +18,7 @@ import tomllib
 
 from aikito_mcp import MCPConfigError, collect_project_instruction_targets
 from aikito_platform import safe_relative_path
+from aikito_project import resolve_project_binding
 from aikito_templates import (
     BUNDLED_SKILL_NAMES,
     bundled_skill_path,
@@ -299,16 +300,21 @@ def _project_validation_error(
         try:
             with open(config_path, "rb") as config_file:
                 config_data = tomllib.load(config_file)
-                saved_path = config_data.get("path")
         except (OSError, tomllib.TOMLDecodeError) as exc:
             return f"Failed to read existing project config {config_path}: {exc}"
 
-        if saved_path:
-            resolved_saved_path = Path(saved_path).expanduser().resolve()
-            if resolved_saved_path != project_path:
+        binding = resolve_project_binding(config_data, home)
+        if binding.entries:
+            matched = any(
+                entry.resolved_path == project_path for entry in binding.entries
+            )
+            if not matched and reject_unexpected_entries:
+                registered = ", ".join(
+                    str(entry.resolved_path) for entry in binding.entries
+                )
                 return (
                     f"Project '{project_name}' is already registered to "
-                    f"{resolved_saved_path}, not {project_path}."
+                    f"{registered}, not {project_path}."
                 )
 
     canonical_instructions = aikito_dir / "projects" / project_name / "AGENTS.md"

@@ -20,6 +20,7 @@ from typing import List
 from aikito_config import get_inbox_path
 from aikito_inbox import find_inbox_files
 from aikito_memory import find_memory_files
+from aikito_project import resolve_project_binding
 from aikito_status import collect_skills_rows
 
 
@@ -137,12 +138,10 @@ def _registered_search_roots(aikito_dir: Path) -> List[Path]:
                 config = tomllib.loads(config_path.read_text(encoding="utf-8"))
             except (OSError, tomllib.TOMLDecodeError):
                 continue
-            raw_path = config.get("path")
-            if not isinstance(raw_path, str) or not raw_path:
-                continue
-            project_path = Path(raw_path).expanduser().resolve()
-            if project_path.is_dir() and project_path not in roots:
-                roots.append(project_path)
+            binding = resolve_project_binding(config, Path.home())
+            for entry in binding.active_entries:
+                if entry.resolved_path not in roots:
+                    roots.append(entry.resolved_path)
     return roots
 
 

@@ -50,7 +50,7 @@ from aikito_mcp import (
     is_agent_installed,
 )
 from aikito_memory import extract_note_title, validate_memory_name
-from aikito_project import collect_project_summaries
+from aikito_project import collect_project_summaries, resolve_project_binding
 from aikito_registry import (
     add_missing_agent_fields,
     missing_agent_fields,
@@ -269,26 +269,28 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
             try:
                 with open(agent_toml, "rb") as f:
                     toml_data = tomllib.load(f)
-                proj_path_val = toml_data.get("path")
+                binding = resolve_project_binding(toml_data, home)
             except (tomllib.TOMLDecodeError, OSError):
                 continue
-            if not proj_path_val:
-                continue
-            actual_proj = Path(proj_path_val).expanduser().resolve()
-            if not actual_proj.exists():
-                continue
-            for subdir in ("memory", "skills"):
-                link_path = actual_proj / ".agents" / subdir
-                if link_path.is_symlink():
-                    try:
-                        link_path.resolve(strict=True)
-                    except OSError:
-                        findings.append(
-                            _fail(
-                                f"Project {proj_folder.name}/.agents/{subdir}: dangling symlink",
-                                f"aikito sync project {proj_folder.name}",
+            for entry in binding.active_entries:
+                actual_proj = entry.resolved_path
+                for subdir in ("memory", "skills"):
+                    link_path = actual_proj / ".agents" / subdir
+                    if link_path.is_symlink():
+                        try:
+                            link_path.resolve(strict=True)
+                        except OSError:
+                            tag_str = (
+                                f" [{entry.label}]"
+                                if len(binding.active_entries) > 1
+                                else ""
                             )
-                        )
+                            findings.append(
+                                _fail(
+                                    f"Project {proj_folder.name}/.agents/{subdir}{tag_str}: dangling symlink",
+                                    f"aikito sync project {proj_folder.name}",
+                                )
+                            )
 
     return DoctorSection(name="Symlinks", findings=findings)
 
@@ -776,23 +778,38 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
                 findings.append(
                     _ok(f"projects/{proj_folder.name}/agent.toml: valid TOML")
                 )
-                # Check required fields and path validity
-                proj_path_val = data.get("path")
-                if not proj_path_val:
+                binding = resolve_project_binding(data, home)
+                if not binding.entries:
                     findings.append(
                         _warn(
-                            f"projects/{proj_folder.name}/agent.toml: missing 'path' field",
+                            f"projects/{proj_folder.name}/agent.toml: missing 'path' or 'paths' field",
+                        )
+                    )
+                elif not binding.active_entries:
+                    candidates_str = ", ".join(
+                        f"[{e.label}] {e.raw_path}"
+                        if e.label != "default"
+                        else e.raw_path
+                        for e in binding.offline_entries
+                    )
+                    findings.append(
+                        _fail(
+                            f"projects/{proj_folder.name}/agent.toml: "
+                            f"no configured paths exist on this host ({candidates_str})",
+                            f"Update projects/{proj_folder.name}/agent.toml",
                         )
                     )
                 else:
-                    proj_path = Path(proj_path_val).expanduser().resolve()
-                    if not proj_path.exists():
-                        findings.append(
-                            _fail(
-                                f"projects/{proj_folder.name}/agent.toml: path '{proj_path_val}' does not exist",
-                                f"Update projects/{proj_folder.name}/agent.toml",
-                            )
-                        )
+                    active_count = len(binding.active_entries)
+                    offline_count = len(binding.offline_entries)
+                    status_text = (
+                        f"{active_count} active path(s)"
+                        if offline_count == 0
+                        else f"{active_count} active path(s), {offline_count} offline"
+                    )
+                    findings.append(
+                        _ok(f"projects/{proj_folder.name}/agent.toml: {status_text}")
+                    )
             except tomllib.TOMLDecodeError as exc:
                 findings.append(
                     _fail(

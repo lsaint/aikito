@@ -21,6 +21,7 @@ from aikito_mcp import (
     read_entry,
     redact_mcp_entry,
 )
+from aikito_project import resolve_project_binding
 from aikito_subagent import build_plan
 from aikito_render import (
     AgentStatusRow,
@@ -512,35 +513,43 @@ def collect_memory_status_rows(
 
                 # Read local codebase path from projects/<name>/agent.toml
                 agent_toml = proj_folder / "agent.toml"
-                proj_path_val = None
+                p_link_status = "N/A"
                 if agent_toml.is_file():
                     try:
                         with open(agent_toml, "rb") as f:
                             toml_data = tomllib.load(f)
-                            proj_path_val = toml_data.get("path")
+                        binding = resolve_project_binding(toml_data, Path.home())
                     except (tomllib.TOMLDecodeError, OSError) as exc:
                         print(
                             f"[WARN] Failed to read {agent_toml}: {exc}",
                             file=sys.stderr,
                         )
+                        binding = None
 
-                p_link_status = "N/A"
-                if proj_path_val:
-                    actual_proj_path = Path(proj_path_val).expanduser().resolve()
-                    proj_agents_mem = actual_proj_path / ".agents" / "memory"
-
-                    if proj_agents_mem.is_symlink():
-                        p_link_status = "OK"
-                    elif proj_agents_mem.is_dir():
-                        idx_link = proj_agents_mem / "index.md"
-                        if idx_link.is_symlink():
-                            p_link_status = "OK"
-                        else:
+                    if binding and binding.active_entries:
+                        active_statuses = []
+                        for entry in binding.active_entries:
+                            proj_agents_mem = entry.resolved_path / ".agents" / "memory"
+                            if proj_agents_mem.is_symlink():
+                                active_statuses.append("OK")
+                            elif proj_agents_mem.is_dir():
+                                idx_link = proj_agents_mem / "index.md"
+                                if idx_link.is_symlink():
+                                    active_statuses.append("OK")
+                                else:
+                                    active_statuses.append("CONFLICT")
+                            else:
+                                active_statuses.append("MISSING")
+                        if "CONFLICT" in active_statuses:
                             p_link_status = "CONFLICT"
                             mem_issues += 1
-                    else:
-                        p_link_status = "MISSING"
-                        mem_issues += 1
+                        elif "MISSING" in active_statuses:
+                            p_link_status = "MISSING"
+                            mem_issues += 1
+                        else:
+                            p_link_status = "OK"
+                    elif binding and binding.offline_entries:
+                        p_link_status = "PATH MISSING"
                 else:
                     p_link_status = "N/A"
 
@@ -748,21 +757,20 @@ def collect_memory_notes_rows(aikito_dir: Path, home: Path) -> List[MemoryNoteRo
                 p_indexed_stems, p_titles = _parse_index_titles(proj_index)
 
                 agent_toml = proj_folder / "agent.toml"
-                proj_path_val = None
+                link_st = "MISSING"
                 if agent_toml.is_file():
                     try:
                         with open(agent_toml, "rb") as f:
                             data = tomllib.load(f)
-                            proj_path_val = data.get("path")
+                        binding = resolve_project_binding(data, Path.home())
+                        if binding.active_entries:
+                            if all(
+                                (e.resolved_path / ".agents" / "memory").exists()
+                                for e in binding.active_entries
+                            ):
+                                link_st = "OK"
                     except Exception:
                         pass
-
-                link_st = "MISSING"
-                if proj_path_val:
-                    actual_proj_path = Path(proj_path_val).expanduser().resolve()
-                    proj_agents_mem = actual_proj_path / ".agents" / "memory"
-                    if proj_agents_mem.exists():
-                        link_st = "OK"
 
                 if proj_notes.is_dir():
                     for p_note in sorted(proj_notes.glob("*.md")):

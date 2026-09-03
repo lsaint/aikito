@@ -814,12 +814,28 @@ def render_project_detail(
         ("Memory:", memory),
         ("Sync:", project.runtime_status),
     ]
+    if len(project.active_paths) > 1:
+        active_disp = [
+            f"[{label}] {p}" if label != "default" else p
+            for label, p in project.active_paths
+        ]
+        fields.append(("Active paths:", ", ".join(active_disp)))
+    if project.offline_paths:
+        offline_disp = [
+            f"[{label}] {p}" if label != "default" else p
+            for label, p in project.offline_paths
+        ]
+        fields.append(("Offline paths:", ", ".join(offline_disp)))
     if project.error:
         fields.append(("Error:", project.error))
     if project.instructions_notice:
-        fields.append(("Notice:", project.instructions_notice))
+        for notice in project.instructions_notice.splitlines():
+            if notice.strip():
+                fields.append(("Notice:", notice.strip()))
     if project.skills_notice:
-        fields.append(("Notice:", f"{project.skills_notice} (not managed by Aikito)"))
+        for notice in project.skills_notice.splitlines():
+            if notice.strip():
+                fields.append(("Notice:", f"{notice.strip()} (not managed by Aikito)"))
     issues = [detail for detail in project.details if detail.status != "OK"]
     if issues:
         for detail in issues:
