@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Grok MCP synchronization now writes native `headers` with `${ENV}` interpolation
+  instead of Codex `env_http_headers` for Basic API-token authentication.
+
 ## [1.24.0] - 2026-09-03
 
 ### Added
