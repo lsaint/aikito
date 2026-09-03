@@ -229,9 +229,20 @@ eval "$(aikito completion zsh)"
 irm https://raw.githubusercontent.com/lsaint/aikito/main/install.ps1 | iex
 ```
 
+<details>
+<summary>Installer details & custom install directory</summary>
+
 The script checks for Python 3.12+, validates Developer Mode, downloads the
 latest release from GitHub, installs to `%LOCALAPPDATA%\Programs\aikito`, and
 adds `bin\` to your User `PATH` automatically.
+
+To customize the install directory:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/lsaint/aikito/main/install.ps1))) -InstallDir "D:\aikito"
+```
+
+</details>
 
 After the installer finishes, open a **new terminal** and run:
 

@@ -10,6 +10,9 @@
 
 .EXAMPLE
     irm https://raw.githubusercontent.com/lsaint/aikito/main/install.ps1 | iex
+
+.EXAMPLE
+    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/lsaint/aikito/main/install.ps1))) -InstallDir "D:\aikito"
 #>
 [CmdletBinding()]
 param (

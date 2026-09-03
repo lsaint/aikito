@@ -210,8 +210,19 @@ eval "$(aikito completion zsh)"
 irm https://raw.githubusercontent.com/lsaint/aikito/main/install.ps1 | iex
 ```
 
+<details>
+<summary>安装细节与自定义安装路径</summary>
+
 脚本会自动检查 Python 3.12+、验证开发者模式、从 GitHub 下载最新版本，
 安装到 `%LOCALAPPDATA%\Programs\aikito`，并将 `bin\` 自动加入当前用户 PATH。
+
+如需自定义安装路径：
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/lsaint/aikito/main/install.ps1))) -InstallDir "D:\aikito"
+```
+
+</details>
 
 安装完成后，**打开新终端**运行：
 
