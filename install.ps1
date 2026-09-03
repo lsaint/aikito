@@ -204,19 +204,45 @@ try {
 
 Write-Step "Installing to $InstallDir ..."
 
-if (Test-Path $InstallDir) {
-    Remove-Item $InstallDir -Recurse -Force
-}
-
 $ExtractDir = Join-Path $TempDir "extracted"
 Expand-Archive -Path $ZipPath -DestinationPath $ExtractDir -Force
 
 # GitHub zipball nests content under a single top-level directory
 $TopLevel = Get-ChildItem -Path $ExtractDir -Directory | Select-Object -First 1
-if ($TopLevel) {
-    Move-Item -Path $TopLevel.FullName -Destination $InstallDir
-} else {
-    Move-Item -Path $ExtractDir -Destination $InstallDir
+$SourceDir = if ($TopLevel) { $TopLevel.FullName } else { $ExtractDir }
+
+if (Test-Path $InstallDir) {
+    for ($i = 1; $i -le 3; $i++) {
+        try {
+            Remove-Item $InstallDir -Recurse -Force -ErrorAction Stop
+            break
+        } catch {
+            if ($i -eq 3) {
+                Write-Fail "Could not remove existing installation at ${InstallDir}. Ensure no processes are locking it."
+            }
+            Start-Sleep -Milliseconds 500
+        }
+    }
+}
+
+New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+
+# Copy extracted files to destination (avoid Move-Item which fails if antivirus/indexer temporarily locks extracted files)
+$copied = $false
+for ($i = 1; $i -le 3; $i++) {
+    try {
+        Get-ChildItem -Path $SourceDir -Force | Copy-Item -Destination $InstallDir -Recurse -Force -ErrorAction Stop
+        $copied = $true
+        break
+    } catch {
+        if ($i -lt 3) {
+            Start-Sleep -Milliseconds 500
+        }
+    }
+}
+
+if (-not $copied) {
+    Write-Fail "Failed to copy files to ${InstallDir}."
 }
 
 Remove-Item $TempDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -243,8 +269,9 @@ if ($CurrentPath -notlike "*$BinDir*") {
 Write-Step "Verifying installation ..."
 
 $AikitoPs1 = Join-Path $BinDir "aikito.ps1"
+$psExe     = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh" } else { "powershell" }
 try {
-    $VerLine = & pwsh -NoProfile -File $AikitoPs1 version 2>&1
+    $VerLine = & $psExe -NoProfile -File $AikitoPs1 version 2>&1
     if ($LASTEXITCODE -ne 0) { throw "non-zero exit" }
     Write-Ok $VerLine.ToString().Trim()
 } catch {
