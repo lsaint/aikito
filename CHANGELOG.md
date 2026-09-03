@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.24.0] - 2026-09-03
+
+### Added
+
+- Multi-path and multi-active project targets: `agent.toml` supports candidate paths
+  via a single `path`, a list of `paths`, or a named `[paths]` table for cross-platform roaming.
+- Dynamic multi-active project synchronization: `aikito sync project <name>` automatically
+  synchronizes instructions, skills, and memory across all active paths detected on the
+  local filesystem (e.g. multiple Git worktrees).
+- Fail-fast preflight validation across all active project paths before modifying links or files.
+- Non-fatal offline paths in `agent.toml`: missing candidate paths on the local machine
+  are safely preserved without reporting errors in `aikito status` or `aikito doctor`.
+- Model configuration support for Antigravity CLI subagents (`[subagents.<name>.agy].model`).
+
+### Changed
+
+- Documented `-InstallDir` parameter usage for the PowerShell installer `install.ps1`.
+
+### Fixed
+
+- Handled known workspace, configuration, and conflict exceptions cleanly in the CLI
+  entrypoint without displaying raw tracebacks unless `--debug` or `AIKITO_DEBUG=1` is set.
+- Improved PowerShell command line AST element resolution, auto-injected alias fallback,
+  and added a runnable one-liner to append completions in `install.ps1`.
+- Resolved temporary test directory symlink paths and 8.3 short names on Windows to prevent
+  assertion mismatches.
+
 ## [1.23.0] - 2026-09-02
 
 ### Added
@@ -453,7 +480,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.23.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.24.0...HEAD
+[1.24.0]: https://github.com/lsaint/aikito/compare/v1.23.0...v1.24.0
 [1.23.0]: https://github.com/lsaint/aikito/compare/v1.22.0...v1.23.0
 [1.22.0]: https://github.com/lsaint/aikito/compare/v1.21.0...v1.22.0
 [1.21.0]: https://github.com/lsaint/aikito/compare/v1.20.1...v1.21.0
