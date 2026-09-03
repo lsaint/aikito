@@ -86,6 +86,7 @@ model = "haiku"
 effort = "low"
 
 [subagents.formatter.agy]
+model = "flash_lite"
 tools = ["run_command"]
 
 [subagents.formatter.opencode]
@@ -354,6 +355,7 @@ invalid_field = "value"
         # Check content includes model gpt-5.4-mini
         self.assertIn('model = "gpt-5.4-mini"', codex_file.read_text(encoding="utf-8"))
         self.assertIn('tools: ["run_command"]', agy_file.read_text(encoding="utf-8"))
+        self.assertIn('model: "flash_lite"', agy_file.read_text(encoding="utf-8"))
         self.assertIn(
             'model: "alibaba-token-plan-cn/qwen3.6-flash"',
             opencode_file.read_text(encoding="utf-8"),

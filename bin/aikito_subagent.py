@@ -24,7 +24,7 @@ SUBAGENT_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")
 KNOWN_PLATFORM_FIELDS = {
     "codex": {"model", "model_reasoning_effort"},
     "claude-code": {"model", "effort"},
-    "agy": {"tools"},
+    "agy": {"tools", "model"},
     "github-copilot": {
         "name",
         "description",
