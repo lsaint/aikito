@@ -1,4 +1,5 @@
 import io
+import os
 import re
 import shutil
 import subprocess
@@ -1984,6 +1985,103 @@ class TestDoctorFixCli(unittest.TestCase):
         args = AIKITO_CLI.build_parser().parse_args(["doctor", "--prune"])
 
         self.assertTrue(args.prune)
+
+
+class TestCliGlobalExceptionHandler(unittest.TestCase):
+    def test_status_missing_workspace_reports_clean_error_without_traceback(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            non_existent_workspace = Path(tmp) / "non_existent_workspace"
+            env = os.environ.copy()
+            env["AIKITO_DIR"] = str(non_existent_workspace)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "bin" / "aikito"),
+                    "status",
+                ],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[ERROR]", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertIn("Run 'aikito init workspace' to initialize.", result.stderr)
+
+    def test_unexpected_error_without_debug_shows_clean_message_and_hint(self) -> None:
+        with (
+            patch.object(AIKITO_CLI, "build_parser") as mock_parser,
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+        ):
+            fake_parser = MagicMock()
+            fake_args = MagicMock()
+            fake_args.debug = False
+            fake_args.func.side_effect = RuntimeError("Unexpected boom")
+            fake_parser.parse_args.return_value = fake_args
+            mock_parser.return_value = fake_parser
+
+            with self.assertRaises(SystemExit) as ctx:
+                AIKITO_CLI.main()
+
+            self.assertEqual(ctx.exception.code, 1)
+            err = mock_stderr.getvalue()
+            self.assertIn("[ERROR] An unexpected error occurred: Unexpected boom", err)
+            self.assertIn(
+                "Hint: Run with AIKITO_DEBUG=1 to see the full traceback.", err
+            )
+            self.assertNotIn("Traceback", err)
+
+    def test_unexpected_error_with_debug_raises_traceback(self) -> None:
+        with patch.object(AIKITO_CLI, "build_parser") as mock_parser:
+            fake_parser = MagicMock()
+            fake_args = MagicMock()
+            fake_args.debug = True
+            fake_args.func.side_effect = RuntimeError("Unexpected boom")
+            fake_parser.parse_args.return_value = fake_args
+            mock_parser.return_value = fake_parser
+
+            with self.assertRaises(RuntimeError):
+                AIKITO_CLI.main()
+
+    def test_keyboard_interrupt_exits_cleanly(self) -> None:
+        with (
+            patch.object(AIKITO_CLI, "build_parser") as mock_parser,
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+        ):
+            fake_parser = MagicMock()
+            fake_args = MagicMock()
+            fake_args.debug = False
+            fake_args.func.side_effect = KeyboardInterrupt()
+            fake_parser.parse_args.return_value = fake_args
+            mock_parser.return_value = fake_parser
+
+            with self.assertRaises(SystemExit) as ctx:
+                AIKITO_CLI.main()
+
+            self.assertEqual(ctx.exception.code, 130)
+            err = mock_stderr.getvalue()
+            self.assertIn("[INFO] Operation aborted by user.", err)
+
+    def test_broken_pipe_exits_zero(self) -> None:
+        with (
+            patch.object(AIKITO_CLI, "build_parser") as mock_parser,
+            patch("sys.stdout", new_callable=io.StringIO),
+        ):
+            fake_parser = MagicMock()
+            fake_args = MagicMock()
+            fake_args.debug = False
+            fake_args.func.side_effect = BrokenPipeError()
+            fake_parser.parse_args.return_value = fake_args
+            mock_parser.return_value = fake_parser
+
+            with self.assertRaises(SystemExit) as ctx:
+                AIKITO_CLI.main()
+
+            self.assertEqual(ctx.exception.code, 0)
 
 
 if __name__ == "__main__":

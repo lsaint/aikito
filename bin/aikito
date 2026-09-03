@@ -25,6 +25,7 @@ from aikito_init import (
 )
 from aikito_maintain import MemoryMaintenanceError, run_memory_maintenance
 from aikito_resolve import (
+    SkillTargetConflictError,
     collect_instruction_agent_status,
     collect_project_instruction_status,
     open_in_editor,
@@ -41,6 +42,7 @@ from aikito_sync import (
     sync_resource,
 )
 from aikito_memory import (
+    MemoryTargetConflictError,
     remove_memory_note,
     rename_memory_note,
     resolve_memory_target_for_command,
@@ -54,6 +56,7 @@ from aikito_mcp import (
     load_agents,
     sync_mcp_configs,
 )
+from aikito_templates import TemplateError
 from aikito_project import (
     collect_project_summaries,
     collect_project_skill_states,
@@ -63,6 +66,7 @@ from aikito_project import (
 
 from aikito_config import get_inbox_path
 from aikito_inbox import (
+    InboxTargetConflictError,
     collect_inbox_rows,
     remove_inbox_note,
     resolve_inbox_target_for_command,
@@ -1344,6 +1348,11 @@ def build_parser() -> argparse.ArgumentParser:
         version=f"%(prog)s {__version__}",
         help="Show program's version number and exit",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Print full Python traceback on unexpected errors",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # version
@@ -1993,7 +2002,39 @@ def main() -> None:
     init_console_encoding()
     parser = build_parser()
     args = parser.parse_args()
-    args.func(args)
+    debug_mode = getattr(args, "debug", False) or os.environ.get("AIKITO_DEBUG") == "1"
+
+    try:
+        args.func(args)
+    except (
+        MCPConfigError,
+        SubagentConfigError,
+        TemplateError,
+        MemoryMaintenanceError,
+        SkillTargetConflictError,
+        InboxTargetConflictError,
+        MemoryTargetConflictError,
+    ) as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\n[INFO] Operation aborted by user.", file=sys.stderr)
+        sys.exit(130)
+    except BrokenPipeError:
+        try:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, sys.stdout.fileno())
+        except Exception:
+            pass
+        sys.exit(0)
+    except Exception as exc:
+        if debug_mode:
+            raise
+        print(f"[ERROR] An unexpected error occurred: {exc}", file=sys.stderr)
+        print(
+            "Hint: Run with AIKITO_DEBUG=1 to see the full traceback.", file=sys.stderr
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":

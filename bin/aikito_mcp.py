@@ -228,9 +228,17 @@ def _resolve_project_path(value: Any, field: str, agent: str) -> Path:
 
 def load_agents(aikito_dir: Path, home: Path) -> dict[str, AgentDefinition]:
     """Load the agent registry from agents.toml (the single source of truth)."""
+    if not aikito_dir.exists() or not aikito_dir.is_dir():
+        raise MCPConfigError(
+            f"Aikito workspace directory not found: {aikito_dir}. "
+            "Run 'aikito init workspace' to initialize."
+        )
     config_path = aikito_dir / DEFAULT_AGENTS_CONFIG
     if not config_path.exists():
-        raise MCPConfigError(f"Agents config not found: {config_path}")
+        raise MCPConfigError(
+            f"Agents config not found: {config_path}. "
+            "Run 'aikito init workspace' to initialize."
+        )
     try:
         document = tomllib.loads(config_path.read_text(encoding="utf-8"))
     except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError) as exc:
