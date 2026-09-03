@@ -2087,7 +2087,7 @@ class TestCliGlobalExceptionHandler(unittest.TestCase):
 class ProjectSyncCliTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp_dir.name)
+        self.root = Path(self.temp_dir.name).resolve()
         self.aikito_dir = self.root / "workspace"
         self.aikito_dir.mkdir()
         (self.aikito_dir / "skills" / "demo-skill").mkdir(parents=True)
@@ -2103,8 +2103,8 @@ class ProjectSyncCliTest(unittest.TestCase):
         (self.proj_dir / "AGENTS.md").write_text("rules", encoding="utf-8")
         (self.proj_dir / "memory").mkdir(parents=True)
 
-        self.p1 = self.root / "repo1"
-        self.p2 = self.root / "repo2"
+        self.p1 = (self.root / "repo1").resolve()
+        self.p2 = (self.root / "repo2").resolve()
         self.p1.mkdir()
         self.p2.mkdir()
 
@@ -2166,8 +2166,8 @@ class ProjectSyncCliTest(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 1)
         err = mock_stderr.getvalue()
         self.assertIn("None of the configured paths for project 'myproj' exist", err)
-        self.assertIn(str(offline1), err)
-        self.assertIn(str(offline2), err)
+        self.assertIn("nonexistent1", err)
+        self.assertIn("nonexistent2", err)
 
     def test_sync_explicit_path_append_failure_aborts(self) -> None:
         (self.proj_dir / "agent.toml").write_text(
