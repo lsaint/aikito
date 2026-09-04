@@ -124,6 +124,8 @@ def secure_file_permissions(path: Path) -> bool:
             ["icacls", str(path), "/inheritance:r", "/grant:r", principal],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=5,
         )
@@ -166,6 +168,8 @@ def check_credential_permissions(path: Path) -> tuple[bool, str]:
             ["whoami", "/user", "/fo", "csv", "/nh"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=5,
         )
@@ -186,11 +190,12 @@ def check_credential_permissions(path: Path) -> tuple[bool, str]:
     if owner_sid:
         safe_sids.add(owner_sid)
 
-    # Step 2: query ACL via PowerShell Get-Acl
+    # Step 2: query ACL via PowerShell Get-Acl or Get-Item.GetAccessControl
     # Escape single quotes in path for PowerShell string literal ('' = escaped ')
     ps_path = str(path).replace("'", "''")
     ps_script = (
-        f"$acl = Get-Acl -LiteralPath '{ps_path}';"
+        f"$item = Get-Item -LiteralPath '{ps_path}';"
+        "$acl = $item.GetAccessControl();"
         "$acl.Access | ForEach-Object {"
         "$sid = $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value;"
         "Write-Output $sid"
@@ -201,6 +206,8 @@ def check_credential_permissions(path: Path) -> tuple[bool, str]:
             ["powershell", "-NoProfile", "-Command", ps_script],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=10,
         )
