@@ -1228,7 +1228,7 @@ def cmd_show_memory(args: argparse.Namespace) -> None:
     )
 
     try:
-        print(target_file.read_text(), end="")
+        print(target_file.read_text(encoding="utf-8"), end="")
     except Exception as e:
         print(
             f"[ERROR] Failed to read memory note {target_file}: {e}",

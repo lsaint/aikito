@@ -397,7 +397,7 @@ def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
         previously_managed: set[tuple[str, str]] = set()
         if state_file.is_file():
             try:
-                state_doc = json.loads(state_file.read_text())
+                state_doc = json.loads(state_file.read_text(encoding="utf-8"))
                 for state_key, entry in state_doc.get("entries", {}).items():
                     if ":" in state_key and isinstance(entry, dict):
                         agent_part = state_key.split(":", 1)[0]
@@ -1108,7 +1108,7 @@ def check_security(aikito_dir: Path, home: Path) -> DoctorSection:
     # 5c. .gitignore covers .local/state/
     gitignore = aikito_dir / ".gitignore"
     if gitignore.is_file():
-        content = gitignore.read_text()
+        content = gitignore.read_text(encoding="utf-8")
         if ".local/state" not in content and ".local/" not in content:
             findings.append(
                 _warn(

@@ -605,7 +605,8 @@ class ShowMemoryTest(unittest.TestCase):
 
     def test_show_memory_unique_match(self) -> None:
         global_note = self.aikito_dir / "memory" / "notes" / "unique-note.md"
-        global_note.write_text("# Unique Note Content")
+        content = "# Unique Note Content (包含中文与特殊字符 “quote”)"
+        global_note.write_text(content, encoding="utf-8")
 
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
@@ -615,7 +616,7 @@ class ShowMemoryTest(unittest.TestCase):
                 ["show", "memory", "unique-note"]
             )
             args.func(args)
-            self.assertEqual(mock_stdout.getvalue(), "# Unique Note Content")
+            self.assertEqual(mock_stdout.getvalue(), content)
 
     def test_show_memory_unique_prefix_match(self) -> None:
         note = (

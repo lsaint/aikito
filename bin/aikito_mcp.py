@@ -891,7 +891,7 @@ def _load_state(home: Path) -> dict[str, Any]:
     if not path.exists():
         return {"version": STATE_VERSION, "entries": {}}
     try:
-        state = json.loads(path.read_text())
+        state = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
         raise MCPConfigError(f"Cannot read MCP state file {path}: {exc}") from exc
     if state.get("version") != STATE_VERSION or not isinstance(
@@ -1985,7 +1985,7 @@ def authenticate_mcp(
         )
     if not _agent_detected(spec) or not spec.config_path.exists():
         raise MCPConfigError(f"{agent} is not configured; run 'aikito sync mcp' first")
-    current = _read_entry(spec, spec.config_path.read_text())
+    current = _read_entry(spec, spec.config_path.read_text(encoding="utf-8"))
     if not _entry_matches_desired(spec, current):
         raise MCPConfigError(
             f"{agent}/{server} config is missing or has drifted; "
@@ -2050,7 +2050,7 @@ def authenticate_mcp(
                         output(f"[AUTH URL] {url}")
 
             if url_file.exists():
-                captured_urls = url_file.read_text()
+                captured_urls = url_file.read_text(encoding="utf-8")
                 if captured_urls.endswith("\n"):
                     for url in captured_urls.splitlines():
                         if _is_authorization_url(url) and url not in seen_urls:
@@ -2108,7 +2108,11 @@ def sync_mcp_configs(
             output(f"[SKIP] {spec.agent} not detected: {spec.config_path.parent}")
             continue
 
-        text = spec.config_path.read_text() if spec.config_path.exists() else ""
+        text = (
+            spec.config_path.read_text(encoding="utf-8")
+            if spec.config_path.exists()
+            else ""
+        )
         current = _read_entry(spec, text)
         previous = entries.get(spec.state_key, {})
         managed_fingerprint = previous.get("fingerprint")
@@ -2199,7 +2203,7 @@ def status_mcp_configs(
             success = False
             continue
 
-        current = _read_entry(spec, spec.config_path.read_text())
+        current = _read_entry(spec, spec.config_path.read_text(encoding="utf-8"))
         if _entry_matches_desired(spec, current):
             suffix = (
                 f"; {spec.missing_credential_env} unavailable, preserved managed header"
