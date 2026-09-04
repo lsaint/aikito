@@ -7,10 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.24.1] - 2026-09-04
+
 ### Fixed
 
 - Grok MCP synchronization now writes native `headers` with `${ENV}` interpolation
   instead of Codex `env_http_headers` for Basic API-token authentication.
+- Windows `install.ps1` copies extracted files instead of using `Move-Item`, avoiding
+  file-locking failures from antivirus or indexer scans during install.
 
 ## [1.24.0] - 2026-09-03
 
@@ -485,7 +489,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.24.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.24.1...HEAD
+[1.24.1]: https://github.com/lsaint/aikito/compare/v1.24.0...v1.24.1
 [1.24.0]: https://github.com/lsaint/aikito/compare/v1.23.0...v1.24.0
 [1.23.0]: https://github.com/lsaint/aikito/compare/v1.22.0...v1.23.0
 [1.22.0]: https://github.com/lsaint/aikito/compare/v1.21.0...v1.22.0
