@@ -75,16 +75,13 @@ No database, daemon, vector store, or hosted service required.
 | MCP servers | `mcps/*.toml` | Native TOML, JSON, or JSONC configs |
 | Subagents | `subagents.toml`, `subagents/` | Native subagent definitions |
 
+Project skills can `link` (stay shared) or `copy` (isolated snapshot); project
+memory always uses `link`.
+
 The default registry includes Codex, Claude Code, Antigravity CLI (`agy`),
 OpenCode, GitHub Copilot CLI, DeepSeek Harness (`dsh`), Grok Build, and Pi. See the
 [architecture](docs/architecture.md) for the complete mental model and per-agent
 capability boundaries.
-
-### Share or isolate
-
-- `link` keeps a resource shared and immediately up to date
-- `copy` gives a project an isolated snapshot it can evolve independently
-- project memory always uses `link` mode with its canonical scope, preserving one history
 
 ## Durable Memory
 
@@ -313,26 +310,14 @@ addresses, and private code. Deleting a later commit does not remove a secret
 from Git history.
 
 Read the [safety model](docs/safety.md) before synchronizing an existing setup.
+Report vulnerabilities privately according to the [Security Policy](SECURITY.md).
 
 ## Documentation
 
 Browse the [documentation index](docs/README.md) for concepts, operational
 guides, the CLI reference, safety details, the roadmap, and the
-[FAQ](docs/faq.md).
-
-- [Comparison and Design Boundaries](docs/comparison.md) — where Aikito fits
-  alongside memory systems, project-local sync tools, and agent orchestrators
-
-## Contributing
-
-Issues and pull requests are welcome. Before submitting code, run:
-
-```bash
-python3 -m pip install pytest
-python3 -m pytest
-```
-
-Report vulnerabilities privately according to the [Security Policy](SECURITY.md).
+[FAQ](docs/faq.md). [Comparison](docs/comparison.md) places Aikito alongside
+memory systems, project-local sync tools, and agent orchestrators.
 
 ## Support
 

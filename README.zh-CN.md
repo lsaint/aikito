@@ -74,15 +74,11 @@ Aikito 将这些资源集中在一个个人 Git 工作区中，并将选定的�
 | MCP server | `mcps/*.toml` | Agent 原生 TOML、JSON 或 JSONC 配置 |
 | Subagent | `subagents.toml`、`subagents/` | Agent 原生 subagent 定义 |
 
+项目 skill 可用 `link`（保持共享）或 `copy`（隔离快照）；项目 memory 始终使用 `link`。
+
 默认注册表包含 Codex、Claude Code、Antigravity CLI（`agy`）、OpenCode、
 GitHub Copilot CLI、DeepSeek Harness（`dsh`）、Grok Build 和 Pi。完整心智模型和
 各 Agent 的能力边界见[架构文档（英文）](docs/architecture.md)。
-
-### 共享或隔离
-
-- `link` 保持资源共享并实时同步更新
-- `copy` 为项目提供可独立演进的隔离快照
-- 项目 memory 始终与其规范作用域保持`link`模式，以维护统一的历史
 
 ## 长期 Memory
 
@@ -288,30 +284,19 @@ aikito adopt --apply
 私密源码等敏感信息。后续删除一次提交并不能从 Git 历史中清除秘密。
 
 同步现有环境前，请阅读完整的[安全模型（英文）](docs/safety.md)。
+安全漏洞请按[安全策略](SECURITY.md)私下报告。
 
 ## 文档
 
 详细文档以英文作为规范来源。通过[文档索引](docs/README.md)查看核心概念、操作指南、
 CLI 参考、安全模型、路线图和[常见问题（FAQ，英文）](docs/faq.md)。
-
-- [设计边界与对比（英文）](docs/comparison.md)——Aikito 与记忆系统、单项目同步工具、
-  Agent 编排平台之间的定位差异
+[设计边界与对比（英文）](docs/comparison.md)说明 Aikito 与记忆系统、单项目同步工具、
+Agent 编排平台之间的定位。
 
 ## 关注作者
 
 作者也在微信公众号分享关于 AI、编程、阅读与长期知识积累的实践和思考。欢迎在微信中搜索
 「不是很南」关注。
-
-## 参与贡献
-
-欢迎提交 Issue 和 Pull Request。提交代码前请运行：
-
-```bash
-python3 -m pip install pytest
-python3 -m pytest
-```
-
-安全漏洞请按[安全策略](SECURITY.md)私下报告。
 
 ## 支持
 
