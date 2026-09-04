@@ -1,7 +1,9 @@
 # Synchronize MCP Servers
 
 Aikito stores canonical MCP definitions in `mcps/*.toml` and updates only the
-managed entries in each supported Agent's native configuration.
+managed entries in each supported Agent's native configuration. Pi is omitted
+from MCP synchronization; see [Architecture](architecture.md) for per-agent
+capability boundaries.
 
 ## Before Synchronizing
 
