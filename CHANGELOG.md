@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.25.0] - 2026-09-05
+
 ### Added
 
 - Whole-workspace synchronization via bare `aikito sync [--dry-run]`, automatically orchestrating global resources, host-gated subagents, MCP configurations, and active projects.
@@ -503,7 +505,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.24.1...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.25.0...HEAD
+[1.25.0]: https://github.com/lsaint/aikito/compare/v1.24.1...v1.25.0
 [1.24.1]: https://github.com/lsaint/aikito/compare/v1.24.0...v1.24.1
 [1.24.0]: https://github.com/lsaint/aikito/compare/v1.23.0...v1.24.0
 [1.23.0]: https://github.com/lsaint/aikito/compare/v1.22.0...v1.23.0
