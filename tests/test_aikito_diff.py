@@ -120,3 +120,27 @@ class DriftDiffTest(unittest.TestCase):
         self.assertIn("+<expected redacted value>", rendered)
         self.assertNotIn("old-secret", rendered)
         self.assertNotIn("new-secret", rendered)
+
+    def test_offline_copy_project_produces_no_diff(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            canonical = root / "skills" / "example"
+            canonical.mkdir(parents=True)
+            (canonical / "SKILL.md").write_text("canonical\n", encoding="utf-8")
+
+            project_config = root / "projects" / "offline_p1"
+            project_config.mkdir(parents=True)
+            (project_config / "agent.toml").write_text(
+                'path = "D:/nonexistent/p1"\nsync_mode = "copy"\nskills = ["example"]\n',
+                encoding="utf-8",
+            )
+
+            with (
+                patch("aikito_diff.load_agent_specs", return_value=[]),
+                patch("aikito_diff.build_plan", return_value=([], {})),
+            ):
+                diffs = collect_drift_diffs(root, root)
+                rendered = render_drift_diffs(diffs)
+
+            self.assertEqual(diffs, [])
+            self.assertEqual(rendered, "No drift detected.")

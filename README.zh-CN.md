@@ -145,7 +145,7 @@ Aikito 管理持久化文件、显式作用域与可控同步。为了保持轻�
 
 > 请从 https://github.com/lsaint/aikito 安装并配置 Aikito。阅读 README、
 > `templates/skills/aikito/SKILL.md` 及其中与本次配置相关的链接文档，按照其安全要求初始化
-> workspace、同步全局资源，并使用 `aikito status` 验证结果。导入或更改任何已有的
+> workspace、使用 `aikito sync` 同步资源，并使用 `aikito status` 验证结果。导入或更改任何已有的
 > Agent 配置前，先向我展示计划变更和冲突并等待确认。配置完成后，总结已经就绪的内容，
 > 并引导我完成下一步，包括是否注册第一个代码项目；未经我确认，不要注册项目。
 
@@ -165,7 +165,7 @@ Aikito 管理持久化文件、显式作用域与可控同步。为了保持轻�
 brew install lsaint/tap/aikito
 
 aikito init workspace ~/aikito
-aikito sync global
+aikito sync
 aikito status
 ```
 
@@ -205,7 +205,7 @@ irm https://raw.githubusercontent.com/lsaint/aikito/main/install.ps1 | iex
 
 ```powershell
 aikito init workspace $env:USERPROFILE\aikito
-aikito sync global
+aikito sync
 aikito status
 ```
 
@@ -218,6 +218,16 @@ Invoke-Expression (& aikito completion powershell | Out-String)
 
 Workspace 是 Aikito 所有资源的 Git 管理中心。通常每个用户或每台机器只需初始化一份。
 
+在新机器上连接已有的工作区仓库：
+
+```bash
+# 下载或克隆已有工作区仓库到 ~/aikito
+aikito init workspace ~/aikito
+aikito sync
+```
+
+未安装的 Agent 及配置在他机上的候选路径会被自动识别为离线（offline on this host），不会报错。
+
 需要项目专属 instruction、skill 或 memory 时，在对应代码目录中注册 project：
 
 ```bash
@@ -227,7 +237,8 @@ aikito init project
 
 该命令会在 `<workspace>/projects/example/` 创建项目的规范资源，并连接到当前目录的
 `./.agents/`。一份 workspace 可以管理多个 project；project 代表一个代码目录及其专属
-Agent 资源，不保存项目源码本身。
+Agent 资源，不保存项目源码本身。项目支持通过 `[paths]` 表或 `paths` 数组配置多候选路径，
+便于跨平台（Mac/Windows/Linux）漫游，缺失的路径会自动视为离线（offline）。
 
 使用自定义路径初始化后，Aikito 会记住该路径供后续命令使用。可通过
 `aikito path workspace` 输出当前路径；`AIKITO_DIR` 可用于 CI 或隔离自动化中的临时覆盖。

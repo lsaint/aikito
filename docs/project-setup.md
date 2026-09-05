@@ -74,11 +74,12 @@ resolution or synchronization.
 
 Aikito evaluates candidate paths dynamically on the local machine:
 - **Active paths**: Candidate directories that currently exist on the local filesystem.
-- **Offline paths**: Candidate directories that do not exist locally (for example,
+- **Offline paths & Offline projects**: Candidate directories that do not exist locally (for example,
   Windows paths when running on macOS, or a secondary worktree not yet cloned).
-  Offline paths are non-fatal as long as at least one active path exists on the host.
-  `aikito status` and `aikito doctor` report the project as healthy, preserving
-  offline paths for seamless roaming across multiple machines through Git.
+  When some candidate paths exist locally, the project syncs across those active paths.
+  When NO candidate paths exist on the current host, the project is considered **offline** on this host.
+  `aikito status` displays offline status with a dimmed badge (`–`), and `aikito doctor` reports the project as healthy
+  (`Project '<name>': offline on this host (<candidates>)`), preserving candidate paths for seamless roaming across multiple machines through Git without false-positive failures.
 - **Primary path**: For single-target display and default resolution, Aikito selects
   the **first active path** in configuration order. If no candidates exist locally, it
   falls back to the first defined candidate.

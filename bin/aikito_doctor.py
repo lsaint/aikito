@@ -54,7 +54,6 @@ from aikito_project import collect_project_summaries, resolve_project_binding
 from aikito_registry import (
     add_missing_agent_fields,
     missing_agent_fields,
-    remove_agent_section,
 )
 from aikito_render import DoctorFinding, DoctorReport, DoctorSection
 from aikito_status import collect_subagents_matrix
@@ -397,7 +396,7 @@ def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
         previously_managed: set[tuple[str, str]] = set()
         if state_file.is_file():
             try:
-                state_doc = json.loads(state_file.read_text())
+                state_doc = json.loads(state_file.read_text(encoding="utf-8"))
                 for state_key, entry in state_doc.get("entries", {}).items():
                     if ":" in state_key and isinstance(entry, dict):
                         agent_part = state_key.split(":", 1)[0]
@@ -725,9 +724,8 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
                 ):
                     if not is_agent_installed(agent_name, home):
                         findings.append(
-                            _warn(
-                                f"agents.toml: registered Agent '{agent_name}' is not detected",
-                                "aikito doctor --prune",
+                            _ok(
+                                f"agents.toml: registered Agent '{agent_name}' is offline on this host"
                             )
                         )
                 for agent_name, fields in missing_agent_fields(
@@ -793,10 +791,9 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
                         for e in binding.offline_entries
                     )
                     findings.append(
-                        _fail(
+                        _ok(
                             f"projects/{proj_folder.name}/agent.toml: "
-                            f"no configured paths exist on this host ({candidates_str})",
-                            f"Update projects/{proj_folder.name}/agent.toml",
+                            f"offline on this host ({candidates_str})"
                         )
                     )
                 else:
@@ -828,7 +825,14 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
             display = _home_rel(cfg, home)
             try:
                 text = cfg.read_text(encoding="utf-8")
-                if fmt in ("agy_json", "claude_json", "copilot_json"):
+                if not text.strip():
+                    findings.append(
+                        _warn(
+                            f"{definition.display_name} config: empty file ({display})",
+                            "aikito sync mcp",
+                        )
+                    )
+                elif fmt in ("agy_json", "claude_json", "copilot_json"):
                     json.loads(text)
                     findings.append(
                         _ok(f"{definition.display_name} config: valid JSON ({display})")
@@ -892,8 +896,21 @@ def check_projects(aikito_dir: Path, home: Path) -> DoctorSection:
     """Report project runtime health using the same model as `show project`."""
     findings: List[DoctorFinding] = []
     projects = collect_project_summaries(aikito_dir, home)
+    active_ok_count = 0
     for project in projects:
         if project.runtime_status == "OK":
+            active_ok_count += 1
+            continue
+        if project.runtime_status == "OFFLINE":
+            candidates_str = ", ".join(
+                f"[{label}] {p}" if label != "default" else p
+                for label, p in project.offline_paths
+            ) or str(project.path)
+            findings.append(
+                _ok(
+                    f"Project '{project.name}': offline on this host ({candidates_str})"
+                )
+            )
             continue
         if project.details:
             counts: dict[str, int] = {}
@@ -922,6 +939,10 @@ def check_projects(aikito_dir: Path, home: Path) -> DoctorSection:
 
     if not findings:
         findings.append(_ok(f"Project runtimes OK ({len(projects)} projects)"))
+    elif active_ok_count > 0 and not any(f.status == "FAIL" for f in findings):
+        findings.append(
+            _ok(f"Project runtimes OK ({active_ok_count} active project(s))")
+        )
     return DoctorSection(name="Projects", findings=findings)
 
 
@@ -969,12 +990,20 @@ def check_drift(aikito_dir: Path, home: Path) -> DoctorSection:
                     )
                 )
         elif st == "MISSING":
-            findings.append(
-                _fail(
-                    f"{spec.agent} × {spec.server}: managed entry missing from config",
-                    "aikito sync mcp",
+            if spec.missing_credential_env:
+                findings.append(
+                    _warn(
+                        f"{spec.agent} × {spec.server}: entry omitted due to missing {spec.missing_credential_env}",
+                        f"set {spec.missing_credential_env} and run: aikito sync mcp",
+                    )
                 )
-            )
+            else:
+                findings.append(
+                    _fail(
+                        f"{spec.agent} × {spec.server}: managed entry missing from config",
+                        "aikito sync mcp",
+                    )
+                )
         elif st == "ERROR":
             findings.append(
                 _fail(
@@ -1108,7 +1137,7 @@ def check_security(aikito_dir: Path, home: Path) -> DoctorSection:
     # 5c. .gitignore covers .local/state/
     gitignore = aikito_dir / ".gitignore"
     if gitignore.is_file():
-        content = gitignore.read_text()
+        content = gitignore.read_text(encoding="utf-8")
         if ".local/state" not in content and ".local/" not in content:
             findings.append(
                 _warn(
@@ -1344,49 +1373,10 @@ def _find_agent_references(aikito_dir: Path, agent_name: str) -> list[str]:
 def run_doctor_prune(
     aikito_dir: Path, home: Optional[Path] = None
 ) -> tuple[list[str], list[str]]:
-    """Prune undetected bundled Agents after reference checks and one backup."""
-    resolved_home = home or Path.home()
-    agents_path = aikito_dir / "agents.toml"
-    try:
-        document = tomllib.loads(agents_path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError):
-        return [], ["agents.toml cannot be read or parsed"]
-
-    registered = document.get("agents", {})
-    if not isinstance(registered, dict):
-        return [], ["agents.toml has no valid [agents] table"]
-
-    candidates = [
-        name
-        for name in registered
-        if name in AGENT_INSTALL_MARKERS and not is_agent_installed(name, resolved_home)
+    """Deprecated: In multi-host SoT setups, offline agents must not be pruned from agents.toml."""
+    return [], [
+        "Doctor prune is deprecated in multi-host setups. Undetected agents are offline on this host and preserved in agents.toml."
     ]
-    blocked: list[str] = []
-    prunable: list[str] = []
-    for name in candidates:
-        references = _find_agent_references(aikito_dir, name)
-        if references:
-            blocked.append(f"{name}: still referenced by {', '.join(references)}")
-        else:
-            prunable.append(name)
-
-    if not prunable:
-        return [], blocked
-
-    timestamp = f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{time.time_ns()}"
-    backup_path = (
-        resolved_home
-        / ".local/state/aikito/backups/doctor"
-        / f"{timestamp}-agents.toml"
-    )
-    backup_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(agents_path, backup_path)
-
-    pruned = [f"Backed up agents.toml to {backup_path}"]
-    for name in prunable:
-        remove_agent_section(agents_path, name)
-        pruned.append(f"Removed undetected Agent '{name}' from agents.toml")
-    return pruned, blocked
 
 
 # ---------------------------------------------------------------------------

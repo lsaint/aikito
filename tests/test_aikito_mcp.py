@@ -484,7 +484,7 @@ elif "No authorization" in script_text:
         self.assertEqual(codex_config.read_text(), 'model = "gpt"\n')
         self.assertFalse((self.home / STATE_FILE).exists())
 
-    def test_missing_agy_token_aborts_before_writing_any_config(self) -> None:
+    def test_missing_agy_token_skips_spec_with_warning(self) -> None:
         (self.aikito_dir / "mcps/managed.toml").write_text(
             """
 transport = "remote"
@@ -531,10 +531,14 @@ authorization_env = "TEST_MCP_AUTHORIZATION"
             if previous is not None:
                 os.environ["TEST_MCP_TOKEN"] = previous
 
-        self.assertFalse(result)
-        self.assertEqual(codex_config.read_text(), 'model = "keep-me"\n')
+        self.assertTrue(result)
+        self.assertIn("[mcp_servers.managed]", codex_config.read_text())
         self.assertIn(existing_header, agy_config.read_text())
-        self.assertFalse((self.home / STATE_FILE).exists())
+        state_entries = json.loads(
+            (self.home / STATE_FILE).read_text(encoding="utf-8")
+        )["entries"]
+        self.assertIn("codex:managed", state_entries)
+        self.assertNotIn("agy:managed", state_entries)
         self.assertEqual(evaluate_spec_status(agy_spec), "OK")
         self.assertTrue(any("TEST_MCP_TOKEN" in line for line in output))
 

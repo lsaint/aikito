@@ -13,12 +13,12 @@ import sys
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import Any, List
 
 from aikito_add import add_mcp, add_skill, add_subagent
 from aikito_adopt import build_adopt_plan, execute_adoption
 from aikito_diff import collect_drift_diffs, render_drift_diffs
-from aikito_doctor import run_doctor, run_doctor_fixes, run_doctor_prune
+from aikito_doctor import run_doctor, run_doctor_fixes
 from aikito_init import (
     init_project,
     init_workspace,
@@ -163,26 +163,31 @@ def resolve_color_flags(args: argparse.Namespace) -> tuple[bool, bool]:
     return use_unicode, use_color
 
 
-def cmd_global_sync(args: argparse.Namespace) -> None:
-    require_symlink_support()
-    aikito_dir = get_aikito_dir()
+def sync_global_resources(
+    aikito_dir: Path,
+    home: Path,
+    *,
+    dry_run: bool = False,
+) -> bool:
     skills_toml_path = aikito_dir / "skills.toml"
-
     agents_skills_dir = get_agents_dir() / "skills"
     global_instruction_source = aikito_dir / "global" / "AGENTS.md"
-    dry_run = getattr(args, "dry_run", False)
 
     if not skills_toml_path.exists():
         print(f"[ERROR] Config file not found: {skills_toml_path}", file=sys.stderr)
-        sys.exit(1)
+        return False
 
-    with open(skills_toml_path, "rb") as f:
-        data = tomllib.load(f)
+    try:
+        with open(skills_toml_path, "rb") as f:
+            data = tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        print(f"[ERROR] Failed to read {skills_toml_path}: {exc}", file=sys.stderr)
+        return False
 
     skills = data.get("skills", [])
     if not isinstance(skills, list):
         print("[ERROR] 'skills' in skills.toml must be a list.", file=sys.stderr)
-        sys.exit(1)
+        return False
 
     # A legacy top-level link is safe to replace only when it points to Aikito.
     legacy_skills_link = agents_skills_dir.is_symlink()
@@ -195,7 +200,7 @@ def cmd_global_sync(args: argparse.Namespace) -> None:
                 f"{agents_skills_dir}",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return False
         print(
             f"[INFO] Replacing old top-level symlink at {agents_skills_dir} with directory"
         )
@@ -228,7 +233,7 @@ def cmd_global_sync(args: argparse.Namespace) -> None:
         for path in all_conflicts:
             print(f"[CONFLICT] Unmanaged global skill item: {path}", file=sys.stderr)
         print("[ERROR] Global synchronization aborted.", file=sys.stderr)
-        sys.exit(1)
+        return False
     apply_runtime_cleanup(cleanup_paths, dry_run)
 
     for skill_name in skills:
@@ -241,14 +246,13 @@ def cmd_global_sync(args: argparse.Namespace) -> None:
             f"[ERROR] Global instruction file not found: {global_instruction_source}",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return False
 
-    home = Path.home()
     try:
         agents = load_agents(aikito_dir, home)
     except MCPConfigError as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
-        sys.exit(1)
+        return False
 
     legacy_grok_instructions = Path.home() / ".grok" / "AGENTS.md"
     if (
@@ -284,21 +288,27 @@ def cmd_global_sync(args: argparse.Namespace) -> None:
         if definition.skills_path is not None
     ]
 
-
-
     if not all((*instruction_results, *skill_entry_results)):
         print(
             "[ERROR] Global resources were synced, but one or more Agent "
             "runtime targets have conflicts.",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return False
 
     print(
         f"[SUCCESS] Global resources synced successfully "
         f"({len(valid_targets)} skills, 1 instruction source, "
         f"{len(skill_entry_results)} Agent skill entries)."
     )
+    return True
+
+
+def cmd_global_sync(args: argparse.Namespace) -> None:
+    require_symlink_support()
+    dry_run = getattr(args, "dry_run", False)
+    if not sync_global_resources(get_aikito_dir(), Path.home(), dry_run=dry_run):
+        sys.exit(1)
 
 
 def cmd_project_sync(args: argparse.Namespace) -> None:
@@ -383,6 +393,22 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
         )
         sys.exit(1)
 
+    if not _sync_project_active_entries(
+        aikito_dir, project_name, binding, data, home, dry_run=dry_run, force=force
+    ):
+        sys.exit(1)
+
+
+def _sync_project_active_entries(
+    aikito_dir: Path,
+    project_name: str,
+    binding: Any,
+    data: dict,
+    home: Path,
+    *,
+    dry_run: bool,
+    force: bool,
+) -> bool:
     multi = len(binding.active_entries) > 1
 
     # Phase 1: Preflight check all active entries (fail fast, no partial writes)
@@ -399,7 +425,7 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
         for err in all_errors:
             print(f"[ERROR] {err}", file=sys.stderr)
         print("[ERROR] Project synchronization aborted.", file=sys.stderr)
-        sys.exit(1)
+        return False
 
     # Phase 2: Perform synchronization across all paths
     if multi:
@@ -422,6 +448,7 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
 
     result = "sync preview completed" if dry_run else "synced successfully"
     print(f"[SUCCESS] Project '{project_name}' {result}.")
+    return True
 
 
 @dataclass(frozen=True)
@@ -690,6 +717,113 @@ def cmd_subagent_sync(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_sync_all(args: argparse.Namespace) -> None:
+    require_symlink_support()
+    aikito_dir = get_aikito_dir()
+    home = Path.home()
+    dry_run = getattr(args, "dry_run", False)
+
+    mode_str = " (dry run)" if dry_run else ""
+    print(f"[INFO] Starting full workspace sync{mode_str}...\n")
+
+    overall_success = True
+
+    # 1. Global sync
+    print("[INFO] --- [1/4] Global Resources ---")
+    if not sync_global_resources(aikito_dir, home, dry_run=dry_run):
+        overall_success = False
+        print("[ERROR] Global sync failed.\n", file=sys.stderr)
+    else:
+        print()
+
+    # 2. Subagent sync (host-gated)
+    print("[INFO] --- [2/4] Subagents ---")
+    try:
+        sub_ok = sync_subagent_configs(
+            aikito_dir=aikito_dir,
+            home=home,
+            dry_run=dry_run,
+        )
+        if not sub_ok:
+            overall_success = False
+            print("[ERROR] Subagents sync failed.\n", file=sys.stderr)
+        else:
+            print()
+    except SubagentConfigError as exc:
+        print(f"[ERROR] Subagent config error: {exc}\n", file=sys.stderr)
+        overall_success = False
+
+    # 3. MCP sync (host-gated, tolerant of missing credentials)
+    print("[INFO] --- [3/4] MCP Configurations ---")
+    try:
+        mcp_ok = sync_mcp_configs(
+            aikito_dir=aikito_dir,
+            home=home,
+            dry_run=dry_run,
+        )
+        if not mcp_ok:
+            overall_success = False
+            print("[ERROR] MCP sync failed.\n", file=sys.stderr)
+        else:
+            print()
+    except MCPConfigError as exc:
+        print(f"[ERROR] MCP config error: {exc}\n", file=sys.stderr)
+        overall_success = False
+
+    # 4. Project sync (active projects only)
+    print("[INFO] --- [4/4] Projects ---")
+    projects_dir = aikito_dir / "projects"
+    synced_active = 0
+    if projects_dir.is_dir():
+        proj_entries = sorted(
+            [p for p in projects_dir.iterdir() if p.is_dir() and not p.name.startswith(".")],
+            key=lambda p: p.name,
+        )
+        for proj_dir in proj_entries:
+            project_name = proj_dir.name
+            agent_toml_path = proj_dir / "agent.toml"
+            if not agent_toml_path.is_file():
+                continue
+            try:
+                with open(agent_toml_path, "rb") as f:
+                    data = tomllib.load(f)
+            except (OSError, tomllib.TOMLDecodeError) as exc:
+                print(f"[ERROR] Failed to read {agent_toml_path}: {exc}", file=sys.stderr)
+                overall_success = False
+                continue
+
+            binding = resolve_project_binding(data, home)
+            if not binding.entries:
+                print(f"[INFO] Project '{project_name}': no configured paths (unbound), skipping.")
+                continue
+            if not binding.active_entries:
+                candidates_str = ", ".join(
+                    f"[{e.label}] {e.raw_path}" if e.label != "default" else e.raw_path
+                    for e in binding.offline_entries
+                ) or "-"
+                print(f"[INFO] Project '{project_name}': offline on this host ({candidates_str}), skipping.")
+                continue
+
+            # Sync active entries for this project
+            p_ok = _sync_project_active_entries(
+                aikito_dir, project_name, binding, data, home, dry_run=dry_run, force=False
+            )
+            if not p_ok:
+                overall_success = False
+            else:
+                synced_active += 1
+    if synced_active == 0:
+        print("[INFO] No active projects to synchronize on this host.")
+    print()
+
+    if not overall_success:
+        print("[ERROR] Full workspace sync finished with errors.", file=sys.stderr)
+        sys.exit(1)
+
+    result = "preview completed successfully" if dry_run else "completed successfully"
+    print(f"[SUCCESS] Full workspace sync {result}.")
+
+
 def cmd_status(args: argparse.Namespace) -> None:
     aikito_dir, workspace_source = resolve_workspace_with_source(Path.home())
     home = Path.home()
@@ -744,6 +878,7 @@ def cmd_init(args: argparse.Namespace) -> None:
         pointer_path = persist_workspace(target, home)
         print(f"[CONFIG] Default workspace: {target.expanduser().resolve()}")
         print(f"[CONFIG] Workspace pointer: {pointer_path}")
+    print("\n💡 Next step: Run 'aikito sync' to synchronize managed configurations and runtimes on this host.")
 
 
 def cmd_path_workspace(args: argparse.Namespace) -> None:
@@ -1228,7 +1363,7 @@ def cmd_show_memory(args: argparse.Namespace) -> None:
     )
 
     try:
-        print(target_file.read_text(), end="")
+        print(target_file.read_text(encoding="utf-8"), end="")
     except Exception as e:
         print(
             f"[ERROR] Failed to read memory note {target_file}: {e}",
@@ -1351,17 +1486,6 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     use_unicode, use_color = resolve_color_flags(args)
 
     fixes: List[str] = []
-    prune_blockers: List[str] = []
-    if getattr(args, "prune", False):
-        prune_actions, prune_blockers = run_doctor_prune(aikito_dir, home)
-        fixes.extend(prune_actions)
-        if not getattr(args, "json", False):
-            for action in prune_actions:
-                print(f"[PRUNE] {action}")
-            for blocker in prune_blockers:
-                print(f"[SKIP] {blocker}")
-            if prune_actions or prune_blockers:
-                print()
     if getattr(args, "fix", False):
         fix_actions = run_doctor_fixes(aikito_dir, home)
         fixes.extend(fix_actions)
@@ -1394,7 +1518,6 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 "fail_count": r.fail_count,
                 "warn_count": r.warn_count,
                 "fixes": fixes,
-                "prune_blockers": prune_blockers,
             }
 
         print(json.dumps(_report_to_dict(report), ensure_ascii=False, indent=2))
@@ -1695,7 +1818,13 @@ def build_parser() -> argparse.ArgumentParser:
         "sync",
         help="Synchronize global resources, project, MCP servers, or subagents",
     )
-    sync_subparsers = p_sync.add_subparsers(dest="sync_target", required=True)
+    p_sync.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report changes without modifying files or configurations",
+    )
+    p_sync.set_defaults(func=cmd_sync_all)
+    sync_subparsers = p_sync.add_subparsers(dest="sync_target", required=False)
 
     # sync global
     p_sync_global = sync_subparsers.add_parser(
@@ -1705,6 +1834,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_sync_global.add_argument(
         "--dry-run",
         action="store_true",
+        default=argparse.SUPPRESS,
         help="Report changes without modifying global runtime links",
     )
     p_sync_global.set_defaults(func=cmd_global_sync)
@@ -1726,6 +1856,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_sync_project.add_argument(
         "--dry-run",
         action="store_true",
+        default=argparse.SUPPRESS,
         help="Report changes without modifying project runtime or workspace config",
     )
     p_sync_project.add_argument(
@@ -1743,6 +1874,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_sync_mcp.add_argument(
         "--dry-run",
         action="store_true",
+        default=argparse.SUPPRESS,
         help="Report changes without writing config or state files",
     )
     p_sync_mcp.add_argument(
@@ -1761,6 +1893,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_sync_subagent.add_argument(
         "--dry-run",
         action="store_true",
+        default=argparse.SUPPRESS,
         help="Report changes without modifying files",
     )
     p_sync_subagent.add_argument(
@@ -2041,11 +2174,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--fix",
         action="store_true",
         help="Automatically repair fixable issues (reconcile memory index, prune dangling index entries)",
-    )
-    p_doctor.add_argument(
-        "--prune",
-        action="store_true",
-        help="Remove undetected bundled Agents after reference checks and backup",
     )
     p_doctor.add_argument(
         "--stale-days",

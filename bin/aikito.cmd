@@ -2,17 +2,17 @@
 setlocal
 where python >nul 2>&1
 if %ERRORLEVEL% equ 0 (
-    python "%~dp0aikito" %*
+    python -X utf8 "%~dp0aikito" %*
     goto :end
 )
 where py >nul 2>&1
 if %ERRORLEVEL% equ 0 (
-    py -3 "%~dp0aikito" %*
+    py -3 -X utf8 "%~dp0aikito" %*
     goto :end
 )
 where python3 >nul 2>&1
 if %ERRORLEVEL% equ 0 (
-    python3 "%~dp0aikito" %*
+    python3 -X utf8 "%~dp0aikito" %*
     goto :end
 )
 echo [ERROR] Python interpreter not found in PATH. >&2

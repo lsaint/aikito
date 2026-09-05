@@ -42,11 +42,10 @@ different code directory.
 
 ## Doctor pruning
 
-`aikito doctor --prune` removes only bundled Agents that remain registered in
-`agents.toml` but are no longer detected by executable or configuration marker.
-It backs up `agents.toml` first, refuses Agents still referenced by canonical
-subagent or MCP definitions, and never removes custom Agent entries or files in
-the Agent's own configuration directory.
+In multi-host SoT setups, undetected Agents on a specific machine are offline and
+must not be removed from `agents.toml` so other hosts can continue using them.
+The `--prune` flag has been removed from `aikito doctor`. Offline
+agents are preserved safely across all machines.
 
 ## Adoption
 

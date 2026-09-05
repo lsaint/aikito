@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import re
 import shutil
@@ -191,9 +192,70 @@ class SyncSubcommandParserTest(unittest.TestCase):
         self.assertTrue(args.prune)
         self.assertEqual(args.force, ["claude-code/verifier"])
 
+        # Bare sync (all-in-one)
+        args_bare = parser.parse_args(["sync"])
+        self.assertEqual(args_bare.command, "sync")
+        self.assertIsNone(args_bare.sync_target)
+        self.assertFalse(args_bare.dry_run)
+        self.assertEqual(args_bare.func, AIKITO_CLI.cmd_sync_all)
+
+        args_bare_dry = parser.parse_args(["sync", "--dry-run"])
+        self.assertTrue(args_bare_dry.dry_run)
+        self.assertEqual(args_bare_dry.func, AIKITO_CLI.cmd_sync_all)
+
+        args_prefix_dry = parser.parse_args(["sync", "--dry-run", "global"])
+        self.assertTrue(args_prefix_dry.dry_run)
+        self.assertEqual(args_prefix_dry.func, AIKITO_CLI.cmd_global_sync)
+
         args_alias = parser.parse_args(["sync", "subagent"])
         self.assertEqual(args_alias.sync_target, "subagent")
         self.assertEqual(args_alias.func, AIKITO_CLI.cmd_subagent_sync)
+
+
+class SyncAllExecutionTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.aikito_dir = self.root / "aikito"
+        self.home = self.root / "home"
+        self.aikito_dir.mkdir()
+        self.home.mkdir()
+
+        (self.aikito_dir / "agents.toml").write_text("[agents]\n", encoding="utf-8")
+        (self.aikito_dir / "skills.toml").write_text("skills = []\n", encoding="utf-8")
+        (self.aikito_dir / "subagents.toml").write_text(
+            "[subagents]\n", encoding="utf-8"
+        )
+        (self.aikito_dir / "global").mkdir()
+        (self.aikito_dir / "global" / "AGENTS.md").write_text(
+            "# Global\n", encoding="utf-8"
+        )
+        (self.aikito_dir / "skills").mkdir()
+        (self.aikito_dir / "projects").mkdir()
+        (self.aikito_dir / "mcps").mkdir()
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_cmd_sync_all_executes_cleanly_on_offline_workspace(self) -> None:
+        proj = self.aikito_dir / "projects" / "p1"
+        proj.mkdir()
+        (proj / "agent.toml").write_text(
+            '[paths]\nmac = "~/nonexistent_mac"\n', encoding="utf-8"
+        )
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("pathlib.Path.home", return_value=self.home),
+            patch.object(
+                AIKITO_CLI, "get_agents_dir", return_value=self.home / ".agents"
+            ),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["sync", "--dry-run"])
+            args.func(args)
+            output = mock_stdout.getvalue()
+            self.assertIn("Full workspace sync preview completed successfully", output)
+            self.assertIn("offline on this host", output)
 
 
 class MaintainMemoryParserTest(unittest.TestCase):
@@ -605,7 +667,8 @@ class ShowMemoryTest(unittest.TestCase):
 
     def test_show_memory_unique_match(self) -> None:
         global_note = self.aikito_dir / "memory" / "notes" / "unique-note.md"
-        global_note.write_text("# Unique Note Content")
+        content = "# Unique Note Content (包含中文与特殊字符 “quote”)"
+        global_note.write_text(content, encoding="utf-8")
 
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
@@ -615,7 +678,7 @@ class ShowMemoryTest(unittest.TestCase):
                 ["show", "memory", "unique-note"]
             )
             args.func(args)
-            self.assertEqual(mock_stdout.getvalue(), "# Unique Note Content")
+            self.assertEqual(mock_stdout.getvalue(), content)
 
     def test_show_memory_unique_prefix_match(self) -> None:
         note = (
@@ -1981,10 +2044,28 @@ class TestDoctorFixCli(unittest.TestCase):
         self.assertNotIn("ghost-note", index_text)
         self.assertIn("- [[bare|Bare Note Title]]", index_text)
 
-    def test_doctor_prune_flag(self) -> None:
-        args = AIKITO_CLI.build_parser().parse_args(["doctor", "--prune"])
+    def test_doctor_json_flag(self) -> None:
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["doctor", "--json"])
+            try:
+                args.func(args)
+            except SystemExit:
+                pass
 
-        self.assertTrue(args.prune)
+        data = json.loads(mock_stdout.getvalue())
+        self.assertIn("sections", data)
+        self.assertIn("fail_count", data)
+        self.assertIn("warn_count", data)
+        self.assertIn("fixes", data)
+        self.assertNotIn("prune_blockers", data)
+
+    def test_doctor_prune_flag_rejected(self) -> None:
+        with self.assertRaises(SystemExit):
+            with patch("sys.stderr", new_callable=io.StringIO):
+                AIKITO_CLI.build_parser().parse_args(["doctor", "--prune"])
 
 
 class TestCliGlobalExceptionHandler(unittest.TestCase):

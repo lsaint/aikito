@@ -891,7 +891,7 @@ def _load_state(home: Path) -> dict[str, Any]:
     if not path.exists():
         return {"version": STATE_VERSION, "entries": {}}
     try:
-        state = json.loads(path.read_text())
+        state = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
         raise MCPConfigError(f"Cannot read MCP state file {path}: {exc}") from exc
     if state.get("version") != STATE_VERSION or not isinstance(
@@ -1994,7 +1994,7 @@ def authenticate_mcp(
         )
     if not _agent_detected(spec) or not spec.config_path.exists():
         raise MCPConfigError(f"{agent} is not configured; run 'aikito sync mcp' first")
-    current = _read_entry(spec, spec.config_path.read_text())
+    current = _read_entry(spec, spec.config_path.read_text(encoding="utf-8"))
     if not _entry_matches_desired(spec, current):
         raise MCPConfigError(
             f"{agent}/{server} config is missing or has drifted; "
@@ -2059,7 +2059,7 @@ def authenticate_mcp(
                         output(f"[AUTH URL] {url}")
 
             if url_file.exists():
-                captured_urls = url_file.read_text()
+                captured_urls = url_file.read_text(encoding="utf-8")
                 if captured_urls.endswith("\n"):
                     for url in captured_urls.splitlines():
                         if _is_authorization_url(url) and url not in seen_urls:
@@ -2092,19 +2092,6 @@ def sync_mcp_configs(
     output: Callable[[str], None] = print,
 ) -> bool:
     specs = load_agent_specs(aikito_dir, home)
-    missing_credentials = [
-        spec
-        for spec in specs
-        if spec.enabled and _agent_detected(spec) and spec.missing_credential_env
-    ]
-    if missing_credentials:
-        for spec in missing_credentials:
-            output(
-                f"[ERROR] {spec.agent}/{spec.server}: required MCP credential "
-                f"environment variable is missing: {spec.missing_credential_env}"
-            )
-        return False
-
     state = _load_state(home)
     entries = state["entries"]
     success = True
@@ -2116,8 +2103,18 @@ def sync_mcp_configs(
         if not _agent_detected(spec):
             output(f"[SKIP] {spec.agent} not detected: {spec.config_path.parent}")
             continue
+        if spec.missing_credential_env:
+            output(
+                f"[WARN] {spec.agent}/{spec.server}: skipped due to missing credential "
+                f"environment variable: {spec.missing_credential_env}"
+            )
+            continue
 
-        text = spec.config_path.read_text() if spec.config_path.exists() else ""
+        text = (
+            spec.config_path.read_text(encoding="utf-8")
+            if spec.config_path.exists()
+            else ""
+        )
         current = _read_entry(spec, text)
         previous = entries.get(spec.state_key, {})
         managed_fingerprint = previous.get("fingerprint")
@@ -2182,59 +2179,4 @@ def sync_mcp_configs(
 
     if not dry_run:
         _save_state(home, state)
-    return success
-
-
-def status_mcp_configs(
-    *,
-    aikito_dir: Path,
-    home: Path,
-    live: bool = False,
-    output: Callable[[str], None] = print,
-) -> bool:
-    specs = load_agent_specs(aikito_dir, home)
-    success = True
-    live_commands = {}
-
-    for spec in specs:
-        if not spec.enabled:
-            output(f"[SKIP] {spec.agent}/{spec.server}: {spec.reason}")
-            continue
-        if not _agent_detected(spec):
-            output(f"[SKIP] {spec.agent} not detected: {spec.config_path.parent}")
-            continue
-        if not spec.config_path.exists():
-            output(f"[MISSING] {spec.agent}/{spec.server}: {spec.config_path}")
-            success = False
-            continue
-
-        current = _read_entry(spec, spec.config_path.read_text())
-        if _entry_matches_desired(spec, current):
-            suffix = (
-                f"; {spec.missing_credential_env} unavailable, preserved managed header"
-                if spec.missing_credential_env
-                else ""
-            )
-            output(f"[OK] {spec.agent}/{spec.server}: config matches{suffix}")
-            if live and spec.live_command:
-                live_commands[spec.agent] = spec.live_command
-        elif current is None:
-            output(f"[MISSING] {spec.agent}/{spec.server}: entry not found")
-            success = False
-        else:
-            output(f"[DRIFT] {spec.agent}/{spec.server}: config differs")
-            success = False
-
-    for result in run_live_mcp_commands(live_commands):
-        if result.status == "SKIP":
-            output(f"[SKIP] {result.agent} CLI not found: {result.command[0]}")
-            continue
-        if result.status == "TIMEOUT":
-            output(f"[TIMEOUT] {result.agent}: {' '.join(result.command)}")
-            success = False
-            continue
-        output(f"[LIVE] {result.agent}: exit={result.returncode}")
-        if result.output:
-            output(result.output)
-        success = result.status == "OK" and success
     return success

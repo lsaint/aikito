@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from aikito_mcp import is_agent_installed
+
 
 DEFAULT_AGENTS_CONFIG = Path("agents.toml")
 DEFAULT_SUBAGENTS_CONFIG = Path("subagents.toml")
@@ -733,7 +735,10 @@ def get_target_subagent_path(
 
 
 def build_plan(
-    aikito_dir: Path, home: Path, allow_empty: bool = False
+    aikito_dir: Path,
+    home: Path,
+    allow_empty: bool = False,
+    gate_installed: bool = True,
 ) -> tuple[list[PlanItem], dict[str, AgentSubagentConfig]]:
     subagent_configs, all_agent_names = load_all_agents(aikito_dir, home)
     subagent_defs = load_subagent_definitions(aikito_dir, allow_empty=allow_empty)
@@ -762,6 +767,32 @@ def build_plan(
             )
 
     for agent_name, agent_config in subagent_configs.items():
+        if gate_installed and is_agent_installed(agent_name, home) is False:
+            has_subagents = False
+            for sub_name, definition in sorted(subagent_defs.items()):
+                if agent_name in definition.agents:
+                    has_subagents = True
+                    target_path = get_target_subagent_path(agent_config, sub_name)
+                    plan.append(
+                        PlanItem(
+                            agent_name=agent_name,
+                            subagent_name=sub_name,
+                            target_path=target_path,
+                            action="SKIP",
+                            reason=f"Agent '{agent_name}' is not installed on this host",
+                        )
+                    )
+            if not has_subagents:
+                plan.append(
+                    PlanItem(
+                        agent_name=agent_name,
+                        subagent_name="*",
+                        target_path=agent_config.config_path,
+                        action="SKIP",
+                        reason=f"Agent '{agent_name}' is not installed on this host",
+                    )
+                )
+            continue
         if (
             agent_config.requires_path is not None
             and not agent_config.requires_path.exists()

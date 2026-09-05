@@ -354,7 +354,7 @@ class CheckConfigSyntaxTest(unittest.TestCase):
         self.assertTrue(warnings)
         self.assertTrue(all(f.fix_hint == "aikito doctor --fix" for f in warnings))
 
-    def test_registered_undetected_agent_suggests_prune(self) -> None:
+    def test_registered_undetected_agent_reported_as_offline(self) -> None:
         self._write_minimal_toml_files()
         (self.aikito_dir / "agents.toml").write_text(
             '[agents.grok]\ndisplay_name = "Grok Build"\n', encoding="utf-8"
@@ -363,12 +363,34 @@ class CheckConfigSyntaxTest(unittest.TestCase):
         with patch("aikito_doctor.is_agent_installed", return_value=False):
             section = check_config_syntax(self.aikito_dir, self.home)
 
-        warning = next(
+        finding = next(
             finding
             for finding in section.findings
-            if "registered Agent 'grok' is not detected" in finding.message
+            if "offline on this host" in finding.message
         )
-        self.assertEqual(warning.fix_hint, "aikito doctor --prune")
+        self.assertEqual(finding.status, "OK")
+        self.assertIn(
+            "registered Agent 'grok' is offline on this host", finding.message
+        )
+
+    def test_empty_native_config_reports_warn(self) -> None:
+        self._write_minimal_toml_files()
+        (self.aikito_dir / "agents.toml").write_text(
+            '[agents.agy]\ndisplay_name = "Antigravity CLI"\n[agents.agy.mcp]\nconfig_path = ".gemini/config/mcp_config.json"\nconfig_format = "agy_json"\n',
+            encoding="utf-8",
+        )
+        agy_cfg = self.home / ".gemini" / "config" / "mcp_config.json"
+        agy_cfg.parent.mkdir(parents=True, exist_ok=True)
+        agy_cfg.write_text("", encoding="utf-8")
+
+        section = check_config_syntax(self.aikito_dir, self.home)
+        warns = [
+            f
+            for f in section.findings
+            if f.status == "WARN" and "empty file" in f.message
+        ]
+        self.assertEqual(len(warns), 1)
+        self.assertEqual(warns[0].fix_hint, "aikito sync mcp")
 
     def test_project_config_reports_offline_candidate_details(self) -> None:
         self._write_minimal_toml_files()
@@ -379,16 +401,13 @@ class CheckConfigSyntaxTest(unittest.TestCase):
             encoding="utf-8",
         )
         section = check_config_syntax(self.aikito_dir, self.home)
-        failures = [
-            finding
-            for finding in section.findings
-            if finding.status == "FAIL" and "projects/p1/agent.toml" in finding.message
-        ]
-        self.assertTrue(failures)
-        fail_msg = failures[0].message
-        self.assertIn("no configured paths exist on this host", fail_msg)
-        self.assertIn("[mac] ~/nonexistent_mac", fail_msg)
-        self.assertIn("[win] D:/nonexistent_win", fail_msg)
+        finding = next(
+            f
+            for f in section.findings
+            if f.status == "OK" and "offline on this host" in f.message
+        )
+        self.assertIn("[mac] ~/nonexistent_mac", finding.message)
+        self.assertIn("[win] D:/nonexistent_win", finding.message)
 
 
 class CheckSymlinksTest(unittest.TestCase):
@@ -1203,72 +1222,35 @@ class DoctorFixesTest(unittest.TestCase):
         self.assertEqual(grok["runner"]["command"][0], "grok")
         self.assertTrue(any("agents.grok" in fix for fix in fixes))
 
-    def test_run_doctor_prune_removes_undetected_agent_after_backup(self) -> None:
+    def test_run_doctor_prune_is_deprecated_and_preserves_agents(self) -> None:
         self.aikito_dir.mkdir(exist_ok=True)
         agents_path = self.aikito_dir / "agents.toml"
-        agents_path.write_text(
-            """# =============================================================================
-# Codex
-# =============================================================================
-[agents.codex]
-display_name = "Custom Codex"
+        original_content = '[agents.codex]\ndisplay_name = "Codex"\n[agents.grok]\ndisplay_name = "Grok"\n'
+        agents_path.write_text(original_content, encoding="utf-8")
 
-# =============================================================================
-# Grok Build
-# =============================================================================
-[agents.grok]
-display_name = "Grok Build"
-[agents.grok.runner]
-command = ["grok", "{prompt}"]
-
-# Pi optional capability comment.
-[agents.pi]
-display_name = "Pi"
-""",
-            encoding="utf-8",
-        )
-        (self.aikito_dir / "subagents.toml").write_text("[subagents]\n")
-
-        with patch(
-            "aikito_doctor.is_agent_installed",
-            side_effect=lambda name, _home: name in {"codex", "pi"},
-        ):
-            actions, blockers = run_doctor_prune(self.aikito_dir, self.home)
-
-        with agents_path.open("rb") as config_file:
-            agents = tomllib.load(config_file)["agents"]
-        self.assertEqual(set(agents), {"codex", "pi"})
-        self.assertEqual(agents["codex"]["display_name"], "Custom Codex")
-        self.assertIn(
-            "# Pi optional capability comment.",
-            agents_path.read_text(encoding="utf-8"),
-        )
-        self.assertEqual(blockers, [])
-        self.assertTrue(
-            any("Removed undetected Agent 'grok'" in item for item in actions)
-        )
-        backups = list(
-            (self.home / ".local/state/aikito/backups/doctor").glob("*-agents.toml")
-        )
-        self.assertEqual(len(backups), 1)
-
-    def test_run_doctor_prune_refuses_referenced_agent(self) -> None:
-        self.aikito_dir.mkdir(exist_ok=True)
-        agents_path = self.aikito_dir / "agents.toml"
-        agents_path.write_text(
-            '[agents.grok]\ndisplay_name = "Grok Build"\n', encoding="utf-8"
-        )
-        (self.aikito_dir / "subagents.toml").write_text(
-            '[subagents.reviewer]\nagents = ["grok"]\n', encoding="utf-8"
-        )
-
-        with patch("aikito_doctor.is_agent_installed", return_value=False):
-            actions, blockers = run_doctor_prune(self.aikito_dir, self.home)
+        actions, blockers = run_doctor_prune(self.aikito_dir, self.home)
 
         self.assertEqual(actions, [])
-        self.assertTrue(any("subagents.reviewer" in item for item in blockers))
-        with agents_path.open("rb") as config_file:
-            self.assertIn("grok", tomllib.load(config_file)["agents"])
+        self.assertTrue(any("deprecated" in b for b in blockers))
+        self.assertEqual(agents_path.read_text(encoding="utf-8"), original_content)
+
+    def test_check_projects_reports_offline_project_as_ok(self) -> None:
+        workspace = self.aikito_dir
+        definition = workspace / "projects" / "p1"
+        definition.mkdir(parents=True)
+        (definition / "agent.toml").write_text(
+            '[paths]\nmac = "~/nonexistent_mac"\nwin = "D:/nonexistent_win"\n',
+            encoding="utf-8",
+        )
+        section = check_projects(workspace, self.home)
+        oks = [
+            f
+            for f in section.findings
+            if f.status == "OK" and "offline on this host" in f.message
+        ]
+        self.assertEqual(len(oks), 1)
+        self.assertIn("Project 'p1': offline on this host", oks[0].message)
+        self.assertFalse(any(f.status == "FAIL" for f in section.findings))
 
     def test_run_doctor_fixes_reconciles_memory_index(self) -> None:
         from aikito_doctor import run_doctor_fixes

@@ -14,9 +14,9 @@ if (Get-Command py -ErrorAction SilentlyContinue) {
 }
 
 if ($pythonExe -eq "py") {
-    & py -3 $scriptPath @args
+    & py -3 -X utf8 $scriptPath @args
 } else {
-    & $pythonExe $scriptPath @args
+    & $pythonExe -X utf8 $scriptPath @args
 }
 
 $exitCode = if ($null -ne $LASTEXITCODE) { $LASTEXITCODE } else { 0 }

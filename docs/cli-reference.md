@@ -29,6 +29,7 @@ version.
 | `aikito adopt --apply` | Apply the reviewed adoption plan |
 | `aikito status` | Show the synchronization dashboard |
 | `aikito diff` | Show unified diffs for drifted MCP, subagent, and copied project skill resources |
+| `aikito sync [--dry-run]` | Synchronize all host-compatible resources (global, subagents, MCPs, active projects) |
 | `aikito sync global [--dry-run]` | Synchronize or preview global instructions and skills |
 | `aikito sync project <name> [--dry-run] [--force]` | Synchronize or preview a project's `.agents/` directory |
 | `aikito sync mcp` | Synchronize MCP entries |
@@ -50,7 +51,7 @@ version.
 | `aikito edit instructions <global|project|.>` | Open canonical instructions in `$VISUAL` or `$EDITOR` |
 | `aikito edit skill <target>` | Open a skill's SKILL.md in `$VISUAL` or `$EDITOR` |
 | `aikito edit subagent <target>` | Open a subagent's instruction markdown in `$VISUAL` or `$EDITOR` |
-| `aikito doctor [--fix]` | Run deep workspace diagnostics (and auto-repair fixable index issues) |
+| `aikito doctor [--fix]` | Run deep workspace diagnostics (and auto-repair fixable index issues; offline agents preserved) |
 | `aikito completion zsh\|bash\|fish\|powershell` | Print a shell completion script |
 | `aikito completion candidates projects\|skills\|subagents\|mcps\|memories\|memory-completions\|inbox\|inbox-completions\|paths [prefix]` | List dynamic completion candidates |
 | `aikito version` | Print the CLI version |
@@ -84,9 +85,8 @@ Use `--dry-run` to preview project, MCP, and subagent synchronization, and consu
 Missing fields are warnings; `doctor --fix` adds bundled defaults without
 replacing existing values. Installed supported Agents missing from the registry
 are also reported and can be added by `doctor --fix`.
-Registered bundled Agents that are no longer detected are warnings. Review
-their subagent and MCP references, then use `doctor --prune` for explicit,
-backup-backed removal. Referenced and custom Agents are never pruned.
+Registered bundled Agents that are no longer detected are reported as offline
+and preserved safely in `agents.toml` for multi-host roaming.
 It also reports each project's native instruction, skill, and memory runtime
 issues. Missing resources point to `sync project`; conflicts remain read-only
 and point to `show project` for review. Findings are aggregated per project;

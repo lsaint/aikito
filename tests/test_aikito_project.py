@@ -5,6 +5,7 @@ from pathlib import Path
 
 from aikito_project import (
     append_candidate_path_to_config,
+    collect_project_skill_states,
     collect_project_summaries,
     collect_single_project_skill_states,
     resolve_project_binding,
@@ -112,10 +113,10 @@ class ProjectSummaryTest(unittest.TestCase):
 
             summary = collect_project_summaries(root, root)[0]
 
-        self.assertEqual(summary.runtime_status, "PATH MISSING")
+        self.assertEqual(summary.runtime_status, "OFFLINE")
         detail = render_project_detail(summary, False, False)
-        self.assertIn("PATH MISSING", detail)
-        self.assertIn("Project: directory does not exist:", detail)
+        self.assertIn("OFFLINE", detail)
+        self.assertIn("Project is offline on this host", detail)
 
     def test_empty_canonical_instructions_only_notice_project_owned_file(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -450,6 +451,38 @@ class ProjectSummaryTest(unittest.TestCase):
                 states_wt[0].runtime_path,
                 worktree / ".agents" / "skills" / "demo",
             )
+
+    def test_collect_project_skill_states_ignores_offline_project(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            aikito_dir = root / "aikito"
+            project_dir = aikito_dir / "projects" / "p1"
+            project_dir.mkdir(parents=True)
+            (project_dir / "agent.toml").write_text(
+                'path = "D:/nonexistent/p1"\nsync_mode = "copy"\nskills = ["demo"]\n',
+                encoding="utf-8",
+            )
+            # Offline project has no active entries, should yield no states
+            states = collect_project_skill_states(aikito_dir, root)
+            self.assertEqual(states, [])
+
+            # Active project yields states
+            active_proj = root / "p2"
+            active_proj.mkdir()
+            project2_dir = aikito_dir / "projects" / "p2"
+            project2_dir.mkdir(parents=True)
+            (project2_dir / "agent.toml").write_text(
+                f'path = "{active_proj.as_posix()}"\nsync_mode = "copy"\nskills = ["demo"]\n',
+                encoding="utf-8",
+            )
+            (aikito_dir / "skills" / "demo").mkdir(parents=True)
+            (aikito_dir / "skills" / "demo" / "SKILL.md").write_text(
+                "ok", encoding="utf-8"
+            )
+            states2 = collect_project_skill_states(aikito_dir, root)
+            self.assertEqual(len(states2), 1)
+            self.assertEqual(states2[0].project_name, "p2")
+            self.assertEqual(states2[0].status, "MISSING")
 
 
 if __name__ == "__main__":
