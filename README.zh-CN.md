@@ -74,38 +74,22 @@ Aikito 将这些资源集中在一个个人 Git 工作区中，并将选定的�
 | MCP server | `mcps/*.toml` | Agent 原生 TOML、JSON 或 JSONC 配置 |
 | Subagent | `subagents.toml`、`subagents/` | Agent 原生 subagent 定义 |
 
+项目 skill 可用 `link`（保持共享）或 `copy`（隔离快照）；项目 memory 始终使用 `link`。
+
 默认注册表包含 Codex、Claude Code、Antigravity CLI（`agy`）、OpenCode、
-GitHub Copilot CLI、DeepSeek Harness（`dsh`）、Grok Build 和 Pi。完整心智模型
-和能力边界见[架构文档（英文）](docs/architecture.md)。
-Pi 支持 instructions、skills 和 runner；安装 Pi 的可选 `subagent` 扩展后，Aikito
-还会将定义同步到 `~/.pi/agent/agents`，未安装时保持跳过。Pi 不参与 MCP 同步。
-
-### 共享或隔离
-
-- `link` 保持资源共享并实时同步更新
-- `copy` 为项目提供可独立演进的隔离快照
-- 项目 memory 始终与其规范作用域保持`link`模式，以维护统一的历史
+GitHub Copilot CLI、DeepSeek Harness（`dsh`）、Grok Build 和 Pi。完整心智模型和
+各 Agent 的能力边界见[架构文档（英文）](docs/architecture.md)。
 
 ## 长期 Memory
 
-内置的 [`durable-memory` skill](templates/skills/durable-memory/SKILL.md) 承担 memory 维护工作。
-它引导 Coding Agent 在动手前
-检索相关笔记、把学到的东西提炼成可长期复用的结论、更新已经过时的笔记，并选择正确的
-全局或项目作用域。
+内置的 [`durable-memory` skill](templates/skills/durable-memory/SKILL.md)
+引导 Agent 检索相关笔记、写下可长期复用的结论、更新过时内容，并选择全局或项目作用域。
+新 workspace 默认启用该工作流；只有执行 `aikito sync global` 后才会连接到 Agent。
+笔记是普通 Markdown，Git 历史可在不同 Agent 间共享。详见
+[默认行为与停用](docs/durable-memory.md#default-behavior-and-opt-out) 和
+[Memory 也需要维护者](docs/programming-agent-memory.zh-CN.md)。
 
-新 workspace 默认启用该工作流：初始化会创建 Memory 结构、安装并选中内置的 `aikito`
-与 `durable-memory` skills，同时写入要求 Agent 判断 Memory 相关性的最简全局 instruction。
-只有显式执行 `aikito sync global` 后才会连接到 Agent。完整生命周期见
-[默认行为与停用方法](docs/durable-memory.md#default-behavior-and-opt-out)。
-
-笔记就是普通 Markdown，所以 Git 直接提供了历史、审查、回滚和可移植性——而 Agent 昨天在
-Claude Code 里写下的 memory，明天 Codex 读到的是同一份。
-
-自动维护不等于治理。阅读[Memory 也需要维护者](docs/programming-agent-memory.zh-CN.md)，
-了解为什么即使大部分维护工作由 Agent 完成，Aikito 仍然要求人对 memory 和 skill 的意义、
-作用域与生命周期负责。
-
-`aikito show memory` 按作用域列出已经沉淀下来的笔记，典型示例如下：
+`aikito show memory` 按作用域列出笔记：
 
 ```text
 ┌────────┬───────────────────────┬─────────────────────────────────────┬───────┬──────┐
@@ -152,14 +136,6 @@ Aikito 管理持久化文件、显式作用域与可控同步。为了保持轻�
 - 编排 supervisor 与 worker agent
 - 替代你所使用的 Coding Agent 的原生运行时
 
-Aikito 治理工作区，Agent 负责推理与维护 memory，而一切由你把关。
-
-## 环境运行要求
-
-- macOS、Linux 或 Windows（Windows 10/11 需开启“开发者模式”以支持符号链接）。
-- Python 3.12、3.13 或 3.14。
-- Git。
-
 ## 快速开始
 
 ### 选项 1：让 Coding Agent 完成配置（推荐）
@@ -180,7 +156,8 @@ Aikito 治理工作区，Agent 负责推理与维护 memory，而一切由你把
 项目注册、资源管理、诊断和 Memory 维护等提示词，参见英文文档
 [Agent-first workflows](docs/agent-workflow.md)。
 
-### 选项 2：手动配置
+<details>
+<summary>选项 2：手动配置</summary>
 
 **macOS / Linux** — 通过 Homebrew 安装：
 
@@ -287,6 +264,8 @@ Agent 资源，不保存项目源码本身。项目支持通过 `[paths]` 表或
 
 如需从源码构建、使用自定义安装路径或查看高级参数，请参阅[项目配置指南（英文）](docs/project-setup.md)。
 
+</details>
+
 ## 迁移现有配置
 
 如果你已经在使用 Coding Agent 并存有已有的 instruction、MCP 定义或 subagent，可用
@@ -316,30 +295,19 @@ aikito adopt --apply
 私密源码等敏感信息。后续删除一次提交并不能从 Git 历史中清除秘密。
 
 同步现有环境前，请阅读完整的[安全模型（英文）](docs/safety.md)。
+安全漏洞请按[安全策略](SECURITY.md)私下报告。
 
 ## 文档
 
 详细文档以英文作为规范来源。通过[文档索引](docs/README.md)查看核心概念、操作指南、
 CLI 参考、安全模型、路线图和[常见问题（FAQ，英文）](docs/faq.md)。
-
-- [设计边界与对比（英文）](docs/comparison.md)——Aikito 与记忆系统、单项目同步工具、
-  Agent 编排平台之间的定位差异
+[设计边界与对比（英文）](docs/comparison.md)说明 Aikito 与记忆系统、单项目同步工具、
+Agent 编排平台之间的定位。
 
 ## 关注作者
 
 作者也在微信公众号分享关于 AI、编程、阅读与长期知识积累的实践和思考。欢迎在微信中搜索
 「不是很南」关注。
-
-## 参与贡献
-
-欢迎提交 Issue 和 Pull Request。提交代码前请运行：
-
-```bash
-python3 -m pip install pytest
-python3 -m pytest
-```
-
-安全漏洞请按[安全策略](SECURITY.md)私下报告。
 
 ## 支持
 

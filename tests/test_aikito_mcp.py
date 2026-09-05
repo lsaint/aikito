@@ -109,6 +109,16 @@ command = ["dsh", "--profile", "headless", "{prompt}"]
 config_path = ".dsh/cordis.patch.yml"
 config_format = "dsh_cordis"
 name_style = "verbatim"
+
+[agents.grok]
+display_name = "Grok Build"
+instruction_path = ".grok/rules/aikito.md"
+
+[agents.grok.mcp]
+config_path = ".grok/config.toml"
+config_format = "toml"
+name_style = "verbatim"
+live_command = ["grok", "mcp", "list"]
 """
 
 
@@ -186,6 +196,16 @@ enabled = true
         desired = {
             "url": "https://example.com/mcp",
             "env_http_headers": {"Authorization": "MCP_AUTHORIZATION"},
+        }
+
+        updated = update_toml_server("", "managed", desired)
+
+        self.assertEqual(get_toml_server(updated, "managed"), desired)
+
+    def test_toml_supports_interpolated_header_map(self) -> None:
+        desired = {
+            "url": "https://example.com/mcp",
+            "headers": {"Authorization": "${MCP_AUTHORIZATION}"},
         }
 
         updated = update_toml_server("", "managed", desired)
@@ -388,21 +408,15 @@ elif "No authorization" in script_text:
         self.assertTrue(any("[OK] codex/managed" in line for line in second_output))
 
     def test_sync_writes_grok_native_mcp_config(self) -> None:
-        agents_path = self.aikito_dir / "agents.toml"
-        agents_path.write_text(
-            agents_path.read_text()
-            + "\n[agents.grok]\n"
-            + 'display_name = "Grok Build"\n'
-            + "[agents.grok.mcp]\n"
-            + 'config_path = ".grok/config.toml"\n'
-            + 'config_format = "toml"\n'
-            + 'name_style = "verbatim"\n',
-            encoding="utf-8",
-        )
         (self.aikito_dir / "mcps/managed.toml").write_text(
             'transport = "remote"\n'
             'url = "https://example.com/mcp"\n'
-            'agents = ["grok"]\n',
+            'agents = ["grok"]\n'
+            "\n[authentication]\n"
+            'method = "basic_api_token"\n'
+            'account_email = "user@example.com"\n'
+            'token_env = "TEST_MCP_TOKEN"\n'
+            'authorization_env = "TEST_MCP_AUTHORIZATION"\n',
             encoding="utf-8",
         )
         grok_dir = self.home / ".grok"
@@ -419,6 +433,11 @@ elif "No authorization" in script_text:
         self.assertEqual(
             config["mcp_servers"]["managed"]["url"], "https://example.com/mcp"
         )
+        self.assertEqual(
+            config["mcp_servers"]["managed"]["headers"]["Authorization"],
+            "${TEST_MCP_AUTHORIZATION}",
+        )
+        self.assertNotIn("env_http_headers", config["mcp_servers"]["managed"])
 
     def test_conflict_requires_force(self) -> None:
         codex_config = self.home / ".codex/config.toml"
@@ -612,7 +631,8 @@ class AgentRegistryTest(unittest.TestCase):
         agents = load_agents(self.aikito_dir, self.home)
 
         self.assertEqual(
-            set(agents), {"codex", "opencode", "agy", "claude-code", "dsh"}
+            set(agents),
+            {"codex", "opencode", "agy", "claude-code", "dsh", "grok"},
         )
         self.assertEqual(
             agents["codex"].instruction_path, self.home / ".codex/AGENTS.md"
@@ -701,7 +721,7 @@ timeout = 45000
 [servers.my-server]
 transport = "remote"
 url = "https://example.com/mcp"
-agents = ["codex", "claude-code", "opencode", "agy"]
+agents = ["codex", "claude-code", "opencode", "agy", "grok"]
 
 [servers.my-server.authentication]
 method = "basic_api_token"
@@ -727,6 +747,11 @@ authorization_env = "TEST_MCP_AUTHORIZATION"
             specs["codex"].desired["env_http_headers"],
             {"Authorization": "TEST_MCP_AUTHORIZATION"},
         )
+        self.assertEqual(
+            specs["grok"].desired["headers"],
+            {"Authorization": "${TEST_MCP_AUTHORIZATION}"},
+        )
+        self.assertEqual(specs["grok"].target_name, "my-server")
         self.assertEqual(
             specs["opencode"].desired["headers"],
             {"Authorization": "{env:TEST_MCP_AUTHORIZATION}"},

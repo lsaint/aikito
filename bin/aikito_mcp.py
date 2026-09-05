@@ -970,14 +970,22 @@ def _build_desired(
     override: dict[str, Any],
     authentication: BasicTokenAuth | None,
     headers: dict[str, str] | None = None,
+    *,
+    agent: str = "",
 ) -> tuple[dict[str, Any], bool, str]:
     """Construct the format-bound MCP payload for a target config."""
     if config_format == "toml":
         desired: dict[str, Any] = {"url": url}
         if authentication:
-            desired["env_http_headers"] = {
-                "Authorization": authentication.authorization_env
-            }
+            if agent == "grok":
+                # Grok interpolates ${ENV} in headers; Codex uses env_http_headers.
+                desired["headers"] = {
+                    "Authorization": f"${{{authentication.authorization_env}}}"
+                }
+            else:
+                desired["env_http_headers"] = {
+                    "Authorization": authentication.authorization_env
+                }
         return desired, False, ""
     if config_format == "jsonc":
         desired = {
@@ -1152,6 +1160,7 @@ def load_agent_specs(aikito_dir: Path, home: Path) -> list[AgentSpec]:
                 override,
                 authentication,
                 headers,
+                agent=agent,
             )
             if definition.mcp_config_format == "dsh_cordis" and not desired.get(
                 "serverName"

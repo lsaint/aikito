@@ -75,47 +75,25 @@ No database, daemon, vector store, or hosted service required.
 | MCP servers | `mcps/*.toml` | Native TOML, JSON, or JSONC configs |
 | Subagents | `subagents.toml`, `subagents/` | Native subagent definitions |
 
+Project skills can `link` (stay shared) or `copy` (isolated snapshot); project
+memory always uses `link`.
+
 The default registry includes Codex, Claude Code, Antigravity CLI (`agy`),
 OpenCode, GitHub Copilot CLI, DeepSeek Harness (`dsh`), Grok Build, and Pi. See the
-[architecture](docs/architecture.md) for the complete mental model and capability
-boundaries.
-Pi participates in instructions, skills, and runners. When Pi's optional
-`subagent` extension is installed, Aikito also synchronizes definitions to
-`~/.pi/agent/agents`; otherwise Pi remains skipped. Pi does not participate in
-MCP synchronization.
-
-### Share or isolate
-
-- `link` keeps a resource shared and immediately up to date
-- `copy` gives a project an isolated snapshot it can evolve independently
-- project memory always uses `link` mode with its canonical scope, preserving one history
+[architecture](docs/architecture.md) for the complete mental model and per-agent
+capability boundaries.
 
 ## Durable Memory
 
-The bundled [`durable-memory` skill](templates/skills/durable-memory/SKILL.md) is the
-curation half of the equation. It guides coding agents to retrieve relevant
-notes before acting, distill durable conclusions from what they learn, update
-notes that went stale, and choose the right global or project scope.
+The bundled [`durable-memory` skill](templates/skills/durable-memory/SKILL.md)
+guides agents to retrieve relevant notes, write durable conclusions, update
+stale ones, and choose global or project scope. New workspaces enable this by
+default; nothing is connected to an Agent until you run `aikito sync global`.
+Notes are ordinary Markdown, so Git history is shared across agents. See
+[default behavior](docs/durable-memory.md#default-behavior-and-opt-out) and
+[why memory still needs a maintainer](docs/programming-agent-memory.md).
 
-New workspaces enable this workflow by default: initialization creates the
-Memory structure, installs and selects the bundled `aikito` and
-`durable-memory` skills, and adds the minimal global instruction that requires
-Agents to evaluate Memory relevance. Nothing is connected to an Agent until
-you explicitly run `aikito sync global`. See
-[Default behavior and opt-out](docs/durable-memory.md#default-behavior-and-opt-out)
-for the complete lifecycle.
-
-The notes are ordinary Markdown, so Git gives you history, review, rollback, and
-portability — and the memory an agent wrote in Claude Code yesterday is the same
-memory Codex reads tomorrow.
-
-Automation is not the same as governance. Read
-[Memory Needs a Maintainer](docs/programming-agent-memory.md) to see why Aikito
-keeps people responsible for the meaning, scope, and lifecycle of memory and
-skills—even when agents perform most maintenance work.
-
-`aikito show memory` lists what has accumulated, grouped by scope. A typical
-example looks like this:
+`aikito show memory` lists notes by scope:
 
 ```text
 ┌────────┬───────────────────────┬─────────────────────────────────────┬───────┬──────┐
@@ -165,14 +143,6 @@ To stay lightweight and portable, it deliberately **does not**:
 - orchestrate supervisor and worker agents
 - replace your coding agent's native runtime
 
-Aikito governs the workspace, your agent reasons and maintains the memory, and you oversee it all.
-
-## Requirements
-
-- macOS, Linux, or Windows (Windows 10/11 with Developer Mode enabled for symlinks).
-- Python 3.12, 3.13, or 3.14.
-- Git.
-
 ## Quick Start
 
 ### Option 1: Let Your Coding Agent Set It Up (Recommended)
@@ -198,7 +168,8 @@ you do not need to also follow the manual commands below.
 For project registration, resource management, diagnostics, and Memory
 maintenance prompts, see [Agent-first workflows](docs/agent-workflow.md).
 
-### Option 2: Set It Up Manually
+<details>
+<summary>Option 2: Set It Up Manually</summary>
 
 **macOS / Linux** — install via Homebrew:
 
@@ -314,6 +285,8 @@ temporary override, which is useful for CI and isolated automation.
 For building from source, custom install paths, or advanced configuration, see
 the [project setup guide](docs/project-setup.md).
 
+</details>
+
 ## Migrating an Existing Setup
 
 If you already use coding agents with existing instructions, MCP definitions, or
@@ -347,26 +320,14 @@ addresses, and private code. Deleting a later commit does not remove a secret
 from Git history.
 
 Read the [safety model](docs/safety.md) before synchronizing an existing setup.
+Report vulnerabilities privately according to the [Security Policy](SECURITY.md).
 
 ## Documentation
 
 Browse the [documentation index](docs/README.md) for concepts, operational
 guides, the CLI reference, safety details, the roadmap, and the
-[FAQ](docs/faq.md).
-
-- [Comparison and Design Boundaries](docs/comparison.md) — where Aikito fits
-  alongside memory systems, project-local sync tools, and agent orchestrators
-
-## Contributing
-
-Issues and pull requests are welcome. Before submitting code, run:
-
-```bash
-python3 -m pip install pytest
-python3 -m pytest
-```
-
-Report vulnerabilities privately according to the [Security Policy](SECURITY.md).
+[FAQ](docs/faq.md). [Comparison](docs/comparison.md) places Aikito alongside
+memory systems, project-local sync tools, and agent orchestrators.
 
 ## Support
 
