@@ -202,9 +202,9 @@ def _get_terminal_width() -> Optional[int]:
         return None
 
 
-def _get_display_width(text: str) -> int:
+def _get_display_width(text: Any) -> int:
     ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-    clean_text = ansi_escape.sub("", text)
+    clean_text = ansi_escape.sub("", str(text))
     width = 0
     for char in clean_text:
         w = unicodedata.east_asian_width(char)
@@ -215,14 +215,15 @@ def _get_display_width(text: str) -> int:
     return width
 
 
-def _truncate_display_text(text: str, max_width: int) -> str:
+def _truncate_display_text(text: Any, max_width: int) -> str:
+    s = str(text)
     if max_width <= 0:
         return ""
-    if _get_display_width(text) <= max_width:
-        return text
+    if _get_display_width(s) <= max_width:
+        return s
 
     ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-    plain_text = ansi_escape.sub("", text)
+    plain_text = ansi_escape.sub("", s)
 
     current_w = 0
     truncated_chars = []
@@ -854,7 +855,7 @@ def render_projects_table(
     rows = [
         [
             project.name,
-            project.path,
+            str(project.path),
             project.sync_mode,
             _format_status_badge(project.instructions_status, use_unicode, use_color),
             str(project.skills_count),
