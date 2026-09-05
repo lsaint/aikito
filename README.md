@@ -183,7 +183,7 @@ Aikito governs the workspace, your agent reasons and maintains the memory, and y
 > Install and configure Aikito from https://github.com/lsaint/aikito. Read the
 > README, `templates/skills/aikito/SKILL.md`, and any linked documentation relevant to the
 > setup, then follow their safety requirements to initialize the workspace,
-> synchronize its global resources, and verify the result with `aikito status`.
+> synchronize resources with `aikito sync`, and verify the result with `aikito status`.
 > Before importing or changing any existing Agent configuration, show me the
 > planned changes and conflicts and wait for my approval. When setup is
 > complete, summarize what is ready and guide me through the next step, including
@@ -206,7 +206,7 @@ maintenance prompts, see [Agent-first workflows](docs/agent-workflow.md).
 brew install lsaint/tap/aikito
 
 aikito init workspace ~/aikito
-aikito sync global
+aikito sync
 aikito status
 ```
 
@@ -248,7 +248,7 @@ After the installer finishes, open a **new terminal** and run:
 
 ```powershell
 aikito init workspace $env:USERPROFILE\aikito
-aikito sync global
+aikito sync
 aikito status
 ```
 
@@ -261,6 +261,16 @@ Invoke-Expression (& aikito completion powershell | Out-String)
 
 The workspace is the single Git-managed home for all Aikito resources. You
 normally initialize one workspace per user or machine.
+
+To connect an existing workspace repository on a new machine:
+
+```bash
+# Download or clone your workspace repo to ~/aikito
+aikito init workspace ~/aikito
+aikito sync
+```
+
+Uninstalled Agents and candidate paths on other hosts are recognized as offline on this host without error.
 
 Register each code project that needs project-specific instructions, skills,
 or memory. From the project directory:
@@ -276,7 +286,7 @@ can manage many projects; a project registration represents one code directory
 and its project-specific Agent resources, not the project source code itself.
 Projects support multiple candidate paths (`[paths]` named tables or `paths`
 arrays) for Git worktrees and cross-platform roaming across Mac, Windows, and
-Linux.
+Linux. Candidate paths missing on the current machine are treated as offline.
 
 When initialized at a custom path, Aikito remembers it for future commands.
 Use `aikito path workspace` to print the active path. `AIKITO_DIR` provides a

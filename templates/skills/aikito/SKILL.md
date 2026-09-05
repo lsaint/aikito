@@ -36,7 +36,9 @@ subagent, or MCP entry as a source.
 New canonical resources follow `add → edit → show → sync → status / diff /
 doctor`; existing external resources enter through `adopt` and then rejoin that
 path at `show`. Every resource type supports `aikito add|edit|show|rm <type>
-<target>` and a scoped `sync` with `--dry-run`.
+<target>` and a scoped `sync` with `--dry-run`. Run bare `aikito sync
+[--dry-run]` to orchestrate the entire workspace (global resources, host-gated
+subagents, tolerant MCP configs, and active projects).
 
 Resolve `<workspace>` with `aikito path workspace` before touching canonical
 files directly; `AIKITO_DIR` temporarily overrides the persisted workspace. Use
@@ -56,15 +58,27 @@ git clone https://github.com/lsaint/aikito.git "$HOME/aikito-src"
 export PATH="$HOME/aikito-src/bin:$PATH"
 ```
 
+For a fresh workspace:
+
 ```bash
 aikito init workspace ~/aikito
+aikito sync
 aikito status
 ```
 
+For an existing workspace on a new machine:
+
+```bash
+# Download or clone your workspace repo to ~/aikito
+aikito init workspace ~/aikito
+aikito sync
+```
+
 `aikito init workspace` refuses the CLI source tree, another source checkout,
-and an unrecognized non-empty directory; do not bypass these guards. It records
-only locally detected Agents in `agents.toml`. Inspect the generated files
-before synchronizing anything.
+and an unrecognized non-empty directory. On an existing workspace, it binds the
+local pointer without modifying runtime configs. Uninstalled Agents and
+candidate paths on other machines are treated as `offline on this host` without
+failures.
 
 ## Safety Protocol
 
@@ -130,7 +144,9 @@ aikito status | aikito diff
 `init project` creates the canonical skeleton
 (`projects/<name>/agent.toml`, `AGENTS.md`, `memory/`) and synchronizes its
 `.agents/` runtime. Existing unmanaged runtime resources, or a project name
-bound to another path, are conflicts for the user.
+bound to another path, are conflicts for the user. Projects support candidate
+paths (`[paths]` table or `paths` array); non-existent paths on the host are
+marked `offline on this host` and skipped cleanly during sync.
 
 Project instructions and memory stay linked to canonical sources. Project skills
 follow `sync_mode`: `link` keeps symbolic links; `copy` generates managed copies
@@ -164,7 +180,9 @@ aikito show mcp [--live]
 aikito auth mcp <agent> <server>
 ```
 
-Use `--live` only when live Agent checks are useful.
+Use `--live` only when live Agent checks are useful. Missing credential
+environment variables emit a warning and skip the server gracefully without
+blocking synchronization of other MCP configurations.
 
 ### Subagents
 
@@ -174,6 +192,9 @@ aikito sync subagents [--dry-run|--prune]
 aikito show subagents [--agent <agent>]
 aikito show subagent <target> [--agent]
 ```
+
+Subagent synchronization automatically host-gates against locally installed
+agents; `--prune` skips offline agents to protect definitions across hosts.
 
 ### Memory
 
