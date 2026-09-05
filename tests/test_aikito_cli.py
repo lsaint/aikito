@@ -236,7 +236,7 @@ class SyncAllExecutionTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def test_cmd_sync_all_executes_cleanly_on_dormant_workspace(self) -> None:
+    def test_cmd_sync_all_executes_cleanly_on_offline_workspace(self) -> None:
         proj = self.aikito_dir / "projects" / "p1"
         proj.mkdir()
         (proj / "agent.toml").write_text(
@@ -254,7 +254,7 @@ class SyncAllExecutionTest(unittest.TestCase):
             args.func(args)
             output = mock_stdout.getvalue()
             self.assertIn("Full workspace sync preview completed successfully", output)
-            self.assertIn("dormant on this host", output)
+            self.assertIn("offline on this host", output)
 
 
 class MaintainMemoryParserTest(unittest.TestCase):

@@ -725,7 +725,7 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
                     if not is_agent_installed(agent_name, home):
                         findings.append(
                             _ok(
-                                f"agents.toml: registered Agent '{agent_name}' is dormant on this host"
+                                f"agents.toml: registered Agent '{agent_name}' is offline on this host"
                             )
                         )
                 for agent_name, fields in missing_agent_fields(
@@ -793,7 +793,7 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
                     findings.append(
                         _ok(
                             f"projects/{proj_folder.name}/agent.toml: "
-                            f"dormant on this host ({candidates_str})"
+                            f"offline on this host ({candidates_str})"
                         )
                     )
                 else:
@@ -901,14 +901,14 @@ def check_projects(aikito_dir: Path, home: Path) -> DoctorSection:
         if project.runtime_status == "OK":
             active_ok_count += 1
             continue
-        if project.runtime_status == "DORMANT":
+        if project.runtime_status == "OFFLINE":
             candidates_str = ", ".join(
                 f"[{label}] {p}" if label != "default" else p
                 for label, p in project.offline_paths
             ) or str(project.path)
             findings.append(
                 _ok(
-                    f"Project '{project.name}': dormant on this host ({candidates_str})"
+                    f"Project '{project.name}': offline on this host ({candidates_str})"
                 )
             )
             continue
@@ -1373,9 +1373,9 @@ def _find_agent_references(aikito_dir: Path, agent_name: str) -> list[str]:
 def run_doctor_prune(
     aikito_dir: Path, home: Optional[Path] = None
 ) -> tuple[list[str], list[str]]:
-    """Deprecated: In multi-host SoT setups, dormant agents must not be pruned from agents.toml."""
+    """Deprecated: In multi-host SoT setups, offline agents must not be pruned from agents.toml."""
     return [], [
-        "Doctor prune is deprecated in multi-host setups. Undetected agents are dormant on this host and preserved in agents.toml."
+        "Doctor prune is deprecated in multi-host setups. Undetected agents are offline on this host and preserved in agents.toml."
     ]
 
 

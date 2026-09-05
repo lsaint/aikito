@@ -539,7 +539,7 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
         if not binding.entries:
             runtime_status = "UNBOUND"
         elif not binding.active_entries:
-            runtime_status = "DORMANT"
+            runtime_status = "OFFLINE"
         else:
             multi_active = len(binding.active_entries) > 1
             active_statuses: list[str] = []

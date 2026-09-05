@@ -354,7 +354,7 @@ class CheckConfigSyntaxTest(unittest.TestCase):
         self.assertTrue(warnings)
         self.assertTrue(all(f.fix_hint == "aikito doctor --fix" for f in warnings))
 
-    def test_registered_undetected_agent_reported_as_dormant(self) -> None:
+    def test_registered_undetected_agent_reported_as_offline(self) -> None:
         self._write_minimal_toml_files()
         (self.aikito_dir / "agents.toml").write_text(
             '[agents.grok]\ndisplay_name = "Grok Build"\n', encoding="utf-8"
@@ -366,11 +366,11 @@ class CheckConfigSyntaxTest(unittest.TestCase):
         finding = next(
             finding
             for finding in section.findings
-            if "dormant on this host" in finding.message
+            if "offline on this host" in finding.message
         )
         self.assertEqual(finding.status, "OK")
         self.assertIn(
-            "registered Agent 'grok' is dormant on this host", finding.message
+            "registered Agent 'grok' is offline on this host", finding.message
         )
 
     def test_empty_native_config_reports_warn(self) -> None:
@@ -404,7 +404,7 @@ class CheckConfigSyntaxTest(unittest.TestCase):
         finding = next(
             f
             for f in section.findings
-            if f.status == "OK" and "dormant on this host" in f.message
+            if f.status == "OK" and "offline on this host" in f.message
         )
         self.assertIn("[mac] ~/nonexistent_mac", finding.message)
         self.assertIn("[win] D:/nonexistent_win", finding.message)
@@ -1234,7 +1234,7 @@ class DoctorFixesTest(unittest.TestCase):
         self.assertTrue(any("deprecated" in b for b in blockers))
         self.assertEqual(agents_path.read_text(encoding="utf-8"), original_content)
 
-    def test_check_projects_reports_dormant_project_as_ok(self) -> None:
+    def test_check_projects_reports_offline_project_as_ok(self) -> None:
         workspace = self.aikito_dir
         definition = workspace / "projects" / "p1"
         definition.mkdir(parents=True)
@@ -1246,10 +1246,10 @@ class DoctorFixesTest(unittest.TestCase):
         oks = [
             f
             for f in section.findings
-            if f.status == "OK" and "dormant on this host" in f.message
+            if f.status == "OK" and "offline on this host" in f.message
         ]
         self.assertEqual(len(oks), 1)
-        self.assertIn("Project 'p1': dormant on this host", oks[0].message)
+        self.assertIn("Project 'p1': offline on this host", oks[0].message)
         self.assertFalse(any(f.status == "FAIL" for f in section.findings))
 
     def test_run_doctor_fixes_reconciles_memory_index(self) -> None:

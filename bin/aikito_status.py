@@ -554,7 +554,7 @@ def collect_memory_status_rows(
                         else:
                             p_link_status = "OK"
                     elif binding and binding.offline_entries:
-                        p_link_status = "DORMANT"
+                        p_link_status = "OFFLINE"
                 else:
                     p_link_status = "N/A"
 

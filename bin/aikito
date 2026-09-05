@@ -801,7 +801,7 @@ def cmd_sync_all(args: argparse.Namespace) -> None:
                     f"[{e.label}] {e.raw_path}" if e.label != "default" else e.raw_path
                     for e in binding.offline_entries
                 ) or "-"
-                print(f"[INFO] Project '{project_name}': dormant on this host ({candidates_str}), skipping.")
+                print(f"[INFO] Project '{project_name}': offline on this host ({candidates_str}), skipping.")
                 continue
 
             # Sync active entries for this project

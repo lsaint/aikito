@@ -143,7 +143,7 @@ def _format_badge_text(status_str: str, use_unicode: bool) -> Tuple[str, str]:
     if status_str.startswith("OK ("):
         count_part = status_str[4:-1]
         return count_part, "ok"
-    if status_str in ("SKIP", "N/A", "NOT_TARGETED", "DORMANT"):
+    if status_str in ("SKIP", "N/A", "NOT_TARGETED", "OFFLINE"):
         return f"{skip_sym}", "skip"
     if status_str == "PRESENT":
         return "P", "skip"
@@ -844,7 +844,7 @@ def render_project_detail(
                 ("Issue:", f"{detail.resource} [{detail.status}]: {message}")
                 for message in messages
             )
-    elif project.runtime_status == "DORMANT":
+    elif project.runtime_status == "OFFLINE":
         candidates_disp = ", ".join(
             f"[{label}] {p}" if label != "default" else p
             for label, p in project.offline_paths
@@ -852,7 +852,7 @@ def render_project_detail(
         fields.append(
             (
                 "Notice:",
-                f"Project is dormant on this host (candidates: {candidates_disp})",
+                f"Project is offline on this host (candidates: {candidates_disp})",
             )
         )
     elif project.runtime_status == "UNBOUND":

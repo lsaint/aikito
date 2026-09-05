@@ -51,7 +51,7 @@ version.
 | `aikito edit instructions <global|project|.>` | Open canonical instructions in `$VISUAL` or `$EDITOR` |
 | `aikito edit skill <target>` | Open a skill's SKILL.md in `$VISUAL` or `$EDITOR` |
 | `aikito edit subagent <target>` | Open a subagent's instruction markdown in `$VISUAL` or `$EDITOR` |
-| `aikito doctor [--fix]` | Run deep workspace diagnostics (and auto-repair fixable index issues; dormant agents preserved) |
+| `aikito doctor [--fix]` | Run deep workspace diagnostics (and auto-repair fixable index issues; offline agents preserved) |
 | `aikito completion zsh\|bash\|fish\|powershell` | Print a shell completion script |
 | `aikito completion candidates projects\|skills\|subagents\|mcps\|memories\|memory-completions\|inbox\|inbox-completions\|paths [prefix]` | List dynamic completion candidates |
 | `aikito version` | Print the CLI version |
@@ -85,7 +85,7 @@ Use `--dry-run` to preview project, MCP, and subagent synchronization, and consu
 Missing fields are warnings; `doctor --fix` adds bundled defaults without
 replacing existing values. Installed supported Agents missing from the registry
 are also reported and can be added by `doctor --fix`.
-Registered bundled Agents that are no longer detected are reported as dormant
+Registered bundled Agents that are no longer detected are reported as offline
 and preserved safely in `agents.toml` for multi-host roaming.
 It also reports each project's native instruction, skill, and memory runtime
 issues. Missing resources point to `sync project`; conflicts remain read-only

@@ -113,10 +113,10 @@ class ProjectSummaryTest(unittest.TestCase):
 
             summary = collect_project_summaries(root, root)[0]
 
-        self.assertEqual(summary.runtime_status, "DORMANT")
+        self.assertEqual(summary.runtime_status, "OFFLINE")
         detail = render_project_detail(summary, False, False)
-        self.assertIn("DORMANT", detail)
-        self.assertIn("Project is dormant on this host", detail)
+        self.assertIn("OFFLINE", detail)
+        self.assertIn("Project is offline on this host", detail)
 
     def test_empty_canonical_instructions_only_notice_project_owned_file(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -452,7 +452,7 @@ class ProjectSummaryTest(unittest.TestCase):
                 worktree / ".agents" / "skills" / "demo",
             )
 
-    def test_collect_project_skill_states_ignores_dormant_project(self) -> None:
+    def test_collect_project_skill_states_ignores_offline_project(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             aikito_dir = root / "aikito"
@@ -462,7 +462,7 @@ class ProjectSummaryTest(unittest.TestCase):
                 'path = "D:/nonexistent/p1"\nsync_mode = "copy"\nskills = ["demo"]\n',
                 encoding="utf-8",
             )
-            # Dormant project has no active entries, should yield no states
+            # Offline project has no active entries, should yield no states
             states = collect_project_skill_states(aikito_dir, root)
             self.assertEqual(states, [])
 
