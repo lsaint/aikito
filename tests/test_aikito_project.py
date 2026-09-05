@@ -112,10 +112,10 @@ class ProjectSummaryTest(unittest.TestCase):
 
             summary = collect_project_summaries(root, root)[0]
 
-        self.assertEqual(summary.runtime_status, "PATH MISSING")
+        self.assertEqual(summary.runtime_status, "DORMANT")
         detail = render_project_detail(summary, False, False)
-        self.assertIn("PATH MISSING", detail)
-        self.assertIn("Project: directory does not exist:", detail)
+        self.assertIn("DORMANT", detail)
+        self.assertIn("Project is dormant on this host", detail)
 
     def test_empty_canonical_instructions_only_notice_project_owned_file(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

@@ -388,6 +388,7 @@ def collect_agent_status_rows(
             else:
                 total_mcp = len(agent_mcp_specs)
                 ok_mcp = 0
+                skip_mcp = 0
                 has_drift = False
                 has_missing = False
                 has_error = False
@@ -396,6 +397,8 @@ def collect_agent_status_rows(
                     st = evaluate_spec_status(spec)
                     if st == "OK":
                         ok_mcp += 1
+                    elif st == "SKIP":
+                        skip_mcp += 1
                     elif st == "DRIFT":
                         has_drift = True
                     elif st == "MISSING":
@@ -403,8 +406,10 @@ def collect_agent_status_rows(
                     elif st == "ERROR":
                         has_error = True
 
-                if ok_mcp == total_mcp:
-                    mcp_status = f"OK ({total_mcp})"
+                if skip_mcp == total_mcp:
+                    mcp_status = "SKIP"
+                elif ok_mcp + skip_mcp == total_mcp:
+                    mcp_status = f"OK ({ok_mcp})"
                 elif has_error:
                     mcp_status = f"ERROR ({ok_mcp}/{total_mcp})"
                     agent_issues += 1
@@ -549,7 +554,7 @@ def collect_memory_status_rows(
                         else:
                             p_link_status = "OK"
                     elif binding and binding.offline_entries:
-                        p_link_status = "PATH MISSING"
+                        p_link_status = "DORMANT"
                 else:
                     p_link_status = "N/A"
 

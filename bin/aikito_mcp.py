@@ -2083,19 +2083,6 @@ def sync_mcp_configs(
     output: Callable[[str], None] = print,
 ) -> bool:
     specs = load_agent_specs(aikito_dir, home)
-    missing_credentials = [
-        spec
-        for spec in specs
-        if spec.enabled and _agent_detected(spec) and spec.missing_credential_env
-    ]
-    if missing_credentials:
-        for spec in missing_credentials:
-            output(
-                f"[ERROR] {spec.agent}/{spec.server}: required MCP credential "
-                f"environment variable is missing: {spec.missing_credential_env}"
-            )
-        return False
-
     state = _load_state(home)
     entries = state["entries"]
     success = True
@@ -2106,6 +2093,12 @@ def sync_mcp_configs(
             continue
         if not _agent_detected(spec):
             output(f"[SKIP] {spec.agent} not detected: {spec.config_path.parent}")
+            continue
+        if spec.missing_credential_env:
+            output(
+                f"[WARN] {spec.agent}/{spec.server}: skipped due to missing credential "
+                f"environment variable: {spec.missing_credential_env}"
+            )
             continue
 
         text = (

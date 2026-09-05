@@ -191,9 +191,64 @@ class SyncSubcommandParserTest(unittest.TestCase):
         self.assertTrue(args.prune)
         self.assertEqual(args.force, ["claude-code/verifier"])
 
+        # Bare sync (all-in-one)
+        args_bare = parser.parse_args(["sync"])
+        self.assertEqual(args_bare.command, "sync")
+        self.assertIsNone(args_bare.sync_target)
+        self.assertFalse(args_bare.dry_run)
+        self.assertEqual(args_bare.func, AIKITO_CLI.cmd_sync_all)
+
+        args_bare_dry = parser.parse_args(["sync", "--dry-run"])
+        self.assertTrue(args_bare_dry.dry_run)
+        self.assertEqual(args_bare_dry.func, AIKITO_CLI.cmd_sync_all)
+
+        args_prefix_dry = parser.parse_args(["sync", "--dry-run", "global"])
+        self.assertTrue(args_prefix_dry.dry_run)
+        self.assertEqual(args_prefix_dry.func, AIKITO_CLI.cmd_global_sync)
+
         args_alias = parser.parse_args(["sync", "subagent"])
         self.assertEqual(args_alias.sync_target, "subagent")
         self.assertEqual(args_alias.func, AIKITO_CLI.cmd_subagent_sync)
+
+
+class SyncAllExecutionTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.aikito_dir = self.root / "aikito"
+        self.home = self.root / "home"
+        self.aikito_dir.mkdir()
+        self.home.mkdir()
+
+        (self.aikito_dir / "agents.toml").write_text("[agents]\n", encoding="utf-8")
+        (self.aikito_dir / "skills.toml").write_text("skills = []\n", encoding="utf-8")
+        (self.aikito_dir / "subagents.toml").write_text("[subagents]\n", encoding="utf-8")
+        (self.aikito_dir / "global").mkdir()
+        (self.aikito_dir / "global" / "AGENTS.md").write_text("# Global\n", encoding="utf-8")
+        (self.aikito_dir / "skills").mkdir()
+        (self.aikito_dir / "projects").mkdir()
+        (self.aikito_dir / "mcps").mkdir()
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_cmd_sync_all_executes_cleanly_on_dormant_workspace(self) -> None:
+        proj = self.aikito_dir / "projects" / "p1"
+        proj.mkdir()
+        (proj / "agent.toml").write_text(
+            '[paths]\nmac = "~/nonexistent_mac"\n', encoding="utf-8"
+        )
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("pathlib.Path.home", return_value=self.home),
+            patch.object(AIKITO_CLI, "get_agents_dir", return_value=self.home / ".agents"),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["sync", "--dry-run"])
+            args.func(args)
+            output = mock_stdout.getvalue()
+            self.assertIn("Full workspace sync preview completed successfully", output)
+            self.assertIn("dormant on this host", output)
 
 
 class MaintainMemoryParserTest(unittest.TestCase):

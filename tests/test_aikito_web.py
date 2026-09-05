@@ -2,6 +2,7 @@ import errno
 import importlib.machinery
 import importlib.util
 import json
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -91,6 +92,8 @@ name_style = "verbatim"
             return json.load(response)
 
     def render_markdown(self, source: str, wikilinks: dict) -> str:
+        if shutil.which("node") is None:
+            raise unittest.SkipTest("Node.js is not installed on this system")
         script = """
 const fs = require("fs");
 const app = fs.readFileSync(process.argv[1], "utf8");

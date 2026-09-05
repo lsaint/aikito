@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Whole-workspace synchronization via bare `aikito sync [--dry-run]`, automatically orchestrating global resources, host-gated subagents, MCP configurations, and active projects.
+- Host-gating in subagents engine: uninstalled/dormant agents on the local machine are cleanly skipped (`SKIP`), preventing false-positive drift, aborts, and orphan deletion.
+- `DORMANT` project status: projects with candidate paths on other hosts but none locally are gracefully handled as dormant (dimmed badge in status, OK in doctor) rather than failures.
+- Single-point empty config file fault tolerance in `aikito doctor`: 0-byte or empty native configuration files produce an actionable warning instead of crashing JSON parser.
+
+### Changed
+
+- Converted missing credential checks in `sync_mcp_configs` from a fatal pre-flight abort into a per-spec warning skip, continuing sync for remaining servers.
+- Deprecated `aikito doctor --prune` to protect `agents.toml` from removing dormant agents in multi-host Git SoT environments.
+- Updated `aikito init workspace` to recommend running `aikito sync` for host configuration without touching Agent-native runtimes.
+
 ## [1.24.0] - 2026-09-03
 
 ### Added
