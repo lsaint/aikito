@@ -17,7 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Converted missing credential checks in `sync_mcp_configs` from a fatal pre-flight abort into a per-spec warning skip, continuing sync for remaining servers.
-- Deprecated `aikito doctor --prune` to protect `agents.toml` from removing dormant agents in multi-host Git SoT environments.
+- Removed `aikito doctor --prune` to protect `agents.toml` from removing dormant agents in multi-host Git SoT environments.
+- Fixed `aikito diff` and project skill collection to ignore dormant and unbound projects in `sync_mode = "copy"`.
 - Updated `aikito init workspace` to recommend running `aikito sync` for host configuration without touching Agent-native runtimes.
 
 ## [1.24.0] - 2026-09-03

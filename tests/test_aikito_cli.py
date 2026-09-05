@@ -222,9 +222,13 @@ class SyncAllExecutionTest(unittest.TestCase):
 
         (self.aikito_dir / "agents.toml").write_text("[agents]\n", encoding="utf-8")
         (self.aikito_dir / "skills.toml").write_text("skills = []\n", encoding="utf-8")
-        (self.aikito_dir / "subagents.toml").write_text("[subagents]\n", encoding="utf-8")
+        (self.aikito_dir / "subagents.toml").write_text(
+            "[subagents]\n", encoding="utf-8"
+        )
         (self.aikito_dir / "global").mkdir()
-        (self.aikito_dir / "global" / "AGENTS.md").write_text("# Global\n", encoding="utf-8")
+        (self.aikito_dir / "global" / "AGENTS.md").write_text(
+            "# Global\n", encoding="utf-8"
+        )
         (self.aikito_dir / "skills").mkdir()
         (self.aikito_dir / "projects").mkdir()
         (self.aikito_dir / "mcps").mkdir()
@@ -242,7 +246,9 @@ class SyncAllExecutionTest(unittest.TestCase):
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
             patch("pathlib.Path.home", return_value=self.home),
-            patch.object(AIKITO_CLI, "get_agents_dir", return_value=self.home / ".agents"),
+            patch.object(
+                AIKITO_CLI, "get_agents_dir", return_value=self.home / ".agents"
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["sync", "--dry-run"])
             args.func(args)
@@ -2037,10 +2043,10 @@ class TestDoctorFixCli(unittest.TestCase):
         self.assertNotIn("ghost-note", index_text)
         self.assertIn("- [[bare|Bare Note Title]]", index_text)
 
-    def test_doctor_prune_flag(self) -> None:
-        args = AIKITO_CLI.build_parser().parse_args(["doctor", "--prune"])
-
-        self.assertTrue(args.prune)
+    def test_doctor_prune_flag_rejected(self) -> None:
+        with self.assertRaises(SystemExit):
+            with patch("sys.stderr", new_callable=io.StringIO):
+                AIKITO_CLI.build_parser().parse_args(["doctor", "--prune"])
 
 
 class TestCliGlobalExceptionHandler(unittest.TestCase):

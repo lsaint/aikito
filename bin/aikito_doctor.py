@@ -54,7 +54,6 @@ from aikito_project import collect_project_summaries, resolve_project_binding
 from aikito_registry import (
     add_missing_agent_fields,
     missing_agent_fields,
-    remove_agent_section,
 )
 from aikito_render import DoctorFinding, DoctorReport, DoctorSection
 from aikito_status import collect_subagents_matrix
@@ -725,7 +724,9 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
                 ):
                     if not is_agent_installed(agent_name, home):
                         findings.append(
-                            _ok(f"agents.toml: registered Agent '{agent_name}' is dormant on this host")
+                            _ok(
+                                f"agents.toml: registered Agent '{agent_name}' is dormant on this host"
+                            )
                         )
                 for agent_name, fields in missing_agent_fields(
                     path, load_agents_template()
@@ -906,7 +907,9 @@ def check_projects(aikito_dir: Path, home: Path) -> DoctorSection:
                 for label, p in project.offline_paths
             ) or str(project.path)
             findings.append(
-                _ok(f"Project '{project.name}': dormant on this host ({candidates_str})")
+                _ok(
+                    f"Project '{project.name}': dormant on this host ({candidates_str})"
+                )
             )
             continue
         if project.details:
@@ -937,7 +940,9 @@ def check_projects(aikito_dir: Path, home: Path) -> DoctorSection:
     if not findings:
         findings.append(_ok(f"Project runtimes OK ({len(projects)} projects)"))
     elif active_ok_count > 0 and not any(f.status == "FAIL" for f in findings):
-        findings.append(_ok(f"Project runtimes OK ({active_ok_count} active project(s))"))
+        findings.append(
+            _ok(f"Project runtimes OK ({active_ok_count} active project(s))")
+        )
     return DoctorSection(name="Projects", findings=findings)
 
 

@@ -369,7 +369,9 @@ class CheckConfigSyntaxTest(unittest.TestCase):
             if "dormant on this host" in finding.message
         )
         self.assertEqual(finding.status, "OK")
-        self.assertIn("registered Agent 'grok' is dormant on this host", finding.message)
+        self.assertIn(
+            "registered Agent 'grok' is dormant on this host", finding.message
+        )
 
     def test_empty_native_config_reports_warn(self) -> None:
         self._write_minimal_toml_files()
@@ -383,7 +385,9 @@ class CheckConfigSyntaxTest(unittest.TestCase):
 
         section = check_config_syntax(self.aikito_dir, self.home)
         warns = [
-            f for f in section.findings if f.status == "WARN" and "empty file" in f.message
+            f
+            for f in section.findings
+            if f.status == "WARN" and "empty file" in f.message
         ]
         self.assertEqual(len(warns), 1)
         self.assertEqual(warns[0].fix_hint, "aikito sync mcp")

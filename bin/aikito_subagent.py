@@ -1047,7 +1047,6 @@ def sync_subagent_configs(
     dry_run: bool = False,
     force_targets: list[str] | None = None,
     prune: bool = False,
-    all_agents: bool = False,
 ) -> bool:
     normalized_force: set[str] = set()
     if force_targets is not None:
@@ -1062,7 +1061,7 @@ def sync_subagent_configs(
                 )
             normalized_force.add(ft)
 
-    plan, _ = build_plan(aikito_dir, home, allow_empty=True, gate_installed=not all_agents)
+    plan, _ = build_plan(aikito_dir, home, allow_empty=True)
 
     has_errors = any(item.action == "ERROR" for item in plan)
     has_unforced_conflicts = any(

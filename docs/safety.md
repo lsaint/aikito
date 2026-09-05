@@ -44,7 +44,7 @@ different code directory.
 
 In multi-host SoT setups, undetected Agents on a specific machine are dormant and
 must not be removed from `agents.toml` so other hosts can continue using them.
-`aikito doctor --prune` is deprecated and will not mutate `agents.toml`. Dormant
+The `--prune` flag has been removed from `aikito doctor`. Dormant
 agents are preserved safely across all machines.
 
 ## Adoption

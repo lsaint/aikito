@@ -849,9 +849,12 @@ def render_project_detail(
             f"[{label}] {p}" if label != "default" else p
             for label, p in project.offline_paths
         ) or str(project.path)
-        fields.append(("Notice:", f"Project is dormant on this host (candidates: {candidates_disp})"))
-    elif project.runtime_status == "PATH MISSING":
-        fields.append(("Issue:", f"Project: directory does not exist: {project.path}"))
+        fields.append(
+            (
+                "Notice:",
+                f"Project is dormant on this host (candidates: {candidates_disp})",
+            )
+        )
     elif project.runtime_status == "UNBOUND":
         fields.append(("Issue:", "Project: no directory is registered"))
     return render_key_value_fields(fields)

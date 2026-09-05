@@ -822,21 +822,15 @@ def collect_project_skill_states(
             continue
 
         binding = resolve_project_binding(config, home)
+        if not binding.active_entries:
+            continue
         skills = [str(name) for name in config.get("skills", [])]
-        if not binding.entries:
+        for entry in binding.active_entries:
             states.extend(
                 collect_single_project_skill_states(
-                    aikito_dir, project_dir.name, None, skills
+                    aikito_dir, project_dir.name, entry.resolved_path, skills
                 )
             )
-        else:
-            target_entries = binding.active_entries or (binding.entries[0],)
-            for entry in target_entries:
-                states.extend(
-                    collect_single_project_skill_states(
-                        aikito_dir, project_dir.name, entry.resolved_path, skills
-                    )
-                )
     return states
 
 
