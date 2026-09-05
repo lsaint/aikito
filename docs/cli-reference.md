@@ -19,7 +19,7 @@ version.
 
 | Command | Purpose |
 | --- | --- |
-| `aikito init workspace [path]` | Create a workspace, detect installed Agents, initialize Git, and remember an explicit path |
+| `aikito init workspace [path]` | Initialize a new workspace or connect an existing one, detect installed Agents, and remember an explicit path |
 | `aikito path workspace` | Print the resolved active workspace path |
 | `aikito init project [name] [path] [--description <text>]` | Register a code project and synchronize its `.agents/` runtime |
 | `aikito add skill <name>` | Create a canonical skill skeleton and register it in `skills.toml` or project config |
@@ -209,11 +209,16 @@ aikito show project example
 
 ## Initialization
 
-Initialize the one workspace that stores all global and project-scoped Aikito
-resources:
+Initialize a new workspace or connect an existing one:
 
 ```bash
+# Brand new workspace:
 aikito init workspace ~/aikito
+
+# Existing workspace:
+aikito init workspace <workspace-path>
+
+aikito sync
 ```
 
 Register a code project from its directory. The directory name becomes the

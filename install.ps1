@@ -287,11 +287,14 @@ Write-Host "  Next steps:" -ForegroundColor White
 Write-Host ""
 Write-Host "    1. Open a NEW terminal (to pick up the updated PATH)." -ForegroundColor DarkGray
 Write-Host ""
-Write-Host "    2. Initialize your workspace:" -ForegroundColor DarkGray
-Write-Host "         aikito init workspace" -ForegroundColor Cyan
+Write-Host "    2. Set up your workspace:" -ForegroundColor DarkGray
+Write-Host "       - Brand new workspace:" -ForegroundColor DarkGray
+Write-Host "           aikito init workspace" -ForegroundColor Cyan
+Write-Host "       - Existing workspace:" -ForegroundColor DarkGray
+Write-Host "           aikito init workspace <workspace-path>" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "    3. Sync global resources:" -ForegroundColor DarkGray
-Write-Host "         aikito sync global" -ForegroundColor Cyan
+Write-Host "    3. Sync your workspace:" -ForegroundColor DarkGray
+Write-Host "         aikito sync" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "    4. (Optional) Enable PowerShell tab completion." -ForegroundColor DarkGray
 Write-Host "       Run this to append it to your `$PROFILE automatically:" -ForegroundColor DarkGray

@@ -26,8 +26,8 @@ Initialization changes only the Aikito workspace. The integration becomes
 active only after an explicit synchronization:
 
 ```bash
-aikito sync global --dry-run
-aikito sync global
+aikito sync --dry-run
+aikito sync
 ```
 
 If existing Agent instructions are detected, run `aikito adopt` before

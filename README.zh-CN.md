@@ -84,7 +84,7 @@ GitHub Copilot CLI、DeepSeek Harness（`dsh`）、Grok Build 和 Pi。完整心
 
 内置的 [`durable-memory` skill](templates/skills/durable-memory/SKILL.md)
 引导 Agent 检索相关笔记、写下可长期复用的结论、更新过时内容，并选择全局或项目作用域。
-新 workspace 默认启用该工作流；只有执行 `aikito sync global` 后才会连接到 Agent。
+新 workspace 默认启用该工作流；只有执行 `aikito sync` 后才会连接到 Agent。
 笔记是普通 Markdown，Git 历史可在不同 Agent 间共享。详见
 [默认行为与停用](docs/durable-memory.md#default-behavior-and-opt-out) 和
 [Memory 也需要维护者](docs/programming-agent-memory.zh-CN.md)。

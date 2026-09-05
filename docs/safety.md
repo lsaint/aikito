@@ -32,9 +32,11 @@ non-empty directory. Keep the CLI checkout and user workspace separate:
 ~/aikito       user workspace
 ```
 
-This guard applies before workspace files are written. `--force` can refresh
-templates in a recognized Aikito workspace, but it does not bypass these
-directory safety checks.
+This guard applies before workspace files are written. When pointing to an
+existing recognized workspace on a new machine, `aikito init workspace` only
+registers the local pointer without modifying files or Agent runtimes.
+`--force` can refresh templates in a recognized Aikito workspace, but it does
+not bypass directory safety checks.
 
 `aikito init project` refuses to replace unmanaged agent-native instruction, skill,
 or memory resources. It also refuses to bind an existing project name to a

@@ -88,7 +88,7 @@ capability boundaries.
 The bundled [`durable-memory` skill](templates/skills/durable-memory/SKILL.md)
 guides agents to retrieve relevant notes, write durable conclusions, update
 stale ones, and choose global or project scope. New workspaces enable this by
-default; nothing is connected to an Agent until you run `aikito sync global`.
+default; nothing is connected to an Agent until you run `aikito sync`.
 Notes are ordinary Markdown, so Git history is shared across agents. See
 [default behavior](docs/durable-memory.md#default-behavior-and-opt-out) and
 [why memory still needs a maintainer](docs/programming-agent-memory.md).
