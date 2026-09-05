@@ -177,6 +177,21 @@ def _format_status_badge(status_str: str, use_unicode: bool, use_color: bool) ->
     return text
 
 
+def render_legend(use_unicode: bool, use_color: bool) -> str:
+    dot = "·" if use_unicode else "*"
+    ok_sym = "✓" if use_unicode else "v"
+    skip_sym = "–" if use_unicode else "-"
+    warn_sym = "⚠" if use_unicode else "!"
+
+    legend_text = (
+        f"Legend: {ok_sym} synced {dot} {skip_sym} n/a {dot} 0 none {dot} "
+        f"{warn_sym} M missing {dot} {warn_sym} C conflict {dot} {warn_sym} D drift {dot} {warn_sym} E error"
+    )
+    if use_color:
+        legend_text = _colorize(legend_text, COLOR_DIM, True)
+    return legend_text
+
+
 def _get_terminal_width() -> Optional[int]:
     if not sys.stdout.isatty():
         return None
@@ -362,7 +377,10 @@ def _format_skills_badge(
 
 
 def render_agents_table(
-    rows: List[AgentStatusRow], use_unicode: bool, use_color: bool
+    rows: List[AgentStatusRow],
+    use_unicode: bool,
+    use_color: bool,
+    include_legend: bool = False,
 ) -> str:
     headers = ["Agent", "Instructions", "Skills", "MCP Config", "Subagents"]
 
@@ -379,11 +397,25 @@ def render_agents_table(
                 _format_status_badge(r.subagent_status, use_unicode, use_color),
             ]
         )
-    return _build_generic_table(headers, formatted_rows, use_unicode, use_color)
+    table = _build_generic_table(headers, formatted_rows, use_unicode, use_color)
+    if include_legend:
+        has_issue = any(
+            _format_badge_text(r.instructions_status, use_unicode)[1] == "issue"
+            or _format_badge_text(r.skills_status, use_unicode)[1] == "issue"
+            or _format_badge_text(r.mcp_status, use_unicode)[1] == "issue"
+            or _format_badge_text(r.subagent_status, use_unicode)[1] == "issue"
+            for r in rows
+        )
+        if has_issue:
+            return f"{table}\n\n{render_legend(use_unicode, use_color)}"
+    return table
 
 
 def render_memory_table(
-    rows: List[MemoryStatusRow], use_unicode: bool, use_color: bool
+    rows: List[MemoryStatusRow],
+    use_unicode: bool,
+    use_color: bool,
+    include_legend: bool = False,
 ) -> str:
     headers = ["Memory Scope", "Status", "Notes", "Updated"]
 
@@ -398,7 +430,15 @@ def render_memory_table(
                 updated_display,
             ]
         )
-    return _build_generic_table(headers, formatted_rows, use_unicode, use_color)
+    table = _build_generic_table(headers, formatted_rows, use_unicode, use_color)
+    if include_legend:
+        has_issue = any(
+            _format_badge_text(r.status, use_unicode)[1] == "issue"
+            for r in rows
+        )
+        if has_issue:
+            return f"{table}\n\n{render_legend(use_unicode, use_color)}"
+    return table
 
 
 def _format_memory_updated_date(updated_on: Optional[date]) -> str:
@@ -429,7 +469,15 @@ def render_mcp_status_table(
             st = s.agent_statuses.get(ag, "SKIP")
             row_data.append(_format_status_badge(st, use_unicode, use_color))
         formatted_rows.append(row_data)
-    return _build_generic_table(headers, formatted_rows, use_unicode, use_color)
+    table = _build_generic_table(headers, formatted_rows, use_unicode, use_color)
+    has_issue = any(
+        _format_badge_text(s.agent_statuses.get(ag, "SKIP"), use_unicode)[1] == "issue"
+        for s in server_rows
+        for ag in agent_names
+    )
+    if has_issue:
+        return f"{table}\n\n{render_legend(use_unicode, use_color)}"
+    return table
 
 
 def render_mcp_runtime_table(
@@ -447,12 +495,19 @@ def render_mcp_runtime_table(
                 tools,
             ]
         )
-    return _build_generic_table(
+    table = _build_generic_table(
         ["Agent", "Connect", "Auth method", "Tools"],
         formatted_rows,
         use_unicode,
         use_color,
     )
+    has_issue = any(
+        _format_badge_text(row.connect_status, use_unicode)[1] == "issue"
+        for row in rows
+    )
+    if has_issue:
+        return f"{table}\n\n{render_legend(use_unicode, use_color)}"
+    return table
 
 
 def render_agent_mcp_table(rows: List[Any], use_unicode: bool, use_color: bool) -> str:
@@ -464,12 +519,19 @@ def render_agent_mcp_table(rows: List[Any], use_unicode: bool, use_color: bool) 
         ]
         for row in rows
     ]
-    return _build_generic_table(
+    table = _build_generic_table(
         ["MCP Server", "Source", "Status"],
         formatted_rows,
         use_unicode,
         use_color,
     )
+    has_issue = any(
+        _format_badge_text(row.status, use_unicode)[1] == "issue"
+        for row in rows
+    )
+    if has_issue:
+        return f"{table}\n\n{render_legend(use_unicode, use_color)}"
+    return table
 
 
 def _render_title_box(
@@ -555,12 +617,19 @@ def render_agent_subagent_table(
                 row.description,
             ]
         )
-    return _build_generic_table(
+    table = _build_generic_table(
         ["Subagent", "Status", "Overrides", "Description"],
         formatted_rows,
         use_unicode,
         use_color,
     )
+    has_issue = any(
+        _format_badge_text(row.status, use_unicode)[1] == "issue"
+        for row in rows
+    )
+    if has_issue:
+        return f"{table}\n\n{render_legend(use_unicode, use_color)}"
+    return table
 
 
 def render_subagent_details(
@@ -671,6 +740,15 @@ def render_subagents_status_table(
         o_rows = [[o.agent_display_name, o.file_path] for o in orphan_files]
         output.append(_build_generic_table(o_headers, o_rows, use_unicode, use_color))
 
+    has_issue = bool(orphan_files) or any(
+        _format_badge_text(sub.agent_statuses.get(ag, "SKIP"), use_unicode)[1] == "issue"
+        for sub in subagent_rows
+        for ag in agent_names
+    )
+    if has_issue:
+        output.append("")
+        output.append(render_legend(use_unicode, use_color))
+
     return "\n".join(output)
 
 
@@ -708,9 +786,16 @@ def render_memory_notes_table(
             ]
         )
 
-    return _build_generic_table(
+    table = _build_generic_table(
         headers, formatted_rows, use_unicode, use_color, truncatable_cols=[2, 1]
     )
+    has_issue = any(
+        not n.is_indexed or _format_badge_text(n.link_status, use_unicode)[1] == "issue"
+        for n in notes
+    )
+    if has_issue:
+        return f"{table}\n\n{render_legend(use_unicode, use_color)}"
+    return table
 
 
 def render_inbox_table(
@@ -751,9 +836,16 @@ def render_skills_table(
             ]
         )
 
-    return _build_generic_table(
+    table = _build_generic_table(
         headers, formatted_rows, use_unicode, use_color, truncatable_cols=[3]
     )
+    has_issue = any(
+        _format_badge_text(s.source_status, use_unicode)[1] == "issue"
+        for s in skills
+    )
+    if has_issue:
+        return f"{table}\n\n{render_legend(use_unicode, use_color)}"
+    return table
 
 
 def render_projects_table(
@@ -771,7 +863,7 @@ def render_projects_table(
         ]
         for project in projects
     ]
-    return _build_generic_table(
+    table = _build_generic_table(
         [
             "Project",
             "Path",
@@ -786,6 +878,14 @@ def render_projects_table(
         use_color,
         truncatable_cols=[1],
     )
+    has_issue = any(
+        _format_badge_text(project.instructions_status, use_unicode)[1] == "issue"
+        or _format_badge_text(project.runtime_status, use_unicode)[1] == "issue"
+        for project in projects
+    )
+    if has_issue:
+        return f"{table}\n\n{render_legend(use_unicode, use_color)}"
+    return table
 
 
 def render_project_detail(
@@ -914,13 +1014,7 @@ def render_status_report(
     # 3. Summary & Legend
     if data.issues_count > 0:
         output_sections.append("")
-        legend_text = (
-            f"Legend: {ok_sym} synced {dot} {skip_sym} n/a {dot} 0 none {dot} "
-            f"{warn_sym} M missing {dot} {warn_sym} C conflict {dot} {warn_sym} D drift"
-        )
-        if use_color:
-            legend_text = _colorize(legend_text, COLOR_DIM, True)
-        output_sections.append(legend_text)
+        output_sections.append(render_legend(use_unicode, use_color))
 
         output_sections.append("")
         issue_label = "issue" if data.issues_count == 1 else "issues"

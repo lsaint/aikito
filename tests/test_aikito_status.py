@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from aikito_init import init_workspace
 from aikito_mcp import MCPToolProbeResult
+from aikito_project import ProjectSummary
 from aikito_render import (
     AgentStatusRow,
     MCPServerRow,
@@ -15,16 +16,22 @@ from aikito_render import (
     SkillRow,
     StatusReportData,
     SubagentRow,
+    render_agent_mcp_table,
+    render_agent_subagent_table,
     render_key_value_fields,
+    render_legend,
     render_mcp_status_table,
     render_mcp_runtime_table,
     render_memory_notes_table,
+    render_projects_table,
     render_skills_table,
     render_status_report,
     render_subagents_status_table,
 )
 from aikito_status import (
+    MCPDetailRow,
     MCPRuntimeRow,
+    SubagentDetailRow,
     _summarize_subagent_status,
     collect_agent_status_rows,
     collect_mcp_details,
@@ -355,6 +362,288 @@ class AikitoStatusRenderTest(unittest.TestCase):
             _format_memory_updated_date(date(current.year, 8, 26)), "Aug 26"
         )
         self.assertEqual(_format_memory_updated_date(date(2025, 12, 3)), "2025-12-03")
+
+    def test_render_skills_table_legend(self) -> None:
+        clean_rows = [
+            SkillRow(
+                skill_name="test-skill",
+                scope="Global",
+                source_status="OK",
+                description="Test description text",
+            ),
+        ]
+        out_clean = render_skills_table(clean_rows, use_unicode=True, use_color=False)
+        self.assertNotIn("Legend:", out_clean)
+
+        issue_rows = [
+            SkillRow(
+                skill_name="orphan-skill",
+                scope="Orphan",
+                source_status="MISSING",
+                description="-",
+            ),
+        ]
+        out_issue = render_skills_table(issue_rows, use_unicode=True, use_color=False)
+        self.assertIn("Legend:", out_issue)
+        self.assertIn("⚠ M missing", out_issue)
+
+    def test_render_mcp_status_table_legend(self) -> None:
+        clean_rows = [
+            MCPServerRow(
+                server_name="test-srv",
+                agent_statuses={"Codex": "OK", "Claude Code": "SKIP"},
+            )
+        ]
+        out_clean = render_mcp_status_table(
+            clean_rows, ["Codex", "Claude Code"], use_unicode=True, use_color=False
+        )
+        self.assertNotIn("Legend:", out_clean)
+
+        issue_rows = [
+            MCPServerRow(
+                server_name="test-srv",
+                agent_statuses={"Codex": "DRIFT", "Claude Code": "MISSING"},
+            )
+        ]
+        out_issue = render_mcp_status_table(
+            issue_rows, ["Codex", "Claude Code"], use_unicode=True, use_color=False
+        )
+        self.assertIn("Legend:", out_issue)
+        self.assertIn("⚠ D drift", out_issue)
+
+    def test_render_mcp_runtime_table_legend(self) -> None:
+        clean_rows = [
+            MCPRuntimeRow(
+                agent_name="codex",
+                agent_display_name="Codex",
+                connect_status="OK",
+                auth_method="Basic",
+                tool_names=("tool1",),
+            )
+        ]
+        out_clean = render_mcp_runtime_table(
+            clean_rows, use_unicode=True, use_color=False
+        )
+        self.assertNotIn("Legend:", out_clean)
+
+        error_rows = [
+            MCPRuntimeRow(
+                agent_name="codex",
+                agent_display_name="Codex",
+                connect_status="ERROR",
+                auth_method="Basic",
+                tool_names=(),
+                error="Connection refused",
+            )
+        ]
+        out_error = render_mcp_runtime_table(
+            error_rows, use_unicode=True, use_color=False
+        )
+        self.assertIn("Legend:", out_error)
+        self.assertIn("⚠ E error", out_error)
+
+    def test_render_agent_mcp_table_legend(self) -> None:
+        clean_rows = [
+            MCPDetailRow(
+                server_name="rovo",
+                target_name="rovo",
+                agent_name="codex",
+                agent_display_name="Codex",
+                source="managed",
+                status="OK",
+                config_path=Path("/tmp/dummy"),
+                config_format="toml",
+                entry=None,
+            )
+        ]
+        out_clean = render_agent_mcp_table(
+            clean_rows, use_unicode=True, use_color=False
+        )
+        self.assertNotIn("Legend:", out_clean)
+
+        issue_rows = [
+            MCPDetailRow(
+                server_name="rovo",
+                target_name="rovo",
+                agent_name="codex",
+                agent_display_name="Codex",
+                source="managed",
+                status="DRIFT",
+                config_path=Path("/tmp/dummy"),
+                config_format="toml",
+                entry=None,
+            )
+        ]
+        out_issue = render_agent_mcp_table(
+            issue_rows, use_unicode=True, use_color=False
+        )
+        self.assertIn("Legend:", out_issue)
+        self.assertIn("⚠ D drift", out_issue)
+
+    def test_render_subagents_status_table_legend(self) -> None:
+        clean_rows = [
+            SubagentRow(
+                subagent_name="clean",
+                agent_statuses={"Codex": "OK"},
+            )
+        ]
+        out_clean = render_subagents_status_table(
+            clean_rows, [], ["Codex"], use_unicode=True, use_color=False
+        )
+        self.assertNotIn("Legend:", out_clean)
+
+        issue_rows = [
+            SubagentRow(
+                subagent_name="conflict",
+                agent_statuses={"Codex": "CONFLICT"},
+            )
+        ]
+        out_issue = render_subagents_status_table(
+            issue_rows, [], ["Codex"], use_unicode=True, use_color=False
+        )
+        self.assertIn("Legend:", out_issue)
+        self.assertIn("⚠ C conflict", out_issue)
+
+        orphan_out = render_subagents_status_table(
+            clean_rows,
+            [OrphanSubagentFile("Codex", "/path/old.md")],
+            ["Codex"],
+            use_unicode=True,
+            use_color=False,
+        )
+        self.assertIn("Legend:", orphan_out)
+
+    def test_render_agent_subagent_table_legend(self) -> None:
+        clean_rows = [
+            SubagentDetailRow(
+                subagent_name="formatter",
+                description="Code formatter",
+                agent_name="codex",
+                agent_display_name="Codex",
+                status="OK",
+                target_path=Path("/tmp/formatter.toml"),
+                config_format="toml",
+                platform_options={},
+                canonical_path=Path("/tmp/formatter.md"),
+            )
+        ]
+        out_clean = render_agent_subagent_table(
+            clean_rows, use_unicode=True, use_color=False
+        )
+        self.assertNotIn("Legend:", out_clean)
+
+        issue_rows = [
+            SubagentDetailRow(
+                subagent_name="formatter",
+                description="Code formatter",
+                agent_name="codex",
+                agent_display_name="Codex",
+                status="MISSING",
+                target_path=Path("/tmp/formatter.toml"),
+                config_format="toml",
+                platform_options={},
+                canonical_path=Path("/tmp/formatter.md"),
+            )
+        ]
+        out_issue = render_agent_subagent_table(
+            issue_rows, use_unicode=True, use_color=False
+        )
+        self.assertIn("Legend:", out_issue)
+        self.assertIn("⚠ M missing", out_issue)
+
+    def test_render_memory_notes_table_legend(self) -> None:
+        clean_notes = [
+            MemoryNoteRow(
+                scope_name="Global",
+                note_name="demo",
+                title="Demo Title",
+                is_indexed=True,
+                link_status="OK",
+            )
+        ]
+        out_clean = render_memory_notes_table(
+            clean_notes, use_unicode=True, use_color=False
+        )
+        self.assertNotIn("Legend:", out_clean)
+
+        unindexed_notes = [
+            MemoryNoteRow(
+                scope_name="Global",
+                note_name="demo",
+                title="Demo Title",
+                is_indexed=False,
+                link_status="OK",
+            )
+        ]
+        out_issue = render_memory_notes_table(
+            unindexed_notes, use_unicode=True, use_color=False
+        )
+        self.assertIn("Legend:", out_issue)
+
+        conflict_notes = [
+            MemoryNoteRow(
+                scope_name="Global",
+                note_name="demo",
+                title="Demo Title",
+                is_indexed=True,
+                link_status="CONFLICT",
+            )
+        ]
+        out_conflict = render_memory_notes_table(
+            conflict_notes, use_unicode=True, use_color=False
+        )
+        self.assertIn("Legend:", out_conflict)
+
+    def test_render_projects_table_legend(self) -> None:
+        clean_projects = [
+            ProjectSummary(
+                name="demo",
+                path=Path("/tmp/demo"),
+                config_path=Path("/tmp/demo/agent.toml"),
+                description="demo project",
+                sync_mode="link",
+                instructions_status="OK",
+                skills_count=2,
+                memory_notes_count=3,
+                runtime_status="OK",
+            )
+        ]
+        out_clean = render_projects_table(
+            clean_projects, use_unicode=True, use_color=False
+        )
+        self.assertNotIn("Legend:", out_clean)
+
+        issue_projects = [
+            ProjectSummary(
+                name="demo",
+                path=Path("/tmp/demo"),
+                config_path=Path("/tmp/demo/agent.toml"),
+                description="demo project",
+                sync_mode="link",
+                instructions_status="MISSING",
+                skills_count=2,
+                memory_notes_count=3,
+                runtime_status="CONFLICT",
+            )
+        ]
+        out_issue = render_projects_table(
+            issue_projects, use_unicode=True, use_color=False
+        )
+        self.assertIn("Legend:", out_issue)
+        self.assertIn("⚠ M missing", out_issue)
+        self.assertIn("⚠ C conflict", out_issue)
+
+    def test_render_legend_format(self) -> None:
+        unicode_legend = render_legend(use_unicode=True, use_color=False)
+        self.assertEqual(
+            unicode_legend,
+            "Legend: ✓ synced · – n/a · 0 none · ⚠ M missing · ⚠ C conflict · ⚠ D drift · ⚠ E error",
+        )
+        ascii_legend = render_legend(use_unicode=False, use_color=False)
+        self.assertEqual(
+            ascii_legend,
+            "Legend: v synced * - n/a * 0 none * ! M missing * ! C conflict * ! D drift * ! E error",
+        )
 
 
 class AikitoStatusCollectorTest(unittest.TestCase):
