@@ -1518,7 +1518,6 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 "fail_count": r.fail_count,
                 "warn_count": r.warn_count,
                 "fixes": fixes,
-                "prune_blockers": prune_blockers,
             }
 
         print(json.dumps(_report_to_dict(report), ensure_ascii=False, indent=2))

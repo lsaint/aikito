@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import re
 import shutil
@@ -2042,6 +2043,24 @@ class TestDoctorFixCli(unittest.TestCase):
         index_text = (self.aikito_dir / "memory" / "index.md").read_text()
         self.assertNotIn("ghost-note", index_text)
         self.assertIn("- [[bare|Bare Note Title]]", index_text)
+
+    def test_doctor_json_flag(self) -> None:
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["doctor", "--json"])
+            try:
+                args.func(args)
+            except SystemExit:
+                pass
+
+        data = json.loads(mock_stdout.getvalue())
+        self.assertIn("sections", data)
+        self.assertIn("fail_count", data)
+        self.assertIn("warn_count", data)
+        self.assertIn("fixes", data)
+        self.assertNotIn("prune_blockers", data)
 
     def test_doctor_prune_flag_rejected(self) -> None:
         with self.assertRaises(SystemExit):
