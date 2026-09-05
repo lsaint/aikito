@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.25.1] - 2026-09-06
+
+### Added
+
+- Display status legend under individual component and resource tables across `status` and `show` views whenever warning or error badges (`M`, `C`, `D`, `E`) are present.
+
+### Fixed
+
+- Handled non-string path objects in `render_projects_table` and generic table column width calculation to prevent `TypeError`.
+
+### Changed
+
+- Clarified workspace onboarding and bare `aikito sync` recommendations across documentation and `install.ps1`.
+
 ## [1.25.0] - 2026-09-05
 
 ### Added
@@ -505,7 +519,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.25.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.25.1...HEAD
+[1.25.1]: https://github.com/lsaint/aikito/compare/v1.25.0...v1.25.1
 [1.25.0]: https://github.com/lsaint/aikito/compare/v1.24.1...v1.25.0
 [1.24.1]: https://github.com/lsaint/aikito/compare/v1.24.0...v1.24.1
 [1.24.0]: https://github.com/lsaint/aikito/compare/v1.23.0...v1.24.0
