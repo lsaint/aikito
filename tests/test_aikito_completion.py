@@ -122,6 +122,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("--prune", zsh)
         self.assertIn("_files -/", zsh)
         self.assertIn("completion candidates paths", zsh)
+        self.assertIn("_multi_parts / cands", zsh)
 
         bash = generate_bash(parser)
         self.assertIn("skills", bash)
@@ -190,7 +191,7 @@ class AikitoCompletionTest(unittest.TestCase):
         )
         self.assertEqual(candidates, expected)
 
-    def test_list_memory_completions_collapses_identifiers_and_shows_scope(
+    def test_list_memory_completions_always_includes_scope_prefix(
         self,
     ) -> None:
         global_notes = self.aikito_dir / "memory" / "notes"
@@ -204,9 +205,25 @@ class AikitoCompletionTest(unittest.TestCase):
         self.assertEqual(
             list_memory_completions(self.aikito_dir),
             [
-                "aikito/shared\t(aikito)",
-                "global/shared\t(global)",
-                "unique\t(global)",
+                "aikito/shared",
+                "global/shared",
+                "global/unique",
+            ],
+        )
+
+    def test_list_memory_completions_uses_full_identifier_when_short_is_ambiguous(
+        self,
+    ) -> None:
+        global_notes = self.aikito_dir / "memory" / "notes"
+        (global_notes / "sub").mkdir(parents=True)
+        (global_notes / "dup.md").write_text("# Dup", encoding="utf-8")
+        (global_notes / "sub" / "dup.md").write_text("# Nested Dup", encoding="utf-8")
+
+        self.assertEqual(
+            list_memory_completions(self.aikito_dir),
+            [
+                "global/notes/dup",
+                "global/notes/sub/dup",
             ],
         )
 

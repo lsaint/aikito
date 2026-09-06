@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Memory tab completion now always uses `scope/stem` identifiers so notes can be filtered by project.
+
 ## [1.25.1] - 2026-09-06
 
 ### Added
