@@ -91,25 +91,26 @@ def list_memories(aikito_dir: Path) -> List[str]:
 
 
 def list_memory_completions(aikito_dir: Path) -> List[str]:
-    """Return one executable candidate and display label per memory note."""
+    """Return one scoped identifier per memory note for shell completion.
+
+    Always keep the project or ``global`` prefix so Tab can filter by scope.
+    Prefer ``scope/stem``; use the full path identifier only when that short
+    form is ambiguous inside the same scope.
+    """
     items = find_memory_files(aikito_dir)
-    stem_counts: dict[str, int] = {}
     short_counts: dict[str, int] = {}
     for item in items:
-        stem_counts[item.stem] = stem_counts.get(item.stem, 0) + 1
         short_counts[item.short_identifier] = (
             short_counts.get(item.short_identifier, 0) + 1
         )
 
     completions = []
     for item in items:
-        if item.stem != "index" and stem_counts[item.stem] == 1:
-            candidate = item.stem
-        elif short_counts[item.short_identifier] == 1:
+        if short_counts[item.short_identifier] == 1:
             candidate = item.short_identifier
         else:
             candidate = item.full_identifier
-        completions.append(f"{candidate}\t({item.scope})")
+        completions.append(candidate)
     return sorted(set(completions))
 
 
@@ -348,13 +349,9 @@ _aikito() {{
             else
                 case "$cmd $sub" in
                     (show\\ memory|edit\\ memory|rename\\ memory|rm\\ memory|remove\\ memory)
-                        local line
-                        local -a cands displays
-                        for line in ${{(f)"$(aikito completion candidates memory-completions 2>/dev/null)"}}; do
-                            cands+=("${{line%%$'\\t'*}}")
-                            displays+=("${{line%%$'\\t'*}}${{line#*$'\\t'}}")
-                        done
-                        compadd -d displays -a cands
+                        local -a cands
+                        cands=(${{(f)"$(aikito completion candidates memory-completions 2>/dev/null)"}})
+                        (( ${{#cands}} )) && _multi_parts / cands
                         ;;
                     (show\\ inbox|edit\\ inbox|rm\\ inbox|remove\\ inbox)
                         local cands
