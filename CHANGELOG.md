@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.26.0] - 2026-09-06
+
 ### Changed
 
 - Memory tab completion now always uses `scope/stem` identifiers so notes can be filtered by project.
@@ -523,7 +525,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.25.1...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.26.0...HEAD
+[1.26.0]: https://github.com/lsaint/aikito/compare/v1.25.1...v1.26.0
 [1.25.1]: https://github.com/lsaint/aikito/compare/v1.25.0...v1.25.1
 [1.25.0]: https://github.com/lsaint/aikito/compare/v1.24.1...v1.25.0
 [1.24.1]: https://github.com/lsaint/aikito/compare/v1.24.0...v1.24.1
