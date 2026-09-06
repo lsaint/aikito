@@ -9,6 +9,8 @@ description: Install, configure, and operate Aikito workspaces, including memory
 
 Use Aikito as the canonical, Git-managed source for durable Agent resources and
 synchronize those resources into supported coding agents and projects.
+Aikito governs resource ownership, scope, synchronization, and structural
+integrity. Ordinary file edits can be performed directly by Agents.
 
 ## Mental Model
 
@@ -35,10 +37,9 @@ subagent, or MCP entry as a source.
 
 New canonical resources follow `add → edit → show → sync → status / diff /
 doctor`; existing external resources enter through `adopt` and then rejoin that
-path at `show`. Every resource type supports `aikito add|edit|show|rm <type>
-<target>` and a scoped `sync` with `--dry-run`. Run bare `aikito sync
-[--dry-run]` to orchestrate the entire workspace (global resources, host-gated
-subagents, tolerant MCP configs, and active projects).
+path at `show`. Run bare `aikito sync [--dry-run]` to orchestrate the entire
+workspace (global resources, host-gated subagents, tolerant MCP configs, and
+active projects).
 
 Resolve `<workspace>` with `aikito path workspace` before touching canonical
 files directly; `AIKITO_DIR` temporarily overrides the persisted workspace. Use
