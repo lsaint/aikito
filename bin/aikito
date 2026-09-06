@@ -9,11 +9,12 @@ import argparse
 import errno
 import json
 import os
+import shutil
 import sys
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List
+from typing import Any, Callable, List, Optional
 
 from aikito_add import add_mcp, add_skill, add_subagent
 from aikito_adopt import build_adopt_plan, execute_adoption
@@ -1495,7 +1496,27 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             print()
 
     stale_days = getattr(args, "stale_days", None)
-    report = run_doctor(aikito_dir, home, stale_days=stale_days)
+
+    progress_cb = None
+    if not getattr(args, "json", False) and sys.stdout.isatty():
+
+        def _progress(stage: Optional[str]) -> None:
+            if stage is not None:
+                if use_color:
+                    line = f"Checking \033[36m{stage}...\033[0m"
+                else:
+                    line = f"Checking {stage}..."
+                sys.stdout.write(f"\r{line}\033[K")
+                sys.stdout.flush()
+            else:
+                sys.stdout.write("\r\033[K")
+                sys.stdout.flush()
+
+        progress_cb = _progress
+
+    report = run_doctor(
+        aikito_dir, home, stale_days=stale_days, on_progress=progress_cb
+    )
 
     if getattr(args, "json", False):
 

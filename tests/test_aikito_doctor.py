@@ -860,6 +860,29 @@ class RunDoctorIntegrationTest(unittest.TestCase):
         ):
             self.assertIn(expected, names)
 
+    def test_run_doctor_calls_on_progress(self) -> None:
+        stages_called: list[object] = []
+        report = run_doctor(
+            ROOT,
+            Path(tempfile.gettempdir()),
+            on_progress=stages_called.append,
+        )
+        self.assertIsInstance(report, DoctorReport)
+        self.assertEqual(
+            stages_called,
+            [
+                "Symlinks",
+                "Orphans",
+                "Memory",
+                "Drift",
+                "Security",
+                "Environment",
+                "Projects",
+                "Configuration",
+                None,
+            ],
+        )
+
     def test_memory_integrity_cross_note_check_does_not_crash_on_real_workspace(
         self,
     ) -> None:

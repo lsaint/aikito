@@ -16,7 +16,7 @@ import sys
 import time
 import tomllib
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 
 from aikito_config import (
@@ -1385,19 +1385,37 @@ def run_doctor_prune(
 
 
 def run_doctor(
-    aikito_dir: Path, home: Path, stale_days: Optional[int] = None
+    aikito_dir: Path,
+    home: Path,
+    stale_days: Optional[int] = None,
+    on_progress: Optional[Callable[[Optional[str]], None]] = None,
 ) -> DoctorReport:
     """Run all diagnostic checks and return a structured DoctorReport."""
-    sections = [
-        check_symlinks(aikito_dir, home),
-        check_orphans(aikito_dir, home),
-        check_memory_integrity(aikito_dir, home, stale_days_override=stale_days),
-        check_drift(aikito_dir, home),
-        check_security(aikito_dir, home),
-        check_environment(aikito_dir, home),
-        check_projects(aikito_dir, home),
+    steps = [
+        ("Symlinks", lambda: check_symlinks(aikito_dir, home)),
+        ("Orphans", lambda: check_orphans(aikito_dir, home)),
+        (
+            "Memory",
+            lambda: check_memory_integrity(
+                aikito_dir, home, stale_days_override=stale_days
+            ),
+        ),
+        ("Drift", lambda: check_drift(aikito_dir, home)),
+        ("Security", lambda: check_security(aikito_dir, home)),
+        ("Environment", lambda: check_environment(aikito_dir, home)),
+        ("Projects", lambda: check_projects(aikito_dir, home)),
         # Keep check_config_syntax last: it's the slowest section (parses every
         # workspace config file), so cheaper checks report first.
-        check_config_syntax(aikito_dir, home),
+        ("Configuration", lambda: check_config_syntax(aikito_dir, home)),
     ]
+    sections = []
+    try:
+        for name, check_fn in steps:
+            if on_progress:
+                on_progress(name)
+            sections.append(check_fn())
+    finally:
+        if on_progress:
+            on_progress(None)
     return DoctorReport(sections=sections)
+

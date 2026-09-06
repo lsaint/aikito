@@ -2062,6 +2062,27 @@ class TestDoctorFixCli(unittest.TestCase):
         self.assertIn("fixes", data)
         self.assertNotIn("prune_blockers", data)
 
+    def test_doctor_progress_shown_when_tty(self) -> None:
+        mock_stdout = MagicMock()
+        mock_stdout.isatty.return_value = True
+        written_chunks = []
+        mock_stdout.write.side_effect = written_chunks.append
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("sys.stdout", mock_stdout),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["doctor", "--no-color"])
+            try:
+                args.func(args)
+            except SystemExit:
+                pass
+
+        combined = "".join(written_chunks)
+        self.assertIn("Checking Symlinks...", combined)
+        self.assertIn("Checking Orphans...", combined)
+        self.assertIn("Checking Configuration...", combined)
+
     def test_doctor_prune_flag_rejected(self) -> None:
         with self.assertRaises(SystemExit):
             with patch("sys.stderr", new_callable=io.StringIO):
