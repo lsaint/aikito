@@ -36,10 +36,7 @@ Aikito governs the workspace, agents maintain the memory, and you oversee it all
 One workspace keeps your AI workflow consistent across agents and machines.
 
 <p align="center">
-  <img src="docs/assets/aikito-overview-1.png" alt="Aikito overview diagram 1">
-</p>
-<p align="center">
-  <img src="docs/assets/aikito-overview-2.png" alt="Aikito overview diagram 2">
+  <img src="docs/assets/aikito-overview.png" alt="Aikito overview">
 </p>
 
 ## Why Aikito

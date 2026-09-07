@@ -36,10 +36,7 @@ Aikito 治理工作区，Agent 维护 memory，而一切由你把关。
 单个工作区即可让你的 AI 工作流在不同 Agent 与机器间保持一致。
 
 <p align="center">
-  <img src="docs/assets/aikito-overview-1.png" alt="Aikito 概览图 1">
-</p>
-<p align="center">
-  <img src="docs/assets/aikito-overview-2.png" alt="Aikito 概览图 2">
+  <img src="docs/assets/aikito-overview.png" alt="Aikito 概览图">
 </p>
 
 ## 为什么需要 Aikito？
