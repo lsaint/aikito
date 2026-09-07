@@ -1418,4 +1418,3 @@ def run_doctor(
         if on_progress:
             on_progress(None)
     return DoctorReport(sections=sections)
-

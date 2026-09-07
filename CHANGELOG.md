@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.27.0] - 2026-09-07
+
+### Added
+
+- Show per-section progress on `aikito doctor` when stdout is a TTY.
+
+### Changed
+
+- Clarified the bundled Aikito skill: Aikito governs resource ownership, scope,
+  synchronization, and structural integrity; ordinary file edits can be
+  performed directly by Agents.
+
 ## [1.26.0] - 2026-09-06
 
 ### Changed
@@ -525,7 +537,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.26.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.27.0...HEAD
+[1.27.0]: https://github.com/lsaint/aikito/compare/v1.26.0...v1.27.0
 [1.26.0]: https://github.com/lsaint/aikito/compare/v1.25.1...v1.26.0
 [1.25.1]: https://github.com/lsaint/aikito/compare/v1.25.0...v1.25.1
 [1.25.0]: https://github.com/lsaint/aikito/compare/v1.24.1...v1.25.0

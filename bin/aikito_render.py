@@ -434,8 +434,7 @@ def render_memory_table(
     table = _build_generic_table(headers, formatted_rows, use_unicode, use_color)
     if include_legend:
         has_issue = any(
-            _format_badge_text(r.status, use_unicode)[1] == "issue"
-            for r in rows
+            _format_badge_text(r.status, use_unicode)[1] == "issue" for r in rows
         )
         if has_issue:
             return f"{table}\n\n{render_legend(use_unicode, use_color)}"
@@ -527,8 +526,7 @@ def render_agent_mcp_table(rows: List[Any], use_unicode: bool, use_color: bool) 
         use_color,
     )
     has_issue = any(
-        _format_badge_text(row.status, use_unicode)[1] == "issue"
-        for row in rows
+        _format_badge_text(row.status, use_unicode)[1] == "issue" for row in rows
     )
     if has_issue:
         return f"{table}\n\n{render_legend(use_unicode, use_color)}"
@@ -625,8 +623,7 @@ def render_agent_subagent_table(
         use_color,
     )
     has_issue = any(
-        _format_badge_text(row.status, use_unicode)[1] == "issue"
-        for row in rows
+        _format_badge_text(row.status, use_unicode)[1] == "issue" for row in rows
     )
     if has_issue:
         return f"{table}\n\n{render_legend(use_unicode, use_color)}"
@@ -742,7 +739,8 @@ def render_subagents_status_table(
         output.append(_build_generic_table(o_headers, o_rows, use_unicode, use_color))
 
     has_issue = bool(orphan_files) or any(
-        _format_badge_text(sub.agent_statuses.get(ag, "SKIP"), use_unicode)[1] == "issue"
+        _format_badge_text(sub.agent_statuses.get(ag, "SKIP"), use_unicode)[1]
+        == "issue"
         for sub in subagent_rows
         for ag in agent_names
     )
@@ -841,8 +839,7 @@ def render_skills_table(
         headers, formatted_rows, use_unicode, use_color, truncatable_cols=[3]
     )
     has_issue = any(
-        _format_badge_text(s.source_status, use_unicode)[1] == "issue"
-        for s in skills
+        _format_badge_text(s.source_status, use_unicode)[1] == "issue" for s in skills
     )
     if has_issue:
         return f"{table}\n\n{render_legend(use_unicode, use_color)}"
@@ -982,7 +979,6 @@ def render_status_report(
 
     dot = "·" if use_unicode else "*"
     ok_sym = "✓" if use_unicode else "v"
-    skip_sym = "–" if use_unicode else "-"
     warn_sym = "⚠" if use_unicode else "!"
 
     output_sections = []

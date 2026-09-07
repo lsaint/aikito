@@ -9,12 +9,11 @@ import argparse
 import errno
 import json
 import os
-import shutil
 import sys
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, List, Optional
+from typing import Any, List, Optional
 
 from aikito_add import add_mcp, add_skill, add_subagent
 from aikito_adopt import build_adopt_plan, execute_adoption
@@ -126,7 +125,7 @@ from aikito_workspace import (
     resolve_workspace_with_source,
 )
 
-__version__ = "1.26.0"
+__version__ = "1.27.0"
 
 
 def get_aikito_dir() -> Path:
