@@ -846,13 +846,29 @@ def render_skills_table(
     return table
 
 
+def format_project_paths(project: ProjectSummary, use_unicode: bool) -> str:
+    """Render candidate project paths with present/absent markers."""
+    if not project.candidate_paths:
+        return str(project.path)
+    present = "✓" if use_unicode else "v"
+    missing = "-"
+    parts: List[str] = []
+    for label, path, exists in project.candidate_paths:
+        mark = present if exists else missing
+        if label != "default":
+            parts.append(f"[{label}]{mark} {path}")
+        else:
+            parts.append(f"{mark} {path}")
+    return ", ".join(parts)
+
+
 def render_projects_table(
     projects: List[ProjectSummary], use_unicode: bool, use_color: bool
 ) -> str:
     rows = [
         [
             project.name,
-            str(project.path),
+            format_project_paths(project, use_unicode),
             project.sync_mode,
             _format_status_badge(project.instructions_status, use_unicode, use_color),
             str(project.skills_count),
@@ -901,8 +917,8 @@ def render_project_detail(
     fields = [
         ("Project:", project.name),
         ("Description:", project.description or "-"),
-        ("Canonical directory:", str(project.config_path.parent)),
-        ("Project directory:", str(project.path)),
+        ("Canonical path:", str(project.config_path.parent)),
+        ("Project paths:", format_project_paths(project, use_unicode)),
         ("Sync mode:", project.sync_mode),
         (
             "Instructions:",
@@ -912,18 +928,6 @@ def render_project_detail(
         ("Memory:", memory),
         ("Sync:", project.runtime_status),
     ]
-    if len(project.active_paths) > 1:
-        active_disp = [
-            f"[{label}] {p}" if label != "default" else p
-            for label, p in project.active_paths
-        ]
-        fields.append(("Active paths:", ", ".join(active_disp)))
-    if project.offline_paths:
-        offline_disp = [
-            f"[{label}] {p}" if label != "default" else p
-            for label, p in project.offline_paths
-        ]
-        fields.append(("Offline paths:", ", ".join(offline_disp)))
     if project.error:
         fields.append(("Error:", project.error))
     if project.instructions_notice:

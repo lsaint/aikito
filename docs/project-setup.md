@@ -70,7 +70,7 @@ The project name identifies its workspace configuration. The optional
 `description` is human-readable display metadata and does not affect project
 resolution or synchronization.
 
-### Path Resolution, Primary Path, and Offline Semantics
+### Path Resolution and Offline Semantics
 
 Aikito evaluates candidate paths dynamically on the local machine:
 - **Active paths**: Candidate directories that currently exist on the local filesystem.
@@ -80,9 +80,10 @@ Aikito evaluates candidate paths dynamically on the local machine:
   When NO candidate paths exist on the current host, the project is considered **offline** on this host.
   `aikito status` displays offline status with a dimmed badge (`–`), and `aikito doctor` reports the project as healthy
   (`Project '<name>': offline on this host (<candidates>)`), preserving candidate paths for seamless roaming across multiple machines through Git without false-positive failures.
-- **Primary path**: For single-target display and default resolution, Aikito selects
-  the **first active path** in configuration order. If no candidates exist locally, it
-  falls back to the first defined candidate.
+- **Project paths**: `show project` and the status Path column list every candidate
+  in configuration order, for example `[1]✓ ~/code/example, [2]- ~/code/example-worktree`.
+  Locally present directories use `✓` (`v` in ASCII mode); missing directories
+  use `-`. There is no privileged primary path.
 
 Native project instruction paths come from the workspace root `agents.toml`; project
 configs do not duplicate that list. `sync_mode` controls only the selected project skills:

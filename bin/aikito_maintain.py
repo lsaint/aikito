@@ -27,7 +27,16 @@ class AgentRunner:
     env: dict[str, str]
 
 
-def _load_project(project_dir: Path) -> tuple[Path, Path] | None:
+@dataclass(frozen=True)
+class _LoadedProject:
+    name: str
+    memory_dir: Path
+    config_path: Path
+    active_paths: tuple[Path, ...]
+    has_candidates: bool
+
+
+def _load_project(project_dir: Path) -> _LoadedProject | None:
     config_path = project_dir / "agent.toml"
     memory_dir = project_dir / "memory"
     if not config_path.is_file():
@@ -37,9 +46,20 @@ def _load_project(project_dir: Path) -> tuple[Path, Path] | None:
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise MemoryMaintenanceError(f"Failed to read {config_path}: {exc}") from exc
     binding = resolve_project_binding(config, Path.home())
-    if not binding.entries or binding.primary_path is None:
-        raise MemoryMaintenanceError(f"Project path is missing in {config_path}")
-    return memory_dir.resolve(), binding.primary_path
+    return _LoadedProject(
+        project_dir.name,
+        memory_dir.resolve(),
+        config_path,
+        tuple(entry.resolved_path for entry in binding.active_entries),
+        bool(binding.entries),
+    )
+
+
+def _best_cwd_match(cwd: Path, roots: tuple[Path, ...]) -> Path | None:
+    matches = [root for root in roots if cwd == root or cwd.is_relative_to(root)]
+    if not matches:
+        return None
+    return max(matches, key=lambda root: len(root.parts))
 
 
 def _resolved_project_scope(
@@ -50,6 +70,27 @@ def _resolved_project_scope(
             f"Project '{name}' is registered but has no memory scope: {memory_dir}"
         )
     return MemoryMaintenanceScope(name, memory_dir, project_path)
+
+
+def _named_project_workdir(project: _LoadedProject, cwd: Path) -> Path:
+    if not project.has_candidates:
+        raise MemoryMaintenanceError(
+            f"Project path is missing in {project.config_path}"
+        )
+    if not project.active_paths:
+        raise MemoryMaintenanceError(
+            f"Project '{project.name}' is offline on this host"
+        )
+    matched = _best_cwd_match(cwd, project.active_paths)
+    if matched is not None:
+        return matched
+    if len(project.active_paths) == 1:
+        return project.active_paths[0]
+    listed = ", ".join(str(path) for path in project.active_paths)
+    raise MemoryMaintenanceError(
+        f"Project '{project.name}' has multiple local paths; "
+        f"run this command from one of them: {listed}"
+    )
 
 
 def resolve_memory_maintenance_scope(
@@ -68,34 +109,32 @@ def resolve_memory_maintenance_scope(
     if not projects_dir.is_dir():
         raise MemoryMaintenanceError("No registered projects found")
 
-    projects: list[tuple[str, Path, Path]] = []
+    projects: list[_LoadedProject] = []
     for project_dir in sorted(projects_dir.iterdir()):
         if not project_dir.is_dir():
             continue
         loaded = _load_project(project_dir)
         if loaded is not None:
-            memory_dir, project_path = loaded
-            projects.append((project_dir.name, memory_dir, project_path))
+            projects.append(loaded)
 
     if target == ".":
         current = cwd.resolve()
-        matches = [
-            project
-            for project in projects
-            if current == project[2] or current.is_relative_to(project[2])
-        ]
+        matches: list[tuple[_LoadedProject, Path]] = []
+        for project in projects:
+            matched = _best_cwd_match(current, project.active_paths)
+            if matched is not None:
+                matches.append((project, matched))
         if not matches:
             raise MemoryMaintenanceError(
                 f"Current directory is not inside a registered project: {current}"
             )
-        name, memory_dir, project_path = max(
-            matches, key=lambda project: len(project[2].parts)
-        )
-        return _resolved_project_scope(name, memory_dir, project_path)
+        project, project_path = max(matches, key=lambda item: len(item[1].parts))
+        return _resolved_project_scope(project.name, project.memory_dir, project_path)
 
-    for name, memory_dir, project_path in projects:
-        if name == target:
-            return _resolved_project_scope(name, memory_dir, project_path)
+    for project in projects:
+        if project.name == target:
+            workdir = _named_project_workdir(project, cwd.resolve())
+            return _resolved_project_scope(project.name, project.memory_dir, workdir)
     raise MemoryMaintenanceError(f"Memory scope '{target}' not found")
 
 

@@ -79,6 +79,54 @@ command = ["copilot", "-C", "{workdir}", "-i", "{prompt}"]
         ):
             resolve_memory_maintenance_scope(self.aikito_dir, ".", self.root)
 
+    def _write_example_paths(self, *paths: Path) -> None:
+        quoted = ", ".join(f'"{path.as_posix()}"' for path in paths)
+        (self.project_memory.parent / "agent.toml").write_text(
+            f'name = "example"\npaths = [{quoted}]\n',
+            encoding="utf-8",
+        )
+
+    def test_resolves_workdir_from_any_active_path(self) -> None:
+        worktree = self.root / "code" / "example-wt"
+        worktree.mkdir()
+        self._write_example_paths(self.project_path, worktree)
+
+        from_worktree = resolve_memory_maintenance_scope(
+            self.aikito_dir, ".", worktree / "nested"
+        )
+        named_from_worktree = resolve_memory_maintenance_scope(
+            self.aikito_dir, "example", worktree
+        )
+        named_from_main = resolve_memory_maintenance_scope(
+            self.aikito_dir, "example", self.project_path
+        )
+
+        self.assertEqual(from_worktree.workdir, worktree.resolve())
+        self.assertEqual(named_from_worktree.workdir, worktree.resolve())
+        self.assertEqual(named_from_main.workdir, self.project_path.resolve())
+
+    def test_named_project_requires_cwd_when_multiple_active_paths(self) -> None:
+        worktree = self.root / "code" / "example-wt"
+        worktree.mkdir()
+        self._write_example_paths(self.project_path, worktree)
+
+        with self.assertRaisesRegex(MemoryMaintenanceError, "multiple local paths"):
+            resolve_memory_maintenance_scope(self.aikito_dir, "example", self.root)
+
+    def test_named_offline_project_is_rejected(self) -> None:
+        self._write_example_paths(self.root / "gone")
+
+        with self.assertRaisesRegex(MemoryMaintenanceError, "offline on this host"):
+            resolve_memory_maintenance_scope(self.aikito_dir, "example", self.root)
+
+    def test_named_project_without_candidates_is_rejected(self) -> None:
+        (self.project_memory.parent / "agent.toml").write_text(
+            'name = "example"\n',
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(MemoryMaintenanceError, "Project path is missing"):
+            resolve_memory_maintenance_scope(self.aikito_dir, "example", self.root)
+
     def test_reports_registered_project_without_memory_scope(self) -> None:
         self.project_memory.rmdir()
 

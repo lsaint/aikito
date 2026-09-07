@@ -56,14 +56,6 @@ class ProjectBinding:
     def offline_entries(self) -> tuple[ProjectPathEntry, ...]:
         return tuple(e for e in self.entries if not e.exists)
 
-    @property
-    def primary_path(self) -> Path | None:
-        if self.active_entries:
-            return self.active_entries[0].resolved_path
-        if self.entries:
-            return self.entries[0].resolved_path
-        return None
-
 
 @dataclass(frozen=True)
 class ProjectSummary:
@@ -84,6 +76,7 @@ class ProjectSummary:
     error: str = ""
     active_paths: tuple[tuple[str, str], ...] = ()
     offline_paths: tuple[tuple[str, str], ...] = ()
+    candidate_paths: tuple[tuple[str, str, bool], ...] = ()
 
 
 def get_project_candidate_paths(config: dict) -> list[tuple[str, str]]:
@@ -308,7 +301,47 @@ def _resolve_project_path(raw_path: object, home: Path) -> Path | None:
 def _display_path(path: Path | None, home: Path) -> str:
     if path is None:
         return "-"
-    return safe_relative_path(path, home)
+    resolved_home = home.resolve()
+    for base in (home, resolved_home):
+        displayed = safe_relative_path(path, base)
+        if displayed.startswith("~/"):
+            return displayed
+    resolved_path = path.resolve()
+    if resolved_path != path:
+        displayed = safe_relative_path(resolved_path, resolved_home)
+        if displayed.startswith("~/"):
+            return displayed
+    return path.as_posix()
+
+
+def _display_candidate_path(entry: ProjectPathEntry, home: Path) -> str:
+    if entry.exists:
+        return _display_path(entry.resolved_path, home)
+    raw = entry.raw_path.strip().replace("\\", "/")
+    if raw == "~" or raw.startswith("~/"):
+        return raw
+    unresolved = Path(raw)
+    if unresolved.is_absolute():
+        return _display_path(unresolved, home)
+    # Keep configured other-OS paths (e.g. D:/...) instead of cwd-resolving them.
+    return raw
+
+
+def _candidate_path_views(
+    binding: ProjectBinding, home: Path
+) -> tuple[tuple[str, str, bool], ...]:
+    return tuple(
+        (entry.label, _display_candidate_path(entry, home), entry.exists)
+        for entry in binding.entries
+    )
+
+
+def _joined_candidate_paths(
+    candidate_paths: tuple[tuple[str, str, bool], ...],
+) -> str:
+    if not candidate_paths:
+        return "-"
+    return ", ".join(path for _, path, _ in candidate_paths)
 
 
 def _link_status(target: Path, expected: Path) -> str:
@@ -465,12 +498,14 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
             continue
 
         binding = resolve_project_binding(config, home)
+        candidate_paths = _candidate_path_views(binding, home)
+        joined_paths = _joined_candidate_paths(candidate_paths)
         description = config.get("description", "")
         if not isinstance(description, str):
             summaries.append(
                 ProjectSummary(
                     name=project_dir.name,
-                    path=_display_path(binding.primary_path, home),
+                    path=joined_paths,
                     sync_mode=str(config.get("sync_mode", "link")).lower(),
                     instructions_status="MISSING",
                     skills_count=0,
@@ -478,6 +513,7 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
                     runtime_status="INVALID CONFIG",
                     config_path=config_path,
                     error="Project description must be a string",
+                    candidate_paths=candidate_paths,
                 )
             )
             continue
@@ -501,37 +537,11 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
         )
 
         active_paths = tuple(
-            (e.label, _display_path(e.resolved_path, home))
-            for e in binding.active_entries
+            (label, path) for label, path, exists in candidate_paths if exists
         )
         offline_paths = tuple(
-            (e.label, _display_path(e.resolved_path, home))
-            for e in binding.offline_entries
+            (label, path) for label, path, exists in candidate_paths if not exists
         )
-
-        if binding.active_entries:
-            primary_disp = _display_path(binding.active_entries[0].resolved_path, home)
-            other_active = len(binding.active_entries) - 1
-            offline_count = len(binding.offline_entries)
-            if other_active > 0 and offline_count > 0:
-                summary_path = (
-                    f"{primary_disp} (+{other_active} active, {offline_count} offline)"
-                )
-            elif other_active > 0:
-                summary_path = f"{primary_disp} (+{other_active} active)"
-            elif offline_count > 0:
-                summary_path = f"{primary_disp} ({offline_count} offline)"
-            else:
-                summary_path = primary_disp
-        elif binding.offline_entries:
-            primary_disp = _display_path(binding.offline_entries[0].resolved_path, home)
-            offline_count = len(binding.offline_entries)
-            if offline_count > 1:
-                summary_path = f"{primary_disp} (+{offline_count - 1} offline)"
-            else:
-                summary_path = primary_disp
-        else:
-            summary_path = "-"
 
         details: list[ProjectResourceDetail] = []
         instructions_notices: list[str] = []
@@ -721,7 +731,7 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
         summaries.append(
             ProjectSummary(
                 name=project_dir.name,
-                path=summary_path,
+                path=joined_paths,
                 sync_mode=sync_mode,
                 instructions_status=instructions_status,
                 skills_count=len(skill_names),
@@ -736,6 +746,7 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
                 skills_notice=skills_notice,
                 active_paths=active_paths,
                 offline_paths=offline_paths,
+                candidate_paths=candidate_paths,
             )
         )
     return summaries

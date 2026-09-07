@@ -99,10 +99,14 @@ listed in `index.md`; use `doctor` for that index consistency check. Use
 `show project <name>` to inspect the exact runtime resource paths and link
 issues for one project.
 
-`aikito maintain memory` defaults to the project containing the current
-directory and launches the `codex` runner configured in `agents.toml`. Use
-`global` or a registered project name to select another scope, and `--agent`
-to choose `codex`, `claude-code`, `agy`, `opencode`, or `github-copilot`.
+`aikito maintain memory` defaults to the project whose locally present path
+contains the current directory and launches the `codex` runner configured in
+`agents.toml`. A named project uses the candidate that contains the current
+directory; if you are not inside one, a project with a single local path still
+uses that path, while multiple local paths require running the command from one
+of them. Use `global` or a registered project name to select another scope, and
+`--agent` to choose `codex`, `claude-code`, `agy`, `opencode`, or
+`github-copilot`.
 Custom Agents can define `[agents.<name>.runner]` with a `command` array.
 Supported placeholders are `{prompt}`, `{workdir}`, `{scope}`, and
 `{memory_dir}`. Optional `[agents.<name>.runner.env]` string values override

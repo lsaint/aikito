@@ -148,6 +148,8 @@ jobs:
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito show project example | grep -q "CI example project"
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 bin/aikito show project example | grep -q "Project paths"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito sync project example --dry-run
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 bin/aikito diff

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Dropped the project primary-path concept. `show project` now reports
+  `Canonical path` and lists every candidate under `Project paths`, for example
+  `[1]✓ ~/code/example, [2]- ~/code/example-worktree`. The status Path column uses the same
+  markers.
+- `aikito maintain memory` resolves the Agent workdir from active project paths:
+  `.` matches any local candidate; a named project uses the candidate containing
+  the current directory, or its only local path, and requires you to run it from
+  one of them when several exist.
+
 ## [1.27.0] - 2026-09-07
 
 ### Added

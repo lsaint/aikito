@@ -69,13 +69,15 @@ class ProjectSummaryTest(unittest.TestCase):
         detail = render_project_detail(summary, False, False)
         self.assertIn("Instructions", rendered)
         self.assertIn("| 1      |", rendered)
-        self.assertIn(f"Canonical directory:  {definition}", detail)
-        self.assertIn("Project directory:", detail)
+        self.assertIn(f"Canonical path:  {definition}", detail)
+        self.assertIn("Project paths:", detail)
+        self.assertNotIn("Project directory:", detail)
+        self.assertNotIn("Active paths:", detail)
         self.assertIn("Description:  Demo service", detail)
         self.assertIn("configured", detail)
         self.assertIn("Selected skills:", detail)
         self.assertIn("1 notes | 0 references", detail)
-        value_start = len("Canonical directory:") + 2
+        value_start = len("Selected skills:") + 2
         self.assertTrue(
             all(
                 line[value_start - 2 : value_start] == " " * 2
@@ -282,10 +284,20 @@ class ProjectSummaryTest(unittest.TestCase):
 
             summary = collect_project_summaries(workspace, root)[0]
             self.assertEqual(summary.runtime_status, "OK")
-            self.assertIn("(+1 active)", summary.path)
+            self.assertIn("~/main", summary.path)
+            self.assertIn("~/worktree", summary.path)
+            self.assertNotIn("(+1 active)", summary.path)
             self.assertEqual(len(summary.active_paths), 2)
             detail = render_project_detail(summary, False, False)
-            self.assertIn("Active paths:", detail)
+            unicode_detail = render_project_detail(summary, True, False)
+            self.assertIn("Project paths:", detail)
+            self.assertIn("[1]v ~/main", detail)
+            self.assertIn("[2]v ~/worktree", detail)
+            self.assertIn("[1]✓ ~/main", unicode_detail)
+            self.assertIn("[2]✓ ~/worktree", unicode_detail)
+            self.assertNotIn("Active paths:", detail)
+            table = render_projects_table([summary], False, False)
+            self.assertIn("[1]v", table)
 
     def test_partially_offline_paths_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -309,11 +321,19 @@ class ProjectSummaryTest(unittest.TestCase):
 
             summary = collect_project_summaries(workspace, root)[0]
             self.assertEqual(summary.runtime_status, "OK")
-            self.assertIn("(1 offline)", summary.path)
+            self.assertIn("~/main", summary.path)
+            self.assertIn("D:/offline/win", summary.path)
+            self.assertNotIn("(1 offline)", summary.path)
             self.assertEqual(len(summary.active_paths), 1)
             self.assertEqual(len(summary.offline_paths), 1)
             detail = render_project_detail(summary, False, False)
-            self.assertIn("Offline paths:", detail)
+            unicode_detail = render_project_detail(summary, True, False)
+            self.assertIn("Project paths:", detail)
+            self.assertIn("[mac]v ~/main", detail)
+            self.assertIn("[win]- D:/offline/win", detail)
+            self.assertIn("[mac]✓ ~/main", unicode_detail)
+            self.assertIn("[win]- D:/offline/win", unicode_detail)
+            self.assertNotIn("Offline paths:", detail)
 
     def test_append_candidate_path_to_config(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

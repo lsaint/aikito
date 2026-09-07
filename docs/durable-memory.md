@@ -181,8 +181,9 @@ It also compares memory with relevant canonical skills and instructions,
 reports upstream corrections separately, and asks you to resolve conflicts
 that cannot be verified from objective evidence.
 
-The default target, `.`, resolves the registered project containing the current
-directory. Use `global` or a registered project name to select another scope,
+The default target, `.`, resolves the registered project whose locally present
+candidate path contains the current directory. Use `global` or a registered
+project name to select another scope,
 and `--agent` to choose a configured runner. Aikito invokes the runner command
 directly, so shell aliases are not expanded; put required arguments and
 environment overrides in `agents.toml`. See the
