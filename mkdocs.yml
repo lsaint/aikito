@@ -87,6 +87,9 @@ markdown_extensions:
 plugins:
   - search
 
+extra_css:
+  - stylesheets/modern.css
+
 validation:
   links:
     absolute_links: relative_to_docs

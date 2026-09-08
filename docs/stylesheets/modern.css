@@ -1,0 +1,650 @@
+/*
+ * Aikito documentation visual refresh
+ * Target: Material for MkDocs
+ * Scope: visual styling only; no content or information architecture changes.
+ */
+
+:root {
+  --aikito-bg: #f7f7f5;
+  --aikito-surface: #fbfbfa;
+  --aikito-surface-2: #f1f1ee;
+  --aikito-text: #1d1d1f;
+  --aikito-muted: #777773;
+  --aikito-faint: #a4a4a0;
+  --aikito-line: #e5e5e1;
+  --aikito-line-strong: #d8d8d3;
+  --aikito-table-heading: #666660;
+  --aikito-table-cell: #4b4b47;
+  --aikito-table-key: #242421;
+  --aikito-table-bg: #f1f1ee;
+  --aikito-table-heading-bg: #e9e9e5;
+  --aikito-radius: 12px;
+  --aikito-header-height: 3.7rem;
+
+  --md-default-fg-color: var(--aikito-text);
+  --md-default-fg-color--light: var(--aikito-muted);
+  --md-default-fg-color--lighter: var(--aikito-faint);
+  --md-default-bg-color: var(--aikito-bg);
+  --md-primary-fg-color: #242424;
+  --md-primary-bg-color: #ffffff;
+  --md-accent-fg-color: #242424;
+  --md-typeset-a-color: #292927;
+  --md-code-bg-color: #ecece8;
+  --md-code-fg-color: #282826;
+}
+
+[data-md-color-scheme="slate"] {
+  --aikito-bg: #171716;
+  --aikito-surface: #1c1c1b;
+  --aikito-surface-2: #222220;
+  --aikito-text: #ececea;
+  --aikito-muted: #aaa9a4;
+  --aikito-faint: #777772;
+  --aikito-line: #2d2d2a;
+  --aikito-line-strong: #3a3a36;
+  --aikito-table-heading: #aaa9a4;
+  --aikito-table-cell: #c6c6c1;
+  --aikito-table-key: #ececea;
+  --aikito-table-bg: #1f1f1e;
+  --aikito-table-heading-bg: #272725;
+
+  --md-default-fg-color: var(--aikito-text);
+  --md-default-fg-color--light: var(--aikito-muted);
+  --md-default-fg-color--lighter: var(--aikito-faint);
+  --md-default-bg-color: var(--aikito-bg);
+  --md-primary-fg-color: #1b1b1a;
+  --md-primary-bg-color: #f2f2ef;
+  --md-accent-fg-color: #f2f2ef;
+  --md-typeset-a-color: #eeeeeb;
+  --md-code-bg-color: #232321;
+  --md-code-fg-color: #e7e7e3;
+}
+
+/* ---------- Foundation ---------- */
+
+html {
+  scroll-behavior: smooth;
+}
+
+body,
+input {
+  font-family: Inter, Geist, ui-sans-serif, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+body {
+  background: var(--aikito-bg);
+  color: var(--aikito-text);
+  font-size: 0.95rem;
+  line-height: 1.7;
+  letter-spacing: -0.005em;
+}
+
+.md-main {
+  background: var(--aikito-bg);
+}
+
+.md-grid {
+  max-width: 92rem;
+}
+
+/* ---------- Header ---------- */
+
+.md-header {
+  min-height: var(--aikito-header-height);
+  background: color-mix(in srgb, var(--aikito-bg) 88%, transparent);
+  color: var(--aikito-text);
+  border-bottom: 1px solid color-mix(in srgb, var(--aikito-line-strong) 82%, transparent);
+  box-shadow: none;
+  backdrop-filter: blur(18px) saturate(145%);
+  -webkit-backdrop-filter: blur(18px) saturate(145%);
+}
+
+.md-header__inner {
+  min-height: var(--aikito-header-height);
+  padding-inline: 1.25rem;
+}
+
+.md-header__title {
+  font-size: 1.5rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.md-header__button {
+  color: var(--aikito-muted);
+  border-radius: 0.55rem;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.md-header__button:hover {
+  background: var(--aikito-surface-2);
+  color: var(--aikito-text);
+  opacity: 1;
+}
+
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+  width: 2.4rem;
+  height: 2.4rem;
+}
+
+[data-md-color-scheme="default"] .md-logo img {
+  filter: invert(1);
+}
+
+/* ---------- Search ---------- */
+
+.md-search__form {
+  height: 2.35rem;
+  border: 1px solid var(--aikito-line);
+  border-radius: 0.65rem;
+  background: color-mix(in srgb, var(--aikito-surface) 76%, transparent);
+  box-shadow: none;
+}
+
+.md-search__input {
+  font-size: 0.78rem;
+}
+
+.md-search__input::placeholder {
+  color: var(--aikito-muted);
+}
+
+.md-search__form:hover,
+.md-search__form:focus-within {
+  border-color: var(--aikito-line-strong);
+  background: var(--aikito-surface);
+}
+
+.md-search__output {
+  border-radius: var(--aikito-radius);
+}
+
+/* ---------- Left navigation ---------- */
+
+.md-sidebar {
+  padding-top: 0.6rem;
+}
+
+.md-sidebar--primary {
+  margin-top: -1rem;
+  border-right: 1px solid var(--aikito-line);
+}
+
+.md-nav {
+  font-size: 0.76rem;
+}
+
+.md-nav__title {
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--aikito-text);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.md-nav--primary > .md-nav__title {
+  background: var(--aikito-bg) !important;
+}
+
+@media screen and (min-width: 76.25em) {
+  .md-nav--primary > .md-nav__title {
+    display: none;
+  }
+}
+
+.md-nav__item {
+  padding: 0;
+}
+
+.md-nav__link {
+  margin-top: 0.05rem;
+  padding: 0.37rem 0.55rem;
+  border-radius: 0.48rem;
+  color: var(--aikito-muted);
+  line-height: 1.35;
+  transition: background-color 110ms ease, color 110ms ease;
+}
+
+.md-nav__link:hover {
+  background: var(--aikito-surface-2);
+  color: var(--aikito-text);
+}
+
+.md-nav__link--active,
+.md-nav__link[aria-current="page"] {
+  background: color-mix(in srgb, var(--aikito-text) 7%, transparent);
+  color: var(--aikito-text) !important;
+  font-weight: 620;
+}
+
+/* Section headings such as Get Started / Everyday Tasks */
+.md-nav--primary > .md-nav__list > .md-nav__item--nested > .md-nav__link,
+.md-nav--primary > .md-nav__list > .md-nav__item--section > .md-nav__link {
+  margin-top: 1.05rem;
+  padding-block: 0.26rem;
+  background: transparent;
+  color: var(--aikito-faint);
+  font-size: 0.62rem;
+  font-weight: 720;
+  letter-spacing: 0.105em;
+  text-transform: uppercase;
+}
+
+.md-nav--primary > .md-nav__list > .md-nav__item--nested > .md-nav__link:hover,
+.md-nav--primary > .md-nav__list > .md-nav__item--section > .md-nav__link:hover {
+  background: transparent;
+  color: var(--aikito-muted);
+}
+
+/* ---------- Right table of contents ---------- */
+
+.md-sidebar--secondary {
+  padding-top: 2.1rem;
+}
+
+.md-sidebar--secondary .md-nav {
+  padding-left: 0.75rem;
+  border-left: 1px solid var(--aikito-line);
+}
+
+.md-sidebar--secondary .md-nav__title {
+  padding: 0.2rem 0.55rem 0.6rem;
+  color: var(--aikito-faint);
+  font-size: 0.61rem;
+  font-weight: 720;
+  letter-spacing: 0.105em;
+  text-transform: uppercase;
+}
+
+.md-sidebar--secondary .md-nav__link {
+  padding-block: 0.28rem;
+  background: transparent;
+  color: var(--aikito-muted);
+  font-size: 0.69rem;
+}
+
+.md-sidebar--secondary .md-nav__link:hover,
+.md-sidebar--secondary .md-nav__link--active {
+  background: transparent;
+  color: var(--aikito-text) !important;
+}
+
+/* ---------- Main content ---------- */
+
+.md-content {
+  min-width: 0;
+}
+
+.md-content__inner {
+  max-width: 52rem;
+  margin-inline: auto;
+  padding-top: 2.9rem;
+  padding-bottom: 5.5rem;
+}
+
+.md-typeset {
+  color: #4b4b47;
+  font-size: 0.92rem;
+  line-height: 1.72;
+}
+
+[data-md-color-scheme="slate"] .md-typeset {
+  color: #c6c6c1;
+}
+
+.md-typeset h1 {
+  margin: 0 0 1.1rem;
+  color: var(--aikito-text);
+  font-size: clamp(2.35rem, 4vw, 2.75rem);
+  font-weight: 720;
+  line-height: 1.08;
+  letter-spacing: -0.045em;
+}
+
+.md-typeset h2 {
+  margin: 3.3rem 0 0.85rem;
+  color: var(--aikito-text);
+  font-size: 1.55rem;
+  font-weight: 680;
+  line-height: 1.25;
+  letter-spacing: -0.028em;
+}
+
+.md-typeset h3 {
+  margin: 2.35rem 0 0.65rem;
+  color: var(--aikito-text);
+  font-size: 1.16rem;
+  font-weight: 660;
+  letter-spacing: -0.02em;
+}
+
+.md-typeset h4,
+.md-typeset h5,
+.md-typeset h6 {
+  color: var(--aikito-text);
+  font-weight: 650;
+}
+
+.md-typeset p,
+.md-typeset ul,
+.md-typeset ol {
+  margin-block: 0 1.05rem;
+}
+
+.md-typeset li {
+  margin-bottom: 0.38rem;
+}
+
+.md-typeset hr {
+  border-bottom-color: var(--aikito-line);
+}
+
+/* Make the first paragraph under H1 read like a quiet lead without changing content. */
+.md-typeset h1 + p {
+  max-width: 47rem;
+  margin-bottom: 2.9rem;
+  color: color-mix(in srgb, var(--aikito-text) 70%, var(--aikito-muted));
+  font-size: 1.03rem;
+  line-height: 1.68;
+}
+
+/* ---------- Links ---------- */
+
+.md-typeset a {
+  color: var(--aikito-text);
+  font-weight: 570;
+  text-decoration: underline;
+  text-decoration-color: var(--aikito-line-strong);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.19em;
+  transition: text-decoration-color 110ms ease;
+}
+
+.md-typeset a:hover {
+  color: var(--aikito-text);
+  text-decoration-color: var(--aikito-text);
+}
+
+.md-typeset .headerlink {
+  color: var(--aikito-faint);
+  text-decoration: none;
+}
+
+/* ---------- Inline code ---------- */
+
+.md-typeset code {
+  border: 1px solid var(--aikito-line);
+  border-radius: 0.38rem;
+  padding: 0.1em 0.34em;
+  background: var(--md-code-bg-color);
+  color: var(--md-code-fg-color);
+  font-size: 0.88em;
+}
+
+/* ---------- Code blocks ---------- */
+
+.md-typeset pre > code {
+  border: 0;
+  border-radius: 0;
+  padding: 0.25rem 0.8rem;
+}
+
+.md-typeset .highlight,
+.md-typeset pre {
+  border: 1px solid var(--aikito-line);
+  border-radius: var(--aikito-radius);
+  background: var(--md-code-bg-color);
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.md-typeset .highlight > pre {
+  border: 0;
+  border-radius: 0;
+}
+
+.md-typeset .highlight {
+  margin-bottom: 1.05rem;
+}
+
+.md-typeset .highlighttable {
+  border: 1px solid var(--aikito-line);
+  border-radius: var(--aikito-radius);
+  overflow: hidden;
+}
+
+.md-typeset .highlighttable .highlight {
+  border: 0;
+  border-radius: 0;
+}
+
+.md-clipboard {
+  color: var(--aikito-muted);
+}
+
+/* ---------- Tables ---------- */
+
+.md-typeset__table {
+  width: 100%;
+  margin: 1.35rem 0;
+  padding: 0;
+  border: 1px solid var(--aikito-line);
+  border-radius: var(--aikito-radius);
+  overflow: hidden;
+  background: var(--aikito-table-bg);
+}
+
+.md-typeset table:not([class]) {
+  display: table;
+  width: 100%;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 0.82rem;
+}
+
+.md-typeset table:not([class]) th {
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--aikito-line);
+  background: var(--aikito-table-heading-bg);
+  color: var(--aikito-table-heading);
+  font-size: 0.65rem;
+  font-weight: 720;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.md-typeset table:not([class]) td {
+  padding: 0.78rem 0.9rem;
+  border-top: 1px solid var(--aikito-line);
+  color: var(--aikito-table-cell);
+}
+
+.md-typeset table:not([class]) td:first-child {
+  width: 45%;
+  color: var(--aikito-table-key);
+  font-weight: 590;
+}
+
+.md-typeset table:not([class]) td:first-child a {
+  color: inherit;
+  font-weight: inherit;
+  text-decoration: none;
+}
+
+.md-typeset table:not([class]) td:first-child a:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--aikito-line-strong);
+}
+
+.md-typeset table:not([class]) tbody tr:hover {
+  background: color-mix(in srgb, var(--aikito-text) 2.5%, transparent);
+  box-shadow: none;
+}
+
+/* ---------- Admonitions / details ---------- */
+
+.md-typeset .admonition,
+.md-typeset details {
+  border: 1px solid var(--aikito-line);
+  border-radius: var(--aikito-radius);
+  background: var(--aikito-surface);
+  box-shadow: none;
+}
+
+.md-typeset .admonition-title,
+.md-typeset summary {
+  border-bottom-color: var(--aikito-line);
+  background: var(--aikito-surface-2);
+}
+
+/* ---------- Tabs ---------- */
+
+.md-typeset .tabbed-set {
+  border: 1px solid var(--aikito-line);
+  border-radius: var(--aikito-radius);
+  overflow: hidden;
+}
+
+.md-typeset .tabbed-labels {
+  background: var(--aikito-surface-2);
+  box-shadow: inset 0 -1px var(--aikito-line);
+}
+
+.md-typeset .tabbed-labels > label {
+  font-size: 0.75rem;
+}
+
+/* ---------- Buttons ---------- */
+
+.md-typeset .md-button {
+  border-color: var(--aikito-line-strong);
+  border-radius: 0.62rem;
+  color: var(--aikito-text);
+  font-weight: 620;
+}
+
+.md-typeset .md-button:hover,
+.md-typeset .md-button:focus {
+  border-color: var(--aikito-text);
+  background: var(--aikito-text);
+  color: var(--aikito-bg);
+}
+
+/* ---------- Previous / next ---------- */
+
+.md-footer {
+  background: transparent;
+  color: var(--aikito-muted);
+}
+
+.md-footer__inner {
+  border-top: 1px solid var(--aikito-line);
+}
+
+.md-footer__link {
+  border-radius: 0.65rem;
+}
+
+.md-footer__title {
+  color: var(--aikito-text);
+}
+
+.md-footer-meta {
+  background: transparent;
+  border-top: 1px solid var(--aikito-line);
+}
+
+.md-footer-meta__inner {
+  color: var(--aikito-faint);
+}
+
+/* Optional: visually de-emphasize the generator credit without removing it. */
+.md-footer-meta.md-typeset a {
+  color: var(--aikito-muted);
+}
+
+/* ---------- Scrollbars ---------- */
+
+.md-sidebar__scrollwrap::-webkit-scrollbar,
+.md-search__scrollwrap::-webkit-scrollbar {
+  width: 5px;
+}
+
+.md-sidebar__scrollwrap::-webkit-scrollbar-thumb,
+.md-search__scrollwrap::-webkit-scrollbar-thumb {
+  border-radius: 10px;
+  background: var(--aikito-line-strong);
+}
+
+/* ---------- Responsive ---------- */
+
+@media screen and (max-width: 76.234375em) {
+  .md-sidebar--primary {
+    border-right: 0;
+  }
+
+  .md-nav--primary .md-nav__title {
+    background: var(--aikito-bg) !important;
+    color: var(--aikito-text);
+  }
+}
+
+@media screen and (max-width: 60em) {
+  .md-content__inner {
+    max-width: 48rem;
+    padding-top: 2.35rem;
+  }
+}
+
+@media screen and (max-width: 44.984375em) {
+  body {
+    font-size: 0.92rem;
+  }
+
+  .md-header__inner {
+    padding-inline: 0.55rem;
+  }
+
+  .md-content__inner {
+    padding: 2rem 0.9rem 4rem;
+  }
+
+  .md-typeset h1 {
+    font-size: 2.15rem;
+  }
+
+  .md-typeset h2 {
+    margin-top: 2.7rem;
+    font-size: 1.42rem;
+  }
+
+  .md-typeset h1 + p {
+    margin-bottom: 2.35rem;
+    font-size: 0.99rem;
+  }
+
+  .md-typeset__scrollwrap {
+    margin-inline: -0.2rem;
+  }
+}
+
+/* ---------- Compatibility fallback ---------- */
+
+@supports not (color: color-mix(in srgb, black 50%, white)) {
+  .md-header {
+    background: var(--aikito-bg);
+  }
+
+  .md-typeset h1 + p {
+    color: var(--aikito-muted);
+  }
+
+  .md-nav__link--active,
+  .md-nav__link[aria-current="page"] {
+    background: var(--aikito-surface-2);
+  }
+}
