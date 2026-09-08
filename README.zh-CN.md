@@ -68,22 +68,6 @@ Aikito 将这些资源集中在一个个人 Git 工作区中，并将选定的�
 
 无需数据库、后台守护进程、向量数据库或托管服务。
 
-## Aikito 管理什么？
-
-| 资源 | 规范来源 | 同步目标 |
-| --- | --- | --- |
-| Memory | `memory/`、`projects/<name>/memory/` | 全局读取及 `<project>/.agents/memory/` |
-| Skills | `skills/<name>/` | 全局和项目 skill 目录 |
-| Instructions | `global/AGENTS.md`、`projects/<name>/AGENTS.md` | Workspace Agent 的原生指令路径 |
-| MCP server | `mcps/*.toml` | Agent 原生 TOML、JSON 或 JSONC 配置 |
-| Subagent | `subagents.toml`、`subagents/` | Agent 原生 subagent 定义 |
-
-项目 skill 可用 `link`（保持共享）或 `copy`（隔离快照）；项目 memory 始终使用 `link`。
-
-默认注册表包含 Codex、Claude Code、Antigravity CLI（`agy`）、OpenCode、
-GitHub Copilot CLI、DeepSeek Harness（`dsh`）、Grok Build 和 Pi。完整心智模型和
-各 Agent 的能力边界见[架构文档（英文）](docs/architecture.md)。
-
 ## 长期 Memory
 
 内置的 [`durable-memory` skill](templates/skills/durable-memory/SKILL.md)
@@ -114,31 +98,6 @@ GitHub Copilot CLI、DeepSeek Harness（`dsh`）、Grok Build 和 Pi。完整心
 
 使用 `aikito maintain memory` 可执行先确认、后修改的全作用域巡检；详见
 [主动维护作用域](docs/durable-memory.md#proactive-scope-maintenance)。
-
-## Web Console
-
-通过本地只读界面浏览 workspace、资源、作用域和治理状态：
-
-```bash
-aikito web
-```
-
-<p align="center">
-  <img src="docs/assets/aikito-web-console.png" alt="Aikito Web Console">
-</p>
-
-Console 只监听 `127.0.0.1`，以可视化方式呈现规范 workspace，不会修改其中的资源。
-
-## 设计边界
-
-Aikito 管理持久化文件、显式作用域与可控同步。为了保持轻量与可移植，它明确选择**不做**
-以下事情：
-
-- 自动捕获每一个 Agent 操作或对话
-- 运行向量数据库、embedding 管线或记忆服务
-- 通过后台守护进程向每个 prompt 注入上下文
-- 编排 supervisor 与 worker agent
-- 替代你所使用的 Coding Agent 的原生运行时
 
 ## 快速开始
 
@@ -269,6 +228,31 @@ Agent 资源，不保存项目源码本身。项目支持通过 `[paths]` 表或
 如需从源码构建、使用自定义安装路径或查看高级参数，请参阅[项目配置指南（英文）](docs/project-setup.md)。
 
 </details>
+
+## Web Console
+
+通过本地只读界面浏览 workspace、资源、作用域和治理状态：
+
+```bash
+aikito web
+```
+
+<p align="center">
+  <img src="docs/assets/aikito-web-console.png" alt="Aikito Web Console">
+</p>
+
+Console 只监听 `127.0.0.1`，以可视化方式呈现规范 workspace，不会修改其中的资源。
+
+## 设计边界
+
+Aikito 管理持久化文件、显式作用域与可控同步。为了保持轻量与可移植，它明确选择**不做**
+以下事情：
+
+- 自动捕获每一个 Agent 操作或对话
+- 运行向量数据库、embedding 管线或记忆服务
+- 通过后台守护进程向每个 prompt 注入上下文
+- 编排 supervisor 与 worker agent
+- 替代你所使用的 Coding Agent 的原生运行时
 
 ## 迁移现有配置
 

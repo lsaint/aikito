@@ -69,24 +69,6 @@ Aikito keeps all of it in one personal Git workspace and exposes selected resour
 
 No database, daemon, vector store, or hosted service required.
 
-## What Aikito Manages
-
-| Resource | Canonical source | Synchronized destination |
-| --- | --- | --- |
-| Memory | `memory/`, `projects/<name>/memory/` | Global access and `<project>/.agents/memory/` |
-| Skills | `skills/<name>/` | Shared and project-level skill directories |
-| Instructions | `global/AGENTS.md`, `projects/<name>/AGENTS.md` | Workspace Agent-native instruction paths |
-| MCP servers | `mcps/*.toml` | Native TOML, JSON, or JSONC configs |
-| Subagents | `subagents.toml`, `subagents/` | Native subagent definitions |
-
-Project skills can `link` (stay shared) or `copy` (isolated snapshot); project
-memory always uses `link`.
-
-The default registry includes Codex, Claude Code, Antigravity CLI (`agy`),
-OpenCode, GitHub Copilot CLI, DeepSeek Harness (`dsh`), Grok Build, and Pi. See the
-[architecture](docs/architecture.md) for the complete mental model and per-agent
-capability boundaries.
-
 ## Durable Memory
 
 The bundled [`durable-memory` skill](templates/skills/durable-memory/SKILL.md)
@@ -119,33 +101,6 @@ notes plus `aikito`'s own notes, and nothing from `blog`.
 
 Use `aikito maintain memory` for confirmation-gated, full-scope maintenance;
 see [Proactive Scope Maintenance](docs/durable-memory.md#proactive-scope-maintenance).
-
-## Web Console
-
-Browse your workspace, resources, scopes, and governance state in a local,
-read-only interface:
-
-```bash
-aikito web
-```
-
-<p align="center">
-  <img src="docs/assets/aikito-web-console.png" alt="Aikito Web Console">
-</p>
-
-The console binds to `127.0.0.1` and provides a visual view of the canonical
-workspace without changing its resources.
-
-## Boundaries
-
-Aikito manages durable files, explicit scopes, and controlled synchronization.
-To stay lightweight and portable, it deliberately **does not**:
-
-- capture every agent action or conversation automatically
-- run a vector store, embedding pipeline, or memory service
-- inject context into every prompt through a background daemon
-- orchestrate supervisor and worker agents
-- replace your coding agent's native runtime
 
 ## Quick Start
 
@@ -290,6 +245,33 @@ For building from source, custom install paths, or advanced configuration, see
 the [project setup guide](docs/project-setup.md).
 
 </details>
+
+## Web Console
+
+Browse your workspace, resources, scopes, and governance state in a local,
+read-only interface:
+
+```bash
+aikito web
+```
+
+<p align="center">
+  <img src="docs/assets/aikito-web-console.png" alt="Aikito Web Console">
+</p>
+
+The console binds to `127.0.0.1` and provides a visual view of the canonical
+workspace without changing its resources.
+
+## Boundaries
+
+Aikito manages durable files, explicit scopes, and controlled synchronization.
+To stay lightweight and portable, it deliberately **does not**:
+
+- capture every agent action or conversation automatically
+- run a vector store, embedding pipeline, or memory service
+- inject context into every prompt through a background daemon
+- orchestrate supervisor and worker agents
+- replace your coding agent's native runtime
 
 ## Migrating an Existing Setup
 
