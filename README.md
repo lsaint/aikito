@@ -23,17 +23,10 @@
 
 [简体中文](README.zh-CN.md) · [Documentation](https://lsaint.github.io/aikito/)
 
-Aikito is a Git-managed workspace for governing AI-agent context and durable memory.
-
-```text
-   Aikito  =  governing agent resources  ×  curating durable memory
-```
-
-Plain files define the source of truth, explicit scopes define who sees what, and Git keeps the history.
+Aikito keeps coding-agent instructions, skills, MCP definitions, subagents, and
+durable memory in one Git-managed workspace, shared across agents and projects.
 
 Aikito governs the workspace, agents maintain the memory, and you oversee it all.
-
-One workspace keeps your AI workflow consistent across agents and machines.
 
 <p align="center">
   <img src="docs/assets/aikito-overview.png" alt="Aikito overview">
@@ -49,65 +42,27 @@ AI agent resources fragment in three directions:
 - Across time: valuable decisions and hard-won lessons disappear into old
   sessions
 
-Aikito keeps all of it in one personal Git workspace and exposes selected resources to each agent and project:
-
-```text
-~/aikito
-├── skills/                         shared reusable skills
-├── memory/                         global durable memory
-├── global/                         global instructions
-├── mcps/                           shared MCP definitions
-├── subagents/                      shared reusable subagents
-└── projects/
-    └── <project-name>/
-        ├── agent.toml              selected shared resources
-        ├── AGENTS.md               project instructions
-        └── memory/                 project durable memory
-            ├── index.md
-            └── notes/
-```
-
-No database, daemon, vector store, or hosted service required.
+Aikito keeps the source files in one personal workspace and connects selected
+resources to each agent and project. No database, daemon, vector store, or
+hosted service is required.
 
 ## Durable Memory
 
-The bundled [`durable-memory` skill](templates/skills/durable-memory/SKILL.md)
-guides agents to retrieve relevant notes, write durable conclusions, update
-stale ones, and choose global or project scope. New workspaces enable this by
-default; nothing is connected to an Agent until you run `aikito sync`.
-Notes are ordinary Markdown, so Git history is shared across agents. See
-[default behavior](docs/durable-memory.md#default-behavior-and-opt-out) and
-[why memory still needs a maintainer](docs/programming-agent-memory.md).
+The bundled [durable-memory skill](templates/skills/durable-memory/SKILL.md)
+guides agents to retrieve useful notes, retain verified conclusions, and update
+stale knowledge. Notes are plain Markdown with Git history.
 
-`aikito show memory` lists notes by scope:
+For example, a writing preference belongs in global memory, while an API retry
+decision belongs to its project. A project normally connects to global memory
+and its own notes; these scopes organize context, not filesystem access permissions.
 
-```text
-┌────────┬───────────────────────┬─────────────────────────────────────┬───────┬──────┐
-│ Scope  │ Note File             │ Title                               │ Index │ Link │
-├────────┼───────────────────────┼─────────────────────────────────────┼───────┼──────┤
-│ Global │ commit-message-style  │ Conventional commits, English only  │ ✓     │ –    │
-│ Global │ review-tone           │ Ask before large refactors          │ ✓     │ –    │
-├────────┼───────────────────────┼─────────────────────────────────────┼───────┼──────┤
-│ aikito │ architecture-decisions│ Stable project design constraints   │ ✓     │ ✓    │
-│ aikito │ release-checklist     │ Tag only after tests pass           │ ✓     │ ✓    │
-├────────┼───────────────────────┼─────────────────────────────────────┼───────┼──────┤
-│ blog   │ draft-workflow        │ Drafts live in content/ until dated │ ✓     │ ✓    │
-└────────┴───────────────────────┴─────────────────────────────────────┴───────┴──────┘
-```
-
-Global notes are available everywhere; each project's notes are linked only into
-that project. In this example, an agent working in `aikito` sees only the global
-notes plus `aikito`'s own notes, and nothing from `blog`.
-
-Use `aikito maintain memory` for confirmation-gated, full-scope maintenance;
-see [Proactive Scope Maintenance](docs/durable-memory.md#proactive-scope-maintenance).
+New workspaces enable the workflow by default; synchronization connects it to
+agents. See [memory usage and opt-out](docs/durable-memory.md) and
+[why memory needs a maintainer](docs/programming-agent-memory.md).
 
 ## Quick Start
 
-### Option 1: Let Your Coding Agent Set It Up (Recommended)
-
-<details>
-<summary>Copy this prompt to your coding agent</summary>
+### Let your coding agent set it up (recommended)
 
 > Install and configure Aikito from https://github.com/lsaint/aikito. Read the
 > README, `templates/skills/aikito/SKILL.md`, and any linked documentation relevant to the
@@ -119,110 +74,34 @@ see [Proactive Scope Maintenance](docs/durable-memory.md#proactive-scope-mainten
 > whether to register my first code project. Do not register a project without
 > my confirmation.
 
-</details>
-
-If you use this option, your coding agent performs the installation and setup;
-you do not need to also follow the manual commands below.
-
-For project registration, resource management, diagnostics, and Memory
-maintenance prompts, see [Agent-first workflows](docs/agent-workflow.md).
-
 <details>
-<summary>Option 2: Set It Up Manually</summary>
+<summary>Install manually (macOS / Linux / Windows)</summary>
 
-**macOS / Linux** — install via Homebrew:
+On macOS or Linux with Homebrew:
 
 ```bash
 brew install lsaint/tap/aikito
-
 aikito init workspace ~/aikito
+aikito sync --dry-run
 aikito sync
 aikito status
 ```
 
-Installing via Homebrew automatically sets up tab completion for Zsh, Bash,
-and Fish — no extra configuration needed.
+Review the preview before applying synchronization. For existing configuration,
+see [migration and safety](#migration-and-safety).
 
-For manual installs (non-Homebrew), add one line to `~/.zshrc`:
-
-```zsh
-eval "$(aikito completion zsh)"
-```
-
-**Windows** — one-liner installer (PowerShell, no admin required):
-
-> **Prerequisite:** [Windows Developer Mode](https://learn.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development)
-> must be enabled so that Aikito can create symbolic links.
-> Enable it in **Settings → System → For developers → Developer Mode**.
-
-```powershell
-irm https://raw.githubusercontent.com/lsaint/aikito/main/install.ps1 | iex
-```
-
-<details>
-<summary>Installer details & custom install directory</summary>
-
-The script checks for Python 3.12+, validates Developer Mode, downloads the
-latest release from GitHub, installs to `%LOCALAPPDATA%\Programs\aikito`, and
-adds `bin\` to your User `PATH` automatically.
-
-To customize the install directory:
-
-```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/lsaint/aikito/main/install.ps1))) -InstallDir "D:\aikito"
-```
+On Windows, use the [PowerShell installation guide](docs/installation.md#install-manually).
 
 </details>
 
-After the installer finishes, open a **new terminal** and run:
+Continue with the **[four-step tutorial](docs/installation.md)** to connect your
+first project and verify an instruction. For other tasks, use
+[Agent Request Examples](docs/agent-workflow.md).
 
-```powershell
-aikito init workspace $env:USERPROFILE\aikito
-aikito sync
-aikito status
-```
+## See the Result
 
-Enable PowerShell tab completion by adding one line to your `$PROFILE`:
-
-```powershell
-Invoke-Expression (& aikito completion powershell | Out-String)
-```
-
-
-The workspace is the single Git-managed home for all Aikito resources. You
-normally initialize one workspace per user or machine.
-
-To connect an existing workspace repository on a new machine:
-
-```bash
-# Download or clone your workspace repo to ~/aikito
-aikito init workspace ~/aikito
-aikito sync
-```
-
-Uninstalled Agents and candidate paths on other hosts are recognized as offline on this host without error.
-
-Register each code project that needs project-specific instructions, skills,
-or memory. From the project directory:
-
-```bash
-cd ~/code/example
-aikito init project
-```
-
-This creates the project's canonical resources under
-`<workspace>/projects/example/` and connects them to `./.agents/`. One workspace
-can manage many projects; a project registration represents one code directory
-and its project-specific Agent resources, not the project source code itself.
-Projects support multiple candidate paths (`[paths]` named tables or `paths`
-arrays) for Git worktrees and cross-platform roaming across Mac, Windows, and
-Linux. Candidate paths missing on the current machine are treated as offline.
-
-When initialized at a custom path, Aikito remembers it for future commands.
-Use `aikito path workspace` to print the active path. `AIKITO_DIR` provides a
-temporary override, which is useful for CI and isolated automation.
-
-`aikito status` reports resource state across supported agents:
+`aikito status` shows resource state across agents. Example output from a
+configured workspace (agents and counts depend on your setup):
 
 ```text
 ┌───────────────────────┬──────────────┬────────┬────────────┬───────────┐
@@ -241,32 +120,33 @@ temporary override, which is useful for CI and isolated automation.
 ✓ all synced · 8 agents · 2 skills · 0 notes across 1 scopes
 ```
 
-Follow the [getting-started tutorial](docs/installation.md) for installation
-through your first working project instruction. For multiple project paths and
-skill sync modes, see [advanced project setup](docs/project-configuration.md).
+`aikito show memory` lists retained knowledge by scope. This separate example
+shows one global note and two notes for project `example`:
 
-</details>
-
-## Web Console
-
-Browse your workspace, resources, scopes, and governance state in a local,
-read-only interface:
-
-```bash
-aikito web
+```text
+┌─────────┬───────────────────┬──────────────────────────────┬───────┬──────┐
+│ Scope   │ Note File         │ Title                        │ Index │ Link │
+├─────────┼───────────────────┼──────────────────────────────┼───────┼──────┤
+│ Global  │ writing-style     │ Keep explanations concise    │ ✓     │ –    │
+├─────────┼───────────────────┼──────────────────────────────┼───────┼──────┤
+│ example │ api-retry-policy  │ Retry external APIs safely   │ ✓     │ ✓    │
+│ example │ release-checklist │ Release verification steps   │ ✓     │ ✓    │
+└─────────┴───────────────────┴──────────────────────────────┴───────┴──────┘
 ```
 
-<p align="center">
-  <img src="docs/assets/aikito-web-console.png" alt="Aikito Web Console">
-</p>
+Global notes hold cross-project knowledge; project notes hold local decisions.
+See [memory operations](docs/durable-memory.md#list-memory) for the full workflow.
 
-The console binds to `127.0.0.1` and provides a visual view of the canonical
-workspace without changing its resources.
+Use [synchronization troubleshooting](docs/troubleshooting.md) to investigate
+missing links, conflicts, or drift. Prefer a browser view? Run
+[`aikito web`](docs/cli-reference.md#aikito-web) for the local, read-only Console.
 
 ## Boundaries
 
-Aikito manages durable files, explicit scopes, and controlled synchronization.
-To stay lightweight and portable, it deliberately **does not**:
+Aikito uses plain files and Git, with no background service required.
+
+<details>
+<summary>What Aikito does not do</summary>
 
 - capture every agent action or conversation automatically
 - run a vector store, embedding pipeline, or memory service
@@ -274,47 +154,32 @@ To stay lightweight and portable, it deliberately **does not**:
 - orchestrate supervisor and worker agents
 - replace your coding agent's native runtime
 
-## Migrating an Existing Setup
+</details>
 
-If you already use coding agents with existing instructions, MCP definitions, or
-subagents, import them with `aikito adopt`:
+## Migration and Safety
 
-```bash
-aikito adopt
-aikito adopt --apply
-```
+Already have agent configuration? Run `aikito adopt` for a read-only import
+preview. Review the plan before applying it; see
+[adoption and backups](docs/safety.md#adoption).
 
-Adoption previews read-only first. Applying creates timestamped backups under
-`~/.aikito/backups/adopt_<timestamp>` and imports detected configurations
-without overwriting originals. See the [safety guide](docs/safety.md).
-
-## Companion: Chat Distiller
-
-[Chat Distiller](https://github.com/lsaint/chat-distiller) turns browser AI
-conversations into reviewable Markdown notes and saves them to your Aikito
-`inbox/`.
-
-Browser conversation → distilled note → review → durable memory
-
-See [capturing browser discussions](docs/chat-distiller.md) for the workflow.
-
-## Safety First
-
-`aikito init workspace` creates a local Git repository; it does not make that
-repository private or safe to publish. Before adding a remote or pushing,
-review memory and configuration for credentials, customer data, internal
-addresses, and private code. Deleting a later commit does not remove a secret
-from Git history.
-
-Read the [safety model](docs/safety.md) before synchronizing an existing setup.
-Report vulnerabilities privately according to the [Security Policy](SECURITY.md).
+Your workspace is a local Git repository. Review it for secrets and private
+data before publishing; removing a secret in a later commit does not erase it
+from history. Read the [safety model](docs/safety.md) and report vulnerabilities
+through the [Security Policy](SECURITY.md).
 
 ## Documentation
 
-Browse the [documentation site](https://lsaint.github.io/aikito/) for concepts, operational
-guides, the CLI reference, safety details, the roadmap, and the
-[FAQ](docs/faq.md). [Comparison](docs/comparison.md) places Aikito alongside
-memory systems, project-local sync tools, and agent orchestrators.
+- [Getting started](docs/installation.md): installation through your first working instruction.
+- [Workspace and synchronization](docs/architecture.md): source files, scopes, and resource ownership.
+- [Connect another machine](docs/workspace-portability.md): existing workspaces and custom paths.
+- [CLI reference](docs/cli-reference.md): commands and shell completion.
+- [Comparison](docs/comparison.md) and [FAQ](docs/faq.md): design choices and common questions.
+
+[Chat Distiller](https://github.com/lsaint/chat-distiller) can turn browser AI
+conversations into Markdown notes in your Aikito Inbox. See the
+[capture and review workflow](docs/chat-distiller.md).
+
+Browse the full [documentation site](https://lsaint.github.io/aikito/) for more.
 
 ## Support
 

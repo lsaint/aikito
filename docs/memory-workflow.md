@@ -23,6 +23,11 @@ Aikito separates knowledge by where it remains valid:
 - `memory/` contains conclusions that apply across projects;
 - `projects/<name>/memory/` contains project-specific decisions and constraints.
 
+A writing preference can belong in global memory, while an API retry policy
+belongs to the affected project's memory. Agents normally use the global scope
+and the current project's connected notes. These connections organize context;
+they do not prevent filesystem access to other projects' files.
+
 Do not place project-specific knowledge in global memory merely because a
 project memory scope has not been created. Register the project first, then
 store the conclusion in the correct scope.

@@ -26,6 +26,7 @@ Already installed? Start at the first step you have not completed.
 - [Stage notes in Inbox](inbox.md).
 - [Diagnose missing links, conflicts, or drift](troubleshooting.md).
 - [Configure multiple project paths or copied skills](project-configuration.md).
+- [Connect an existing workspace on another machine](workspace-portability.md).
 
 ## Understand or look up details
 

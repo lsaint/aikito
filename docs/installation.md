@@ -32,6 +32,31 @@ Open a new terminal afterward to load the PATH update. Use native Windows
 paths such as `D:/code/example` in subsequent steps.
 See [platform constraints](safety.md#platform-support-and-constraints) for details.
 
+### Windows installer details
+
+The installer checks for Python 3.12+ and symbolic-link support, downloads the
+latest release from GitHub, installs to `%LOCALAPPDATA%\Programs\aikito`, and
+adds its `bin` directory to your User PATH. With Developer Mode enabled, no
+administrator privileges are required. Enable it in
+**Settings → System → For developers → Developer Mode**.
+
+To choose a different installation directory:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/lsaint/aikito/main/install.ps1))) -InstallDir "D:\aikito"
+```
+
+The CLI installation directory is separate from your personal workspace.
+For example, after opening a new terminal, create the workspace with
+`aikito init workspace $env:USERPROFILE\aikito`, then follow
+[workspace synchronization](workspace-setup.md).
+
+### Shell completion
+
+Homebrew installs Zsh, Bash, and Fish completions automatically. For manual
+installs, follow the [shell completion reference](cli-reference.md#shell-completion),
+which includes PowerShell profile setup.
+
 ## Verify
 
 ```bash

@@ -21,6 +21,8 @@ aikito path workspace
 The explicit path becomes the remembered workspace location. Initialization
 creates workspace configuration and detects installed supported agents.
 If you already have a workspace, use its path instead.
+For a cloned workspace on another machine, follow
+[Connect a workspace on another machine](workspace-portability.md).
 
 | Workspace path | What it holds |
 | --- | --- |

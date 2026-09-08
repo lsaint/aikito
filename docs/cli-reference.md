@@ -13,6 +13,10 @@ aikito web --no-open
 The Console browses canonical resources and governance status. It does not
 modify workspace files or expose MCP secret values.
 
+![Aikito Web Console](assets/aikito-web-console.png)
+
+## Command Overview
+
 Aikito uses an operation-first command structure. Run
 `aikito <command> --help` for the complete options supported by the installed
 version.
@@ -301,4 +305,4 @@ generated dependency directories are skipped, and ambiguous matches remain
 visible for explicit selection.
 
 Installation via `brew install lsaint/tap/aikito` automatically installs
-Zsh and Bash completions without modifying `~/.zshrc`.
+Zsh, Bash, and Fish completions without modifying `~/.zshrc`.

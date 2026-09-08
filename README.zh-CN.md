@@ -23,17 +23,10 @@
 
 [English](README.md) · [详细文档（英文）](https://lsaint.github.io/aikito/)
 
-Aikito 是由 Git 管理的 AI Agent 上下文与长期记忆治理工作区。
-
-```text
-   Aikito  =  Agent资源治理   ×   长期记忆沉淀
-```
-
-纯文件定义唯一事实来源，显式作用域定义谁能看到什么，Git 保留完整历史。
+Aikito 将 Coding Agent 的指令、Skills、MCP、Subagents 和长期记忆集中在一个
+Git 管理的工作区中，供不同 Agent 与项目使用。
 
 Aikito 治理工作区，Agent 维护 memory，而一切由你把关。
-
-单个工作区即可让你的 AI 工作流在不同 Agent 与机器间保持一致。
 
 <p align="center">
   <img src="docs/assets/aikito-overview.png" alt="Aikito 概览图">
@@ -43,68 +36,28 @@ Aikito 治理工作区，Agent 维护 memory，而一切由你把关。
 
 AI Agent 资源会在三个方向上变得碎片化：
 
-* 跨工具维度：每种 Agent 都需要不同的配置格式
-* 跨项目维度：可复用的知识、skill 与 instruction 在多个仓库中被重复复制或维护
-* 跨时间维度：有价值的决策与经验教训随时间消失在旧会话中
+- 跨工具：每种 Agent 需要不同的配置格式。
+- 跨项目：可复用的知识、Skills 与指令在多个仓库中重复维护。
+- 跨时间：有价值的决策与经验消失在旧会话中。
 
-Aikito 将这些资源集中在一个个人 Git 工作区中，并将选定的资源暴露给各个 Agent 和项目：
-
-
-```text
-~/aikito
-├── skills/                         跨项目复用的 skill
-├── memory/                         全局长期 memory
-├── global/                         全局指令
-├── mcps/                           共享 MCP 定义
-├── subagents/                      可复用 subagent
-└── projects/
-    └── <project-name>/
-        ├── agent.toml              选定的共享资源
-        ├── AGENTS.md               项目指令
-        └── memory/                 项目长期 memory
-            ├── index.md
-            └── notes/
-```
-
+Aikito 将源文件集中在个人工作区中，把选定的资源连接到各个 Agent 和项目。
 无需数据库、后台守护进程、向量数据库或托管服务。
 
 ## 长期 Memory
 
-内置的 [`durable-memory` skill](templates/skills/durable-memory/SKILL.md)
-引导 Agent 检索相关笔记、写下可长期复用的结论、更新过时内容，并选择全局或项目作用域。
-新 workspace 默认启用该工作流；只有执行 `aikito sync` 后才会连接到 Agent。
-笔记是普通 Markdown，Git 历史可在不同 Agent 间共享。详见
-[默认行为与停用](docs/durable-memory.md#default-behavior-and-opt-out) 和
+内置的 [durable-memory skill](templates/skills/durable-memory/SKILL.md) 引导 Agent
+检索有用笔记、保留经过验证的结论，并更新过时知识。笔记是普通 Markdown，历史由 Git 管理。
+
+例如，写作偏好放在全局 memory，API 重试策略放在对应项目的 memory。
+项目默认连接全局和自身的笔记；这些作用域用于组织上下文，不构成文件访问权限隔离。
+
+新工作区默认启用该工作流，同步后连接到 Agent。详见
+[Memory 使用与停用（英文）](docs/durable-memory.md) 和
 [Memory 也需要维护者](docs/programming-agent-memory.zh-CN.md)。
-
-`aikito show memory` 按作用域列出笔记：
-
-```text
-┌────────┬───────────────────────┬─────────────────────────────────────┬───────┬──────┐
-│ Scope  │ Note File             │ Title                               │ Index │ Link │
-├────────┼───────────────────────┼─────────────────────────────────────┼───────┼──────┤
-│ Global │ commit-message-style  │ Conventional commits, English only  │ ✓     │ –    │
-│ Global │ review-tone           │ Ask before large refactors          │ ✓     │ –    │
-├────────┼───────────────────────┼─────────────────────────────────────┼───────┼──────┤
-│ aikito │ architecture-decisions│ Stable project design constraints   │ ✓     │ ✓    │
-│ aikito │ release-checklist     │ Tag only after tests pass           │ ✓     │ ✓    │
-├────────┼───────────────────────┼─────────────────────────────────────┼───────┼──────┤
-│ blog   │ draft-workflow        │ Drafts live in content/ until dated │ ✓     │ ✓    │
-└────────┴───────────────────────┴─────────────────────────────────────┴───────┴──────┘
-```
-
-全局笔记在任何地方都可读；每个项目的笔记只链接进该项目。因此示例中 Agent 在 `aikito` 里工作
-时，只会看到全局笔记加上 `aikito` 自己的笔记，不含 `blog` 的内容。
-
-使用 `aikito maintain memory` 可执行先确认、后修改的全作用域巡检；详见
-[主动维护作用域](docs/durable-memory.md#proactive-scope-maintenance)。
 
 ## 快速开始
 
-### 选项 1：让 Coding Agent 完成配置（推荐）
-
-<details>
-<summary>复制这段提示词给你的 Coding Agent</summary>
+### 让 Coding Agent 完成配置（推荐）
 
 > 请从 https://github.com/lsaint/aikito 安装并配置 Aikito。阅读 README、
 > `templates/skills/aikito/SKILL.md` 及其中与本次配置相关的链接文档，按照其安全要求初始化
@@ -112,101 +65,32 @@ Aikito 将这些资源集中在一个个人 Git 工作区中，并将选定的�
 > Agent 配置前，先向我展示计划变更和冲突并等待确认。配置完成后，总结已经就绪的内容，
 > 并引导我完成下一步，包括是否注册第一个代码项目；未经我确认，不要注册项目。
 
-</details>
-
-选择这种方式后，安装和配置操作由 Coding Agent 执行，无需再手动执行下面的命令。
-
-项目注册、资源管理、诊断和 Memory 维护等提示词，参见英文文档
-[Agent-first workflows](docs/agent-workflow.md)。
-
 <details>
-<summary>选项 2：手动配置</summary>
+<summary>手动安装（macOS / Linux / Windows）</summary>
 
-**macOS / Linux** — 通过 Homebrew 安装：
+macOS / Linux 使用 Homebrew：
 
 ```bash
 brew install lsaint/tap/aikito
-
 aikito init workspace ~/aikito
+aikito sync --dry-run
 aikito sync
 aikito status
 ```
 
-通过 Homebrew 安装后，Zsh、Bash、Fish 的 Tab 补全会自动配置，无需额外操作。
+应用同步前先检查预览；已有配置的处理方式见[迁移与安全](#迁移与安全)。
 
-手动安装（非 Homebrew）时，在 `~/.zshrc` 中添加一行：
-
-```zsh
-eval "$(aikito completion zsh)"
-```
-
-**Windows** — 一键安装（PowerShell，无需管理员权限）：
-
-> **前提条件：** 必须开启 [Windows 开发者模式](https://learn.microsoft.com/zh-cn/windows/apps/get-started/enable-your-device-for-development)，
-> 以允许 Aikito 创建符号链接。
-> 路径：**设置 → 系统 → 开发者选项 → 开发者模式**（开启）。
-
-```powershell
-irm https://raw.githubusercontent.com/lsaint/aikito/main/install.ps1 | iex
-```
-
-<details>
-<summary>安装细节与自定义安装路径</summary>
-
-脚本会自动检查 Python 3.12+、验证开发者模式、从 GitHub 下载最新版本，
-安装到 `%LOCALAPPDATA%\Programs\aikito`，并将 `bin\` 自动加入当前用户 PATH。
-
-如需自定义安装路径：
-
-```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/lsaint/aikito/main/install.ps1))) -InstallDir "D:\aikito"
-```
+Windows 请按照 [PowerShell 安装指南（英文）](docs/installation.md#install-manually)操作。
 
 </details>
 
-安装完成后，**打开新终端**运行：
+接下来按照 **[四步入门教程（英文）](docs/installation.md)** 接入第一个项目并验证指令生效。
+其他任务可参考 [Agent 请求示例（英文）](docs/agent-workflow.md)。
 
-```powershell
-aikito init workspace $env:USERPROFILE\aikito
-aikito sync
-aikito status
-```
+## 查看运行结果
 
-在 `$PROFILE` 中添加以下行以开启 PowerShell Tab 补全：
-
-```powershell
-Invoke-Expression (& aikito completion powershell | Out-String)
-```
-
-
-Workspace 是 Aikito 所有资源的 Git 管理中心。通常每个用户或每台机器只需初始化一份。
-
-在新机器上连接已有的工作区仓库：
-
-```bash
-# 下载或克隆已有工作区仓库到 ~/aikito
-aikito init workspace ~/aikito
-aikito sync
-```
-
-未安装的 Agent 及配置在他机上的候选路径会被自动识别为离线（offline on this host），不会报错。
-
-需要项目专属 instruction、skill 或 memory 时，在对应代码目录中注册 project：
-
-```bash
-cd ~/code/example
-aikito init project
-```
-
-该命令会在 `<workspace>/projects/example/` 创建项目的规范资源，并连接到当前目录的
-`./.agents/`。一份 workspace 可以管理多个 project；project 代表一个代码目录及其专属
-Agent 资源，不保存项目源码本身。项目支持通过 `[paths]` 表或 `paths` 数组配置多候选路径，
-便于跨平台（Mac/Windows/Linux）漫游，缺失的路径会自动视为离线（offline）。
-
-使用自定义路径初始化后，Aikito 会记住该路径供后续命令使用。可通过
-`aikito path workspace` 输出当前路径；`AIKITO_DIR` 可用于 CI 或隔离自动化中的临时覆盖。
-
-`aikito status` 会展示各个受支持 Agent 的资源状态：
+`aikito status` 展示各 Agent 的资源状态。以下为已配置工作区的典型输出，
+实际 Agent 和数量取决于你的配置：
 
 ```text
 ┌───────────────────────┬──────────────┬────────┬────────────┬───────────┐
@@ -225,28 +109,32 @@ Agent 资源，不保存项目源码本身。项目支持通过 `[paths]` 表或
 ✓ all synced · 8 agents · 2 skills · 0 notes across 1 scopes
 ```
 
-从安装到验证第一条项目指令，请参阅[入门教程（英文）](docs/installation.md)。多项目路径与 Skill 同步模式详见[进阶项目配置（英文）](docs/project-configuration.md)。
+`aikito show memory` 按作用域列出保留的知识。下面是另一组示例，
+包含 1 条全局笔记和 `example` 项目的 2 条笔记：
 
-</details>
-
-## Web Console
-
-通过本地只读界面浏览 workspace、资源、作用域和治理状态：
-
-```bash
-aikito web
+```text
+┌─────────┬───────────────────┬──────────────────────────────┬───────┬──────┐
+│ Scope   │ Note File         │ Title                        │ Index │ Link │
+├─────────┼───────────────────┼──────────────────────────────┼───────┼──────┤
+│ Global  │ writing-style     │ Keep explanations concise    │ ✓     │ –    │
+├─────────┼───────────────────┼──────────────────────────────┼───────┼──────┤
+│ example │ api-retry-policy  │ Retry external APIs safely   │ ✓     │ ✓    │
+│ example │ release-checklist │ Release verification steps   │ ✓     │ ✓    │
+└─────────┴───────────────────┴──────────────────────────────┴───────┴──────┘
 ```
 
-<p align="center">
-  <img src="docs/assets/aikito-web-console.png" alt="Aikito Web Console">
-</p>
+全局笔记保存跨项目知识，项目笔记保存局部决策。完整操作见
+[Memory 使用指南（英文）](docs/durable-memory.md#list-memory)。
 
-Console 只监听 `127.0.0.1`，以可视化方式呈现规范 workspace，不会修改其中的资源。
+发现缺失链接、冲突或漂移时，请参阅[同步排查指南（英文）](docs/troubleshooting.md)。
+如果偏好浏览器界面，可运行 [`aikito web`](docs/cli-reference.md#aikito-web) 打开本地只读 Console。
 
 ## 设计边界
 
-Aikito 管理持久化文件、显式作用域与可控同步。为了保持轻量与可移植，它明确选择**不做**
-以下事情：
+Aikito 基于普通文件与 Git，无需后台服务。
+
+<details>
+<summary>Aikito 不做什么</summary>
 
 - 自动捕获每一个 Agent 操作或对话
 - 运行向量数据库、embedding 管线或记忆服务
@@ -254,43 +142,30 @@ Aikito 管理持久化文件、显式作用域与可控同步。为了保持轻�
 - 编排 supervisor 与 worker agent
 - 替代你所使用的 Coding Agent 的原生运行时
 
-## 迁移现有配置
+</details>
 
-如果你已经在使用 Coding Agent 并存有已有的 instruction、MCP 定义或 subagent，可用
-`aikito adopt` 将它们导入规范工作区：
+## 迁移与安全
 
-```bash
-aikito adopt
-aikito adopt --apply
-```
+已有 Agent 配置时，先运行 `aikito adopt` 查看只读导入预览，审阅后再应用。
+详见[接管与备份（英文）](docs/safety.md#adoption)。
 
-接管默认先只读预览。应用计划会在 `~/.aikito/backups/adopt_<timestamp>` 下创建带时间戳
-的备份，并导入检测到的配置，不会覆盖原有文件。详见[安全指南（英文）](docs/safety.md)。
-
-## 配套工具：Chat Distiller
-
-[Chat Distiller](https://github.com/lsaint/chat-distiller) 可将浏览器中的 AI 对话提炼为
-可审阅的 Markdown 笔记，并直接保存至 Aikito 的 `inbox/` 目录。
-
-浏览器 AI 对话 → 提炼笔记 → 审阅归档 → 长期 memory
-
-完整工作流请参阅[捕捉浏览器 AI 对话（英文）](docs/chat-distiller.md)。
-
-## 安全优先
-
-`aikito init workspace` 创建的是本地 Git 仓库，不会自动将其设为私有，也不代表它可以
-安全公开。添加远端或推送前，请检查 memory 和配置中是否包含凭据、客户数据、内部地址、
-私密源码等敏感信息。后续删除一次提交并不能从 Git 历史中清除秘密。
-
-同步现有环境前，请阅读完整的[安全模型（英文）](docs/safety.md)。
-安全漏洞请按[安全策略](SECURITY.md)私下报告。
+工作区是本地 Git 仓库。发布前应检查秘密和私人数据；在后续提交中删除秘密不会清除历史记录。
+请阅读[安全模型（英文）](docs/safety.md)，并按[安全策略](SECURITY.md)私下报告漏洞。
 
 ## 文档
 
-详细文档以英文作为规范来源。通过[文档网站](https://lsaint.github.io/aikito/)查看核心概念、操作指南、
-CLI 参考、安全模型、路线图和[常见问题（FAQ，英文）](docs/faq.md)。
-[设计边界与对比（英文）](docs/comparison.md)说明 Aikito 与记忆系统、单项目同步工具、
-Agent 编排平台之间的定位。
+详细文档以英文为规范来源：
+
+- [入门教程](docs/installation.md)：从安装到第一条指令生效。
+- [工作区与同步](docs/architecture.md)：源文件、作用域和资源归属。
+- [接入另一台机器](docs/workspace-portability.md)：已有工作区与自定义路径。
+- [CLI 参考](docs/cli-reference.md)：命令与 Shell 补全。
+- [设计对比](docs/comparison.md)与[常见问题](docs/faq.md)：设计取舍与常见疑问。
+
+配套工具 [Chat Distiller](https://github.com/lsaint/chat-distiller) 可将浏览器 AI 对话
+提炼为 Markdown，存入 Aikito Inbox。详见[捕捉与整理流程（英文）](docs/chat-distiller.md)。
+
+更多内容见[文档网站](https://lsaint.github.io/aikito/)。
 
 ## 关注作者
 

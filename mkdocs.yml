@@ -50,6 +50,7 @@ nav:
       - Chat Distiller: chat-distiller.md
       - Check and Repair Synchronization: troubleshooting.md
       - Advanced Project Setup: project-configuration.md
+      - Connect Another Machine: workspace-portability.md
       - Agent Request Examples: agent-workflow.md
   - Core Concepts:
       - Workspace and Synchronization: architecture.md
