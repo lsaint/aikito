@@ -21,7 +21,7 @@
   <img src="https://img.shields.io/badge/dependencies-stdlib%20only-brightgreen.svg" alt="Dependencies: stdlib only">
 </p>
 
-[简体中文](README.zh-CN.md) · [Documentation](docs/README.md)
+[简体中文](README.zh-CN.md) · [Documentation](https://lsaint.github.io/aikito/)
 
 Aikito is a Git-managed workspace for governing AI-agent context and durable memory.
 
@@ -310,7 +310,7 @@ Report vulnerabilities privately according to the [Security Policy](SECURITY.md)
 
 ## Documentation
 
-Browse the [documentation index](docs/README.md) for concepts, operational
+Browse the [documentation site](https://lsaint.github.io/aikito/) for concepts, operational
 guides, the CLI reference, safety details, the roadmap, and the
 [FAQ](docs/faq.md). [Comparison](docs/comparison.md) places Aikito alongside
 memory systems, project-local sync tools, and agent orchestrators.

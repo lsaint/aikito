@@ -1,0 +1,82 @@
+site_name: Aikito
+site_description: Govern AI-agent context and durable memory from one Git-managed workspace.
+site_url: https://lsaint.github.io/aikito/
+repo_url: https://github.com/lsaint/aikito
+repo_name: lsaint/aikito
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  logo: assets/logo-dark.png
+  favicon: assets/logo-light.png
+  features:
+    - content.action.edit
+    - content.code.copy
+    - navigation.footer
+    - navigation.indexes
+    - navigation.sections
+    - navigation.tabs
+    - navigation.top
+    - search.highlight
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+
+nav:
+  - Home: index.md
+  - Learn:
+      - Memory Workflow: memory-workflow.md
+      - Memory Needs a Maintainer: programming-agent-memory.md
+      - Architecture: architecture.md
+      - Safety Model: safety.md
+      - Comparison: comparison.md
+  - Guides:
+      - Agent-first Workflows: agent-workflow.md
+      - Project Setup: project-setup.md
+      - Durable Memory: durable-memory.md
+      - MCP Servers: mcp-servers.md
+      - Subagents: subagents.md
+      - Inbox: inbox.md
+      - Chat Distiller: chat-distiller.md
+  - Reference:
+      - CLI Reference: cli-reference.md
+      - FAQ: faq.md
+      - Roadmap: roadmap.md
+      - About: about.md
+  - 中文:
+      - Inbox: inbox.zh-CN.md
+      - Memory 需要维护者: programming-agent-memory.zh-CN.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+
+validation:
+  links:
+    absolute_links: relative_to_docs
+    unrecognized_links: warn

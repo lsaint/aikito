@@ -21,7 +21,7 @@
   <img src="https://img.shields.io/badge/dependencies-stdlib%20only-brightgreen.svg" alt="Dependencies: stdlib only">
 </p>
 
-[English](README.md) · [详细文档（英文）](docs/README.md)
+[English](README.md) · [详细文档（英文）](https://lsaint.github.io/aikito/)
 
 Aikito 是由 Git 管理的 AI Agent 上下文与长期记忆治理工作区。
 
@@ -287,7 +287,7 @@ aikito adopt --apply
 
 ## 文档
 
-详细文档以英文作为规范来源。通过[文档索引](docs/README.md)查看核心概念、操作指南、
+详细文档以英文作为规范来源。通过[文档网站](https://lsaint.github.io/aikito/)查看核心概念、操作指南、
 CLI 参考、安全模型、路线图和[常见问题（FAQ，英文）](docs/faq.md)。
 [设计边界与对比（英文）](docs/comparison.md)说明 Aikito 与记忆系统、单项目同步工具、
 Agent 编排平台之间的定位。

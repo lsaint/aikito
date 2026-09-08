@@ -8,6 +8,24 @@ on:
   workflow_dispatch:
 
 jobs:
+  docs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install documentation dependencies
+        run: python -m pip install -r requirements-docs.txt
+
+      - name: Build documentation
+        run: mkdocs build --strict
+
   test:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -380,4 +398,3 @@ jobs:
           }
           $global:LASTEXITCODE = 0
           $env:AIKITO_FORCE_NO_SYMLINK = ""
-

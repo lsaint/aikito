@@ -4,6 +4,7 @@ __pycache__/
 *.py[cod]
 .DS_Store
 /dist/
+/site/
 /.local/
 uv.lock
 

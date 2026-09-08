@@ -1,12 +1,12 @@
 # Aikito Documentation
 
-The root [README](../README.md) is the shortest path to installing Aikito and
+The root [README](https://github.com/lsaint/aikito#readme) is the shortest path to installing Aikito and
 verifying a new workspace. Use this index when you need the underlying mental
 model, an operational guide, or command details.
 
 ## Learn
 
-- [Aikito skill](../templates/skills/aikito/SKILL.md) — let a coding agent install,
+- [Aikito skill](https://github.com/lsaint/aikito/blob/main/templates/skills/aikito/SKILL.md) — let a coding agent install,
   configure, and operate Aikito on your behalf.
 - [Memory workflow](memory-workflow.md) — decide what knowledge should persist
   and where it belongs.
@@ -38,5 +38,5 @@ model, an operational guide, or command details.
 - [FAQ](faq.md)
 
 The detailed documentation is currently maintained in English. The
-[Simplified Chinese README](../README.zh-CN.md) contains the complete initial
+[Simplified Chinese README](https://github.com/lsaint/aikito/blob/main/README.zh-CN.md) contains the complete initial
 installation path.
