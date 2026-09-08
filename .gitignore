@@ -5,6 +5,7 @@ __pycache__/
 .DS_Store
 /dist/
 /site/
+/.venv-docs/
 /.local/
 uv.lock
 
