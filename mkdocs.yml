@@ -15,7 +15,6 @@ theme:
     - navigation.footer
     - navigation.indexes
     - navigation.sections
-    - navigation.tabs
     - navigation.top
     - search.highlight
     - search.suggest
@@ -36,16 +35,15 @@ theme:
         name: Switch to system preference
 
 nav:
-  - Home: index.md
-  - Learn:
-      - Memory Workflow: memory-workflow.md
-      - Memory Needs a Maintainer: programming-agent-memory.md
-      - Architecture: architecture.md
-      - Safety Model: safety.md
-      - Comparison: comparison.md
-  - Guides:
+  - Start Here: index.md
+  - Get Started:
       - Agent-first Workflows: agent-workflow.md
       - Project Setup: project-setup.md
+  - Understand Aikito:
+      - Architecture: architecture.md
+      - Memory Workflow: memory-workflow.md
+      - Why Memory Needs a Maintainer: programming-agent-memory.md
+  - Use Aikito:
       - Durable Memory: durable-memory.md
       - MCP Servers: mcp-servers.md
       - Subagents: subagents.md
@@ -53,7 +51,10 @@ nav:
       - Chat Distiller: chat-distiller.md
   - Reference:
       - CLI Reference: cli-reference.md
+      - Safety Model: safety.md
       - FAQ: faq.md
+      - Comparison: comparison.md
+  - Project:
       - Roadmap: roadmap.md
       - About: about.md
   - 中文:
@@ -65,6 +66,9 @@ markdown_extensions:
   - attr_list
   - md_in_html
   - pymdownx.details
+  - pymdownx.emoji:
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.superfences
@@ -75,6 +79,9 @@ markdown_extensions:
 
 plugins:
   - search
+
+extra_css:
+  - stylesheets/extra.css
 
 validation:
   links:
