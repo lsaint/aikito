@@ -35,26 +35,32 @@ theme:
         name: Switch to system preference
 
 nav:
-  - Start Here: index.md
+  - Documentation: index.md
   - Get Started:
-      - Agent-first Workflows: agent-workflow.md
-      - Project Setup: project-setup.md
-  - Understand Aikito:
-      - Architecture: architecture.md
-      - Memory Workflow: memory-workflow.md
-      - Why Memory Needs a Maintainer: programming-agent-memory.md
-  - Use Aikito:
+      - 1. Install Aikito: installation.md
+      - 2. Create a Workspace: workspace-setup.md
+      - 3. Connect a Project: project-setup.md
+      - 4. Verify Your First Instruction: first-instruction.md
+  - Everyday Tasks:
+      - Instructions and Skills: instructions-and-skills.md
       - Durable Memory: durable-memory.md
       - MCP Servers: mcp-servers.md
       - Subagents: subagents.md
       - Inbox: inbox.md
       - Chat Distiller: chat-distiller.md
+      - Check and Repair Synchronization: troubleshooting.md
+      - Advanced Project Setup: project-configuration.md
+      - Agent Request Examples: agent-workflow.md
+  - Core Concepts:
+      - Workspace and Synchronization: architecture.md
+      - Memory Scope and Lifecycle: memory-workflow.md
   - Reference:
       - CLI Reference: cli-reference.md
       - Safety Model: safety.md
       - FAQ: faq.md
+  - About:
       - Comparison: comparison.md
-  - Project:
+      - Why Memory Needs a Maintainer: programming-agent-memory.md
       - Roadmap: roadmap.md
       - About: about.md
   - 中文:
@@ -79,9 +85,6 @@ markdown_extensions:
 
 plugins:
   - search
-
-extra_css:
-  - stylesheets/extra.css
 
 validation:
   links:

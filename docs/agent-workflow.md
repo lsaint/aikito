@@ -1,4 +1,7 @@
-# Agent-First Workflows
+# Agent Request Examples
+
+For your first setup, follow the [four-step tutorial](installation.md).
+This page is a task-by-task prompt reference for an existing workspace.
 
 Aikito is designed for coding agents to perform most workspace operations while
 the user retains control over important decisions. In normal use, tell the
@@ -44,8 +47,8 @@ skills, or Memory:
 > selected resources, and any conflicts before applying it, then sync and verify
 > the result.
 
-See [Set Up a Project](project-setup.md) for project layout and skill sync-mode
-trade-offs.
+See [Connect a project](project-setup.md) for the initial setup and
+[Advanced project setup](project-configuration.md) for skill sync-mode trade-offs.
 
 ## Create or Update a Skill
 

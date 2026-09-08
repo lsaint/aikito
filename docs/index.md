@@ -1,96 +1,35 @@
----
-hide:
-  - navigation
-  - toc
----
+# Aikito Documentation
 
-<div class="aikito-hero" markdown>
+Aikito keeps coding-agent instructions, skills, and durable memory in one
+Git-managed workspace and connects them to your agents and code projects.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="assets/logo-light.png">
-  <img src="assets/logo-light.png" alt="Aikito" width="160">
-</picture>
+## Start with one project
 
-# One workspace for every coding agent
+Follow these steps in order. You will connect a project named `example`,
+add a project instruction, and verify that your coding agent can read it.
+Each step includes an agent request, manual commands, and a completion check.
 
-Govern agent context and durable memory through plain files, explicit scopes,
-and Git.
+| Step | What you will achieve |
+| --- | --- |
+| [1. Install Aikito](installation.md) | Run the CLI from your terminal |
+| [2. Create a workspace](workspace-setup.md) | Establish the source files for your agent resources |
+| [3. Connect a project](project-setup.md) | Give a code project its own resource scope |
+| [4. Verify your first instruction](first-instruction.md) | Change a rule and confirm the project receives it |
 
-[Get started](#quick-start){ .md-button .md-button--primary }
-[View on GitHub](https://github.com/lsaint/aikito){ .md-button }
+Already installed? Start at the first step you have not completed.
 
-</div>
+## Find a specific operation
 
-## Why Aikito
+- [Edit instructions and select skills](instructions-and-skills.md).
+- [Keep useful decisions in memory](durable-memory.md).
+- [Synchronize MCP servers](mcp-servers.md) or [manage subagents](subagents.md).
+- [Stage notes in Inbox](inbox.md).
+- [Diagnose missing links, conflicts, or drift](troubleshooting.md).
+- [Configure multiple project paths or copied skills](project-configuration.md).
 
-AI agent resources fragment in three directions:
+## Understand or look up details
 
-<div class="grid cards" markdown>
-
-- :material-robot-outline:{ .lg .middle } **Across tools**
-
-    Every coding agent expects different configuration files and directories.
-
-- :material-folder-multiple-outline:{ .lg .middle } **Across projects**
-
-    Reusable instructions, skills, and knowledge are copied between repositories.
-
-- :material-clock-outline:{ .lg .middle } **Across time**
-
-    Valuable decisions and hard-won lessons disappear into old sessions.
-
-</div>
-
-Aikito keeps those resources in one personal Git workspace and exposes only
-the selected scope to each agent and project.
-
-![Aikito workspace overview](assets/aikito-overview.png)
-
-## Quick Start
-
-Install Aikito, create your personal workspace, synchronize its selected
-resources, and verify the result:
-
-```bash
-brew install lsaint/tap/aikito
-
-aikito init workspace ~/aikito
-aikito sync
-aikito status
-```
-
-On Windows, use the [PowerShell installer](https://github.com/lsaint/aikito#option-2-set-it-up-manually).
-Prefer to let a coding agent handle the setup? Start with the
-[agent-first workflow](agent-workflow.md).
-
-## See what Aikito governs
-
-The local, read-only Web Console makes workspace resources, scopes, consumers,
-and synchronization state visible without creating a second source of truth.
-
-```bash
-aikito web
-```
-
-![Aikito Web Console](assets/aikito-web-console.png)
-
-## Where to go next
-
-<div class="grid cards" markdown>
-
-- :material-map-outline:{ .lg .middle } **Understand the model**
-
-    Learn how the [canonical workspace and synchronization](architecture.md)
-    fit together.
-
-- :material-folder-plus-outline:{ .lg .middle } **Connect a project**
-
-    [Register a code project](project-setup.md) for project-specific
-    instructions, skills, and memory.
-
-- :material-book-open-page-variant-outline:{ .lg .middle } **Use the CLI**
-
-    Find every command and option in the [CLI reference](cli-reference.md).
-
-</div>
+Read [Workspace and synchronization](architecture.md) for file ownership and
+resource types, or [Memory scope and lifecycle](memory-workflow.md) for what to
+retain and where. Use the [CLI reference](cli-reference.md) to look up commands,
+and the [Safety model](safety.md) for write and recovery rules.

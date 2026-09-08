@@ -241,8 +241,9 @@ temporary override, which is useful for CI and isolated automation.
 ✓ all synced · 8 agents · 2 skills · 0 notes across 1 scopes
 ```
 
-For building from source, custom install paths, or advanced configuration, see
-the [project setup guide](docs/project-setup.md).
+Follow the [getting-started tutorial](docs/installation.md) for installation
+through your first working project instruction. For multiple project paths and
+skill sync modes, see [advanced project setup](docs/project-configuration.md).
 
 </details>
 

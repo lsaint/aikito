@@ -225,7 +225,7 @@ Agent 资源，不保存项目源码本身。项目支持通过 `[paths]` 表或
 ✓ all synced · 8 agents · 2 skills · 0 notes across 1 scopes
 ```
 
-如需从源码构建、使用自定义安装路径或查看高级参数，请参阅[项目配置指南（英文）](docs/project-setup.md)。
+从安装到验证第一条项目指令，请参阅[入门教程（英文）](docs/installation.md)。多项目路径与 Skill 同步模式详见[进阶项目配置（英文）](docs/project-configuration.md)。
 
 </details>
 
