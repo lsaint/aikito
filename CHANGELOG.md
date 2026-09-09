@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.30.0] - 2026-09-09
+
 ### Removed
 
 - Removed legacy `bin/` directory (`bin/aikito`, `bin/aikito.cmd`, `bin/aikito.ps1`). Aikito is now invoked via `python -m aikito` or the installed console script `aikito`.
@@ -586,7 +588,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.29.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.30.0...HEAD
+[1.30.0]: https://github.com/lsaint/aikito/compare/v1.29.0...v1.30.0
 [1.29.0]: https://github.com/lsaint/aikito/compare/v1.28.0...v1.29.0
 [1.28.0]: https://github.com/lsaint/aikito/compare/v1.27.0...v1.28.0
 [1.27.0]: https://github.com/lsaint/aikito/compare/v1.26.0...v1.27.0
