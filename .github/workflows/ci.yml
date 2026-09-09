@@ -71,6 +71,7 @@ jobs:
           python3 -m aikito init --help
           python3 -m aikito init workspace --help
           python3 -m aikito init project --help
+          python3 -m aikito prepare project --help
           python3 -m aikito add --help
           python3 -m aikito add skill --help
           python3 -m aikito add subagent --help
@@ -168,6 +169,8 @@ jobs:
           python -m venv ${{ runner.temp }}/isolated-venv
           ${{ runner.temp }}/isolated-venv/bin/pip install dist/*.whl
           ${{ runner.temp }}/isolated-venv/bin/aikito --version
+          ${{ runner.temp }}/isolated-venv/bin/python -c \
+            "from aikito import PreparedProject, Project; assert Project and PreparedProject"
           ${{ runner.temp }}/isolated-venv/bin/aikito init workspace ${{ runner.temp }}/wheel-ws
           test -f ${{ runner.temp }}/wheel-ws/agents.toml
           test -f ${{ runner.temp }}/wheel-ws/skills/aikito/SKILL.md
@@ -212,6 +215,33 @@ jobs:
 
       - name: aikito project inspection and dry-run
         run: |
+          printf '# CI project instructions\n' > \
+            ${{ runner.temp }}/aikito-ws/projects/example/AGENTS.md
+          python3 -c "
+          from pathlib import Path
+          path = Path(r'${{ runner.temp }}/aikito-ws/projects/example/agent.toml')
+          text = path.read_text()
+          path.write_text(text.replace('skills = []', 'skills = [\"durable-memory\"]'))
+          "
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito prepare project example --agent pi | \
+            grep -q "Project 'example' for pi"
+          test -L ${{ runner.temp }}/example-project/AGENTS.md
+          test -L \
+            ${{ runner.temp }}/example-project/.agents/skills/durable-memory
+          test -L ${{ runner.temp }}/example-project/.agents/memory/index.md
+          mkdir -p ${{ runner.temp }}/example-project-second
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito init project example \
+              ${{ runner.temp }}/example-project-second
+          if AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito prepare project example --agent pi \
+              2>${{ runner.temp }}/prepare-ambiguous.log; then
+            echo "Expected ambiguous project preparation to fail"
+            exit 1
+          fi
+          grep -q "Multiple paths are available" \
+            ${{ runner.temp }}/prepare-ambiguous.log
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito show projects
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
@@ -441,9 +471,18 @@ jobs:
         shell: pwsh
         run: |
           $wsDir = Join-Path $env:RUNNER_TEMP "aikito-ws"
+          $piDir = Join-Path $HOME ".pi\agent"
+          New-Item -ItemType Directory -Force -Path $piDir | Out-Null
           $env:AIKITO_DIR = $wsDir
           python -m aikito init workspace "$wsDir"
           python -m aikito sync global
+          $projectDir = Join-Path $env:RUNNER_TEMP "example-project"
+          New-Item -ItemType Directory -Force -Path $projectDir | Out-Null
+          python -m aikito init project example "$projectDir"
+          python -m aikito prepare project example --agent pi
+          if (-not (Test-Path (Join-Path $projectDir ".agents\memory\index.md"))) {
+            throw "Prepared project memory link is missing"
+          }
           python -m aikito doctor
           python -m aikito status
 

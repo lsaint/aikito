@@ -1,7 +1,19 @@
+import os
 import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+from aikito import (
+    AmbiguousProjectPathError,
+    InvalidProjectConfigError,
+    NoAvailableProjectPathError,
+    Project,
+    ProjectNotFoundError,
+    ProjectPrepareConflictError,
+    UnsupportedProjectAgentError,
+)
 
 from aikito.project import (
     append_candidate_path_to_config,
@@ -13,6 +25,203 @@ from aikito.project import (
 from aikito.render import render_project_detail, render_projects_table
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class ProjectApiTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary_directory.name)
+        self.home = self.root / "home"
+        self.workspace = self.root / "workspace"
+        self.project_path = self.root / "code"
+        self.definition = self.workspace / "projects" / "demo"
+        self.home.mkdir()
+        self.project_path.mkdir()
+        (self.definition / "memory" / "notes").mkdir(parents=True)
+        (self.workspace / "skills" / "demo-skill").mkdir(parents=True)
+        (self.workspace / "memory" / "shared").mkdir(parents=True)
+        (self.workspace / "skills" / "demo-skill" / "SKILL.md").write_text(
+            "# Demo skill\n", encoding="utf-8"
+        )
+        (self.workspace / "memory" / "shared" / "index.md").write_text(
+            "# Shared memory\n", encoding="utf-8"
+        )
+        (self.definition / "memory" / "index.md").write_text(
+            "# Project memory\n", encoding="utf-8"
+        )
+        (self.definition / "AGENTS.md").write_text(
+            "# Project instructions\n", encoding="utf-8"
+        )
+        (self.definition / "agent.toml").write_text(
+            f'name = "demo"\npath = "{self.project_path}"\n'
+            'sync_mode = "link"\nskills = ["demo-skill"]\n'
+            'memory = ["shared"]\n',
+            encoding="utf-8",
+        )
+        (self.workspace / "agents.toml").write_text(
+            '[agents.pi]\ndisplay_name = "Pi"\n'
+            'project_instruction_path = "AGENTS.md"\n'
+            'skills_path = ".agents/skills"\n',
+            encoding="utf-8",
+        )
+
+    def tearDown(self) -> None:
+        self.temporary_directory.cleanup()
+
+    def load_project(self) -> Project:
+        with patch("pathlib.Path.home", return_value=self.home):
+            return Project.load("demo", workspace=self.workspace)
+
+    def test_loads_and_resolves_the_only_active_path(self) -> None:
+        project = self.load_project()
+
+        self.assertEqual(project.name, "demo")
+        self.assertEqual(project.paths, (self.project_path.resolve(),))
+        self.assertEqual(project.resolve_path(), self.project_path.resolve())
+
+    def test_uses_the_active_workspace_when_not_explicit(self) -> None:
+        pointer = self.home / ".config" / "aikito" / "workspace"
+        pointer.parent.mkdir(parents=True)
+        pointer.write_text(f"{self.workspace}\n", encoding="utf-8")
+
+        with (
+            patch("pathlib.Path.home", return_value=self.home),
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            project = Project.load("demo")
+
+        self.assertEqual(project.workspace, self.workspace.resolve())
+
+    def test_rejects_relative_workspace_and_missing_project(self) -> None:
+        with self.assertRaises(InvalidProjectConfigError):
+            Project.load("demo", workspace="relative")
+        with self.assertRaises(ProjectNotFoundError):
+            Project.load("missing", workspace=self.workspace)
+
+    def test_rejects_invalid_project_resource_lists(self) -> None:
+        (self.definition / "agent.toml").write_text(
+            f'name = "demo"\npath = "{self.project_path}"\nskills = "bad"\n',
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(InvalidProjectConfigError):
+            self.load_project()
+
+    def test_reports_no_active_path(self) -> None:
+        self.project_path.rmdir()
+        project = self.load_project()
+
+        with self.assertRaises(NoAvailableProjectPathError):
+            project.resolve_path()
+
+    def test_reports_ambiguous_active_paths(self) -> None:
+        second_path = self.root / "second-code"
+        second_path.mkdir()
+        (self.definition / "agent.toml").write_text(
+            f'name = "demo"\npaths = ["{self.project_path}", "{second_path}"]\n'
+            "skills = []\n",
+            encoding="utf-8",
+        )
+        project = self.load_project()
+
+        with self.assertRaises(AmbiguousProjectPathError) as raised:
+            project.resolve_path()
+
+        self.assertEqual(
+            raised.exception.paths,
+            (self.project_path.resolve(), second_path.resolve()),
+        )
+
+    def test_prepare_syncs_project_resources_for_pi(self) -> None:
+        project = self.load_project()
+
+        prepared = project.prepare(agent="pi")
+
+        self.assertEqual(prepared.name, "demo")
+        self.assertEqual(prepared.agent, "pi")
+        self.assertEqual(prepared.cwd, self.project_path.resolve())
+        self.assertEqual(dict(prepared.env_overrides), {})
+        self.assertEqual(
+            (self.project_path / "AGENTS.md").resolve(),
+            (self.definition / "AGENTS.md").resolve(),
+        )
+        self.assertEqual(
+            (self.project_path / ".agents" / "skills" / "demo-skill").resolve(),
+            (self.workspace / "skills" / "demo-skill").resolve(),
+        )
+        self.assertEqual(
+            (self.project_path / ".agents" / "memory" / "shared").resolve(),
+            (self.workspace / "memory" / "shared").resolve(),
+        )
+        self.assertEqual(
+            (self.project_path / ".agents" / "memory" / "index.md").resolve(),
+            (self.definition / "memory" / "index.md").resolve(),
+        )
+
+    def test_prepare_rejects_unsupported_agent(self) -> None:
+        project = self.load_project()
+
+        with self.assertRaises(UnsupportedProjectAgentError):
+            project.prepare(agent="codex")
+
+    def test_prepare_preserves_unmanaged_project_instructions(self) -> None:
+        unmanaged = self.project_path / "AGENTS.md"
+        unmanaged.write_text("# Existing\n", encoding="utf-8")
+        project = self.load_project()
+
+        with self.assertRaises(ProjectPrepareConflictError):
+            project.prepare(agent="pi")
+
+        self.assertEqual(unmanaged.read_text(encoding="utf-8"), "# Existing\n")
+
+    def test_prepare_rejects_drifted_copied_skill(self) -> None:
+        config_path = self.definition / "agent.toml"
+        config_path.write_text(
+            config_path.read_text(encoding="utf-8").replace(
+                'sync_mode = "link"', 'sync_mode = "copy"'
+            ),
+            encoding="utf-8",
+        )
+        runtime_skill = self.project_path / ".agents" / "skills" / "demo-skill"
+        runtime_skill.mkdir(parents=True)
+        (runtime_skill / "SKILL.md").write_text("# Drifted\n", encoding="utf-8")
+        project = self.load_project()
+
+        with self.assertRaises(ProjectPrepareConflictError):
+            project.prepare(agent="pi")
+
+        self.assertEqual(
+            (runtime_skill / "SKILL.md").read_text(encoding="utf-8"),
+            "# Drifted\n",
+        )
+
+    def test_prepare_preflights_missing_sources_before_writing(self) -> None:
+        (self.workspace / "skills" / "demo-skill" / "SKILL.md").unlink()
+        (self.workspace / "skills" / "demo-skill").rmdir()
+        project = self.load_project()
+
+        with self.assertRaises(ProjectPrepareConflictError):
+            project.prepare(agent="pi")
+
+        self.assertFalse((self.project_path / ".agents").exists())
+
+    def test_prepare_does_not_modify_workspace_pointer_or_global_instructions(
+        self,
+    ) -> None:
+        pointer = self.home / ".config" / "aikito" / "workspace"
+        pointer.parent.mkdir(parents=True)
+        pointer.write_text(f"{self.workspace}\n", encoding="utf-8")
+        global_instructions = self.workspace / "AGENTS.md"
+        global_instructions.write_text("# Global instructions\n", encoding="utf-8")
+        project = self.load_project()
+
+        project.prepare(agent="pi")
+
+        self.assertEqual(pointer.read_text(encoding="utf-8"), f"{self.workspace}\n")
+        self.assertEqual(
+            global_instructions.read_text(encoding="utf-8"),
+            "# Global instructions\n",
+        )
 
 
 class ProjectSummaryTest(unittest.TestCase):

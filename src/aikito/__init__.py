@@ -1,5 +1,28 @@
 """Aikito - Durable workspace for governing context across AI agents."""
 
+from .project_runtime import (
+    AmbiguousProjectPathError,
+    InvalidProjectConfigError,
+    NoAvailableProjectPathError,
+    PreparedProject,
+    Project,
+    ProjectError,
+    ProjectNotFoundError,
+    ProjectPrepareConflictError,
+    UnsupportedProjectAgentError,
+)
+
 __version__ = "1.30.1"
 
-__all__ = ["__version__"]
+__all__ = [
+    "AmbiguousProjectPathError",
+    "InvalidProjectConfigError",
+    "NoAvailableProjectPathError",
+    "PreparedProject",
+    "Project",
+    "ProjectError",
+    "ProjectNotFoundError",
+    "ProjectPrepareConflictError",
+    "UnsupportedProjectAgentError",
+    "__version__",
+]

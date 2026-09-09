@@ -11,7 +11,6 @@ import json
 import os
 import sys
 import tomllib
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -20,11 +19,7 @@ from .add import add_mcp, add_skill, add_subagent
 from .adopt import build_adopt_plan, execute_adoption
 from .diff import collect_drift_diffs, render_drift_diffs
 from .doctor import run_doctor, run_doctor_fixes
-from .init import (
-    init_project,
-    init_workspace,
-    project_sync_validation_error,
-)
+from .init import init_project, init_workspace
 from .maintain import MemoryMaintenanceError, run_memory_maintenance
 from .resolve import (
     SkillTargetConflictError,
@@ -40,7 +35,6 @@ from .sync import (
     apply_runtime_cleanup,
     ensure_dir,
     sync_global_entry,
-    sync_project_instruction,
     sync_resource,
 )
 from .memory import (
@@ -53,20 +47,23 @@ from .memory import (
 from .mcp import (
     MCPConfigError,
     authenticate_mcp,
-    collect_project_instruction_targets,
     is_agent_installed,
     load_agents,
     sync_mcp_configs,
 )
 from .templating import TemplateError
 from .project import (
-    RuntimeCleanupPlan,
     append_candidate_path_to_config,
     collect_project_summaries,
-    collect_single_project_skill_states,
     find_selected_runtime_conflicts,
     plan_runtime_cleanup,
     resolve_project_binding,
+)
+from .project_runtime import (
+    Project,
+    ProjectError,
+    collect_project_prepare_errors,
+    sync_project_path,
 )
 
 from .config import get_inbox_path
@@ -459,80 +456,6 @@ def _sync_project_active_entries(
     return True
 
 
-@dataclass(frozen=True)
-class _ProjectSyncInputs:
-    skills: list[str]
-    memory_files: list[str]
-    sync_mode: str
-    agents_dir: Path
-    agents_skills_dir: Path
-    agents_memory_dir: Path
-    proj_mem_source: Path
-    skill_cleanup: RuntimeCleanupPlan
-    memory_cleanup: RuntimeCleanupPlan
-    cleanup_conflicts: tuple[Path, ...]
-
-
-def _resolve_project_sync_inputs(
-    aikito_dir: Path,
-    project_name: str,
-    project_path: Path,
-    data: dict,
-) -> _ProjectSyncInputs:
-    skills = [str(name) for name in data.get("skills", [])]
-    memory_files = [str(name) for name in data.get("memory", [])]
-    sync_mode = str(data.get("sync_mode", "link")).lower()
-
-    agents_dir = project_path / ".agents"
-    agents_skills_dir = agents_dir / "skills"
-    agents_memory_dir = agents_dir / "memory"
-
-    proj_mem_source = aikito_dir / "projects" / project_name / "memory"
-    if not proj_mem_source.exists():
-        proj_mem_source = aikito_dir / "memory" / project_name
-
-    selected_skills = set(skills)
-    selected_memory = {Path(name).parts[0] for name in memory_files if Path(name).parts}
-    if proj_mem_source.is_dir():
-        selected_memory.update(item.name for item in proj_mem_source.iterdir())
-
-    skill_cleanup = plan_runtime_cleanup(
-        agents_skills_dir,
-        selected_skills,
-        (aikito_dir / "skills",),
-        allow_matching_copies=False,
-    )
-    memory_cleanup = plan_runtime_cleanup(
-        agents_memory_dir,
-        selected_memory,
-        (aikito_dir / "memory", aikito_dir / "projects" / project_name / "memory"),
-        allow_matching_copies=False,
-    )
-    selected_skill_conflicts = find_selected_runtime_conflicts(
-        agents_skills_dir,
-        selected_skills,
-        aikito_dir / "skills",
-        allow_drifted_copies=sync_mode == "copy",
-    )
-    cleanup_conflicts = (
-        *memory_cleanup.conflicts,
-        *selected_skill_conflicts,
-    )
-
-    return _ProjectSyncInputs(
-        skills=skills,
-        memory_files=memory_files,
-        sync_mode=sync_mode,
-        agents_dir=agents_dir,
-        agents_skills_dir=agents_skills_dir,
-        agents_memory_dir=agents_memory_dir,
-        proj_mem_source=proj_mem_source,
-        skill_cleanup=skill_cleanup,
-        memory_cleanup=memory_cleanup,
-        cleanup_conflicts=cleanup_conflicts,
-    )
-
-
 def _preflight_project_path_sync(
     aikito_dir: Path,
     project_name: str,
@@ -543,45 +466,14 @@ def _preflight_project_path_sync(
     force: bool,
 ) -> list[str]:
     """Run all validation and conflict checks for a project path without modifying anything."""
-    errors: list[str] = []
-    val_err = project_sync_validation_error(
-        aikito_dir, project_name, project_path, home
+    return collect_project_prepare_errors(
+        aikito_dir,
+        project_name,
+        project_path,
+        data,
+        home,
+        force=force,
     )
-    if val_err:
-        errors.append(val_err)
-
-    inputs = _resolve_project_sync_inputs(aikito_dir, project_name, project_path, data)
-
-    for path in inputs.cleanup_conflicts:
-        errors.append(f"Unmanaged project runtime item: {path}")
-
-    if inputs.sync_mode == "copy":
-        states = collect_single_project_skill_states(
-            aikito_dir, project_name, project_path, inputs.skills
-        )
-        conflicts = [state for state in states if state.status == "CONFLICT"]
-        missing_sources = [
-            state
-            for state in states
-            if state.status == "MISSING" and not state.canonical_path.is_dir()
-        ]
-        drifted = [state for state in states if state.status == "DRIFT"]
-        for state in (*conflicts, *missing_sources):
-            errors.append(
-                f"Project skill {project_name}/{state.skill_name}: {state.reason}"
-            )
-        if drifted and not force:
-            for state in drifted:
-                errors.append(
-                    f"Project skill {project_name}/{state.skill_name} drifted "
-                    f"at {state.runtime_path}"
-                )
-            errors.append(
-                "Copied project skills contain drift. Run 'aikito diff' "
-                "and reconcile changes, or use --force after review."
-            )
-
-    return errors
 
 
 def _sync_single_project_path(
@@ -592,85 +484,14 @@ def _sync_single_project_path(
     *,
     dry_run: bool,
 ) -> None:
-    inputs = _resolve_project_sync_inputs(aikito_dir, project_name, project_path, data)
-
-    operation = "Previewing sync for" if dry_run else "Syncing"
-    print(f"[INFO] {operation} project '{project_name}' (mode: {inputs.sync_mode})")
-
-    for path in inputs.skill_cleanup.conflicts:
-        print(f"[INFO] Preserving project-owned skill: {path}")
-
-    apply_runtime_cleanup(
-        (*inputs.skill_cleanup.cleanup, *inputs.memory_cleanup.cleanup), dry_run
+    sync_project_path(
+        aikito_dir,
+        project_name,
+        project_path,
+        data,
+        Path.home(),
+        dry_run=dry_run,
     )
-
-    if not dry_run:
-        ensure_dir(inputs.agents_dir)
-        ensure_dir(inputs.agents_skills_dir)
-        ensure_dir(inputs.agents_memory_dir)
-
-    # 1. Sync project skills
-    for skill_name in inputs.skills:
-        source = aikito_dir / "skills" / skill_name
-        target = inputs.agents_skills_dir / skill_name
-        sync_resource(source, target, mode=inputs.sync_mode, dry_run=dry_run)
-
-    # 2. Sync project memory files (always link)
-    for mem_file in inputs.memory_files:
-        source = aikito_dir / "memory" / mem_file
-        target = inputs.agents_memory_dir / mem_file
-        sync_resource(source, target, mode="link", dry_run=dry_run)
-
-    # 3. Sync project's own memory directory contents (always link)
-    if inputs.proj_mem_source.exists() and inputs.proj_mem_source.is_dir():
-        for item in inputs.proj_mem_source.iterdir():
-            target = inputs.agents_memory_dir / item.name
-            sync_resource(item, target, mode="link", dry_run=dry_run)
-    else:
-        print(f"[INFO] No project memory dir found at {inputs.proj_mem_source}")
-
-    # 4. Sync project instructions to the selected agent-native entry points.
-    proj_agents_md = aikito_dir / "projects" / project_name / "AGENTS.md"
-    if proj_agents_md.exists():
-        instruction_targets = collect_project_instruction_targets(
-            aikito_dir, project_path, Path.home()
-        )
-        instructions_enabled = bool(
-            proj_agents_md.read_text(encoding="utf-8", errors="replace").strip()
-        )
-        possible_stale_targets = {inputs.agents_dir / "AGENTS.md"}
-        if not instructions_enabled:
-            possible_stale_targets.update(instruction_targets)
-        managed_stale_targets = tuple(
-            sorted(
-                target
-                for target in possible_stale_targets
-                if target.is_symlink()
-                and target.resolve(strict=False) == proj_agents_md.resolve(strict=False)
-            )
-        )
-        apply_runtime_cleanup(managed_stale_targets, dry_run)
-        if not instructions_enabled:
-            print(
-                f"[INFO] Project instructions are empty for '{project_name}'; "
-                "no Agent-native instruction links are required."
-            )
-            instruction_targets = {}
-        instruction_results = []
-        for target, agent_names in instruction_targets.items():
-            print(f"[INFO] Project instructions for {', '.join(agent_names)}")
-            instruction_results.append(
-                sync_project_instruction(proj_agents_md, target, dry_run)
-            )
-        if not all(instruction_results):
-            print(
-                "[ERROR] Project instruction synchronization failed.", file=sys.stderr
-            )
-            sys.exit(1)
-    else:
-        print(
-            f"[INFO] No AGENTS.md found for project '{project_name}' at {proj_agents_md}"
-        )
 
 
 def cmd_mcp_sync(args: argparse.Namespace) -> None:
@@ -908,6 +729,18 @@ def cmd_init(args: argparse.Namespace) -> None:
 
 def cmd_path_workspace(args: argparse.Namespace) -> None:
     print(get_aikito_dir())
+
+
+def cmd_prepare_project(args: argparse.Namespace) -> None:
+    try:
+        prepared = Project.load(
+            args.project_name,
+            workspace=get_aikito_dir(),
+        ).prepare(agent=args.agent)
+    except ProjectError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        sys.exit(1)
+    print(f"[READY] Project '{prepared.name}' for {prepared.agent}: {prepared.cwd}")
 
 
 def cmd_init_project(args: argparse.Namespace) -> None:
@@ -1644,6 +1477,22 @@ def build_parser() -> argparse.ArgumentParser:
         "workspace", help="Print the active workspace directory"
     )
     p_path_workspace.set_defaults(func=cmd_path_workspace)
+
+    # prepare project
+    p_prepare = subparsers.add_parser(
+        "prepare", help="Prepare managed resources for an Agent run"
+    )
+    prepare_subparsers = p_prepare.add_subparsers(dest="prepare_target", required=True)
+    p_prepare_project = prepare_subparsers.add_parser(
+        "project", help="Prepare one Aikito project for a supported Agent"
+    )
+    p_prepare_project.add_argument(
+        "project_name", help="Name of the project under <workspace>/projects/"
+    )
+    p_prepare_project.add_argument(
+        "--agent", default="pi", help="Agent to prepare (V1 supports: pi)"
+    )
+    p_prepare_project.set_defaults(func=cmd_prepare_project)
 
     # init
     p_init = subparsers.add_parser("init", help="Initialize a workspace or project")

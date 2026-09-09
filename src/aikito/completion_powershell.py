@@ -186,6 +186,12 @@ $script:AikitoCompleterBlock = {{
                 }}
                 break
             }}
+            '^prepare project$' {{
+                if ($argIndex -eq 3) {{
+                    Invoke-Candidates 'projects'
+                }}
+                break
+            }}
             '^init project$' {{
                 if ($argIndex -eq 4) {{
                     Invoke-Candidates 'paths'

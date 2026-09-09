@@ -26,6 +26,7 @@ version.
 | `aikito init workspace [path]` | Initialize a new workspace or connect an existing one, detect installed Agents, and remember an explicit path |
 | `aikito path workspace` | Print the resolved active workspace path |
 | `aikito init project [name] [path] [--description <text>]` | Register a code project and synchronize its `.agents/` runtime |
+| `aikito prepare project <name> [--agent pi]` | Resolve one local project path and prepare its managed resources for an Agent run |
 | `aikito add skill <name>` | Create a canonical skill skeleton and register it in `skills.toml` or project config |
 | `aikito add subagent <name>` | Create a canonical subagent skeleton and register it in `subagents.toml` |
 | `aikito add mcp <name>` | Create a canonical MCP server configuration in `mcps/<name>.toml` |
@@ -76,6 +77,7 @@ Commands differ in their effect:
 - `status`, `diff`, `show`, `completion`, and the default `adopt` plan are read-only;
 - `init workspace` creates or updates a recognized workspace;
 - `init project` creates an idempotent canonical project skeleton and its runtime links;
+- `prepare project` resolves exactly one active project path and idempotently updates its managed project resources;
 - `add` creates a canonical resource skeleton and performs required registration;
 - `adopt --apply` writes imported resources into the workspace after backup;
 - `sync` writes managed Agent or project runtime configuration;
@@ -102,6 +104,35 @@ explains any warning symbols. It does not check whether individual notes are
 listed in `index.md`; use `doctor` for that index consistency check. Use
 `show project <name>` to inspect the exact runtime resource paths and link
 issues for one project.
+
+## Prepare a Project for an Agent Run
+
+The public Python API lets an external runner prepare one existing Aikito
+project without reading workspace configuration directly:
+
+```python
+from aikito import Project
+
+project = Project.load("example")
+prepared = project.prepare(agent="pi")
+```
+
+`PreparedProject` contains the project name, Agent name, resolved `cwd`, and
+read-only `env_overrides`. Preparation uses the existing persistent project
+sync rules for instructions, selected skills, and memory. It does not launch
+the Agent or synchronize global instructions, global skills, MCP servers, or
+subagents.
+
+The matching CLI entry is:
+
+```bash
+aikito prepare project example --agent pi
+```
+
+Preparation requires exactly one active configured path. It fails instead of
+guessing when no path or several paths are active. V1 supports Pi for prepared
+project runs; normal synchronization remains available to every configured
+Agent.
 
 `aikito maintain memory` defaults to the project whose locally present path
 contains the current directory and launches the `codex` runner configured in

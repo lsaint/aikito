@@ -139,6 +139,7 @@ resource.
 aikito init project [<name> <path>]      # defaults to directory name and cwd
 aikito show projects | aikito show project <name>
 aikito sync project <name> [--dry-run|--force]
+aikito prepare project <name> [--agent pi]
 aikito status | aikito diff
 ```
 
@@ -168,6 +169,12 @@ selected in `agent.toml` and report them only as notices, while a selected skill
 with the same name remains a conflict. Matching directory contents never prove
 Aikito ownership. `.agents/memory/` is exclusively Aikito-managed, so unknown
 entries there remain conflicts.
+
+`prepare project` is the execution-facing entry for an external runner. It
+requires exactly one active path, applies the same persistent project sync
+rules, and returns the resolved working directory through the public Python
+API. V1 supports Pi and never synchronizes global resources, MCP servers, or
+subagents as part of preparation.
 
 ### MCP Servers
 

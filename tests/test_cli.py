@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 from aikito import cli as AIKITO_CLI
 from aikito.status import MCPRuntimeRow
+from aikito.sync import sync_project_instruction
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -140,13 +141,22 @@ class GlobalEntrySyncTest(unittest.TestCase):
         target = self.root / "proj" / "AGENTS.md"
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("# Custom Instructions", encoding="utf-8")
-        self.assertFalse(
-            AIKITO_CLI.sync_project_instruction(source, target, dry_run=False)
-        )
+        self.assertFalse(sync_project_instruction(source, target, dry_run=False))
         self.assertEqual(target.read_text(encoding="utf-8"), "# Custom Instructions")
 
 
 class SyncSubcommandParserTest(unittest.TestCase):
+    def test_prepare_project_command(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+
+        args = parser.parse_args(["prepare", "project", "demo", "--agent", "pi"])
+
+        self.assertEqual(args.command, "prepare")
+        self.assertEqual(args.prepare_target, "project")
+        self.assertEqual(args.project_name, "demo")
+        self.assertEqual(args.agent, "pi")
+        self.assertEqual(args.func, AIKITO_CLI.cmd_prepare_project)
+
     def test_diff_command(self) -> None:
         parser = AIKITO_CLI.build_parser()
 
