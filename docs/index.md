@@ -1,7 +1,8 @@
 # Aikito Documentation
 
-Aikito keeps coding-agent instructions, skills, and durable memory in one
-Git-managed workspace and connects them to your agents and code projects.
+Aikito keeps coding-agent instructions, skills, MCP definitions, subagents, and
+durable memory in one Git-managed workspace and connects them to your agents and
+code projects.
 
 ## Start with one project
 
