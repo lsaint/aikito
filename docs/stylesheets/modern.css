@@ -592,6 +592,39 @@ body {
   background: var(--aikito-muted);
 }
 
+.md-sidebar--primary .md-sidebar__scrollwrap {
+  scrollbar-color: transparent transparent;
+}
+
+.md-sidebar--primary .md-sidebar__scrollwrap::-webkit-scrollbar {
+  width: 5px;
+}
+
+.md-sidebar--primary .md-sidebar__scrollwrap::-webkit-scrollbar-thumb {
+  border-radius: 10px;
+  background: transparent;
+  transition: background-color 150ms ease;
+}
+
+.md-sidebar--primary:hover .md-sidebar__scrollwrap,
+.md-sidebar--primary:focus-within .md-sidebar__scrollwrap,
+.md-sidebar--primary .md-sidebar__scrollwrap:hover,
+.md-sidebar--primary .md-sidebar__scrollwrap:focus-within {
+  scrollbar-color: var(--aikito-line-strong) transparent;
+}
+
+.md-sidebar--primary:hover .md-sidebar__scrollwrap::-webkit-scrollbar-thumb,
+.md-sidebar--primary:focus-within .md-sidebar__scrollwrap::-webkit-scrollbar-thumb,
+.md-sidebar--primary .md-sidebar__scrollwrap:hover::-webkit-scrollbar-thumb,
+.md-sidebar--primary .md-sidebar__scrollwrap:focus-within::-webkit-scrollbar-thumb {
+  background: var(--aikito-line-strong);
+}
+
+.md-sidebar--primary .md-sidebar__scrollwrap::-webkit-scrollbar-thumb:hover,
+.md-sidebar--primary .md-sidebar__scrollwrap::-webkit-scrollbar-thumb:active {
+  background: var(--aikito-muted);
+}
+
 /* ---------- Responsive ---------- */
 
 @media screen and (max-width: 76.234375em) {
