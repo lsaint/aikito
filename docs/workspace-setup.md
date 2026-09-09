@@ -7,7 +7,7 @@ This step assumes [the CLI is installed](installation.md).
 ## Ask your agent
 
 > Initialize my Aikito workspace at ~/aikito, or inspect it if it already exists.
-> Preview global synchronization, report any conflicts, and synchronize when
+> Preview workspace synchronization, report any conflicts, and synchronize when
 > there are none. Verify the workspace path and status. Do not adopt existing
 > configuration or register a project yet.
 
@@ -29,13 +29,15 @@ For a cloned workspace on another machine, follow
 | `global/AGENTS.md` | Instructions shared across projects |
 | `agents.toml` | Agent integration paths and capabilities |
 | `skills/` and `skills.toml` | Reusable skills and global selections |
+| `subagents.toml` | Subagent personas configured across agents |
+| `mcps/` | Model Context Protocol configurations |
 | `projects/` | Each registered project's configuration and memory |
 
-Preview and apply global instructions and skills:
+Preview and synchronize workspace resources:
 
 ```bash
-aikito sync global --dry-run
-aikito sync global
+aikito sync --dry-run
+aikito sync
 aikito status
 ```
 
@@ -47,9 +49,8 @@ Existing configuration can be imported through a reviewed
 ## Verify
 
 `aikito path workspace` should print your selected location. In
-`aikito status`, check global instructions and skills for your installed agents.
-Other resource classes may still need setup; this step synchronizes only global
-instructions and skills. For missing agents, see
+`aikito status`, check global instructions, skills, subagents, and MCP
+servers for your installed agents. For missing agents, see
 [agent detection](troubleshooting.md#an-agent-is-missing).
 
 Optionally run `aikito web` to browse resources and status in the read-only local

@@ -25,7 +25,7 @@ aikito sync project example
 aikito show project example
 ```
 
-Use `aikito sync global --dry-run` for global instructions and skills.
+Use `aikito sync global --dry-run` for global instructions and skills, or `aikito sync --dry-run` for the entire workspace.
 Empty canonical project instructions intentionally disable their connections;
 see [your first instruction](first-instruction.md).
 
