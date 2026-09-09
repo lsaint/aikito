@@ -137,7 +137,7 @@ jobs:
           wheel_path = list(pathlib.Path('dist').glob('*.whl'))[0]
           with zipfile.ZipFile(wheel_path) as z:
               wheel_names = sorted(
-                  n.replace('aikito/', 'templates/', 1)
+                  n.replace('aikito/', '', 1)
                   for n in z.namelist()
                   if n.startswith('aikito/templates/') and not n.endswith('/')
               )
