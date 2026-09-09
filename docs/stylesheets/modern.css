@@ -238,7 +238,7 @@ body {
   margin-top: 1.05rem;
   padding-block: 0.26rem;
   background: transparent;
-  color: var(--aikito-faint);
+  color: var(--aikito-text);
   font-size: 0.62rem;
   font-weight: 720;
   letter-spacing: 0.105em;
@@ -248,7 +248,7 @@ body {
 .md-nav--primary > .md-nav__list > .md-nav__item--nested > .md-nav__link:hover,
 .md-nav--primary > .md-nav__list > .md-nav__item--section > .md-nav__link:hover {
   background: transparent;
-  color: var(--aikito-muted);
+  color: var(--aikito-text);
 }
 
 /* ---------- Right table of contents ---------- */
