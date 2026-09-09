@@ -90,4 +90,14 @@ aikito --help
 You should see a version and the command list. If the shell cannot find
 `aikito`, resolve the installation or PATH issue before continuing.
 
+### Troubleshooting
+
+If you recently published or upgraded a release and your package manager reports that `aikito` was not found, regional PyPI mirrors (such as Aliyun, Tsinghua, etc.) or local caches may be experiencing synchronization delays. Install directly from the official PyPI index:
+
+```bash
+uv tool install --index-url https://pypi.org/simple/ aikito
+# or
+pipx install --index-url https://pypi.org/simple/ aikito
+```
+
 Next: [Create a workspace](workspace-setup.md).

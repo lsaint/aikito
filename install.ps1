@@ -5,8 +5,8 @@
 
 .DESCRIPTION
     Installs Aikito on Windows. Validates Windows Developer Mode (required for
-    symlink support), and installs Aikito using uv tool (preferred) or an
-    isolated Python virtual environment.
+    symlink support), cleans up legacy bin/ installations, and installs Aikito
+    using uv tool (preferred) or an isolated Python virtual environment.
 
 .EXAMPLE
     irm https://raw.githubusercontent.com/lsaint/aikito/main/install.ps1 | iex
@@ -50,6 +50,46 @@ function Write-Fail([string] $Msg) {
     Write-Host "  [ERROR] $Msg" -ForegroundColor Red
     Write-Host ""
     exit 1
+}
+
+function Clean-LegacyInstallation([string] $BaseDir) {
+    $legacyBin = Join-Path $BaseDir "bin"
+
+    # 1. Clean legacy aikito\bin entries from User PATH (matches DefaultDir, InstallDir, or any past *\aikito\bin)
+    $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+    if ($userPath) {
+        $parts = $userPath -split ';' | Where-Object {
+            $entry = $_.Trim().TrimEnd('\')
+            $entry -and ($entry -ne $legacyBin.TrimEnd('\')) -and ($entry -notmatch '[\\/]aikito[\\/]bin$')
+        }
+        $cleanedUserPath = $parts -join ';'
+        if ($cleanedUserPath -ne $userPath) {
+            [Environment]::SetEnvironmentVariable("PATH", $cleanedUserPath, "User")
+            Write-Ok "Removed legacy bin entry from User PATH"
+        }
+    }
+
+    # Also clean current session env:PATH
+    $sessionParts = $env:PATH -split ';' | Where-Object {
+        $entry = $_.Trim().TrimEnd('\')
+        $entry -and ($entry -ne $legacyBin.TrimEnd('\')) -and ($entry -notmatch '[\\/]aikito[\\/]bin$')
+    }
+    $env:PATH = $sessionParts -join ';'
+
+    # 2. Check specifically for legacy Aikito stub scripts before removing legacy files
+    $isLegacyAikito = (Test-Path (Join-Path $legacyBin "aikito.cmd")) -or `
+                      (Test-Path (Join-Path $legacyBin "aikito")) -or `
+                      (Test-Path (Join-Path $legacyBin "aikito.ps1"))
+
+    if ($isLegacyAikito) {
+        Write-Step "Cleaning up legacy installation stubs in $legacyBin ..."
+        try {
+            Remove-Item $legacyBin -Recurse -Force -ErrorAction Stop
+            Write-Ok "Removed legacy $legacyBin"
+        } catch {
+            Write-Warn "Could not remove legacy $legacyBin ($_); continuing..."
+        }
+    }
 }
 
 # --- Banner -------------------------------------------------------------------
@@ -104,6 +144,13 @@ After enabling Developer Mode, re-run this installer.
 
 Write-Ok "Developer Mode / symlink support confirmed"
 
+# --- Cleanup Legacy Installation ---------------------------------------------
+
+Clean-LegacyInstallation $DefaultDir
+if ($InstallDir -and ($InstallDir -ne $DefaultDir)) {
+    Clean-LegacyInstallation $InstallDir
+}
+
 # --- Install Package ----------------------------------------------------------
 
 $pkgSpec = if ($Version) { "aikito==$($Version.TrimStart('v'))" } else { "aikito" }
@@ -118,6 +165,18 @@ if (-not $InstallDir -and (Get-Command uv -ErrorAction SilentlyContinue)) {
             $installedViaUv = $true
             Write-Ok "Installed $pkgSpec via uv tool"
             try { & uv tool update-shell 2>$null } catch {}
+
+            # Temporarily add candidate uv bin directories to session PATH for immediate verification
+            $uvBinCandidates = @(
+                $env:UV_TOOL_BIN_DIR,
+                (Join-Path $env:USERPROFILE ".local\bin")
+            ) | Where-Object { $_ -and (Test-Path $_) }
+
+            foreach ($cand in $uvBinCandidates) {
+                if ($env:PATH -notlike "*$cand*") {
+                    $env:PATH = "$cand;$env:PATH"
+                }
+            }
         }
     } catch {
         Write-Warn "uv tool install failed ($_); falling back to Python virtualenv..."
@@ -218,21 +277,52 @@ try {
     }
 } catch {}
 
-if (-not $verified -and $ScriptsDir) {
-    $targetExe = Join-Path $ScriptsDir "aikito.exe"
-    if (Test-Path $targetExe) {
-        try {
-            $verLine = & $targetExe version 2>&1
-            if ($LASTEXITCODE -eq 0) {
-                Write-Ok $verLine.ToString().Trim()
-                $verified = $true
-            }
-        } catch {}
+if (-not $verified) {
+    $candidates = @()
+    if ($ScriptsDir) {
+        $candidates += (Join-Path $ScriptsDir "aikito.exe")
+    }
+    if ($env:UV_TOOL_BIN_DIR) {
+        $candidates += (Join-Path $env:UV_TOOL_BIN_DIR "aikito.exe")
+    }
+    if ($env:USERPROFILE) {
+        $candidates += (Join-Path $env:USERPROFILE ".local\bin\aikito.exe")
+    }
+
+    foreach ($exe in $candidates) {
+        if ($exe -and (Test-Path $exe)) {
+            try {
+                $verLine = & $exe version 2>&1
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Ok $verLine.ToString().Trim()
+                    $verified = $true
+                    break
+                }
+            } catch {}
+        }
     }
 }
 
 if (-not $verified) {
     Write-Warn "Could not verify 'aikito version' in current session. Open a new terminal to check."
+}
+
+# Check for stale resolution shadowing the new install
+$resolved = (Get-Command aikito -ErrorAction SilentlyContinue).Source
+$expectedLocation = $false
+if ($resolved) {
+    if ($ScriptsDir -and ($resolved -like "$ScriptsDir*")) {
+        $expectedLocation = $true
+    }
+    if ($env:USERPROFILE -and ($resolved -like "*\.local\bin\*")) {
+        $expectedLocation = $true
+    }
+    if ($env:UV_TOOL_BIN_DIR -and ($resolved -like "$($env:UV_TOOL_BIN_DIR)*")) {
+        $expectedLocation = $true
+    }
+    if (-not $expectedLocation) {
+        Write-Warn "'aikito' currently resolves to '$resolved' — a stale or conflicting PATH entry may shadow the new installation."
+    }
 }
 
 # --- Done ---------------------------------------------------------------------

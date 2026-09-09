@@ -166,3 +166,6 @@
 - [ ] **文档与用户指引更新**
   - [x] 更新 `README.md` 与 `README.zh-CN.md` 中的 Linux / 跨平台安装指引（首推 `uv tool install aikito`，次选 `pipx install aikito --python 3.12`）
   - [x] 将本地开发与调试指引统一更新为 `python -m aikito`
+- [ ] **Homebrew Formula 升级为标准 PyPI Virtualenv 模式**
+  - [x] 更新 `aikito-release` skill 中 `references/homebrew-tap.md` 改用 PyPI sdist 源与校验
+  - [ ] 在 v1.30.0 发布至 PyPI 后，更新 `Formula/aikito.rb` 为 `Language::Python::Virtualenv` 模式
