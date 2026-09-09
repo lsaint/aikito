@@ -16,17 +16,17 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 from . import __version__
-from .aikito_add import add_mcp, add_skill, add_subagent
-from .aikito_adopt import build_adopt_plan, execute_adoption
-from .aikito_diff import collect_drift_diffs, render_drift_diffs
-from .aikito_doctor import run_doctor, run_doctor_fixes
-from .aikito_init import (
+from .add import add_mcp, add_skill, add_subagent
+from .adopt import build_adopt_plan, execute_adoption
+from .diff import collect_drift_diffs, render_drift_diffs
+from .doctor import run_doctor, run_doctor_fixes
+from .init import (
     init_project,
     init_workspace,
     project_sync_validation_error,
 )
-from .aikito_maintain import MemoryMaintenanceError, run_memory_maintenance
-from .aikito_resolve import (
+from .maintain import MemoryMaintenanceError, run_memory_maintenance
+from .resolve import (
     SkillTargetConflictError,
     collect_instruction_agent_status,
     collect_project_instruction_status,
@@ -36,21 +36,21 @@ from .aikito_resolve import (
     resolve_skill_target_for_command,
     resolve_subagent_target_for_command,
 )
-from .aikito_sync import (
+from .sync import (
     apply_runtime_cleanup,
     ensure_dir,
     sync_global_entry,
     sync_project_instruction,
     sync_resource,
 )
-from .aikito_memory import (
+from .memory import (
     MemoryTargetConflictError,
     remove_memory_note,
     rename_memory_note,
     resolve_memory_target_for_command,
     validate_memory_name,
 )
-from .aikito_mcp import (
+from .mcp import (
     MCPConfigError,
     authenticate_mcp,
     collect_project_instruction_targets,
@@ -58,8 +58,8 @@ from .aikito_mcp import (
     load_agents,
     sync_mcp_configs,
 )
-from .aikito_templates import TemplateError
-from .aikito_project import (
+from .templating import TemplateError
+from .project import (
     RuntimeCleanupPlan,
     append_candidate_path_to_config,
     collect_project_summaries,
@@ -69,14 +69,14 @@ from .aikito_project import (
     resolve_project_binding,
 )
 
-from .aikito_config import get_inbox_path
-from .aikito_inbox import (
+from .config import get_inbox_path
+from .inbox import (
     InboxTargetConflictError,
     collect_inbox_rows,
     remove_inbox_note,
     resolve_inbox_target_for_command,
 )
-from .aikito_render import (
+from .render import (
     DoctorReport,
     render_doctor_report,
     render_agent_mcp_table,
@@ -95,7 +95,7 @@ from .aikito_render import (
     render_status_report,
     render_subagents_status_table,
 )
-from .aikito_status import (
+from .status import (
     collect_mcp_details,
     collect_mcp_matrix,
     collect_mcp_runtime,
@@ -105,26 +105,26 @@ from .aikito_status import (
     collect_subagents_matrix,
     get_status_report_data,
 )
-from .aikito_subagent import (
+from .subagent import (
     SubagentConfigError,
     sync_subagent_configs,
 )
-from .aikito_platform import (
+from .compat import (
     init_console_encoding,
     require_symlink_support,
     safe_relative_path,
 )
 
-from .aikito_web import serve_console
+from .web_console import serve_console
 
-from .aikito_completion import (
+from .completion import (
     generate_bash,
     generate_fish,
     generate_powershell,
     generate_zsh,
     get_candidates,
 )
-from .aikito_workspace import (
+from .workspace import (
     persist_workspace,
     resolve_workspace,
     resolve_workspace_with_source,
