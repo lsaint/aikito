@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/logo-light.png">
-    <img src="docs/assets/logo-light.png" alt="Aikito Logo" width="160">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lsaint/aikito/main/docs/assets/logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/lsaint/aikito/main/docs/assets/logo-light.png">
+    <img src="https://raw.githubusercontent.com/lsaint/aikito/main/docs/assets/logo-light.png" alt="Aikito Logo" width="160">
   </picture>
 </p>
 
@@ -29,7 +29,7 @@ Git 管理的工作区中，供不同 Agent 与项目使用。
 Aikito 治理工作区，Agent 维护 memory，而一切由你把关。
 
 <p align="center">
-  <img src="docs/assets/aikito-overview.png" alt="Aikito 概览图">
+  <img src="https://raw.githubusercontent.com/lsaint/aikito/main/docs/assets/aikito-overview.png" alt="Aikito 概览图">
 </p>
 
 ## 为什么需要 Aikito？
@@ -45,7 +45,7 @@ Aikito 将源文件集中在个人工作区中，把选定的资源连接到各�
 
 ## 长期 Memory
 
-内置的 [durable-memory skill](templates/skills/durable-memory/SKILL.md) 引导 Agent
+内置的 [durable-memory skill](src/aikito/templates/skills/durable-memory/SKILL.md) 引导 Agent
 检索有用笔记、保留经过验证的结论，并更新过时知识。笔记是普通 Markdown，历史由 Git 管理。
 
 例如，写作偏好放在全局 memory，API 重试策略放在对应项目的 memory。

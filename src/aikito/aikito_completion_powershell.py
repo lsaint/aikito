@@ -8,7 +8,7 @@ argparse reflection schema.
 import argparse
 import json
 
-from aikito_completion import _get_schema
+from .aikito_completion import _get_schema
 
 
 def generate_powershell(parser: argparse.ArgumentParser | None = None) -> str:

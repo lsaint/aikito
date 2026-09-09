@@ -19,12 +19,12 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 
-from aikito_config import (
+from .aikito_config import (
     get_project_memory_stale_days,
     get_workspace_config_path,
     load_workspace_config,
 )
-from aikito_platform import (
+from .aikito_platform import (
     can_symlink,
     check_credential_permissions,
     get_permission_fix_cmd,
@@ -33,13 +33,13 @@ from aikito_platform import (
 )
 
 
-from aikito_templates import (
+from .aikito_templates import (
     detect_existing_agents,
     detected_agent_names,
     load_agents_template,
 )
-from aikito_link import SymlinkVerdict, classify_symlink
-from aikito_mcp import (
+from .aikito_link import SymlinkVerdict, classify_symlink
+from .aikito_mcp import (
     AGENT_INSTALL_MARKERS,
     MCPConfigError,
     _load_document,
@@ -49,15 +49,15 @@ from aikito_mcp import (
     load_agents,
     is_agent_installed,
 )
-from aikito_memory import extract_note_title, validate_memory_name
-from aikito_project import collect_project_summaries, resolve_project_binding
-from aikito_registry import (
+from .aikito_memory import extract_note_title, validate_memory_name
+from .aikito_project import collect_project_summaries, resolve_project_binding
+from .aikito_registry import (
     add_missing_agent_fields,
     missing_agent_fields,
 )
-from aikito_render import DoctorFinding, DoctorReport, DoctorSection
-from aikito_status import collect_subagents_matrix
-from aikito_subagent import (
+from .aikito_render import DoctorFinding, DoctorReport, DoctorSection
+from .aikito_status import collect_subagents_matrix
+from .aikito_subagent import (
     SubagentConfigError,
     build_plan,
     load_subagent_definitions,
@@ -1186,40 +1186,49 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
             )
         )
 
-    # 6b. Interpreter consistency: $PATH python/python3 vs sys.executable
-    if is_windows():
+    # 6b. Interpreter consistency: $PATH python/python3 vs sys.executable.
+    # Skip when running inside a virtual environment (pip/pipx/uv installs):
+    # the PATH interpreter will always differ from the venv interpreter, and
+    # "adjust the shebang" is meaningless for a pip console_script entry point.
+    in_venv = sys.prefix != sys.base_prefix or bool(os.environ.get("VIRTUAL_ENV"))
+    if in_venv:
+        findings.append(
+            _ok("Interpreter: running inside a virtual environment (pip/uv install)")
+        )
+    elif is_windows():
         path_python = (
             shutil.which("python") or shutil.which("py") or shutil.which("python3")
         )
     else:
         path_python = shutil.which("python3") or shutil.which("python")
 
-    running = sys.executable
-    if path_python:
-        try:
-            path_resolved = Path(path_python).resolve()
-            running_resolved = Path(running).resolve()
-            if os.path.normcase(str(path_resolved)) != os.path.normcase(
-                str(running_resolved)
-            ):
-                fix_hint = (
-                    "Adjust PATH so the intended Python environment is first"
-                    if is_windows()
-                    else "Adjust $PATH or the aikito shebang to use the same interpreter"
-                )
-                findings.append(
-                    _warn(
-                        f"$PATH interpreter ({path_python}) differs from running interpreter ({running})",
-                        fix_hint,
+    if not in_venv:
+        running = sys.executable
+        if path_python:
+            try:
+                path_resolved = Path(path_python).resolve()
+                running_resolved = Path(running).resolve()
+                if os.path.normcase(str(path_resolved)) != os.path.normcase(
+                    str(running_resolved)
+                ):
+                    fix_hint = (
+                        "Adjust PATH so the intended Python environment is first"
+                        if is_windows()
+                        else "Adjust $PATH or the aikito shebang to use the same interpreter"
                     )
-                )
-            else:
-                findings.append(_ok(f"Interpreter consistent: {path_python}"))
-        except Exception:
-            findings.append(_warn("Cannot compare interpreter paths"))
-    else:
-        name = "python or py" if is_windows() else "python3"
-        findings.append(_warn(f"{name} not found in $PATH"))
+                    findings.append(
+                        _warn(
+                            f"$PATH interpreter ({path_python}) differs from running interpreter ({running})",
+                            fix_hint,
+                        )
+                    )
+                else:
+                    findings.append(_ok(f"Interpreter consistent: {path_python}"))
+            except Exception:
+                findings.append(_warn("Cannot compare interpreter paths"))
+        else:
+            name = "python or py" if is_windows() else "python3"
+            findings.append(_warn(f"{name} not found in $PATH"))
 
     # 6c. Agent CLI availability
 

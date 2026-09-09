@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 
-from aikito_subagent import (
+from aikito.aikito_subagent import (
     SubagentConfigError,
     build_plan,
     has_aikito_marker,
@@ -701,7 +701,7 @@ config_format = "dsh_cordis_subagent"
     def test_uninstalled_agent_is_host_gated_with_skip(self) -> None:
         uninstalled_home = self.base_path / "uninstalled_home"
         uninstalled_home.mkdir()
-        with patch("aikito_subagent.is_agent_installed", return_value=False):
+        with patch("aikito.aikito_subagent.is_agent_installed", return_value=False):
             plan, _ = build_plan(self.aikito_dir, uninstalled_home, gate_installed=True)
             codex_items = [p for p in plan if p.agent_name == "codex"]
             self.assertTrue(all(p.action == "SKIP" for p in codex_items))

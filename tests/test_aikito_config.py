@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aikito_config import (
+from aikito.aikito_config import (
     DEFAULT_STALE_MEMORY_DAYS,
     get_inbox_path,
     get_project_memory_stale_days,

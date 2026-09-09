@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `python -m aikito` entry point via `src/aikito/__main__.py`.
+- `aikito` pip-installable console script via `pyproject.toml` `[project.scripts]`.
+- Wheel build support: `uv build` / `python -m build` produce a fully self-contained wheel with bundled templates and web assets.
+
+### Changed
+
+- Package source tree moved from flat `bin/` layout to `src/aikito/` package layout.
+  All runtime modules are now importable as `aikito.*`.
+- Bundled templates moved from top-level `templates/` to `src/aikito/templates/`.
+  External links pointing to `blob/main/templates/skills/...` are updated to
+  `blob/main/src/aikito/templates/skills/...`.
+- Bundled web assets moved from top-level `web/` to `src/aikito/web/`.
+- `aikito doctor` interpreter-consistency check now reports OK and skips the
+  shebang hint when running inside a virtual environment (pip / pipx / uv install).
+- Version constant `__version__` is now the sole source of truth in
+  `src/aikito/__init__.py`; `pyproject.toml` reads it dynamically via hatchling.
+
+### Deprecated
+
+- Invoking aikito via `bin/aikito` is deprecated and will be removed in v1.30.0.
+  Use `python -m aikito` or the `aikito` console script installed by pip/uv.
+
 ## [1.28.0] - 2026-09-08
 
 ### Changed

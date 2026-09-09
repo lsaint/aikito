@@ -49,6 +49,8 @@ jobs:
 
   smoke-test:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: src
 
     steps:
       - uses: actions/checkout@v4
@@ -65,30 +67,30 @@ jobs:
           bin/aikito version
 
       - name: aikito --help
-        run: python3 bin/aikito --help
+        run: python3 -m aikito --help
 
       - name: aikito version
-        run: python3 bin/aikito version
+        run: python3 -m aikito version
 
       - name: aikito subcommand --help
         run: |
-          python3 bin/aikito init --help
-          python3 bin/aikito init workspace --help
-          python3 bin/aikito init project --help
-          python3 bin/aikito add --help
-          python3 bin/aikito add skill --help
-          python3 bin/aikito add subagent --help
-          python3 bin/aikito add mcp --help
-          python3 bin/aikito adopt --help
-          python3 bin/aikito status --help
-          python3 bin/aikito sync --help
-          python3 bin/aikito show --help
-          python3 bin/aikito show inbox --help
-          python3 bin/aikito doctor --help
-          python3 bin/aikito web --help
-          python3 bin/aikito maintain memory --help
-          python3 bin/aikito completion --help
-          python3 bin/aikito completion candidates --help
+          python3 -m aikito init --help
+          python3 -m aikito init workspace --help
+          python3 -m aikito init project --help
+          python3 -m aikito add --help
+          python3 -m aikito add skill --help
+          python3 -m aikito add subagent --help
+          python3 -m aikito add mcp --help
+          python3 -m aikito adopt --help
+          python3 -m aikito status --help
+          python3 -m aikito sync --help
+          python3 -m aikito show --help
+          python3 -m aikito show inbox --help
+          python3 -m aikito doctor --help
+          python3 -m aikito web --help
+          python3 -m aikito maintain memory --help
+          python3 -m aikito completion --help
+          python3 -m aikito completion candidates --help
 
       # Simulate installed agents so sync/doctor exercise real logic instead of skipping.
       # Paths mirror the instruction_path / skills_path parent dirs from agents.toml template.
@@ -107,13 +109,13 @@ jobs:
       - name: aikito init workspace (fresh workspace)
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito init workspace ${{ runner.temp }}/aikito-ws
+            python3 -m aikito init workspace ${{ runner.temp }}/aikito-ws
           test -f ${{ runner.temp }}/aikito-ws/config.toml
 
       - name: Source distribution includes workspace templates
         run: |
           mkdir -p ${{ runner.temp }}/aikito-install
-          cp -R bin web templates ${{ runner.temp }}/aikito-install/
+          cp -R bin src ${{ runner.temp }}/aikito-install/
           HOME=${{ runner.temp }}/installed-home \
             XDG_CONFIG_HOME=${{ runner.temp }}/installed-home/.config \
             ${{ runner.temp }}/aikito-install/bin/aikito init workspace \
@@ -123,35 +125,83 @@ jobs:
           test -f \
             ${{ runner.temp }}/installed-workspace/skills/durable-memory/SKILL.md
 
+      - name: Build wheel and verify package contents
+        env:
+          PYTHONPATH: ""  # override job-level PYTHONPATH so wheel install is tested, not src/
+        run: |
+          python -m pip install --upgrade build hatchling pytest
+          python -m build
+          python3 -c "
+          import zipfile, hashlib, pathlib, subprocess, tarfile, tempfile
+
+          wheel_path = list(pathlib.Path('dist').glob('*.whl'))[0]
+          with zipfile.ZipFile(wheel_path) as z:
+              wheel_names = sorted(
+                  n.replace('aikito/', 'templates/', 1)
+                  for n in z.namelist()
+                  if n.startswith('aikito/templates/') and not n.endswith('/')
+              )
+              wheel_data = z.read('aikito/web/assets/logo.png')
+
+          git_names = sorted(
+              p.replace('src/aikito/', '', 1)
+              for p in subprocess.check_output(
+                  ['git', 'ls-files', 'src/aikito/templates'], text=True
+              ).splitlines()
+          )
+          assert wheel_names == git_names, f'Template file mismatch:\n  wheel={wheel_names}\n  git={git_names}'
+
+          src_data = open('src/aikito/web/assets/logo.png', 'rb').read()
+          assert hashlib.sha256(wheel_data).hexdigest() == hashlib.sha256(src_data).hexdigest(), 'logo.png SHA256 mismatch'
+          print('Wheel contents verified OK')
+
+          # Verify sdist test suite execution
+          sdist_path = list(pathlib.Path('dist').glob('*.tar.gz'))[0]
+          with tempfile.TemporaryDirectory() as tmp:
+              with tarfile.open(sdist_path, 'r:gz') as tar:
+                  tar.extractall(path=tmp)
+              unpacked_dir = list(pathlib.Path(tmp).iterdir())[0]
+              subprocess.check_call(['pytest', '-q'], cwd=unpacked_dir)
+          print('Sdist test suite verified OK')
+          "
+          python -m venv ${{ runner.temp }}/isolated-venv
+          ${{ runner.temp }}/isolated-venv/bin/pip install dist/*.whl
+          ${{ runner.temp }}/isolated-venv/bin/aikito --version
+          ${{ runner.temp }}/isolated-venv/bin/aikito init workspace ${{ runner.temp }}/wheel-ws
+          test -f ${{ runner.temp }}/wheel-ws/agents.toml
+          test -f ${{ runner.temp }}/wheel-ws/skills/aikito/SKILL.md
+          test -f ${{ runner.temp }}/wheel-ws/skills/durable-memory/SKILL.md
+
+
       - name: aikito workspace persistence
         run: |
           mkdir -p ${{ runner.temp }}/pointer-home
           HOME=${{ runner.temp }}/pointer-home \
             XDG_CONFIG_HOME=${{ runner.temp }}/pointer-home/.config \
-            python3 bin/aikito init workspace ${{ runner.temp }}/pointer-ws
+            python3 -m aikito init workspace ${{ runner.temp }}/pointer-ws
           test "$(HOME=${{ runner.temp }}/pointer-home \
             XDG_CONFIG_HOME=${{ runner.temp }}/pointer-home/.config \
-            python3 bin/aikito path workspace)" = \
+            python3 -m aikito path workspace)" = \
             "${{ runner.temp }}/pointer-ws"
           HOME=${{ runner.temp }}/pointer-home \
             XDG_CONFIG_HOME=${{ runner.temp }}/pointer-home/.config \
-            python3 bin/aikito status
+            python3 -m aikito status
 
       # README Quick Start: init workspace → sync global → init project → status
       - name: aikito sync global
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito sync global
+            python3 -m aikito sync global
 
       - name: aikito init project (fresh and idempotent)
         run: |
           mkdir -p ${{ runner.temp }}/example-project
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito init project example \
+            python3 -m aikito init project example \
             ${{ runner.temp }}/example-project \
             --description "CI example project"
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito init project example ${{ runner.temp }}/example-project
+            python3 -m aikito init project example ${{ runner.temp }}/example-project
           grep -q 'description = "CI example project"' \
             ${{ runner.temp }}/aikito-ws/projects/example/agent.toml
           test ! -e ${{ runner.temp }}/example-project/.agents/AGENTS.md
@@ -162,38 +212,38 @@ jobs:
       - name: aikito project inspection and dry-run
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito show projects
+            python3 -m aikito show projects
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito show project example | grep -q "CI example project"
+            python3 -m aikito show project example | grep -q "CI example project"
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito show project example | grep -q "Project paths"
+            python3 -m aikito show project example | grep -q "Project paths"
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito sync project example --dry-run
+            python3 -m aikito sync project example --dry-run
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito diff
+            python3 -m aikito diff
 
       - name: aikito add resources (skill, subagent, mcp)
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito add skill ci-skill --description "CI test skill"
+            python3 -m aikito add skill ci-skill --description "CI test skill"
           test -f ${{ runner.temp }}/aikito-ws/skills/ci-skill/SKILL.md
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito add subagent ci-subagent \
+            python3 -m aikito add subagent ci-subagent \
             --description "CI test subagent" \
             --agents "codex,claude-code,agy,opencode,github-copilot,pi"
           test -f ${{ runner.temp }}/aikito-ws/subagents/ci-subagent.md
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito add mcp ci-mcp --url "https://example.com/mcp"
+            python3 -m aikito add mcp ci-mcp --url "https://example.com/mcp"
           test -f ${{ runner.temp }}/aikito-ws/mcps/ci-mcp.toml
 
       - name: aikito sync without Pi subagent extension
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito sync global
+            python3 -m aikito sync global
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito sync mcp
+            python3 -m aikito sync mcp
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito sync subagents
+            python3 -m aikito sync subagents
           test ! -e ~/.pi/agent/agents
 
       - name: aikito sync with Pi subagent extension
@@ -201,11 +251,11 @@ jobs:
           mkdir -p ~/.pi/agent/extensions/subagent
           touch ~/.pi/agent/extensions/subagent/index.ts
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito sync global
+            python3 -m aikito sync global
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito sync mcp
+            python3 -m aikito sync mcp
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito sync subagents
+            python3 -m aikito sync subagents
           test -L ~/.agents/skills/ci-skill
           test -L ~/.codex/AGENTS.md
           test -L ~/.claude/skills
@@ -222,25 +272,25 @@ jobs:
       - name: aikito resource inspection
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito show skill ci-skill | grep -q "CI test skill"
+            python3 -m aikito show skill ci-skill | grep -q "CI test skill"
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito show subagents ci-subagent | \
+            python3 -m aikito show subagents ci-subagent | \
             grep -q "# Ci Subagent"
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito show mcp ci-mcp | grep -q "https://example.com/mcp"
+            python3 -m aikito show mcp ci-mcp | grep -q "https://example.com/mcp"
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito show instructions global | \
+            python3 -m aikito show instructions global | \
             grep -q "durable-memory"
 
       - name: aikito status
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito status
+            python3 -m aikito status
 
       - name: aikito web
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito web --port 8765 --no-open &
+            python3 -m aikito web --port 8765 --no-open &
           web_pid=$!
           trap 'kill "$web_pid"' EXIT
           for attempt in {1..20}; do
@@ -256,7 +306,7 @@ jobs:
       - name: aikito memory maintenance validation
         run: |
           if AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito maintain memory missing-project; then
+            python3 -m aikito maintain memory missing-project; then
             exit 1
           fi
 
@@ -268,14 +318,14 @@ jobs:
           printf '\n- [[ci-memory|CI memory]]\n' >> \
             ${{ runner.temp }}/aikito-ws/memory/index.md
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito show memory ci-memory | grep -q "CI memory note"
+            python3 -m aikito show memory ci-memory | grep -q "CI memory note"
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito rename memory ci-memory ci-memory-renamed
+            python3 -m aikito rename memory ci-memory ci-memory-renamed
           test -f ${{ runner.temp }}/aikito-ws/memory/notes/ci-memory-renamed.md
           test ! -e ${{ runner.temp }}/aikito-ws/memory/notes/ci-memory.md
           grep -q 'ci-memory-renamed' ${{ runner.temp }}/aikito-ws/memory/index.md
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito rm memory ci-memory-renamed
+            python3 -m aikito rm memory ci-memory-renamed
           test ! -e ${{ runner.temp }}/aikito-ws/memory/notes/ci-memory-renamed.md
           if grep -q 'ci-memory-renamed' \
             ${{ runner.temp }}/aikito-ws/memory/index.md; then
@@ -286,11 +336,11 @@ jobs:
       - name: aikito doctor
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito doctor
+            python3 -m aikito doctor
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito doctor --stale-days 14
+            python3 -m aikito doctor --stale-days 14
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito doctor --json
+            python3 -m aikito doctor --json
 
       - name: Verify workspace config customization in CI
         run: |
@@ -303,47 +353,49 @@ jobs:
           path = "~/aikito/inbox"
           EOF
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito doctor
+            python3 -m aikito doctor
 
       - name: aikito inbox inspection (missing, empty, note list, and target reading)
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito show inbox
+            python3 -m aikito show inbox
           mkdir -p ${{ runner.temp }}/aikito-ws/inbox
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito show inbox
+            python3 -m aikito show inbox
           echo "# CI Test Inbox Note" > ${{ runner.temp }}/aikito-ws/inbox/ci-note.md
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito show inbox
+            python3 -m aikito show inbox
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito show inbox ci-note
+            python3 -m aikito show inbox ci-note
 
       # README Migration: aikito adopt (dry-run, no --apply)
       - name: aikito adopt (dry-run)
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito adopt
+            python3 -m aikito adopt
 
       - name: aikito completion scripts and dynamic candidates
         run: |
-          python3 bin/aikito completion zsh > ${{ runner.temp }}/_aikito
-          python3 bin/aikito completion bash > ${{ runner.temp }}/aikito.bash
-          python3 bin/aikito completion fish > ${{ runner.temp }}/aikito.fish
+          python3 -m aikito completion zsh > ${{ runner.temp }}/_aikito
+          python3 -m aikito completion bash > ${{ runner.temp }}/aikito.bash
+          python3 -m aikito completion fish > ${{ runner.temp }}/aikito.fish
           test -s ${{ runner.temp }}/_aikito
           test -s ${{ runner.temp }}/aikito.bash
           test -s ${{ runner.temp }}/aikito.fish
           bash -n ${{ runner.temp }}/aikito.bash
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito completion candidates memories
+            python3 -m aikito completion candidates memories
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito completion candidates inbox-completions
+            python3 -m aikito completion candidates inbox-completions
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito completion candidates skills
+            python3 -m aikito completion candidates skills
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 bin/aikito completion candidates projects
+            python3 -m aikito completion candidates projects
 
   windows-smoke-test:
     runs-on: windows-latest
+    env:
+      PYTHONPATH: src
     steps:
       - uses: actions/checkout@v4
 
@@ -356,8 +408,8 @@ jobs:
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
-          python bin/aikito --help
-          python bin/aikito version
+          python -m aikito --help
+          python -m aikito version
           & .\bin\aikito.cmd --help
           & .\bin\aikito.ps1 --help
           cmd /c ".\bin\aikito.cmd invalid-subcommand 2>NUL"
@@ -369,21 +421,21 @@ jobs:
       - name: Test PowerShell Completion Generator and Loading
         shell: pwsh
         run: |
-          $compScript = python bin/aikito completion powershell
+          $compScript = python -m aikito completion powershell
           Invoke-Expression ($compScript | Out-String)
-          python bin/aikito completion candidates projects
-          python bin/aikito completion candidates skills
-          python bin/aikito completion candidates memories
+          python -m aikito completion candidates projects
+          python -m aikito completion candidates skills
+          python -m aikito completion candidates memories
 
       - name: Test Workspace Init, Global Sync and Doctor on Windows
         shell: pwsh
         run: |
           $wsDir = Join-Path $env:RUNNER_TEMP "aikito-ws"
           $env:AIKITO_DIR = $wsDir
-          python bin/aikito init workspace "$wsDir"
-          python bin/aikito sync global
-          python bin/aikito doctor
-          python bin/aikito status
+          python -m aikito init workspace "$wsDir"
+          python -m aikito sync global
+          python -m aikito doctor
+          python -m aikito status
 
       - name: Verify Graceful Failure When Symlinks Unavailable
         shell: pwsh
@@ -391,7 +443,7 @@ jobs:
           $noSymWs = Join-Path $env:RUNNER_TEMP "aikito-no-symlink-ws"
           $env:AIKITO_DIR = $noSymWs
           $env:AIKITO_FORCE_NO_SYMLINK = "1"
-          $output = python bin/aikito init workspace "$noSymWs" 2>&1
+          $output = python -m aikito init workspace "$noSymWs" 2>&1
           if ($LASTEXITCODE -eq 0) { throw "Expected init workspace to fail without symlink support" }
           if (-not ($output | Out-String | Select-String "Developer Mode")) {
             throw "Expected Developer Mode guidance in failure output"

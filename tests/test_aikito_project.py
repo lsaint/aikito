@@ -3,14 +3,14 @@ import tomllib
 import unittest
 from pathlib import Path
 
-from aikito_project import (
+from aikito.aikito_project import (
     append_candidate_path_to_config,
     collect_project_skill_states,
     collect_project_summaries,
     collect_single_project_skill_states,
     resolve_project_binding,
 )
-from aikito_render import render_project_detail, render_projects_table
+from aikito.aikito_render import render_project_detail, render_projects_table
 
 ROOT = Path(__file__).resolve().parents[1]
 

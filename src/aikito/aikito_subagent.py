@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from aikito_mcp import is_agent_installed
+from .aikito_mcp import is_agent_installed
 
 
 DEFAULT_AGENTS_CONFIG = Path("agents.toml")

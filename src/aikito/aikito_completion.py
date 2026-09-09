@@ -17,11 +17,11 @@ from pathlib import Path
 from typing import List
 
 
-from aikito_config import get_inbox_path
-from aikito_inbox import find_inbox_files
-from aikito_memory import find_memory_files
-from aikito_project import resolve_project_binding
-from aikito_status import collect_skills_rows
+from .aikito_config import get_inbox_path
+from .aikito_inbox import find_inbox_files
+from .aikito_memory import find_memory_files
+from .aikito_project import resolve_project_binding
+from .aikito_status import collect_skills_rows
 
 
 # ---------------------------------------------------------------------------
@@ -257,9 +257,9 @@ def _get_schema(parser: argparse.ArgumentParser | None = None) -> dict:
         return extract_cli_schema(parser)
 
     try:
-        from aikito_cli_loader import load_cli
+        from .cli import build_parser
 
-        return extract_cli_schema(load_cli().build_parser())
+        return extract_cli_schema(build_parser())
     except Exception as exc:
         raise RuntimeError(
             "Failed to load ArgumentParser for shell completion generation."
@@ -739,6 +739,6 @@ def generate_fish(parser: argparse.ArgumentParser | None = None) -> str:
 
 def generate_powershell(parser: argparse.ArgumentParser | None = None) -> str:
     """Generate a native PowerShell completion script for aikito."""
-    from aikito_completion_powershell import generate_powershell as _gen_pwsh
+    from .aikito_completion_powershell import generate_powershell as _gen_pwsh
 
     return _gen_pwsh(parser)

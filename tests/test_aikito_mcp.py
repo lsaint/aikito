@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from unittest.mock import MagicMock, patch
 
-from aikito_mcp import (
+from aikito.aikito_mcp import (
     STATE_FILE,
     AgentSpec,
     MCPConfigError,
@@ -975,7 +975,7 @@ class MCPToolProbeTest(unittest.TestCase):
             }
         ).encode()
         with patch(
-            "aikito_mcp._post_mcp_message",
+            "aikito.aikito_mcp._post_mcp_message",
             side_effect=[
                 (initialize_response, "session-id"),
                 (b"", ""),
@@ -1018,7 +1018,7 @@ env_http_headers = { Authorization = "TEST_AUTH" }
             with (
                 patch.dict(os.environ, {"TEST_AUTH": "Basic secret"}),
                 patch(
-                    "aikito_mcp._list_remote_mcp_tools",
+                    "aikito.aikito_mcp._list_remote_mcp_tools",
                     return_value=("one", "two"),
                 ) as list_tools,
             ):
@@ -1061,7 +1061,7 @@ env_http_headers = { Authorization = "TEST_AUTH" }
                     with (
                         self.subTest(failure=type(failure).__name__),
                         patch(
-                            "aikito_mcp._list_remote_mcp_tools",
+                            "aikito.aikito_mcp._list_remote_mcp_tools",
                             side_effect=failure,
                         ),
                     ):
@@ -1103,7 +1103,7 @@ env_http_headers = { Authorization = "TEST_AUTH" }
             with (
                 patch.dict(os.environ, {"TEST_AUTH": "Basic echoed-token-123"}),
                 patch(
-                    "aikito_mcp._post_mcp_message",
+                    "aikito.aikito_mcp._post_mcp_message",
                     return_value=(error_response, ""),
                 ),
             ):
@@ -1134,7 +1134,7 @@ env_http_headers = { Authorization = "TEST_AUTH" }
             )
             with (
                 patch.dict(os.environ, {"TEST_AUTH": "Basic secret"}),
-                patch("aikito_mcp._list_remote_mcp_tools") as list_tools,
+                patch("aikito.aikito_mcp._list_remote_mcp_tools") as list_tools,
             ):
                 result = probe_mcp_tools(spec)
 
@@ -1163,7 +1163,7 @@ env_http_headers = { Authorization = "TEST_AUTH" }
             with (
                 patch.dict(os.environ, {"TEST_AUTH": "Basic secret"}),
                 patch(
-                    "aikito_mcp._list_remote_mcp_tools",
+                    "aikito.aikito_mcp._list_remote_mcp_tools",
                     return_value=("one",),
                 ) as list_tools,
             ):
@@ -1175,8 +1175,8 @@ env_http_headers = { Authorization = "TEST_AUTH" }
 
     def test_probe_sends_user_agent_header(self) -> None:
         with (
-            patch("aikito_mcp.build_opener") as mock_opener,
-            patch("aikito_mcp.Request") as mock_request,
+            patch("aikito.aikito_mcp.build_opener") as mock_opener,
+            patch("aikito.aikito_mcp.Request") as mock_request,
         ):
             mock_resp = unittest.mock.MagicMock()
             mock_resp.read.return_value = b"{}"
@@ -1210,8 +1210,8 @@ env_http_headers = { Authorization = "TEST_AUTH" }
         )
 
         with (
-            patch("aikito_mcp.build_opener") as mock_opener,
-            patch("aikito_mcp.time.sleep") as mock_sleep,
+            patch("aikito.aikito_mcp.build_opener") as mock_opener,
+            patch("aikito.aikito_mcp.time.sleep") as mock_sleep,
         ):
             mock_opener.return_value.open.side_effect = [http_429, mock_cm]
             body, _ = _post_mcp_message(
@@ -1229,8 +1229,8 @@ env_http_headers = { Authorization = "TEST_AUTH" }
         http_401 = HTTPError("https://example.com/mcp", 401, "Unauthorized", {}, err_fp)
 
         with (
-            patch("aikito_mcp.build_opener") as mock_opener,
-            patch("aikito_mcp.time.sleep") as mock_sleep,
+            patch("aikito.aikito_mcp.build_opener") as mock_opener,
+            patch("aikito.aikito_mcp.time.sleep") as mock_sleep,
         ):
             mock_opener.return_value.open.side_effect = http_401
             with self.assertRaises(_MCPProbeError):
@@ -1282,15 +1282,17 @@ class AgentDetectionTest(unittest.TestCase):
     def test_marker_directory_counts_as_installed(self) -> None:
         (self.home / ".grok").mkdir()
 
-        with patch("aikito_mcp.shutil.which", return_value=None):
+        with patch("aikito.aikito_mcp.shutil.which", return_value=None):
             self.assertIs(is_agent_installed("grok", self.home), True)
 
     def test_binary_counts_as_installed(self) -> None:
-        with patch("aikito_mcp.shutil.which", return_value="/usr/local/bin/grok"):
+        with patch(
+            "aikito.aikito_mcp.shutil.which", return_value="/usr/local/bin/grok"
+        ):
             self.assertIs(is_agent_installed("grok", self.home), True)
 
     def test_absent_agent_is_not_installed(self) -> None:
-        with patch("aikito_mcp.shutil.which", return_value=None):
+        with patch("aikito.aikito_mcp.shutil.which", return_value=None):
             self.assertIs(is_agent_installed("grok", self.home), False)
 
     def test_unknown_agent_returns_none(self) -> None:
@@ -1300,13 +1302,13 @@ class AgentDetectionTest(unittest.TestCase):
         (self.home / ".grok").mkdir()
         spec = self._spec("grok", self.home / ".grok" / "rules" / "config.toml")
 
-        with patch("aikito_mcp.shutil.which", return_value=None):
+        with patch("aikito.aikito_mcp.shutil.which", return_value=None):
             self.assertTrue(_agent_detected(spec))
 
     def test_agent_detected_false_when_not_installed(self) -> None:
         spec = self._spec("grok", self.home / ".grok" / "rules" / "config.toml")
 
-        with patch("aikito_mcp.shutil.which", return_value=None):
+        with patch("aikito.aikito_mcp.shutil.which", return_value=None):
             self.assertFalse(_agent_detected(spec))
 
     def test_agent_detected_falls_back_for_unknown_agent(self) -> None:
@@ -1385,7 +1387,7 @@ class AgentDetectionTest(unittest.TestCase):
             time.sleep(0.08)
             return MCPToolProbeResult("codex", "OK", "env", ("tool1",))
 
-        with patch("aikito_mcp.probe_mcp_tools", side_effect=_slow_probe):
+        with patch("aikito.aikito_mcp.probe_mcp_tools", side_effect=_slow_probe):
             results = probe_mcp_tools_for_specs(
                 [spec], animate=True, stream=stream, use_color=True
             )

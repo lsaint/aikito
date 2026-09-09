@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aikito_cli_loader import load_cli
-from aikito_completion import (
+from aikito import cli as AIKITO_CLI
+from aikito.aikito_completion import (
     extract_cli_schema,
     generate_bash,
     generate_fish,
@@ -15,13 +15,12 @@ from aikito_completion import (
     list_projects,
     list_skills,
 )
-from aikito_memory import (
+from aikito.aikito_memory import (
     find_memory_files,
     resolve_memory_target,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-AIKITO_CLI = load_cli()
 
 
 class AikitoCompletionReflectionTest(unittest.TestCase):

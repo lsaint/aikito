@@ -11,6 +11,7 @@ Encapsulates OS-specific behavior for Windows, macOS, and Linux:
 from __future__ import annotations
 
 import functools
+import importlib.resources
 import os
 import shlex
 import shutil
@@ -334,3 +335,23 @@ def launch_browser(url: str) -> None:
         except Exception:
             pass
     webbrowser.open(url)
+
+
+def _package_resource_dir(name: str) -> Path:
+    """Resolve a top-level package data subdirectory by name.
+
+    Raises RuntimeError with a clear installation hint if the directory is
+    missing, so callers see an actionable message instead of a confusing
+    AttributeError or FileNotFoundError deep in importlib.resources.
+    """
+    try:
+        ref = importlib.resources.files("aikito").joinpath(name)
+        path = Path(str(ref))
+        if path.is_dir():
+            return path
+    except (ImportError, OSError):
+        pass
+    raise RuntimeError(
+        f"Aikito {name} directory is missing. "
+        "Ensure the package was installed correctly with package data."
+    )

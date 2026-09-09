@@ -10,13 +10,21 @@ the bundled skills. ``render_workspace_files`` drives every file that lands in
 a fresh workspace; ``render_project_files`` handles project-level templates.
 """
 
+import functools
 import shutil
 from pathlib import Path
 from typing import List, Tuple
 
-from aikito_mcp import AGENT_INSTALL_MARKERS, is_agent_installed
+from .aikito_mcp import AGENT_INSTALL_MARKERS, is_agent_installed
+from .aikito_platform import _package_resource_dir
 
-TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
+
+@functools.cache
+def _resolve_templates_dir() -> Path:
+    """Return the path to the bundled templates/ package data directory."""
+    return _package_resource_dir("templates")
+
+
 BUNDLED_SKILL_NAMES = ("aikito", "durable-memory")
 
 # Workspace-level destinations and their source assets under templates/.
@@ -46,7 +54,7 @@ class TemplateError(RuntimeError):
 
 
 def _template_path(name: str) -> Path:
-    path = TEMPLATES_DIR / name
+    path = _resolve_templates_dir() / name
     if not path.is_file() and not path.is_dir():
         raise TemplateError(
             f"Workspace template not found: {path}. "
@@ -115,11 +123,12 @@ def detected_agent_names(
 
 
 def bundled_skill_path(name: str) -> Path:
-    return TEMPLATES_DIR / "skills" / name
+    return _resolve_templates_dir() / "skills" / name
 
 
 def verify_templates() -> list[str]:
     """Return validation errors for every required workspace template asset."""
+    templates_dir = _resolve_templates_dir()
     required_files = [
         *(template_name for _dest, template_name, _description in TEMPLATE_FILES),
         *(template_name for _dest, template_name in PROJECT_TEMPLATE_FILES),
@@ -127,9 +136,9 @@ def verify_templates() -> list[str]:
         *(f"skills/{name}/SKILL.md" for name in BUNDLED_SKILL_NAMES),
     ]
     return [
-        f"Workspace template not found: {TEMPLATES_DIR / name}"
+        f"Workspace template not found: {templates_dir / name}"
         for name in required_files
-        if not (TEMPLATES_DIR / name).is_file()
+        if not (templates_dir / name).is_file()
     ]
 
 
@@ -159,7 +168,6 @@ def render_project_files(project_dir: Path | str) -> list[tuple[Path, str]]:
 
 __all__ = [
     "BUNDLED_SKILL_NAMES",
-    "TEMPLATES_DIR",
     "TemplateError",
     "bundled_skill_path",
     "detect_existing_agents",

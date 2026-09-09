@@ -1,14 +1,45 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "aikito"
-version = "1.28.0"
+dynamic = ["version"]
 description = "Durable workspace for governing context across AI agents"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
+authors = [{ name = "lsaint" }]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/lsaint/aikito"
+Repository = "https://github.com/lsaint/aikito"
+Documentation = "https://github.com/lsaint/aikito/blob/main/docs/README.md"
+Issues = "https://github.com/lsaint/aikito/issues"
+Changelog = "https://github.com/lsaint/aikito/blob/main/CHANGELOG.md"
 
 [project.scripts]
-aikito = "aikito_cli_loader:main"
+aikito = "aikito.cli:main"
+
+[tool.hatch.version]
+path = "src/aikito/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aikito"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/README.md",
+    "/LICENSE",
+    "/pyproject.toml",
+]
 
 [tool.pytest.ini_options]
-pythonpath = ["bin"]
+pythonpath = ["src"]
 testpaths = ["tests"]
 
 [tool.ruff]

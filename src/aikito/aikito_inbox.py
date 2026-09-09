@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 
-from aikito_memory import ensure_safe_path
+from .aikito_memory import ensure_safe_path
 
 
 @dataclass

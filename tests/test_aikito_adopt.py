@@ -5,14 +5,14 @@ import unittest
 from pathlib import Path
 
 
-from aikito_adopt import build_adopt_plan, execute_adoption
-from aikito_templates import (
+from aikito.aikito_adopt import build_adopt_plan, execute_adoption
+from aikito.aikito_templates import (
     load_agents_template,
     load_default_memory_instruction,
     load_global_agents_template,
 )
-from aikito_mcp import load_agent_specs
-from aikito_subagent import load_subagent_definitions
+from aikito.aikito_mcp import load_agent_specs
+from aikito.aikito_subagent import load_subagent_definitions
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MEMORY_INSTRUCTION = load_default_memory_instruction()
@@ -286,7 +286,7 @@ class AikitoAdoptTest(unittest.TestCase):
 
         plan = build_adopt_plan(self.target_path, self.fake_home)
         with patch(
-            "aikito_adopt.create_adopt_backup",
+            "aikito.aikito_adopt.create_adopt_backup",
             side_effect=RuntimeError("Simulated backup storage failure"),
         ):
             with patch("sys.stderr.write"):

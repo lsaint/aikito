@@ -11,8 +11,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, Set, Tuple
 
-from aikito_link import SymlinkVerdict, classify_symlink, symlink_verdict_to_status
-from aikito_mcp import (
+from .aikito_link import SymlinkVerdict, classify_symlink, symlink_verdict_to_status
+from .aikito_mcp import (
     evaluate_spec_status,
     load_agent_specs,
     load_agents,
@@ -21,9 +21,9 @@ from aikito_mcp import (
     read_entry,
     redact_mcp_entry,
 )
-from aikito_project import resolve_project_binding
-from aikito_subagent import build_plan
-from aikito_render import (
+from .aikito_project import resolve_project_binding
+from .aikito_subagent import build_plan
+from .aikito_render import (
     AgentStatusRow,
     MCPServerRow,
     MemoryNoteRow,
@@ -200,7 +200,7 @@ def collect_subagent_details(
     subagent_target: str | None = None,
     agent_target: str | None = None,
 ) -> list[SubagentDetailRow]:
-    from aikito_subagent import (
+    from .aikito_subagent import (
         FORMAT_EXTENSIONS,
         load_all_agents,
         load_subagent_definitions,

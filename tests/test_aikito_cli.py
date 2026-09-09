@@ -10,10 +10,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from aikito_cli_loader import load_cli
-from aikito_status import MCPRuntimeRow
+from aikito import cli as AIKITO_CLI
+from aikito.aikito_status import MCPRuntimeRow
 
-AIKITO_CLI = load_cli()
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -22,12 +21,16 @@ class MissingTemplatesStartupTest(unittest.TestCase):
     def test_version_does_not_require_templates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             install_root = Path(tmp) / "install"
-            shutil.copytree(ROOT / "bin", install_root / "bin")
+            shutil.copytree(ROOT / "src", install_root / "src")
 
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(install_root / "src")
             result = subprocess.run(
-                [sys.executable, str(install_root / "bin" / "aikito"), "--version"],
+                [sys.executable, "-m", "aikito", "--version"],
                 capture_output=True,
                 text=True,
+                env=env,
+                cwd=tmp,
             )
 
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -38,22 +41,28 @@ class MissingTemplatesStartupTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             install_root = Path(tmp) / "install"
             workspace = Path(tmp) / "workspace"
-            shutil.copytree(ROOT / "bin", install_root / "bin")
+            shutil.copytree(ROOT / "src", install_root / "src")
+            shutil.rmtree(install_root / "src" / "aikito" / "templates")
 
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(install_root / "src")
             result = subprocess.run(
                 [
                     sys.executable,
-                    str(install_root / "bin" / "aikito"),
+                    "-m",
+                    "aikito",
                     "init",
                     "workspace",
                     str(workspace),
                 ],
                 capture_output=True,
                 text=True,
+                env=env,
+                cwd=tmp,
             )
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Workspace template not found", result.stderr)
+        self.assertIn("Aikito templates directory is missing", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
 
 
@@ -117,7 +126,7 @@ class GlobalEntrySyncTest(unittest.TestCase):
         (self.source / "SKILL.md").write_text("# Skill", encoding="utf-8")
         target = self.root / ".agent" / "skills"
         target.parent.mkdir(parents=True, exist_ok=True)
-        with patch("aikito_platform.can_symlink", return_value=False):
+        with patch("aikito.aikito_platform.can_symlink", return_value=False):
             with patch("sys.stderr"):
                 with self.assertRaises(SystemExit) as cm:
                     AIKITO_CLI.sync_global_entry(
@@ -613,7 +622,7 @@ class InitSubcommandParserTest(unittest.TestCase):
             project = root / "example"
             project.mkdir()
             (root / ".claude").mkdir()
-            with patch("aikito_init.shutil.which", return_value=None):
+            with patch("aikito.aikito_init.shutil.which", return_value=None):
                 AIKITO_CLI.init_workspace(workspace, root)
             AIKITO_CLI.init_project(workspace, project, "example")
             (workspace / "projects" / "example" / "AGENTS.md").write_text(
@@ -1719,7 +1728,7 @@ url = "http://custom.example.com"
         self.assertEqual(
             AIKITO_CLI.__version__,
             latest_changelog_version,
-            f"bin/aikito __version__ ({AIKITO_CLI.__version__}) does not match latest CHANGELOG.md release ({latest_changelog_version})",
+            f"aikito __version__ ({AIKITO_CLI.__version__}) does not match latest CHANGELOG.md release ({latest_changelog_version})",
         )
 
     def test_add_requires_subcommand(self) -> None:
@@ -2097,16 +2106,19 @@ class TestCliGlobalExceptionHandler(unittest.TestCase):
             non_existent_workspace = Path(tmp) / "non_existent_workspace"
             env = os.environ.copy()
             env["AIKITO_DIR"] = str(non_existent_workspace)
+            env["PYTHONPATH"] = str(ROOT / "src")
 
             result = subprocess.run(
                 [
                     sys.executable,
-                    str(ROOT / "bin" / "aikito"),
+                    "-m",
+                    "aikito",
                     "status",
                 ],
                 capture_output=True,
                 text=True,
                 env=env,
+                cwd=tmp,
             )
 
             self.assertEqual(result.returncode, 1)

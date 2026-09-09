@@ -16,8 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from aikito_subagent import has_aikito_marker
-from aikito_templates import (
+from .aikito_subagent import has_aikito_marker
+from .aikito_templates import (
     load_default_memory_instruction,
     load_global_agents_template,
 )
