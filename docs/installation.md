@@ -15,14 +15,38 @@ If your agent needs setup instructions, point it to the
 
 ## Install manually
 
-On macOS or Linux with Homebrew:
+### Cross-platform (recommended)
+
+With [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv tool install aikito
+```
+
+With [pipx](https://pypa.github.io/pipx/):
+
+```bash
+pipx install aikito
+```
+
+### macOS / Linux with Homebrew
 
 ```bash
 brew install lsaint/tap/aikito
 ```
 
-On Windows, enable Developer Mode in Settings so Aikito can create symbolic
-links, then run the release installer in PowerShell:
+### Windows
+
+Enable Developer Mode in Settings so Aikito can create symbolic links without administrator privileges:
+**Settings → System → For developers → Developer Mode**.
+
+Then install via `uv tool` or `pipx`:
+
+```powershell
+uv tool install aikito
+```
+
+Or run the automated PowerShell installer:
 
 ```powershell
 irm https://raw.githubusercontent.com/lsaint/aikito/main/install.ps1 | iex
@@ -34,13 +58,12 @@ See [platform constraints](safety.md#platform-support-and-constraints) for detai
 
 ### Windows installer details
 
-The installer checks for Python 3.12+ and symbolic-link support, downloads the
-latest release from GitHub, installs to `%LOCALAPPDATA%\Programs\aikito`, and
-adds its `bin` directory to your User PATH. With Developer Mode enabled, no
-administrator privileges are required. Enable it in
-**Settings → System → For developers → Developer Mode**.
+The installer checks for Windows Developer Mode (symlink support) and Python 3.12+,
+and installs Aikito using `uv tool` (if available) or an isolated virtual environment at
+`%LOCALAPPDATA%\Programs\aikito`, adding its command directory to your User PATH.
+No administrator privileges are required when Developer Mode is enabled.
 
-To choose a different installation directory:
+To choose a different installation directory when installing to a virtual environment:
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/lsaint/aikito/main/install.ps1))) -InstallDir "D:\aikito"
@@ -66,5 +89,15 @@ aikito --help
 
 You should see a version and the command list. If the shell cannot find
 `aikito`, resolve the installation or PATH issue before continuing.
+
+### Troubleshooting
+
+If you recently published or upgraded a release and your package manager reports that `aikito` was not found, regional PyPI mirrors (such as Aliyun, Tsinghua, etc.) or local caches may be experiencing synchronization delays. Install directly from the official PyPI index:
+
+```bash
+uv tool install --default-index https://pypi.org/simple/ aikito
+# or
+pipx install --index-url https://pypi.org/simple/ aikito
+```
 
 Next: [Create a workspace](workspace-setup.md).

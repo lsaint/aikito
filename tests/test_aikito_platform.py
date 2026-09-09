@@ -307,24 +307,6 @@ class AikitoPlatformTest(unittest.TestCase):
         other_drive = Path("/other/path")
         self.assertEqual(safe_relative_path(other_drive, home), other_drive.as_posix())
 
-    @unittest.skipUnless(
-        (Path(__file__).resolve().parent.parent / "bin").is_dir(),
-        "bin directory not present (e.g. in sdist)",
-    )
-    def test_wrappers_content_and_structure(self) -> None:
-        bin_dir = Path(__file__).resolve().parent.parent / "bin"
-        cmd_file = bin_dir / "aikito.cmd"
-        ps1_file = bin_dir / "aikito.ps1"
-
-        self.assertTrue(cmd_file.exists())
-        cmd_text = cmd_file.read_text(encoding="utf-8")
-        self.assertIn("setlocal", cmd_text)
-        self.assertIn("exit /b %ERRORLEVEL%", cmd_text)
-
-        self.assertTrue(ps1_file.exists())
-        ps1_text = ps1_file.read_text(encoding="utf-8")
-        self.assertIn("exit $exitCode", ps1_text)
-
 
 if __name__ == "__main__":
     unittest.main()

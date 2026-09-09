@@ -1,6 +1,6 @@
 """Workspace template loading and rendering for ``aikito init``.
 
-Template files live under ``templates/`` next to ``bin/`` so the source
+Template files live under ``templates/`` within the package so the source
 checkout root stays free of workspace-shaped files. The Agent registry is
 assembled in canonical registry order from ``agents/_header.toml`` and one
 ``agents/<name>.toml`` fragment per Agent; initialization selects only detected

@@ -212,7 +212,7 @@ if ((-not (Get-Alias aikito -ErrorAction SilentlyContinue)) -and (Get-Command ai
     Set-Alias -Name aikito -Value $targetPs1 -Scope Global -ErrorAction SilentlyContinue
 }}
 
-$script:AikitoCommandNames = @('aikito', 'aikito.cmd', 'aikito.ps1', '.\\bin\\aikito', 'bin\\aikito', '.\\bin\\aikito.cmd', '.\\bin\\aikito.ps1')
+$script:AikitoCommandNames = @('aikito', 'aikito.exe', 'aikito.cmd', 'aikito.ps1')
 foreach ($cmdName in $script:AikitoCommandNames) {{
     Register-ArgumentCompleter -Native -CommandName $cmdName -ScriptBlock $script:AikitoCompleterBlock
 }}

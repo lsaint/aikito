@@ -60,12 +60,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Verify executable entry point
-        run: |
-          test -x bin/aikito
-          bin/aikito --help
-          bin/aikito version
-
       - name: aikito --help
         run: python3 -m aikito --help
 
@@ -112,13 +106,15 @@ jobs:
             python3 -m aikito init workspace ${{ runner.temp }}/aikito-ws
           test -f ${{ runner.temp }}/aikito-ws/config.toml
 
-      - name: Source distribution includes workspace templates
+      - name: Pip install source and verify workspace init
+        env:
+          PYTHONPATH: ""  # override job-level PYTHONPATH so installed package is tested, not src/
         run: |
-          mkdir -p ${{ runner.temp }}/aikito-install
-          cp -R bin src ${{ runner.temp }}/aikito-install/
+          python -m venv ${{ runner.temp }}/src-venv
+          ${{ runner.temp }}/src-venv/bin/pip install .
           HOME=${{ runner.temp }}/installed-home \
             XDG_CONFIG_HOME=${{ runner.temp }}/installed-home/.config \
-            ${{ runner.temp }}/aikito-install/bin/aikito init workspace \
+            ${{ runner.temp }}/src-venv/bin/aikito init workspace \
               ${{ runner.temp }}/installed-workspace
           test -f ${{ runner.temp }}/installed-workspace/config.toml
           test -f ${{ runner.temp }}/installed-workspace/skills/aikito/SKILL.md
@@ -410,13 +406,22 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $false
           python -m aikito --help
           python -m aikito version
-          & .\bin\aikito.cmd --help
-          & .\bin\aikito.ps1 --help
-          cmd /c ".\bin\aikito.cmd invalid-subcommand 2>NUL"
-          if ($LASTEXITCODE -eq 0) { throw ".cmd did not propagate non-zero exit code" }
-          pwsh -NoProfile -Command "& .\bin\aikito.ps1 invalid-subcommand 2>NUL; exit `$LASTEXITCODE"
-          if ($LASTEXITCODE -eq 0) { throw ".ps1 did not propagate non-zero exit code" }
+          python -m aikito invalid-subcommand 2>$null
+          if ($LASTEXITCODE -eq 0) { throw "aikito did not propagate non-zero exit code on invalid subcommand" }
           $global:LASTEXITCODE = 0
+
+      - name: Install and verify Windows console script entrypoint
+        shell: pwsh
+        env:
+          PYTHONPATH: ""
+        run: |
+          $winVenv = Join-Path $env:RUNNER_TEMP "win-venv"
+          python -m venv $winVenv
+          $venvPip = Join-Path $winVenv "Scripts\pip.exe"
+          $venvAikito = Join-Path $winVenv "Scripts\aikito.exe"
+          & $venvPip install .
+          & $venvAikito --help
+          & $venvAikito version
 
       - name: Test PowerShell Completion Generator and Loading
         shell: pwsh

@@ -116,41 +116,41 @@
 ## 二、 阶段化发布与实施清单 (Checklist)
 
 ### 阶段 0：前置占名与安全准备
-- [ ] 在 PyPI 注册并发布 `aikito` 0.0.1 最小占位包锁定包名所有权
-- [ ] 在 PyPI 配置与 GitHub `lsaint/aikito` 关联的 Trusted Publisher (OIDC) 绑定（可先指向 TestPyPI）
+- [x] 在 PyPI 注册并发布 `aikito` 0.0.1 最小占位包锁定包名所有权
+- [x] 在 PyPI 配置与 GitHub `lsaint/aikito` 关联的 Trusted Publisher (OIDC) 绑定（可先指向 TestPyPI）
 
 ---
 
 ### 阶段 1 (R1)：包结构改造与多端联动（发布 v1.29.0 / v1.29.0-rc1）
 *此阶段不向生产 PyPI 推送，重点在于完成代码架构解耦并验证本地生态稳定性。*
 
-- [ ] **代码与静态资源迁移**
-  - [ ] 创建 `src/aikito/__init__.py` 并声明 `__version__ = "1.29.0"`
-  - [ ] 迁移 `bin/aikito_*.py` 至 `src/aikito/`（保持原文件名不变）
-  - [ ] 提取 `src/aikito/cli.py` 与 `src/aikito/__main__.py`，删除硬编码版本号
-  - [ ] 迁入 `templates/`（19 个跟踪文件）与 `web/` 至 `src/aikito/`
-  - [ ] 重构 `aikito_templates.py`（保留 `TEMPLATES_DIR` 常量，移除死 fallback）与 `aikito_web.py`
-  - [ ] 删除 `bin/aikito_cli_loader.py`
-  - [ ] 修复 `src/aikito/aikito_init.py` 的 `CLI_SOURCE_ROOT` 判定与 `SOURCE_CHECKOUT_MARKERS`
-  - [ ] 修复 `src/aikito/aikito_mcp.py` 的 `[AUTH]` 提示路径
-- [ ] **配置与规则**
-  - [ ] 改造 `pyproject.toml`（Hatchling 后端、动态版本、sdist 包含 tests、SPDX 协议）
-  - [ ] 更新 `.gitignore` 中的模板白名单（`!/src/aikito/templates/**/AGENTS.md`）
-  - [ ] 替换 `README.md` 中的图片引用为 GitHub raw 绝对路径
-- [ ] **测试套件全面适配**
-  - [ ] 修改 `tests/` 下各文件 import 为 `from aikito import aikito_...`
-  - [ ] 修正所有 `unittest.mock.patch` 字符串路径
-  - [ ] 跑通 `ruff check` 与全量 `pytest -v`
-- [ ] **临时过渡 Stub 与 CI 收敛**
-  - [ ] 在 `bin/aikito`、`bin/aikito.cmd`、`bin/aikito.ps1` 中加入调用 Deprecation 警告（注明 v1.30.0 移除）
-  - [ ] 将 `.github/workflows/ci.yml` 中 50+ 处 `python3 bin/aikito` 统一收敛为 `python3 -m aikito`
-  - [ ] 在 `ci.yml` 的 `smoke-test` 中增加 wheel 19 个模板文件 1:1 逐文件对比与 `logo.png` 哈希断言
-  - [ ] 在 `ci.yml` 中新增独立 venv 下的 `pip install .` 验证
-  - [ ] 更新 `windows-smoke-test` 与 `install.ps1`
-- [ ] **Homebrew Formula 联动与 Release 门禁**
-  - [ ] 修改 `~/homebrew-tap/Formula/aikito.rb` 并通过 `brew audit` / `brew test`
-  - [ ] 在 `aikito-release` skill 的 `references/changelog.md` 中添加 PyPI 404 冲突检查门禁
-  - [ ] 发布 R1 Tag并在 TestPyPI 完成验证安装
+- [x] **代码与静态资源迁移**
+  - [x] 创建 `src/aikito/__init__.py` 并声明 `__version__ = "1.29.0"`
+  - [x] 迁移 `bin/aikito_*.py` 至 `src/aikito/`（保持原文件名不变）
+  - [x] 提取 `src/aikito/cli.py` 与 `src/aikito/__main__.py`，删除硬编码版本号
+  - [x] 迁入 `templates/`（19 个跟踪文件）与 `web/` 至 `src/aikito/`
+  - [x] 重构 `aikito_templates.py`（保留 `TEMPLATES_DIR` 常量，移除死 fallback）与 `aikito_web.py`
+  - [x] 删除 `bin/aikito_cli_loader.py`
+  - [x] 修复 `src/aikito/aikito_init.py` 的 `CLI_SOURCE_ROOT` 判定与 `SOURCE_CHECKOUT_MARKERS`
+  - [x] 修复 `src/aikito/aikito_mcp.py` 的 `[AUTH]` 提示路径
+- [x] **配置与规则**
+  - [x] 改造 `pyproject.toml`（Hatchling 后端、动态版本、sdist 包含 tests、SPDX 协议）
+  - [x] 更新 `.gitignore` 中的模板白名单（`!/src/aikito/templates/**/AGENTS.md`）
+  - [x] 替换 `README.md` 中的图片引用为 GitHub raw 绝对路径
+- [x] **测试套件全面适配**
+  - [x] 修改 `tests/` 下各文件 import 为 `from aikito import aikito_...`
+  - [x] 修正所有 `unittest.mock.patch` 字符串路径
+  - [x] 跑通 `ruff check` 与全量 `pytest -v`
+- [x] **临时过渡 Stub 与 CI 收敛**
+  - [x] 在 `bin/aikito`、`bin/aikito.cmd`、`bin/aikito.ps1` 中加入调用 Deprecation 警告（注明 v1.30.0 移除）
+  - [x] 将 `.github/workflows/ci.yml` 中 50+ 处 `python3 bin/aikito` 统一收敛为 `python3 -m aikito`
+  - [x] 在 `ci.yml` 的 `smoke-test` 中增加 wheel 19 个模板文件 1:1 逐文件对比与 `logo.png` 哈希断言
+  - [x] 在 `ci.yml` 中新增独立 venv 下的 `pip install .` 验证
+  - [x] 更新 `windows-smoke-test` 与 `install.ps1`
+- [x] **Homebrew Formula 联动与 Release 门禁**
+  - [x] 修改 `~/homebrew-tap/Formula/aikito.rb` 并通过 `brew audit` / `brew test`
+  - [x] 在 `aikito-release` skill 的 `references/changelog.md` 中添加 PyPI 404 冲突检查门禁
+  - [x] 发布 R1 Tag并在 TestPyPI 完成验证安装
 
 ---
 
@@ -158,11 +158,14 @@
 *在 R1 经两周以上稳定运行、Homebrew 与 Windows 用户验证无回归后执行。*
 
 - [ ] **彻底清理遗留代码**
-  - [ ] **正式删除 `bin/` 目录**（彻底移除 `bin/aikito`、`bin/aikito.cmd`、`bin/aikito.ps1`）
-  - [ ] 更新 Windows `install.ps1` 直接使用 `uv tool` 或包安装，移除对 `bin/` 的依赖
+  - [x] **正式删除 `bin/` 目录**（彻底移除 `bin/aikito`、`bin/aikito.cmd`、`bin/aikito.ps1`）
+  - [x] 更新 Windows `install.ps1` 直接使用 `uv tool` 或包安装，移除对 `bin/` 的依赖
 - [ ] **启用生产 PyPI 自动化流水线**
-  - [ ] 创建并启用 `.github/workflows/publish-pypi.yml`（SHA 固定、权限、OIDC、Provenance Attestation）
+  - [x] 创建并启用 `.github/workflows/publish-pypi.yml`（SHA 固定、权限、OIDC、Provenance Attestation）
   - [ ] 执行正式发布，推送到生产 PyPI
 - [ ] **文档与用户指引更新**
-  - [ ] 更新 `README.md` 与 `README.zh-CN.md` 中的 Linux / 跨平台安装指引（首推 `uv tool install aikito`，次选 `pipx install aikito --python 3.12`）
-  - [ ] 将本地开发与调试指引统一更新为 `python -m aikito`
+  - [x] 更新 `README.md` 与 `README.zh-CN.md` 中的 Linux / 跨平台安装指引（首推 `uv tool install aikito`，次选 `pipx install aikito --python 3.12`）
+  - [x] 将本地开发与调试指引统一更新为 `python -m aikito`
+- [ ] **Homebrew Formula 升级为标准 PyPI Virtualenv 模式**
+  - [x] 更新 `aikito-release` skill 中 `references/homebrew-tap.md` 改用 PyPI sdist 源与校验
+  - [ ] 在 v1.30.0 发布至 PyPI 后，更新 `Formula/aikito.rb` 为 `Language::Python::Virtualenv` 模式
