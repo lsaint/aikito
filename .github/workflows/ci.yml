@@ -125,8 +125,9 @@ jobs:
         env:
           PYTHONPATH: ""  # override job-level PYTHONPATH so wheel install is tested, not src/
         run: |
-          python -m pip install --upgrade build hatchling pytest
+          python -m pip install --upgrade build hatchling pytest twine
           python -m build
+          python -m twine check --strict dist/*
           python3 -c "
           import zipfile, hashlib, pathlib, subprocess, tarfile, tempfile
 
@@ -138,6 +139,10 @@ jobs:
                   if n.startswith('aikito/templates/') and not n.endswith('/')
               )
               wheel_data = z.read('aikito/web/assets/logo.png')
+              metadata_names = [n for n in z.namelist() if n.endswith('/METADATA')]
+              assert metadata_names, 'METADATA missing from wheel'
+              metadata_text = z.read(metadata_names[0]).decode('utf-8')
+              assert 'Metadata-Version: 2.3' in metadata_text, f'Unexpected Metadata-Version: {metadata_text[:100]}'
 
           git_names = sorted(
               p.replace('src/aikito/', '', 1)
@@ -149,7 +154,7 @@ jobs:
 
           src_data = open('src/aikito/web/assets/logo.png', 'rb').read()
           assert hashlib.sha256(wheel_data).hexdigest() == hashlib.sha256(src_data).hexdigest(), 'logo.png SHA256 mismatch'
-          print('Wheel contents verified OK')
+          print('Wheel contents and metadata verified OK')
 
           # Verify sdist test suite execution
           sdist_path = list(pathlib.Path('dist').glob('*.tar.gz'))[0]

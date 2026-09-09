@@ -7,8 +7,7 @@ name = "aikito"
 dynamic = ["version"]
 description = "Durable workspace for governing context across AI agents"
 readme = "README.md"
-license = "MIT"
-license-files = ["LICENSE"]
+license = { text = "MIT" }
 requires-python = ">=3.12"
 authors = [{ name = "lsaint" }]
 dependencies = []
@@ -28,6 +27,7 @@ path = "src/aikito/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/aikito"]
+core-metadata-version = "2.3"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -37,6 +37,7 @@ include = [
     "/LICENSE",
     "/pyproject.toml",
 ]
+core-metadata-version = "2.3"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
