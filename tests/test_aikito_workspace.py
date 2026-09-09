@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from aikito_workspace import (
+from aikito.aikito_workspace import (
     persist_workspace,
     resolve_workspace,
     resolve_workspace_with_source,

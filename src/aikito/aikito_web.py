@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import functools
 import json
 import mimetypes
 import re
@@ -14,21 +15,27 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
-from aikito_config import get_inbox_path, load_workspace_config
-from aikito_diff import collect_drift_diffs
-from aikito_doctor import run_doctor
-from aikito_inbox import collect_inbox_rows
-from aikito_mcp import load_agents
-from aikito_platform import launch_browser
-
-from aikito_project import collect_project_summaries
-from aikito_status import (
+from .aikito_config import get_inbox_path, load_workspace_config
+from .aikito_diff import collect_drift_diffs
+from .aikito_doctor import run_doctor
+from .aikito_inbox import collect_inbox_rows
+from .aikito_mcp import load_agents
+from .aikito_platform import _package_resource_dir, launch_browser
+from .aikito_project import collect_project_summaries
+from .aikito_status import (
     collect_mcp_details,
     collect_memory_notes_rows,
     collect_skills_rows,
     collect_subagent_details,
     get_status_report_data,
 )
+
+
+@functools.cache
+def _resolve_web_dir() -> Path:
+    """Return the path to the bundled web/ package data directory."""
+    return _package_resource_dir("web")
+
 
 _SENSITIVE_KEY = re.compile(
     r"(token|secret|password|credential|authorization|api[_-]?key)", re.I
@@ -434,7 +441,7 @@ def serve_console(
     port: int = 8765,
     open_browser: bool = True,
 ) -> None:
-    web_dir = Path(__file__).resolve().parent.parent / "web"
+    web_dir = _resolve_web_dir()
     server = ThreadingHTTPServer(
         ("127.0.0.1", port),
         make_handler(ConsoleData(aikito_dir, home, version), web_dir),

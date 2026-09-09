@@ -5,8 +5,8 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
-from aikito_add import add_mcp, add_skill, add_subagent, validate_resource_name
-from aikito_init import init_project, init_workspace
+from aikito.aikito_add import add_mcp, add_skill, add_subagent, validate_resource_name
+from aikito.aikito_init import init_project, init_workspace
 
 ROOT = Path(__file__).resolve().parents[1]
 

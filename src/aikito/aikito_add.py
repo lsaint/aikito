@@ -11,7 +11,7 @@ import tomllib
 from pathlib import Path
 from typing import List, Optional
 
-from aikito_platform import safe_relative_path
+from .aikito_platform import safe_relative_path
 
 
 NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")

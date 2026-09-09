@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from aikito_platform import (
+from aikito.aikito_platform import (
     can_symlink,
     check_credential_permissions,
     get_default_editor,
@@ -42,12 +42,12 @@ class AikitoPlatformTest(unittest.TestCase):
         can_symlink.cache_clear()
 
     def test_require_symlink_support(self) -> None:
-        from aikito_platform import require_symlink_support
+        from aikito.aikito_platform import require_symlink_support
 
-        with patch("aikito_platform.can_symlink", return_value=True):
+        with patch("aikito.aikito_platform.can_symlink", return_value=True):
             require_symlink_support()
 
-        with patch("aikito_platform.can_symlink", return_value=False):
+        with patch("aikito.aikito_platform.can_symlink", return_value=False):
             with patch("sys.stderr"):
                 with self.assertRaises(SystemExit) as cm:
                     require_symlink_support()
@@ -58,10 +58,10 @@ class AikitoPlatformTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             f = Path(tmpdir) / "secret.toml"
             f.write_text("secret = 123", encoding="utf-8")
-            with patch("aikito_platform.is_windows", return_value=False):
+            with patch("aikito.aikito_platform.is_windows", return_value=False):
                 self.assertTrue(secure_file_permissions(f))
 
-            with patch("aikito_platform.is_windows", return_value=True):
+            with patch("aikito.aikito_platform.is_windows", return_value=True):
                 mock_proc = MagicMock(returncode=0)
                 with patch("subprocess.run", return_value=mock_proc) as mock_run:
                     self.assertTrue(secure_file_permissions(f))
@@ -90,7 +90,7 @@ class AikitoPlatformTest(unittest.TestCase):
             win_err = OSError("A required privilege is not held by the client")
             win_err.winerror = 1314
 
-            with patch("aikito_platform.is_windows", return_value=True):
+            with patch("aikito.aikito_platform.is_windows", return_value=True):
                 with patch.object(Path, "symlink_to", side_effect=win_err):
                     with patch("sys.stderr"):
                         success = safe_symlink(source, target)
@@ -103,7 +103,7 @@ class AikitoPlatformTest(unittest.TestCase):
             source_dir.mkdir()
             target_dir = tmp / "target_dir"
 
-            with patch("aikito_platform.is_windows", return_value=True):
+            with patch("aikito.aikito_platform.is_windows", return_value=True):
                 with patch.object(Path, "symlink_to") as mock_symlink:
                     safe_symlink(source_dir, target_dir)
                     mock_symlink.assert_called_once_with(
@@ -121,7 +121,7 @@ class AikitoPlatformTest(unittest.TestCase):
             mock_stat_644 = MagicMock()
             mock_stat_644.st_mode = 0o100644
 
-            with patch("aikito_platform.is_windows", return_value=False):
+            with patch("aikito.aikito_platform.is_windows", return_value=False):
                 with patch.object(Path, "stat", return_value=mock_stat_600):
                     is_secure, desc = check_credential_permissions(f)
                     self.assertTrue(is_secure)
@@ -137,7 +137,7 @@ class AikitoPlatformTest(unittest.TestCase):
             f = tmp / "cred.json"
             f.write_text("{}")
 
-            with patch("aikito_platform.is_windows", return_value=True):
+            with patch("aikito.aikito_platform.is_windows", return_value=True):
                 owner_sid = "S-1-5-21-1234-5678-9012-1001"
 
                 def make_run(whoami_out: str, ps_out: str, ps_rc: int = 0):
@@ -182,14 +182,14 @@ class AikitoPlatformTest(unittest.TestCase):
     def test_get_permission_fix_cmd(self) -> None:
         # POSIX: quoted path for spaces
         p = Path("/home/user/my files/.claude.json")
-        with patch("aikito_platform.is_windows", return_value=False):
+        with patch("aikito.aikito_platform.is_windows", return_value=False):
             cmd = get_permission_fix_cmd(p)
             self.assertIn("chmod 600", cmd)
             self.assertIn('"', cmd)  # path must be quoted
 
         # Windows: absolute path, no bare ~
         win_path = Path("C:/Users/user/.claude.json")
-        with patch("aikito_platform.is_windows", return_value=True):
+        with patch("aikito.aikito_platform.is_windows", return_value=True):
             cmd = get_permission_fix_cmd(win_path)
             self.assertIn("icacls", cmd)
             self.assertNotIn("icacls ~", cmd)  # ~ must not appear as first path char
@@ -199,7 +199,7 @@ class AikitoPlatformTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             f = Path(tmpdir) / "cred.json"
             f.write_text("{}")
-            with patch("aikito_platform.is_windows", return_value=True):
+            with patch("aikito.aikito_platform.is_windows", return_value=True):
                 owner_sid = "S-1-5-21-9999"
                 whoami_out = f'"DOMAIN\\\\user","{owner_sid}"'
                 ps_out = f"{owner_sid}\nS-1-5-18\n"
@@ -216,7 +216,9 @@ class AikitoPlatformTest(unittest.TestCase):
                     # Patch path to include a single quote
                     tricky = Path("/home/user/o'brien/.claude.json")
                     with patch.object(Path, "exists", return_value=True):
-                        with patch("aikito_platform.is_windows", return_value=True):
+                        with patch(
+                            "aikito.aikito_platform.is_windows", return_value=True
+                        ):
                             check_credential_permissions(tricky)
                 # The PowerShell command arg must escape single quotes with ''
                 ps_call = next(c for c in captured if "powershell" in c[0])
@@ -228,7 +230,7 @@ class AikitoPlatformTest(unittest.TestCase):
 
     def test_resolve_executable(self) -> None:
         cmd = ["claude", "mcp", "list"]
-        with patch("aikito_platform.is_windows", return_value=True):
+        with patch("aikito.aikito_platform.is_windows", return_value=True):
             with patch(
                 "shutil.which",
                 return_value=r"C:\Users\test\AppData\Roaming\npm\claude.cmd",
@@ -239,7 +241,7 @@ class AikitoPlatformTest(unittest.TestCase):
                 )
                 self.assertEqual(resolved[1:], ["mcp", "list"])
 
-        with patch("aikito_platform.is_windows", return_value=False):
+        with patch("aikito.aikito_platform.is_windows", return_value=False):
             resolved = resolve_executable(cmd)
             self.assertEqual(resolved, cmd)
 
@@ -250,7 +252,7 @@ class AikitoPlatformTest(unittest.TestCase):
             split_command(posix_cmd), ["code", "--wait", "--file", "my file.txt"]
         )
 
-        with patch("aikito_platform.is_windows", return_value=True):
+        with patch("aikito.aikito_platform.is_windows", return_value=True):
             win_cmd = r'C:\Users\test\code.cmd --wait "C:\My Files\doc.txt"'
             res = split_command(win_cmd)
             self.assertEqual(
@@ -258,19 +260,19 @@ class AikitoPlatformTest(unittest.TestCase):
             )
 
     def test_launch_browser(self) -> None:
-        with patch("aikito_platform.is_windows", return_value=True):
+        with patch("aikito.aikito_platform.is_windows", return_value=True):
             with patch("os.startfile", create=True) as mock_startfile:
                 launch_browser("http://127.0.0.1:8765")
                 mock_startfile.assert_called_once_with("http://127.0.0.1:8765")
 
-        with patch("aikito_platform.is_windows", return_value=False):
+        with patch("aikito.aikito_platform.is_windows", return_value=False):
             with patch("webbrowser.open") as mock_open:
                 launch_browser("http://127.0.0.1:8765")
                 mock_open.assert_called_once_with("http://127.0.0.1:8765")
 
     def test_get_workspace_config_dir(self) -> None:
         home = Path("/Users/test")
-        with patch("aikito_platform.is_windows", return_value=False):
+        with patch("aikito.aikito_platform.is_windows", return_value=False):
             with patch.dict(
                 os.environ, {"XDG_CONFIG_HOME": "/custom/config"}, clear=True
             ):
@@ -278,7 +280,7 @@ class AikitoPlatformTest(unittest.TestCase):
                     get_workspace_config_dir(home), Path("/custom/config/aikito")
                 )
 
-        with patch("aikito_platform.is_windows", return_value=True):
+        with patch("aikito.aikito_platform.is_windows", return_value=True):
             appdata = "/Users/test/AppData/Roaming"
             with patch.dict(os.environ, {"APPDATA": appdata}, clear=True):
                 self.assertEqual(
@@ -288,10 +290,10 @@ class AikitoPlatformTest(unittest.TestCase):
 
     def test_get_default_editor(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
-            with patch("aikito_platform.is_windows", return_value=False):
+            with patch("aikito.aikito_platform.is_windows", return_value=False):
                 self.assertEqual(get_default_editor(), "vi")
 
-            with patch("aikito_platform.is_windows", return_value=True):
+            with patch("aikito.aikito_platform.is_windows", return_value=True):
                 self.assertEqual(get_default_editor(), "notepad")
 
         with patch.dict(os.environ, {"EDITOR": "code --wait"}, clear=True):
@@ -305,6 +307,10 @@ class AikitoPlatformTest(unittest.TestCase):
         other_drive = Path("/other/path")
         self.assertEqual(safe_relative_path(other_drive, home), other_drive.as_posix())
 
+    @unittest.skipUnless(
+        (Path(__file__).resolve().parent.parent / "bin").is_dir(),
+        "bin directory not present (e.g. in sdist)",
+    )
     def test_wrappers_content_and_structure(self) -> None:
         bin_dir = Path(__file__).resolve().parent.parent / "bin"
         cmd_file = bin_dir / "aikito.cmd"

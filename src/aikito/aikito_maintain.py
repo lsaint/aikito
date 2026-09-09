@@ -6,8 +6,8 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from aikito_platform import resolve_executable
-from aikito_project import resolve_project_binding
+from .aikito_platform import resolve_executable
+from .aikito_project import resolve_project_binding
 
 
 class MemoryMaintenanceError(RuntimeError):

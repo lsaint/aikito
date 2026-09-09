@@ -5,14 +5,14 @@ import json
 from pathlib import Path
 from typing import Any
 
-from aikito_mcp import (
+from .aikito_mcp import (
     evaluate_spec_status,
     load_agent_specs,
     read_entry,
     redact_mcp_entry,
 )
-from aikito_project import collect_project_skill_diffs
-from aikito_subagent import build_plan
+from .aikito_project import collect_project_skill_diffs
+from .aikito_subagent import build_plan
 
 
 def _json_lines(value: dict[str, Any]) -> list[str]:

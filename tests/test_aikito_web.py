@@ -1,6 +1,4 @@
 import errno
-import importlib.machinery
-import importlib.util
 import json
 import shutil
 import subprocess
@@ -13,7 +11,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
-from aikito_web import ConsoleData, make_handler
+from aikito.aikito_web import ConsoleData, make_handler
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -106,7 +104,7 @@ process.stdout.write(markdown(JSON.parse(process.argv[2]), JSON.parse(process.ar
                 "node",
                 "-e",
                 script,
-                str(ROOT / "web" / "app.js"),
+                str(ROOT / "src" / "aikito" / "web" / "app.js"),
                 json.dumps(source),
                 json.dumps(wikilinks),
             ],
@@ -242,12 +240,7 @@ process.stdout.write(markdown(JSON.parse(process.argv[2]), JSON.parse(process.ar
 
 class WebCommandParserTest(unittest.TestCase):
     def test_web_command_options(self) -> None:
-        loader = importlib.machinery.SourceFileLoader(
-            "aikito_web_cli", str(ROOT / "bin" / "aikito")
-        )
-        spec = importlib.util.spec_from_loader(loader.name, loader)
-        module = importlib.util.module_from_spec(spec)
-        loader.exec_module(module)
+        from aikito import cli as module
 
         args = module.build_parser().parse_args(["web", "--port", "0", "--no-open"])
         self.assertEqual(args.port, 0)
@@ -255,12 +248,8 @@ class WebCommandParserTest(unittest.TestCase):
         self.assertEqual(args.func, module.cmd_web)
 
     def test_web_command_reports_port_conflict_without_traceback(self) -> None:
-        loader = importlib.machinery.SourceFileLoader(
-            "aikito_web_cli_port_conflict", str(ROOT / "bin" / "aikito")
-        )
-        spec = importlib.util.spec_from_loader(loader.name, loader)
-        module = importlib.util.module_from_spec(spec)
-        loader.exec_module(module)
+        from aikito import cli as module
+
         args = module.build_parser().parse_args(["web", "--port", "8765"])
 
         error = OSError(errno.EADDRINUSE, "Address already in use")

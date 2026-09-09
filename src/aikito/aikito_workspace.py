@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-from aikito_platform import get_workspace_config_dir
+from .aikito_platform import get_workspace_config_dir
 
 
 def get_workspace_pointer_path(home: Path) -> Path:

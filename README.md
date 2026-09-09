@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/logo-light.png">
-    <img src="docs/assets/logo-light.png" alt="Aikito Logo" width="160">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lsaint/aikito/main/docs/assets/logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/lsaint/aikito/main/docs/assets/logo-light.png">
+    <img src="https://raw.githubusercontent.com/lsaint/aikito/main/docs/assets/logo-light.png" alt="Aikito Logo" width="160">
   </picture>
 </p>
 
@@ -29,7 +29,7 @@ durable memory in one Git-managed workspace, shared across agents and projects.
 Aikito governs the workspace, agents maintain the memory, and you oversee it all.
 
 <p align="center">
-  <img src="docs/assets/aikito-overview.png" alt="Aikito overview">
+  <img src="https://raw.githubusercontent.com/lsaint/aikito/main/docs/assets/aikito-overview.png" alt="Aikito overview">
 </p>
 
 ## Why Aikito
@@ -48,7 +48,7 @@ hosted service is required.
 
 ## Durable Memory
 
-The bundled [durable-memory skill](templates/skills/durable-memory/SKILL.md)
+The bundled [durable-memory skill](src/aikito/templates/skills/durable-memory/SKILL.md)
 guides agents to retrieve useful notes, retain verified conclusions, and update
 stale knowledge. Notes are plain Markdown with Git history.
 

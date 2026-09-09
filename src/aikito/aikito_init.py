@@ -16,10 +16,10 @@ from typing import Optional
 
 import tomllib
 
-from aikito_mcp import MCPConfigError, collect_project_instruction_targets
-from aikito_platform import safe_relative_path
-from aikito_project import resolve_project_binding
-from aikito_templates import (
+from .aikito_mcp import MCPConfigError, collect_project_instruction_targets
+from .aikito_platform import safe_relative_path
+from .aikito_project import resolve_project_binding
+from .aikito_templates import (
     BUNDLED_SKILL_NAMES,
     bundled_skill_path,
     detect_existing_agents,
@@ -30,12 +30,22 @@ from aikito_templates import (
 )
 
 
-CLI_SOURCE_ROOT = Path(__file__).resolve().parents[1]
+def _detect_source_root() -> Optional[Path]:
+    try:
+        candidate = Path(__file__).resolve().parents[2]
+        if (candidate / ".git").is_dir() and (candidate / "pyproject.toml").is_file():
+            return candidate
+    except Exception:
+        pass
+    return None
+
+
+CLI_SOURCE_ROOT = _detect_source_root()
 
 SOURCE_CHECKOUT_MARKERS = (
     Path("LICENSE"),
     Path("README.md"),
-    Path("bin/aikito"),
+    Path("pyproject.toml"),
 )
 
 WORKSPACE_FILE_MARKERS = (
@@ -66,12 +76,13 @@ __all__ = [
 
 
 def _target_validation_error(target_dir: Path) -> Optional[str]:
-    source_root = CLI_SOURCE_ROOT.resolve()
-    if target_dir == source_root or source_root in target_dir.parents:
-        return (
-            "Refusing to initialize an Aikito workspace inside the CLI source "
-            f"tree.\n  Source: {source_root}\n  Target: {target_dir}"
-        )
+    if CLI_SOURCE_ROOT is not None:
+        source_root = CLI_SOURCE_ROOT.resolve()
+        if target_dir == source_root or source_root in target_dir.parents:
+            return (
+                "Refusing to initialize an Aikito workspace inside the CLI source "
+                f"tree.\n  Source: {source_root}\n  Target: {target_dir}"
+            )
 
     if not target_dir.exists():
         return None

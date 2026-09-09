@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from aikito_doctor import (
+from aikito.aikito_doctor import (
     check_config_syntax,
     check_drift,
     check_environment,
@@ -16,15 +16,19 @@ from aikito_doctor import (
     run_doctor,
     run_doctor_prune,
 )
-from aikito_link import SymlinkVerdict, classify_symlink, symlink_verdict_to_status
-from aikito_mcp import AgentSpec
-from aikito_render import (
+from aikito.aikito_link import (
+    SymlinkVerdict,
+    classify_symlink,
+    symlink_verdict_to_status,
+)
+from aikito.aikito_mcp import AgentSpec
+from aikito.aikito_render import (
     DoctorFinding,
     DoctorReport,
     DoctorSection,
     render_doctor_report,
 )
-from aikito_subagent import PlanItem
+from aikito.aikito_subagent import PlanItem
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -340,7 +344,7 @@ class CheckConfigSyntaxTest(unittest.TestCase):
         )
 
         with patch(
-            "aikito_doctor.detect_existing_agents",
+            "aikito.aikito_doctor.detect_existing_agents",
             return_value=[("Grok Build", self.home / ".grok")],
         ):
             section = check_config_syntax(self.aikito_dir, self.home)
@@ -360,7 +364,7 @@ class CheckConfigSyntaxTest(unittest.TestCase):
             '[agents.grok]\ndisplay_name = "Grok Build"\n', encoding="utf-8"
         )
 
-        with patch("aikito_doctor.is_agent_installed", return_value=False):
+        with patch("aikito.aikito_doctor.is_agent_installed", return_value=False):
             section = check_config_syntax(self.aikito_dir, self.home)
 
         finding = next(
@@ -729,7 +733,7 @@ agents = ["claude-code"]
             return orig_read_text(self_path, *args, **kwargs)
 
         with patch.object(Path, "read_text", side_effect=mock_read_text, autospec=True):
-            from aikito_doctor import check_config_syntax, check_drift
+            from aikito.aikito_doctor import check_config_syntax, check_drift
 
             syntax_section = check_config_syntax(self.aikito_dir, self.home)
             drift_section = check_drift(self.aikito_dir, self.home)
@@ -761,8 +765,8 @@ agents = ["claude-code"]
 
     def test_check_security_windows_developer_mode(self) -> None:
         (self.aikito_dir / ".gitignore").write_text("/.local/\n")
-        with patch("aikito_doctor.is_windows", return_value=True):
-            with patch("aikito_doctor.can_symlink", return_value=True):
+        with patch("aikito.aikito_doctor.is_windows", return_value=True):
+            with patch("aikito.aikito_doctor.can_symlink", return_value=True):
                 sec = check_security(self.aikito_dir, self.home)
                 self.assertTrue(
                     any(
@@ -771,7 +775,7 @@ agents = ["claude-code"]
                     )
                 )
 
-            with patch("aikito_doctor.can_symlink", return_value=False):
+            with patch("aikito.aikito_doctor.can_symlink", return_value=False):
                 sec = check_security(self.aikito_dir, self.home)
                 self.assertTrue(
                     any(
@@ -792,7 +796,7 @@ agents = ["claude-code"]
             )
         ]
 
-        with patch("aikito_doctor.build_plan", return_value=(plan, {})):
+        with patch("aikito.aikito_doctor.build_plan", return_value=(plan, {})):
             section = check_drift(self.aikito_dir, self.home)
 
         failures = [finding for finding in section.findings if finding.status == "FAIL"]
@@ -816,9 +820,9 @@ agents = ["claude-code"]
         )
 
         with (
-            patch("aikito_doctor.load_agent_specs", return_value=[spec]),
-            patch("aikito_doctor.evaluate_spec_status", return_value="DRIFT"),
-            patch("aikito_doctor.build_plan", return_value=([], {})),
+            patch("aikito.aikito_doctor.load_agent_specs", return_value=[spec]),
+            patch("aikito.aikito_doctor.evaluate_spec_status", return_value="DRIFT"),
+            patch("aikito.aikito_doctor.build_plan", return_value=([], {})),
         ):
             section = check_drift(self.aikito_dir, self.home)
 
@@ -888,7 +892,7 @@ class RunDoctorIntegrationTest(unittest.TestCase):
     ) -> None:
         # Real-workspace run is a smoke test only — it may legitimately surface
         # existing dangling links, which is the point of the check, not a bug.
-        from aikito_doctor import check_memory_integrity
+        from aikito.aikito_doctor import check_memory_integrity
 
         section = check_memory_integrity(ROOT, Path(tempfile.gettempdir()))
         self.assertEqual(section.name, "Memory")
@@ -910,7 +914,7 @@ class CrossNoteWikilinkTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_dangling_cross_note_link_reported(self) -> None:
-        from aikito_doctor import check_memory_integrity
+        from aikito.aikito_doctor import check_memory_integrity
 
         (self.notes_dir / "note-a.md").write_text("See [[note-b]] and [[ghost-note]].")
         (self.notes_dir / "note-b.md").write_text("No links here.")
@@ -922,7 +926,7 @@ class CrossNoteWikilinkTest(unittest.TestCase):
         )
 
     def test_valid_cross_note_link_produces_no_fail(self) -> None:
-        from aikito_doctor import check_memory_integrity
+        from aikito.aikito_doctor import check_memory_integrity
 
         (self.notes_dir / "note-a.md").write_text("See [[note-b]].")
         (self.notes_dir / "note-b.md").write_text("No links here.")
@@ -954,7 +958,7 @@ class CheckMemoryFreshnessTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_no_notes_reports_ok(self) -> None:
-        from aikito_doctor import check_memory_integrity
+        from aikito.aikito_doctor import check_memory_integrity
 
         section = check_memory_integrity(self.aikito_dir, self.home)
         self.assertEqual(section.name, "Memory")
@@ -964,7 +968,7 @@ class CheckMemoryFreshnessTest(unittest.TestCase):
         # A note with no git history (no repo at all here) should not crash
         # or be reported, since staleness can't be determined without history.
         (self.notes_dir / "orphan.md").write_text("content")
-        from aikito_doctor import check_memory_integrity
+        from aikito.aikito_doctor import check_memory_integrity
 
         section = check_memory_integrity(self.aikito_dir, self.home)
         warns = [f for f in section.findings if f.status == "WARN"]
@@ -1011,7 +1015,7 @@ class CheckMemoryFreshnessTest(unittest.TestCase):
             env=full_env,
         )
 
-        from aikito_doctor import check_memory_integrity
+        from aikito.aikito_doctor import check_memory_integrity
 
         section = check_memory_integrity(self.aikito_dir, self.home)
         warns = [f for f in section.findings if f.status == "WARN"]
@@ -1055,7 +1059,7 @@ class CheckMemoryFreshnessTest(unittest.TestCase):
             capture_output=True,
         )
 
-        from aikito_doctor import check_memory_integrity
+        from aikito.aikito_doctor import check_memory_integrity
 
         section = check_memory_integrity(self.aikito_dir, self.home)
         warns = [f for f in section.findings if f.status == "WARN"]
@@ -1103,7 +1107,7 @@ class CheckMemoryFreshnessTest(unittest.TestCase):
             capture_output=True,
         )
 
-        from aikito_doctor import check_memory_integrity
+        from aikito.aikito_doctor import check_memory_integrity
 
         section = check_memory_integrity(self.aikito_dir, self.home)
         ok_messages = [f.message for f in section.findings if f.status == "OK"]
@@ -1155,7 +1159,7 @@ class MemoryFormatAndNamingTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_invalid_note_filename_fails(self) -> None:
-        from aikito_doctor import check_memory_integrity
+        from aikito.aikito_doctor import check_memory_integrity
 
         (self.notes_dir / "Invalid_Name.md").write_text("# Invalid")
         (self.notes_dir / ("a" * 51 + ".md")).write_text("# Too Long")
@@ -1179,7 +1183,7 @@ class MemoryFormatAndNamingTest(unittest.TestCase):
         )
 
     def test_non_standard_index_entry_warns(self) -> None:
-        from aikito_doctor import check_memory_integrity
+        from aikito.aikito_doctor import check_memory_integrity
 
         (self.notes_dir / "note-b.md").write_text("# Note B")
         self.index_file.write_text(
@@ -1211,7 +1215,7 @@ class DoctorFixesTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_run_doctor_fixes_adds_missing_agent_fields_without_overwrite(self) -> None:
-        from aikito_doctor import run_doctor_fixes
+        from aikito.aikito_doctor import run_doctor_fixes
 
         self.aikito_dir.mkdir(exist_ok=True)
         agents_path = self.aikito_dir / "agents.toml"
@@ -1229,14 +1233,14 @@ class DoctorFixesTest(unittest.TestCase):
         self.assertTrue(any("project_instruction_path" in fix for fix in fixes))
 
     def test_run_doctor_fixes_registers_installed_supported_agent(self) -> None:
-        from aikito_doctor import run_doctor_fixes
+        from aikito.aikito_doctor import run_doctor_fixes
 
         self.aikito_dir.mkdir(exist_ok=True)
         agents_path = self.aikito_dir / "agents.toml"
         agents_path.write_text("[agents]\n", encoding="utf-8")
         (self.home / ".grok").mkdir()
 
-        with patch("aikito_init.shutil.which", return_value=None):
+        with patch("aikito.aikito_init.shutil.which", return_value=None):
             fixes = run_doctor_fixes(self.aikito_dir, self.home)
 
         with agents_path.open("rb") as config_file:
@@ -1276,7 +1280,7 @@ class DoctorFixesTest(unittest.TestCase):
         self.assertFalse(any(f.status == "FAIL" for f in section.findings))
 
     def test_run_doctor_fixes_reconciles_memory_index(self) -> None:
-        from aikito_doctor import run_doctor_fixes
+        from aikito.aikito_doctor import run_doctor_fixes
 
         # 1. Existing note
         (self.notes_dir / "existing-note.md").write_text(

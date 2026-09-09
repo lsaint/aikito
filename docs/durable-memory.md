@@ -65,7 +65,7 @@ integration is disabled.
 
 ## Use or Adapt the Prompt
 
-The complete [durable-memory prompt](https://github.com/lsaint/aikito/blob/main/templates/skills/durable-memory/SKILL.md)
+The complete [durable-memory prompt](https://github.com/lsaint/aikito/blob/main/src/aikito/templates/skills/durable-memory/SKILL.md)
 is plain Markdown. You can use it as provided or copy and adapt it to match your
 own storage layout, naming conventions, review process, and criteria for what
 deserves persistent memory. Review the prompt before enabling it so its scope

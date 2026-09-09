@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from aikito_maintain import (
+from aikito.aikito_maintain import (
     MemoryMaintenanceError,
     build_memory_maintenance_prompt,
     load_agent_runner,
@@ -190,7 +190,7 @@ command = "not-an-array"
         with self.assertRaisesRegex(MemoryMaintenanceError, "invalid runner.command"):
             load_agent_runner(self.aikito_dir, "bad-command")
 
-    @patch("aikito_maintain.subprocess.run")
+    @patch("aikito.aikito_maintain.subprocess.run")
     def test_reports_invalid_placeholder_syntax(self, run_mock) -> None:
         config_path = self.aikito_dir / "agents.toml"
 
@@ -209,7 +209,7 @@ command = "not-an-array"
 
         run_mock.assert_not_called()
 
-    @patch("aikito_maintain.subprocess.run")
+    @patch("aikito.aikito_maintain.subprocess.run")
     def test_launches_agent_with_confirmation_gated_prompt(self, run_mock) -> None:
         run_mock.return_value.returncode = 0
 

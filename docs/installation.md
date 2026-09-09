@@ -11,7 +11,7 @@ existing code repository. Substitute your own paths throughout.
 > the CLI version. Stop before creating a workspace or adopting configuration.
 
 If your agent needs setup instructions, point it to the
-[Aikito skill](https://github.com/lsaint/aikito/blob/main/templates/skills/aikito/SKILL.md).
+[Aikito skill](https://github.com/lsaint/aikito/blob/main/src/aikito/templates/skills/aikito/SKILL.md).
 
 ## Install manually
 

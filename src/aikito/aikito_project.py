@@ -7,8 +7,8 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from aikito_mcp import MCPConfigError, collect_project_instruction_targets
-from aikito_platform import safe_relative_path
+from .aikito_mcp import MCPConfigError, collect_project_instruction_targets
+from .aikito_platform import safe_relative_path
 
 
 @dataclass(frozen=True)

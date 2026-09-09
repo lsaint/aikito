@@ -4,10 +4,17 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from aikito_init import init_project, init_workspace, project_sync_validation_error
-from aikito_mcp import load_agent_specs, load_agents
-from aikito_status import get_status_report_data
-from aikito_templates import filter_agents_template, load_default_memory_instruction
+from aikito.aikito_init import (
+    init_project,
+    init_workspace,
+    project_sync_validation_error,
+)
+from aikito.aikito_mcp import load_agent_specs, load_agents
+from aikito.aikito_status import get_status_report_data
+from aikito.aikito_templates import (
+    filter_agents_template,
+    load_default_memory_instruction,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MEMORY_INSTRUCTION = load_default_memory_instruction()
@@ -154,7 +161,7 @@ class AikitoInitTest(unittest.TestCase):
     def test_init_workspace_registers_only_detected_agents(self) -> None:
         (self.fake_home / ".claude").mkdir()
 
-        with patch("aikito_templates.shutil.which", return_value=None):
+        with patch("aikito.aikito_templates.shutil.which", return_value=None):
             init_workspace(self.target_path, self.fake_home)
 
         with (self.target_path / "agents.toml").open("rb") as config_file:
@@ -207,7 +214,7 @@ class AikitoInitTest(unittest.TestCase):
         for target in (source_root, source_root / "nested-workspace"):
             with (
                 self.subTest(target=target),
-                patch("aikito_init.CLI_SOURCE_ROOT", source_root),
+                patch("aikito.aikito_init.CLI_SOURCE_ROOT", source_root),
             ):
                 success = init_workspace(target, self.fake_home, force=True)
 
@@ -215,7 +222,9 @@ class AikitoInitTest(unittest.TestCase):
             self.assertFalse((target / "agents.toml").exists())
 
     def test_init_workspace_requires_all_bundled_skills_before_writing(self) -> None:
-        with patch("aikito_templates.BUNDLED_SKILL_NAMES", ("aikito", "missing-skill")):
+        with patch(
+            "aikito.aikito_templates.BUNDLED_SKILL_NAMES", ("aikito", "missing-skill")
+        ):
             success = init_workspace(self.target_path, self.fake_home)
 
         self.assertFalse(success)
@@ -225,8 +234,9 @@ class AikitoInitTest(unittest.TestCase):
         self.target_path.mkdir()
         (self.target_path / "LICENSE").write_text("MIT\n", encoding="utf-8")
         (self.target_path / "README.md").write_text("# Aikito\n", encoding="utf-8")
-        (self.target_path / "bin").mkdir()
-        (self.target_path / "bin" / "aikito").write_text("", encoding="utf-8")
+        (self.target_path / "pyproject.toml").write_text(
+            "[project]\n", encoding="utf-8"
+        )
 
         success = init_workspace(self.target_path, self.fake_home, force=True)
 
@@ -286,7 +296,7 @@ class AikitoInitTest(unittest.TestCase):
         project_path.mkdir()
         project_path = project_path.resolve()
 
-        with patch("aikito_init.CLI_SOURCE_ROOT", self.target_path):
+        with patch("aikito.aikito_init.CLI_SOURCE_ROOT", self.target_path):
             self.assertEqual(
                 init_project(self.target_path, project_path, "example"), "example"
             )

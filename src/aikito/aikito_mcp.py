@@ -24,7 +24,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from aikito_platform import resolve_executable, secure_file_permissions
+from .aikito_platform import resolve_executable, secure_file_permissions
 
 
 STATE_VERSION = 1
@@ -2172,10 +2172,7 @@ def sync_mcp_configs(
         if backup:
             output(f"[BACKUP] {backup}")
         if spec.auth_command:
-            output(
-                f"[AUTH] {aikito_dir / 'bin/aikito'} auth mcp "
-                f"{spec.agent} {spec.server}"
-            )
+            output(f"[AUTH] aikito auth mcp {spec.agent} {spec.server}")
 
     if not dry_run:
         _save_state(home, state)

@@ -4,10 +4,10 @@ from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from aikito_init import init_workspace
-from aikito_mcp import MCPToolProbeResult
-from aikito_project import ProjectSummary
-from aikito_render import (
+from aikito.aikito_init import init_workspace
+from aikito.aikito_mcp import MCPToolProbeResult
+from aikito.aikito_project import ProjectSummary
+from aikito.aikito_render import (
     AgentStatusRow,
     MCPServerRow,
     MemoryNoteRow,
@@ -28,7 +28,7 @@ from aikito_render import (
     render_status_report,
     render_subagents_status_table,
 )
-from aikito_status import (
+from aikito.aikito_status import (
     MCPDetailRow,
     MCPRuntimeRow,
     SubagentDetailRow,
@@ -156,7 +156,7 @@ class AikitoStatusRenderTest(unittest.TestCase):
         self.assertEqual(_summarize_subagent_status(["CREATE"]), "MISSING (0/1)")
 
     def test_count_badges_render_without_checkmark(self) -> None:
-        from aikito_render import render_agents_table
+        from aikito.aikito_render import render_agents_table
 
         rows = [
             AgentStatusRow(
@@ -254,7 +254,7 @@ class AikitoStatusRenderTest(unittest.TestCase):
         self.assertIn("old.md", rendered)
 
     def test_get_display_width(self) -> None:
-        from aikito_render import _get_display_width
+        from aikito.aikito_render import _get_display_width
 
         self.assertEqual(_get_display_width("abc"), 3)
         self.assertEqual(_get_display_width("中文"), 4)
@@ -273,7 +273,7 @@ class AikitoStatusRenderTest(unittest.TestCase):
         self.assertNotIn("+", rendered)
 
     def test_truncate_display_text(self) -> None:
-        from aikito_render import _truncate_display_text
+        from aikito.aikito_render import _truncate_display_text
 
         self.assertEqual(_truncate_display_text("hello world", 8), "hello w…")
         self.assertEqual(_truncate_display_text("中文测试标题", 7), "中文测…")
@@ -313,7 +313,7 @@ class AikitoStatusRenderTest(unittest.TestCase):
             )
         ]
 
-        with patch("aikito_render._get_terminal_width", return_value=80):
+        with patch("aikito.aikito_render._get_terminal_width", return_value=80):
             rendered = render_memory_notes_table(
                 notes, use_unicode=True, use_color=False
             )
@@ -327,7 +327,7 @@ class AikitoStatusRenderTest(unittest.TestCase):
         self.assertGreaterEqual(title_width, 20)
 
     def test_render_memory_table_combines_index_and_link_status(self) -> None:
-        from aikito_render import render_memory_table
+        from aikito.aikito_render import render_memory_table
 
         rendered = render_memory_table(
             [
@@ -351,7 +351,7 @@ class AikitoStatusRenderTest(unittest.TestCase):
         self.assertIn("! M", rendered)
 
     def test_render_memory_table_uses_calendar_relative_dates(self) -> None:
-        from aikito_render import _format_memory_updated_date
+        from aikito.aikito_render import _format_memory_updated_date
 
         current = date.today()
         self.assertEqual(_format_memory_updated_date(current), "today")
@@ -748,7 +748,7 @@ name_style = "verbatim"
             )
 
             with patch(
-                "aikito_status.probe_mcp_tools_for_specs",
+                "aikito.aikito_status.probe_mcp_tools_for_specs",
                 return_value=[
                     MCPToolProbeResult(
                         "codex", "OK", "Basic · env header", ("one", "two")
@@ -845,7 +845,7 @@ agents = ["codex"]
             )
 
             with patch(
-                "aikito_status.probe_mcp_tools_for_specs",
+                "aikito.aikito_status.probe_mcp_tools_for_specs",
                 return_value=[
                     MCPToolProbeResult(
                         agent="codex",
@@ -868,7 +868,7 @@ agents = ["codex"]
         self.assertIsInstance(agents, list)
 
     def test_dangling_symlink_reports_conflict_in_agent_status(self) -> None:
-        from aikito_status import collect_agent_status_rows
+        from aikito.aikito_status import collect_agent_status_rows
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -986,7 +986,7 @@ instruction_path = ".codex/AGENTS.md"
         self.assertIn("Orphan", out)
 
     def test_render_skills_depth_symbols(self) -> None:
-        from aikito_render import render_agents_table
+        from aikito.aikito_render import render_agents_table
 
         rows = [
             AgentStatusRow(

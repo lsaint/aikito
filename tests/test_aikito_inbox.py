@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from aikito_cli_loader import load_cli
-from aikito_inbox import (
+from aikito import cli as AIKITO_CLI
+from aikito.aikito_inbox import (
     InboxNoteRow,
     InboxTargetConflictError,
     collect_inbox_rows,
@@ -16,10 +16,9 @@ from aikito_inbox import (
     resolve_inbox_target,
     resolve_inbox_target_for_command,
 )
-from aikito_render import render_inbox_table
+from aikito.aikito_render import render_inbox_table
 
 ROOT = Path(__file__).resolve().parents[1]
-AIKITO_CLI = load_cli()
 
 
 class AikitoInboxTest(unittest.TestCase):

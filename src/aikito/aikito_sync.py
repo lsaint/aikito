@@ -11,7 +11,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from aikito_platform import require_symlink_support, safe_symlink
+from .aikito_platform import require_symlink_support, safe_symlink
 
 
 def ensure_dir(path: Path) -> None:

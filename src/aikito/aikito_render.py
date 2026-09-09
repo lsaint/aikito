@@ -13,7 +13,7 @@ from datetime import date
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from aikito_project import ProjectSummary
+from .aikito_project import ProjectSummary
 
 
 @dataclass

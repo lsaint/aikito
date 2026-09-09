@@ -10,21 +10,21 @@ import sys
 import tomllib
 from pathlib import Path
 
-from aikito_config import get_inbox_path
-from aikito_inbox import resolve_inbox_target_for_command
-from aikito_link import classify_symlink, symlink_verdict_to_status
-from aikito_mcp import load_agents
-from aikito_memory import ensure_safe_path
-from aikito_project import resolve_project_binding
-from aikito_platform import (
+from .aikito_config import get_inbox_path
+from .aikito_inbox import resolve_inbox_target_for_command
+from .aikito_link import classify_symlink, symlink_verdict_to_status
+from .aikito_mcp import load_agents
+from .aikito_memory import ensure_safe_path
+from .aikito_project import resolve_project_binding
+from .aikito_platform import (
     get_default_editor,
     resolve_executable,
     safe_relative_path,
     split_command,
 )
-from aikito_render import SkillRow
-from aikito_status import collect_skills_rows
-from aikito_subagent import SubagentConfigError, load_subagent_definitions
+from .aikito_render import SkillRow
+from .aikito_status import collect_skills_rows
+from .aikito_subagent import SubagentConfigError, load_subagent_definitions
 
 
 class SkillTargetConflictError(Exception):

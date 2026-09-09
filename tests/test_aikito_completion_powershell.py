@@ -1,11 +1,9 @@
 import unittest
 
-from aikito_cli_loader import load_cli
+from aikito import cli as AIKITO_CLI
 
-from aikito_completion import generate_powershell
-from aikito_completion_powershell import generate_powershell as gen_pwsh_direct
-
-AIKITO_CLI = load_cli()
+from aikito.aikito_completion import generate_powershell
+from aikito.aikito_completion_powershell import generate_powershell as gen_pwsh_direct
 
 
 class AikitoCompletionPowerShellTest(unittest.TestCase):
