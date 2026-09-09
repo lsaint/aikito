@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.30.1] - 2026-09-09
+
+### Changed
+
+- Renamed internal runtime modules under `src/aikito/` to eliminate redundant `aikito_` prefix and normalize module names (`templating.py`, `web_console.py`, `compat.py`, `link.py`, etc.).
+- Synchronized all internal imports, mock patches, and test file naming across the entire test suite.
+
 ## [1.30.0] - 2026-09-09
 
 ### Removed
@@ -588,7 +595,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.30.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.30.1...HEAD
+[1.30.1]: https://github.com/lsaint/aikito/compare/v1.30.0...v1.30.1
 [1.30.0]: https://github.com/lsaint/aikito/compare/v1.29.0...v1.30.0
 [1.29.0]: https://github.com/lsaint/aikito/compare/v1.28.0...v1.29.0
 [1.28.0]: https://github.com/lsaint/aikito/compare/v1.27.0...v1.28.0
