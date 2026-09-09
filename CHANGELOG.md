@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.29.0] - 2026-09-09
+
 ### Added
 
 - `python -m aikito` entry point via `src/aikito/__main__.py`.
@@ -574,7 +576,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.28.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.29.0...HEAD
+[1.29.0]: https://github.com/lsaint/aikito/compare/v1.28.0...v1.29.0
 [1.28.0]: https://github.com/lsaint/aikito/compare/v1.27.0...v1.28.0
 [1.27.0]: https://github.com/lsaint/aikito/compare/v1.26.0...v1.27.0
 [1.26.0]: https://github.com/lsaint/aikito/compare/v1.25.1...v1.26.0
