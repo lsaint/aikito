@@ -68,10 +68,27 @@ Aikito 将源文件集中在个人工作区中，把选定的资源连接到各�
 <details>
 <summary>手动安装（macOS / Linux / Windows）</summary>
 
-macOS / Linux 使用 Homebrew：
+跨平台推荐使用 [uv](https://docs.astral.sh/uv/)：
+
+```bash
+uv tool install aikito
+```
+
+macOS / Linux 也可使用 Homebrew：
 
 ```bash
 brew install lsaint/tap/aikito
+```
+
+或使用 pipx：
+
+```bash
+pipx install aikito
+```
+
+初始化与同步 workspace：
+
+```bash
 aikito init workspace ~/aikito
 aikito sync --dry-run
 aikito sync
@@ -80,7 +97,7 @@ aikito status
 
 应用同步前先检查预览；已有配置的处理方式见[迁移与安全](#迁移与安全)。
 
-Windows 请按照 [PowerShell 安装指南（英文）](docs/installation.md#install-manually)操作。
+Windows 请开启 Developer Mode，使用 `uv tool install aikito` 或参考 [PowerShell 安装指南（英文）](docs/installation.md#install-manually)。
 
 </details>
 

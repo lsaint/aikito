@@ -4,9 +4,9 @@
     Aikito Windows one-liner installer.
 
 .DESCRIPTION
-    Downloads the latest Aikito release from GitHub, installs to
-    %LOCALAPPDATA%\Programs\aikito, and adds the bin directory to the
-    current user's PATH environment variable.
+    Installs Aikito on Windows. Validates Windows Developer Mode (required for
+    symlink support), and installs Aikito using uv tool (preferred) or an
+    isolated Python virtual environment.
 
 .EXAMPLE
     irm https://raw.githubusercontent.com/lsaint/aikito/main/install.ps1 | iex
@@ -16,10 +16,10 @@
 #>
 [CmdletBinding()]
 param (
-    # Install a specific version tag instead of the latest release.
+    # Install a specific version instead of the latest release (e.g. "1.30.0").
     [string] $Version = "",
 
-    # Install to a custom directory instead of the default.
+    # Install to a custom directory instead of the default when using a virtual environment.
     [string] $InstallDir = ""
 )
 
@@ -28,8 +28,6 @@ $ErrorActionPreference = "Stop"
 
 # --- Constants ----------------------------------------------------------------
 
-$Repo        = "lsaint/aikito"
-$ApiBase     = "https://api.github.com/repos/$Repo"
 $DisplayName = "Aikito"
 $DefaultDir  = Join-Path $env:LOCALAPPDATA "Programs\aikito"
 
@@ -60,44 +58,6 @@ Write-Host ""
 Write-Host "  $DisplayName Installer for Windows" -ForegroundColor White
 Write-Host "  -----------------------------------------" -ForegroundColor DarkGray
 Write-Host ""
-
-# --- Check Python -------------------------------------------------------------
-
-Write-Step "Checking Python 3.12+ ..."
-
-$PythonExe = $null
-$PythonVer = $null
-foreach ($candidate in @("py", "python3", "python")) {
-    $found = Get-Command $candidate -ErrorAction SilentlyContinue
-    if ($found) {
-        try {
-            $invokeArgs = if ($candidate -eq "py") { @("-3", "-c") } else { @("-c") }
-            $ver = & $candidate @invokeArgs "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
-            if ($ver -match "^(\d+)\.(\d+)$") {
-                $major = [int]$Matches[1]
-                $minor = [int]$Matches[2]
-                if ($major -gt 3 -or ($major -eq 3 -and $minor -ge 12)) {
-                    $PythonExe = $candidate
-                    $PythonVer = $ver.Trim()
-                    break
-                }
-            }
-        } catch {}
-    }
-}
-
-if (-not $PythonExe) {
-    Write-Fail @"
-Python 3.12 or later is required but was not found in PATH.
-
-  Download from: https://www.python.org/downloads/
-  Or via winget:  winget install Python.Python.3.12
-
-After installing Python, re-run this installer.
-"@
-}
-
-Write-Ok "Python $PythonVer found ($PythonExe)"
 
 # --- Check Developer Mode (symlink support) -----------------------------------
 
@@ -144,144 +104,141 @@ After enabling Developer Mode, re-run this installer.
 
 Write-Ok "Developer Mode / symlink support confirmed"
 
-# --- Resolve install dir and version ------------------------------------------
+# --- Install Package ----------------------------------------------------------
 
-if (-not $InstallDir) {
-    $InstallDir = $DefaultDir
-}
+$pkgSpec = if ($Version) { "aikito==$($Version.TrimStart('v'))" } else { "aikito" }
+$installedViaUv = $false
+$ScriptsDir = $null
 
-Write-Step "Fetching release information from GitHub ..."
-
-if ($Version) {
-    $Tag = $Version.TrimStart("v")
-    $ApiUrl = "$ApiBase/releases/tags/v$Tag"
-} else {
-    $ApiUrl = "$ApiBase/releases/latest"
-}
-
-try {
-    $Release = Invoke-RestMethod -Uri $ApiUrl -Headers @{ "User-Agent" = "aikito-installer/1.0" }
-} catch {
-    Write-Fail "Could not fetch release info from GitHub. Check your internet connection."
-}
-
-$TagName     = $Release.tag_name
-$VersionNum  = $TagName.TrimStart("v")
-$AssetName   = "aikito-$VersionNum.zip"
-$DownloadUrl = $null
-
-foreach ($asset in $Release.assets) {
-    if ($asset.name -eq $AssetName) {
-        $DownloadUrl = $asset.browser_download_url
-        break
-    }
-}
-
-# Fall back to GitHub source zipball
-if (-not $DownloadUrl) {
-    $DownloadUrl = $Release.zipball_url
-    $AssetName   = "aikito-source-$TagName.zip"
-}
-
-Write-Ok "Version: $TagName"
-
-# --- Download -----------------------------------------------------------------
-
-$TempDir  = Join-Path ([System.IO.Path]::GetTempPath()) "aikito-install-$([System.Guid]::NewGuid())"
-$ZipPath  = Join-Path $TempDir $AssetName
-New-Item -ItemType Directory -Path $TempDir -Force | Out-Null
-
-Write-Step "Downloading $AssetName ..."
-
-try {
-    Invoke-WebRequest -Uri $DownloadUrl -OutFile $ZipPath -UseBasicParsing
-} catch {
-    Remove-Item $TempDir -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Fail "Download failed: $_"
-}
-
-# --- Extract & Install --------------------------------------------------------
-
-Write-Step "Installing to $InstallDir ..."
-
-$ExtractDir = Join-Path $TempDir "extracted"
-Expand-Archive -Path $ZipPath -DestinationPath $ExtractDir -Force
-
-# GitHub zipball nests content under a single top-level directory
-$TopLevel = Get-ChildItem -Path $ExtractDir -Directory | Select-Object -First 1
-$SourceDir = if ($TopLevel) { $TopLevel.FullName } else { $ExtractDir }
-
-if (Test-Path $InstallDir) {
-    for ($i = 1; $i -le 3; $i++) {
-        try {
-            Remove-Item $InstallDir -Recurse -Force -ErrorAction Stop
-            break
-        } catch {
-            if ($i -eq 3) {
-                Write-Fail "Could not remove existing installation at ${InstallDir}. Ensure no processes are locking it."
-            }
-            Start-Sleep -Milliseconds 500
-        }
-    }
-}
-
-New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-
-# Copy extracted files to destination (avoid Move-Item which fails if antivirus/indexer temporarily locks extracted files)
-$copied = $false
-for ($i = 1; $i -le 3; $i++) {
+if (-not $InstallDir -and (Get-Command uv -ErrorAction SilentlyContinue)) {
+    Write-Step "Found uv, installing via 'uv tool install' ..."
     try {
-        Get-ChildItem -Path $SourceDir -Force | Copy-Item -Destination $InstallDir -Recurse -Force -ErrorAction Stop
-        $copied = $true
-        break
-    } catch {
-        if ($i -lt 3) {
-            Start-Sleep -Milliseconds 500
+        & uv tool install --force $pkgSpec
+        if ($LASTEXITCODE -eq 0) {
+            $installedViaUv = $true
+            Write-Ok "Installed $pkgSpec via uv tool"
+            try { & uv tool update-shell 2>$null } catch {}
         }
+    } catch {
+        Write-Warn "uv tool install failed ($_); falling back to Python virtualenv..."
     }
 }
 
-if (-not $copied) {
-    Write-Fail "Failed to copy files to ${InstallDir}."
-}
+if (-not $installedViaUv) {
+    # --- Check Python 3.12+ ---
+    Write-Step "Checking Python 3.12+ ..."
 
-Remove-Item $TempDir -Recurse -Force -ErrorAction SilentlyContinue
-Write-Ok "Installed to $InstallDir"
+    $PythonExe = $null
+    $PythonVer = $null
+    foreach ($candidate in @("py", "python3", "python")) {
+        $found = Get-Command $candidate -ErrorAction SilentlyContinue
+        if ($found) {
+            try {
+                $invokeArgs = if ($candidate -eq "py") { @("-3", "-c") } else { @("-c") }
+                $ver = & $candidate @invokeArgs "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
+                if ($ver -match "^(\d+)\.(\d+)$") {
+                    $major = [int]$Matches[1]
+                    $minor = [int]$Matches[2]
+                    if ($major -gt 3 -or ($major -eq 3 -and $minor -ge 12)) {
+                        $PythonExe = $candidate
+                        $PythonVer = $ver.Trim()
+                        break
+                    }
+                }
+            } catch {}
+        }
+    }
 
-# --- PATH registration --------------------------------------------------------
+    if (-not $PythonExe) {
+        Write-Fail @"
+Python 3.12 or later is required but was not found in PATH.
 
-Write-Step "Updating User PATH ..."
+  Download from: https://www.python.org/downloads/
+  Or via winget:  winget install Python.Python.3.12
 
-$BinDir     = Join-Path $InstallDir "bin"
-$CurrentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+Alternatively, install Astral uv (https://docs.astral.sh/uv/) and re-run this installer.
+"@
+    }
 
-if ($CurrentPath -notlike "*$BinDir*") {
-    $NewPath = "$BinDir;$CurrentPath"
-    [Environment]::SetEnvironmentVariable("PATH", $NewPath, "User")
-    $env:PATH = "$BinDir;$env:PATH"
-    Write-Ok "Added $BinDir to User PATH"
-} else {
-    Write-Ok "$BinDir is already in PATH"
+    Write-Ok "Python $PythonVer found ($PythonExe)"
+
+    if (-not $InstallDir) {
+        $InstallDir = $DefaultDir
+    }
+
+    Write-Step "Setting up virtual environment at $InstallDir ..."
+    if (-not (Test-Path $InstallDir)) {
+        New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    }
+
+    $invokeArgs = if ($PythonExe -eq "py") { @("-3", "-m", "venv", $InstallDir) } else { @("-m", "venv", $InstallDir) }
+    & $PythonExe @invokeArgs
+    if ($LASTEXITCODE -ne 0) {
+        Write-Fail "Failed to create Python virtual environment at $InstallDir."
+    }
+
+    $ScriptsDir = Join-Path $InstallDir "Scripts"
+    $VenvPython = Join-Path $ScriptsDir "python.exe"
+    if (-not (Test-Path $VenvPython)) {
+        Write-Fail "Virtual environment Python executable not found at $VenvPython."
+    }
+
+    Write-Step "Installing $pkgSpec via pip ..."
+    & $VenvPython -m pip install --upgrade --no-warn-script-location pip
+    & $VenvPython -m pip install --upgrade --no-warn-script-location $pkgSpec
+    if ($LASTEXITCODE -ne 0) {
+        Write-Fail "Failed to install $pkgSpec via pip."
+    }
+    Write-Ok "Installed $pkgSpec to $InstallDir"
+
+    # --- PATH registration ---
+    Write-Step "Updating User PATH ..."
+    $CurrentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+
+    if ($CurrentPath -notlike "*$ScriptsDir*") {
+        $NewPath = if ($CurrentPath) { "$ScriptsDir;$CurrentPath" } else { $ScriptsDir }
+        [Environment]::SetEnvironmentVariable("PATH", $NewPath, "User")
+        $env:PATH = "$ScriptsDir;$env:PATH"
+        Write-Ok "Added $ScriptsDir to User PATH"
+    } else {
+        Write-Ok "$ScriptsDir is already in PATH"
+    }
 }
 
 # --- Smoke test ---------------------------------------------------------------
 
 Write-Step "Verifying installation ..."
 
-$AikitoPs1 = Join-Path $BinDir "aikito.ps1"
-$psExe     = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh" } else { "powershell" }
+$verified = $false
 try {
-    $VerLine = & $psExe -NoProfile -File $AikitoPs1 version 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "non-zero exit" }
-    Write-Ok $VerLine.ToString().Trim()
-} catch {
-    Write-Warn "Could not run 'aikito version'. Open a new terminal and try manually."
+    $verLine = & aikito version 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Ok $verLine.ToString().Trim()
+        $verified = $true
+    }
+} catch {}
+
+if (-not $verified -and $ScriptsDir) {
+    $targetExe = Join-Path $ScriptsDir "aikito.exe"
+    if (Test-Path $targetExe) {
+        try {
+            $verLine = & $targetExe version 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                Write-Ok $verLine.ToString().Trim()
+                $verified = $true
+            }
+        } catch {}
+    }
+}
+
+if (-not $verified) {
+    Write-Warn "Could not verify 'aikito version' in current session. Open a new terminal to check."
 }
 
 # --- Done ---------------------------------------------------------------------
 
 Write-Host ""
-Write-Host "  $DisplayName $TagName installed successfully!" -ForegroundColor Green
+Write-Host "  $DisplayName installed successfully!" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Next steps:" -ForegroundColor White
 Write-Host ""

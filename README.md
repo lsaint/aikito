@@ -77,10 +77,27 @@ agents. See [memory usage and opt-out](docs/durable-memory.md) and
 <details>
 <summary>Install manually (macOS / Linux / Windows)</summary>
 
-On macOS or Linux with Homebrew:
+Cross-platform with [uv](https://docs.astral.sh/uv/) (recommended):
+
+```bash
+uv tool install aikito
+```
+
+Or with Homebrew (macOS / Linux):
 
 ```bash
 brew install lsaint/tap/aikito
+```
+
+Or with pipx:
+
+```bash
+pipx install aikito
+```
+
+Initialize and synchronize your workspace:
+
+```bash
 aikito init workspace ~/aikito
 aikito sync --dry-run
 aikito sync
@@ -90,7 +107,8 @@ aikito status
 Review the preview before applying synchronization. For existing configuration,
 see [migration and safety](#migration-and-safety).
 
-On Windows, use the [PowerShell installation guide](docs/installation.md#install-manually).
+On Windows, enable Developer Mode and use `uv tool install aikito` or the
+[PowerShell installation guide](docs/installation.md#install-manually).
 
 </details>
 

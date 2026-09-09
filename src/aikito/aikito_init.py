@@ -2,7 +2,7 @@
 Workspace initialization module for Aikito.
 Creates workspace skeleton, configuration templates, .gitignore, and initializes git repo.
 
-Template content is owned by ``templates/`` next to ``bin/``; this module only
+Template content is owned by ``templates/`` within the package; this module only
 enforces validation, source-root protection, and file placement. See
 ``aikito_templates`` for template loading and per-agent filtering.
 """

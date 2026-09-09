@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Removed legacy `bin/` directory (`bin/aikito`, `bin/aikito.cmd`, `bin/aikito.ps1`). Aikito is now invoked via `python -m aikito` or the installed console script `aikito`.
+
+### Changed
+
+- Updated Windows `install.ps1` installer to install via `uv tool` or an isolated Python virtual environment, eliminating reliance on `bin/` stubs and zipball extraction.
+- Documentation now highlights `uv tool install aikito` as the primary cross-platform installation method.
+- Updated PowerShell completion generator command targets to reflect the removal of `bin/` stubs.
+
 ## [1.29.0] - 2026-09-09
 
 ### Added
