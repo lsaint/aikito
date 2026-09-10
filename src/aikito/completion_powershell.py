@@ -132,10 +132,6 @@ $script:AikitoCompleterBlock = {{
 
     if ($argIndex -ge 3) {{
         $previous = if ($argIndex -gt 0 -and $argIndex -le $count) {{ $tokens[$argIndex - 1] }} else {{ '' }}
-        if ($previous -eq '--path') {{
-            Invoke-Candidates 'paths'
-            return $results
-        }}
         if ($previous -eq '--project') {{
             Invoke-Candidates 'projects'
             return $results
@@ -192,12 +188,6 @@ $script:AikitoCompleterBlock = {{
                     Invoke-Candidates 'projects'
                 }} elseif ($argIndex -eq 4) {{
                     Invoke-Candidates 'paths'
-                }}
-                break
-            }}
-            '^prepare project$' {{
-                if ($argIndex -eq 3) {{
-                    Invoke-Candidates 'projects'
                 }}
                 break
             }}

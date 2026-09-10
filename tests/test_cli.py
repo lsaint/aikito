@@ -146,29 +146,6 @@ class GlobalEntrySyncTest(unittest.TestCase):
 
 
 class SyncSubcommandParserTest(unittest.TestCase):
-    def test_prepare_project_command(self) -> None:
-        parser = AIKITO_CLI.build_parser()
-
-        args = parser.parse_args(["prepare", "project", "demo", "--agent", "pi"])
-
-        self.assertEqual(args.command, "prepare")
-        self.assertEqual(args.prepare_target, "project")
-        self.assertEqual(args.project_name, "demo")
-        self.assertIsNone(args.project_path)
-        self.assertEqual(args.agent, "pi")
-        self.assertEqual(args.func, AIKITO_CLI.cmd_prepare_project)
-
-        args_flag = parser.parse_args(
-            ["prepare", "project", "demo", "--path", "/custom/path", "--agent", "pi"]
-        )
-        self.assertEqual(args_flag.project_path, "/custom/path")
-
-        with (
-            patch("sys.stderr", new_callable=io.StringIO),
-            self.assertRaises(SystemExit),
-        ):
-            parser.parse_args(["prepare", "project", "demo", "/custom/path"])
-
     def test_diff_command(self) -> None:
         parser = AIKITO_CLI.build_parser()
 
@@ -2496,34 +2473,6 @@ class ProjectSyncCliTest(unittest.TestCase):
 
 
 class CliSubparserDescriptionTest(unittest.TestCase):
-    def test_prepare_project_help_contains_inherited_description(self) -> None:
-        parser = AIKITO_CLI.build_parser()
-        with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
-            with self.assertRaises(SystemExit) as ctx:
-                parser.parse_args(["prepare", "project", "--help"])
-            self.assertEqual(ctx.exception.code, 0)
-            output = mock_stdout.getvalue()
-            self.assertIn("Prepare one Aikito project for a supported Agent", output)
-            desc_pos = output.find("Prepare one Aikito project for a supported Agent")
-            usage_pos = output.find("usage:")
-            self.assertNotEqual(desc_pos, -1)
-            self.assertNotEqual(usage_pos, -1)
-            self.assertLess(desc_pos, usage_pos)
-
-    def test_prepare_help_contains_inherited_description(self) -> None:
-        parser = AIKITO_CLI.build_parser()
-        with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
-            with self.assertRaises(SystemExit) as ctx:
-                parser.parse_args(["prepare", "--help"])
-            self.assertEqual(ctx.exception.code, 0)
-            output = mock_stdout.getvalue()
-            self.assertIn("Prepare managed resources for an Agent run", output)
-            desc_pos = output.find("Prepare managed resources for an Agent run")
-            usage_pos = output.find("usage:")
-            self.assertNotEqual(desc_pos, -1)
-            self.assertNotEqual(usage_pos, -1)
-            self.assertLess(desc_pos, usage_pos)
-
     def test_explicit_description_is_preserved(self) -> None:
         parser = AIKITO_CLI.AikitoArgumentParser(prog="test")
         subparsers = parser.add_subparsers(dest="cmd")

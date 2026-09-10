@@ -26,7 +26,6 @@ version.
 | `aikito init workspace [path]` | Initialize a new workspace or connect an existing one, detect installed Agents, and remember an explicit path |
 | `aikito path workspace` | Print the resolved active workspace path |
 | `aikito init project [name] [path] [--description <text>]` | Register a code project and synchronize its `.agents/` runtime |
-| `aikito prepare project <name> [--agent pi]` | Resolve one local project path and prepare its managed resources for an Agent run |
 | `aikito add skill <name>` | Create a canonical skill skeleton and register it in `skills.toml` or project config |
 | `aikito add subagent <name>` | Create a canonical subagent skeleton and register it in `subagents.toml` |
 | `aikito add mcp <name>` | Create a canonical MCP server configuration in `mcps/<name>.toml` |
@@ -77,7 +76,6 @@ Commands differ in their effect:
 - `status`, `diff`, `show`, `completion`, and the default `adopt` plan are read-only;
 - `init workspace` creates or updates a recognized workspace;
 - `init project` creates an idempotent canonical project skeleton and its runtime links;
-- `prepare project` resolves exactly one active project path and idempotently updates its managed project resources;
 - `add` creates a canonical resource skeleton and performs required registration;
 - `adopt --apply` writes imported resources into the workspace after backup;
 - `sync` writes managed Agent or project runtime configuration;
@@ -129,14 +127,6 @@ sync rules for instructions, selected skills, and memory. It does not launch
 the Agent or synchronize global instructions, global skills, MCP servers, or
 subagents.
 
-The matching CLI entry is:
-
-```bash
-aikito prepare project example --agent pi
-# With an explicit directory override:
-aikito prepare project example --path /path/to/checkout --agent pi
-```
-
 When no explicit path is given, preparation requires exactly one active configured
 path on this host. It fails instead of guessing when no path or several paths are
 active. Supplying an explicit path directly prepares that directory and disambiguates
@@ -144,6 +134,10 @@ multiple checkouts without modifying `agent.toml`. This is intended for ephemera
 CI and deployment checkouts; the caller is responsible for selecting the correct
 directory. V1 supports Pi for prepared project runs; normal synchronization
 remains available to every configured Agent.
+
+`Project.prepare()` is a Python API for execution engines such as Rundo. It has
+no separate CLI wrapper. Operators use `aikito sync project <name>` for manual
+project synchronization and path registration.
 
 `aikito maintain memory` defaults to the project whose locally present path
 contains the current directory and launches the `codex` runner configured in

@@ -61,8 +61,6 @@ from .project import (
     resolve_project_binding,
 )
 from .project_runtime import (
-    Project,
-    ProjectError,
     collect_project_prepare_errors,
     sync_project_path,
 )
@@ -346,7 +344,7 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
             )
             sys.exit(1)
 
-        errors = _preflight_project_path_sync(
+        errors = collect_project_prepare_errors(
             aikito_dir, project_name, target_path, data, home, force=force
         )
         if errors:
@@ -370,8 +368,8 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
                 )
                 sys.exit(1)
 
-        _sync_single_project_path(
-            aikito_dir, project_name, target_path, data, dry_run=dry_run
+        sync_project_path(
+            aikito_dir, project_name, target_path, data, home, dry_run=dry_run
         )
         result = "sync preview completed" if dry_run else "synced successfully"
         print(f"[SUCCESS] Project '{project_name}' {result} at {target_path}.")
@@ -420,7 +418,7 @@ def _sync_project_active_entries(
     # Phase 1: Preflight check all active entries (fail fast, no partial writes)
     all_errors: list[str] = []
     for entry in binding.active_entries:
-        errors = _preflight_project_path_sync(
+        errors = collect_project_prepare_errors(
             aikito_dir, project_name, entry.resolved_path, data, home, force=force
         )
         for err in errors:
@@ -448,51 +446,13 @@ def _sync_project_active_entries(
                 f"\n[INFO] === [{idx}/{count}] Path [{entry.label}]: "
                 f"{entry.resolved_path} ==="
             )
-        _sync_single_project_path(
-            aikito_dir, project_name, entry.resolved_path, data, dry_run=dry_run
+        sync_project_path(
+            aikito_dir, project_name, entry.resolved_path, data, home, dry_run=dry_run
         )
 
     result = "sync preview completed" if dry_run else "synced successfully"
     print(f"[SUCCESS] Project '{project_name}' {result}.")
     return True
-
-
-def _preflight_project_path_sync(
-    aikito_dir: Path,
-    project_name: str,
-    project_path: Path,
-    data: dict,
-    home: Path,
-    *,
-    force: bool,
-) -> list[str]:
-    """Run all validation and conflict checks for a project path without modifying anything."""
-    return collect_project_prepare_errors(
-        aikito_dir,
-        project_name,
-        project_path,
-        data,
-        home,
-        force=force,
-    )
-
-
-def _sync_single_project_path(
-    aikito_dir: Path,
-    project_name: str,
-    project_path: Path,
-    data: dict,
-    *,
-    dry_run: bool,
-) -> None:
-    sync_project_path(
-        aikito_dir,
-        project_name,
-        project_path,
-        data,
-        Path.home(),
-        dry_run=dry_run,
-    )
 
 
 def cmd_mcp_sync(args: argparse.Namespace) -> None:
@@ -730,18 +690,6 @@ def cmd_init(args: argparse.Namespace) -> None:
 
 def cmd_path_workspace(args: argparse.Namespace) -> None:
     print(get_aikito_dir())
-
-
-def cmd_prepare_project(args: argparse.Namespace) -> None:
-    try:
-        prepared = Project.load(
-            args.project_name,
-            workspace=get_aikito_dir(),
-        ).prepare(agent=args.agent, path=args.project_path)
-    except ProjectError as exc:
-        print(f"[ERROR] {exc}", file=sys.stderr)
-        sys.exit(1)
-    print(f"[READY] Project '{prepared.name}' for {prepared.agent}: {prepared.cwd}")
 
 
 def cmd_init_project(args: argparse.Namespace) -> None:
@@ -1520,28 +1468,6 @@ def build_parser() -> argparse.ArgumentParser:
         "workspace", help="Print the active workspace directory"
     )
     p_path_workspace.set_defaults(func=cmd_path_workspace)
-
-    # prepare project
-    p_prepare = subparsers.add_parser(
-        "prepare", help="Prepare managed resources for an Agent run"
-    )
-    prepare_subparsers = p_prepare.add_subparsers(dest="prepare_target", required=True)
-    p_prepare_project = prepare_subparsers.add_parser(
-        "project", help="Prepare one Aikito project for a supported Agent"
-    )
-    p_prepare_project.add_argument(
-        "project_name", help="Name of the project under <workspace>/projects/"
-    )
-    p_prepare_project.add_argument(
-        "--agent", default="pi", help="Agent to prepare (V1 supports: pi)"
-    )
-    p_prepare_project.add_argument(
-        "--path",
-        dest="project_path",
-        default=None,
-        help="Explicit project directory to prepare (overrides agent.toml path selection)",
-    )
-    p_prepare_project.set_defaults(func=cmd_prepare_project)
 
     # init
     p_init = subparsers.add_parser("init", help="Initialize a workspace or project")

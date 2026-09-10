@@ -9,7 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added the public `Project.load()`, `Project.prepare()`, and `Project.add_path()` APIs, typed project runtime errors, and the `aikito prepare project` command (with optional explicit target path support) for Pi-based project runners.
+- Added the public `Project.load()`, `Project.prepare()`, and `Project.add_path()` APIs and typed project runtime errors for Pi-based project runners.
+- Added `aikito show memory --project [<name>]` to scope memory listing and note lookup to one project (`.` or a bare flag resolves the current directory's project, `global` selects global memory), including zsh, bash, fish, and PowerShell completion.
+
+### Changed
+
+- `aikito sync project` now fails preflight when a selected project skill or memory source is missing, instead of warning and continuing in `link` mode.
+- Command help now prints the description before the usage line, and subcommands without an explicit description reuse their `help` text.
 
 ## [1.30.1] - 2026-09-09
 
