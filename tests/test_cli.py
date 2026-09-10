@@ -2495,5 +2495,55 @@ class ProjectSyncCliTest(unittest.TestCase):
         self.assertFalse((p3 / ".agents").exists())
 
 
+class CliSubparserDescriptionTest(unittest.TestCase):
+    def test_prepare_project_help_contains_inherited_description(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            with self.assertRaises(SystemExit) as ctx:
+                parser.parse_args(["prepare", "project", "--help"])
+            self.assertEqual(ctx.exception.code, 0)
+            output = mock_stdout.getvalue()
+            self.assertIn("Prepare one Aikito project for a supported Agent", output)
+            desc_pos = output.find("Prepare one Aikito project for a supported Agent")
+            usage_pos = output.find("usage:")
+            self.assertNotEqual(desc_pos, -1)
+            self.assertNotEqual(usage_pos, -1)
+            self.assertLess(desc_pos, usage_pos)
+
+    def test_prepare_help_contains_inherited_description(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            with self.assertRaises(SystemExit) as ctx:
+                parser.parse_args(["prepare", "--help"])
+            self.assertEqual(ctx.exception.code, 0)
+            output = mock_stdout.getvalue()
+            self.assertIn("Prepare managed resources for an Agent run", output)
+            desc_pos = output.find("Prepare managed resources for an Agent run")
+            usage_pos = output.find("usage:")
+            self.assertNotEqual(desc_pos, -1)
+            self.assertNotEqual(usage_pos, -1)
+            self.assertLess(desc_pos, usage_pos)
+
+    def test_explicit_description_is_preserved(self) -> None:
+        parser = AIKITO_CLI.AikitoArgumentParser(prog="test")
+        subparsers = parser.add_subparsers(dest="cmd")
+        sub = subparsers.add_parser(
+            "foo",
+            help="Short help",
+            description="Custom explicit description",
+        )
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            with self.assertRaises(SystemExit) as ctx:
+                sub.parse_args(["--help"])
+            self.assertEqual(ctx.exception.code, 0)
+            output = mock_stdout.getvalue()
+            self.assertIn("Custom explicit description", output)
+            desc_pos = output.find("Custom explicit description")
+            usage_pos = output.find("usage:")
+            self.assertNotEqual(desc_pos, -1)
+            self.assertNotEqual(usage_pos, -1)
+            self.assertLess(desc_pos, usage_pos)
+
+
 if __name__ == "__main__":
     unittest.main()

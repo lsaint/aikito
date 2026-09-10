@@ -229,6 +229,8 @@ jobs:
 
       - name: aikito project inspection and dry-run
         run: |
+          python3 -m aikito prepare project --help | \
+            grep -q "Prepare one Aikito project for a supported Agent"
           printf '# CI project instructions\n' > \
             ${{ runner.temp }}/aikito-ws/projects/example/AGENTS.md
           python3 -c "
@@ -478,6 +480,10 @@ jobs:
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
           python -m aikito --help
+          $helpOutput = python -m aikito prepare project --help | Out-String
+          if (-not ($helpOutput -match "Prepare one Aikito project for a supported Agent")) {
+            throw "aikito prepare project --help missing description"
+          }
           python -m aikito version
           python -m aikito invalid-subcommand 2>$null
           if ($LASTEXITCODE -eq 0) { throw "aikito did not propagate non-zero exit code on invalid subcommand" }
