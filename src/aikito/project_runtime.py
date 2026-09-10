@@ -35,7 +35,6 @@ from .sync import (
 )
 from .workspace import resolve_workspace
 
-SUPPORTED_PROJECT_AGENTS = ("pi",)
 PROJECT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
@@ -190,18 +189,13 @@ class Project:
         path: Path | str | None = None,
     ) -> PreparedProject:
         """Prepare persistent project resources and return Agent launch inputs."""
-        if agent not in SUPPORTED_PROJECT_AGENTS:
-            supported = ", ".join(SUPPORTED_PROJECT_AGENTS)
-            raise UnsupportedProjectAgentError(
-                f"Unsupported Aikito project agent: {agent}; V1 supports: {supported}"
-            )
         try:
             agents = load_agents(self.workspace, self._home)
         except MCPConfigError as exc:
             raise InvalidProjectConfigError(str(exc)) from exc
         if agent not in agents:
             raise UnsupportedProjectAgentError(
-                f"Aikito project agent is not configured: {agent}"
+                f"Unsupported Aikito project agent: {agent}; agent is not configured"
             )
         if not can_symlink():
             raise ProjectPrepareConflictError(

@@ -163,6 +163,23 @@ class ProjectApiTest(unittest.TestCase):
         with self.assertRaises(UnsupportedProjectAgentError):
             project.prepare(agent="codex")
 
+    def test_prepare_supports_any_configured_agent(self) -> None:
+        (self.workspace / "agents.toml").write_text(
+            '[agents.pi]\ndisplay_name = "Pi"\n'
+            'project_instruction_path = "AGENTS.md"\n'
+            'skills_path = ".agents/skills"\n'
+            '[agents.codex]\ndisplay_name = "Codex"\n'
+            'project_instruction_path = "AGENTS.md"\n'
+            'skills_path = ".agents/skills"\n',
+            encoding="utf-8",
+        )
+        project = self.load_project()
+        prepared = project.prepare(agent="codex")
+
+        self.assertEqual(prepared.name, "demo")
+        self.assertEqual(prepared.agent, "codex")
+        self.assertEqual(prepared.cwd, self.project_path.resolve())
+
     def test_prepare_preserves_unmanaged_project_instructions(self) -> None:
         unmanaged = self.project_path / "AGENTS.md"
         unmanaged.write_text("# Existing\n", encoding="utf-8")
