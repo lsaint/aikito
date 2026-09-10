@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.31.0] - 2026-09-10
+
 ### Added
 
 - Added the public `Project.load()`, `Project.prepare()`, and `Project.add_path()` APIs and typed project runtime errors for Pi-based project runners.
@@ -605,7 +607,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.30.1...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.31.0...HEAD
+[1.31.0]: https://github.com/lsaint/aikito/compare/v1.30.1...v1.31.0
 [1.30.1]: https://github.com/lsaint/aikito/compare/v1.30.0...v1.30.1
 [1.30.0]: https://github.com/lsaint/aikito/compare/v1.29.0...v1.30.0
 [1.29.0]: https://github.com/lsaint/aikito/compare/v1.28.0...v1.29.0
