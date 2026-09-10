@@ -154,8 +154,20 @@ class SyncSubcommandParserTest(unittest.TestCase):
         self.assertEqual(args.command, "prepare")
         self.assertEqual(args.prepare_target, "project")
         self.assertEqual(args.project_name, "demo")
+        self.assertIsNone(args.project_path)
         self.assertEqual(args.agent, "pi")
         self.assertEqual(args.func, AIKITO_CLI.cmd_prepare_project)
+
+        args_flag = parser.parse_args(
+            ["prepare", "project", "demo", "--path", "/custom/path", "--agent", "pi"]
+        )
+        self.assertEqual(args_flag.project_path, "/custom/path")
+
+        with (
+            patch("sys.stderr", new_callable=io.StringIO),
+            self.assertRaises(SystemExit),
+        ):
+            parser.parse_args(["prepare", "project", "demo", "/custom/path"])
 
     def test_diff_command(self) -> None:
         parser = AIKITO_CLI.build_parser()

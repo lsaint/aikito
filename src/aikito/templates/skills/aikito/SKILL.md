@@ -139,7 +139,7 @@ resource.
 aikito init project [<name> <path>]      # defaults to directory name and cwd
 aikito show projects | aikito show project <name>
 aikito sync project <name> [--dry-run|--force]
-aikito prepare project <name> [--agent pi]
+aikito prepare project <name> [--agent pi] [--path <path>]
 aikito status | aikito diff
 ```
 
@@ -171,10 +171,12 @@ Aikito ownership. `.agents/memory/` is exclusively Aikito-managed, so unknown
 entries there remain conflicts.
 
 `prepare project` is the execution-facing entry for an external runner. It
-requires exactly one active path, applies the same persistent project sync
-rules, and returns the resolved working directory through the public Python
-API. V1 supports Pi and never synchronizes global resources, MCP servers, or
-subagents as part of preparation.
+requires exactly one active path (or an explicit target path override), applies
+the same persistent project sync rules, and returns the resolved working
+directory through the public Python API. V1 supports Pi and never synchronizes
+global resources, MCP servers, or subagents as part of preparation.
+`--path` may prepare an existing unregistered directory for an ephemeral CI or
+deployment checkout; the caller is responsible for selecting the correct path.
 
 ### MCP Servers
 

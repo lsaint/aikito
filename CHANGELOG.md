@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added the public `Project.load()` and `Project.prepare()` API, typed project runtime errors, and the `aikito prepare project` command for Pi-based project runners.
+- Added the public `Project.load()`, `Project.prepare()`, and `Project.add_path()` APIs, typed project runtime errors, and the `aikito prepare project` command (with optional explicit target path support) for Pi-based project runners.
 
 ## [1.30.1] - 2026-09-09
 

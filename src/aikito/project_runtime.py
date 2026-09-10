@@ -15,11 +15,13 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from .compat import can_symlink
+from .compat import can_symlink, safe_relative_path
 from .init import project_sync_validation_error
 from .mcp import MCPConfigError, collect_project_instruction_targets, load_agents
 from .project import (
     RuntimeCleanupPlan,
+    _resolve_project_path,
+    append_candidate_path_to_config,
     collect_single_project_skill_states,
     find_selected_runtime_conflicts,
     plan_runtime_cleanup,
@@ -153,7 +155,31 @@ class Project:
             raise AmbiguousProjectPathError(self.name, active_paths)
         return active_paths[0]
 
-    def prepare(self, agent: str) -> PreparedProject:
+    def add_path(self, path: Path | str) -> Project:
+        """Register a new candidate path in the project's agent.toml and return updated Project."""
+        resolved = _resolve_supplied_project_path(path, self._home)
+
+        config_path = self.workspace / "projects" / self.name / "agent.toml"
+        if not config_path.is_file():
+            raise ProjectNotFoundError(
+                f"Aikito project config not found: {config_path}"
+            )
+
+        raw_to_append = safe_relative_path(resolved, self._home)
+        try:
+            append_candidate_path_to_config(config_path, raw_to_append, self._home)
+        except Exception as exc:
+            raise InvalidProjectConfigError(
+                f"Failed to append candidate path to {config_path}: {exc}"
+            ) from exc
+
+        return self.load(self.name, workspace=self.workspace)
+
+    def prepare(
+        self,
+        agent: str,
+        path: Path | str | None = None,
+    ) -> PreparedProject:
         """Prepare persistent project resources and return Agent launch inputs."""
         if agent not in SUPPORTED_PROJECT_AGENTS:
             supported = ", ".join(SUPPORTED_PROJECT_AGENTS)
@@ -174,7 +200,11 @@ class Project:
                 ("Symbolic link support is required to prepare project resources",),
             )
 
-        project_path = self.resolve_path()
+        if path is None:
+            project_path = self.resolve_path()
+        else:
+            project_path = _resolve_supplied_project_path(path, self._home)
+
         errors = collect_project_prepare_errors(
             self.workspace,
             self.name,
@@ -201,6 +231,25 @@ class Project:
             cwd=project_path,
             env_overrides=MappingProxyType({}),
         )
+
+
+def _resolve_supplied_project_path(path: Path | str, home: Path) -> Path:
+    """Resolve a caller-supplied path against the Project's captured home."""
+    if not isinstance(path, (str, Path)):
+        raise InvalidProjectConfigError(
+            f"Project path must be a string or Path, got {type(path).__name__}"
+        )
+    raw = str(path).strip()
+    if not raw:
+        raise InvalidProjectConfigError("Project path cannot be empty")
+    resolved = _resolve_project_path(raw, home)
+    if resolved is None:
+        raise InvalidProjectConfigError(f"Invalid project path: {path!r}")
+    if not resolved.exists():
+        raise NoAvailableProjectPathError(f"Project path does not exist: {resolved}")
+    if not resolved.is_dir():
+        raise InvalidProjectConfigError(f"Project path is not a directory: {resolved}")
+    return resolved
 
 
 def _validate_project_config(config_path: Path, config: dict[str, Any]) -> None:

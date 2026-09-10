@@ -223,6 +223,100 @@ class ProjectApiTest(unittest.TestCase):
             "# Global instructions\n",
         )
 
+    def test_prepare_with_explicit_path(self) -> None:
+        custom_path = self.home / "other-checkout"
+        custom_path.mkdir(parents=True)
+        project = self.load_project()
+
+        prepared = project.prepare(agent="pi", path=custom_path)
+
+        self.assertEqual(prepared.name, "demo")
+        self.assertEqual(prepared.agent, "pi")
+        self.assertEqual(prepared.cwd, custom_path.resolve())
+        self.assertTrue((custom_path / "AGENTS.md").is_symlink())
+        self.assertTrue(
+            (custom_path / ".agents" / "skills" / "demo-skill").is_symlink()
+        )
+        self.assertTrue((custom_path / ".agents" / "memory" / "index.md").is_symlink())
+        # Ensure agent.toml was not modified
+        self.assertEqual(project.paths, (self.project_path.resolve(),))
+
+    def test_prepare_with_explicit_path_disambiguates(self) -> None:
+        second_path = self.home / "second-checkout"
+        second_path.mkdir(parents=True)
+        (self.definition / "agent.toml").write_text(
+            f'name = "demo"\npaths = ["{self.project_path}", "{second_path}"]\n'
+            "skills = []\n",
+            encoding="utf-8",
+        )
+        project = self.load_project()
+
+        # Without path argument, it fails with ambiguity
+        with self.assertRaises(AmbiguousProjectPathError):
+            project.prepare(agent="pi")
+
+        # With explicit path, it disambiguates and succeeds
+        prepared = project.prepare(agent="pi", path=second_path)
+        self.assertEqual(prepared.cwd, second_path.resolve())
+
+    def test_prepare_rejects_nonexistent_or_invalid_explicit_path(self) -> None:
+        project = self.load_project()
+        missing = self.home / "nonexistent-checkout"
+
+        with self.assertRaises(NoAvailableProjectPathError):
+            project.prepare(agent="pi", path=missing)
+
+        file_path = self.home / "a-file"
+        file_path.write_text("hello", encoding="utf-8")
+        with self.assertRaises(InvalidProjectConfigError):
+            project.prepare(agent="pi", path=file_path)
+
+        with self.assertRaises(InvalidProjectConfigError):
+            project.prepare(agent="pi", path="")
+
+        with self.assertRaises(InvalidProjectConfigError):
+            project.prepare(agent="pi", path=123)  # type: ignore[arg-type]
+
+    def test_explicit_paths_expand_against_the_loaded_project_home(self) -> None:
+        checkout = self.home / "checkout"
+        checkout.mkdir()
+        project = self.load_project()
+
+        prepared = project.prepare(agent="pi", path="~/checkout")
+        updated = project.add_path("~/checkout")
+
+        self.assertEqual(prepared.cwd, checkout.resolve())
+        self.assertIn(checkout.resolve(), updated.paths)
+
+    def test_add_path_registers_candidate_path_and_reloads(self) -> None:
+        new_path = self.home / "new-machine-checkout"
+        new_path.mkdir(parents=True)
+        project = self.load_project()
+
+        updated_project = project.add_path(new_path)
+
+        self.assertIn(new_path.resolve(), updated_project.paths)
+        config_text = (self.definition / "agent.toml").read_text(encoding="utf-8")
+        self.assertIn("new-machine-checkout", config_text)
+
+    def test_add_path_rejects_nonexistent_or_invalid_path(self) -> None:
+        project = self.load_project()
+        missing = self.home / "missing-path"
+
+        with self.assertRaises(NoAvailableProjectPathError):
+            project.add_path(missing)
+
+        file_path = self.home / "not-a-dir"
+        file_path.write_text("content", encoding="utf-8")
+        with self.assertRaises(InvalidProjectConfigError):
+            project.add_path(file_path)
+
+        with self.assertRaises(InvalidProjectConfigError):
+            project.add_path("")
+
+        with self.assertRaises(InvalidProjectConfigError):
+            project.add_path(None)  # type: ignore[arg-type]
+
 
 class ProjectSummaryTest(unittest.TestCase):
     def test_collects_project_resources_and_runtime_health(self) -> None:

@@ -736,7 +736,7 @@ def cmd_prepare_project(args: argparse.Namespace) -> None:
         prepared = Project.load(
             args.project_name,
             workspace=get_aikito_dir(),
-        ).prepare(agent=args.agent)
+        ).prepare(agent=args.agent, path=args.project_path)
     except ProjectError as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
         sys.exit(1)
@@ -1491,6 +1491,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_prepare_project.add_argument(
         "--agent", default="pi", help="Agent to prepare (V1 supports: pi)"
+    )
+    p_prepare_project.add_argument(
+        "--path",
+        dest="project_path",
+        default=None,
+        help="Explicit project directory to prepare (overrides agent.toml path selection)",
     )
     p_prepare_project.set_defaults(func=cmd_prepare_project)
 

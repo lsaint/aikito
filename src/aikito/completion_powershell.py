@@ -131,6 +131,11 @@ $script:AikitoCompleterBlock = {{
     }}
 
     if ($argIndex -ge 3) {{
+        $previous = if ($argIndex -gt 0 -and $argIndex -le $count) {{ $tokens[$argIndex - 1] }} else {{ '' }}
+        if ($previous -eq '--path') {{
+            Invoke-Candidates 'paths'
+            return $results
+        }}
         if ($wordToComplete -like '-*') {{
             if ($subFlags.$pair) {{
                 foreach ($f in $subFlags.$pair) {{ Add-Candidate $f $f }}

@@ -175,6 +175,20 @@ jobs:
           test -f ${{ runner.temp }}/wheel-ws/agents.toml
           test -f ${{ runner.temp }}/wheel-ws/skills/aikito/SKILL.md
           test -f ${{ runner.temp }}/wheel-ws/skills/durable-memory/SKILL.md
+          mkdir -p ${{ runner.temp }}/wheel-project
+          mkdir -p ${{ runner.temp }}/wheel-project-second
+          AIKITO_DIR=${{ runner.temp }}/wheel-ws \
+            ${{ runner.temp }}/isolated-venv/bin/aikito init project \
+              wheel-example ${{ runner.temp }}/wheel-project
+          AIKITO_DIR=${{ runner.temp }}/wheel-ws \
+            AIKITO_TEST_PROJECT_PATH=${{ runner.temp }}/wheel-project-second \
+            ${{ runner.temp }}/isolated-venv/bin/python -c "
+          import os
+          from pathlib import Path
+          from aikito import Project
+          updated = Project.load('wheel-example').add_path(os.environ['AIKITO_TEST_PROJECT_PATH'])
+          assert Path(os.environ['AIKITO_TEST_PROJECT_PATH']).resolve() in updated.paths
+          "
 
 
       - name: aikito workspace persistence
@@ -242,6 +256,14 @@ jobs:
           fi
           grep -q "Multiple paths are available" \
             ${{ runner.temp }}/prepare-ambiguous.log
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito prepare project example --agent pi \
+              --path ${{ runner.temp }}/example-project-second | \
+            grep -q "Project 'example' for pi"
+          test -L ${{ runner.temp }}/example-project-second/AGENTS.md
+          test -L \
+            ${{ runner.temp }}/example-project-second/.agents/skills/durable-memory
+          test -L ${{ runner.temp }}/example-project-second/.agents/memory/index.md
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito show projects
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
@@ -483,6 +505,16 @@ jobs:
           if (-not (Test-Path (Join-Path $projectDir ".agents\memory\index.md"))) {
             throw "Prepared project memory link is missing"
           }
+          $secondProjectDir = Join-Path $env:RUNNER_TEMP "example-project-second"
+          New-Item -ItemType Directory -Force -Path $secondProjectDir | Out-Null
+          python -m aikito prepare project example --agent pi --path "$secondProjectDir"
+          if (-not (Test-Path (Join-Path $secondProjectDir ".agents\memory\index.md"))) {
+            throw "Prepared explicit project path memory link is missing"
+          }
+          $thirdProjectDir = Join-Path $env:RUNNER_TEMP "example-project-third"
+          New-Item -ItemType Directory -Force -Path $thirdProjectDir | Out-Null
+          $env:AIKITO_TEST_PROJECT_PATH = $thirdProjectDir
+          python -c "import os; from pathlib import Path; from aikito import Project; updated = Project.load('example').add_path(os.environ['AIKITO_TEST_PROJECT_PATH']); assert Path(os.environ['AIKITO_TEST_PROJECT_PATH']).resolve() in updated.paths"
           python -m aikito doctor
           python -m aikito status
 

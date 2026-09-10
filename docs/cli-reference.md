@@ -115,6 +115,12 @@ from aikito import Project
 
 project = Project.load("example")
 prepared = project.prepare(agent="pi")
+
+# Or supply an explicit target path (bypasses candidate path resolution):
+prepared = project.prepare(agent="pi", path="/path/to/checkout")
+
+# Or register a newly discovered checkout path in agent.toml:
+project = project.add_path("/path/to/checkout")
 ```
 
 `PreparedProject` contains the project name, Agent name, resolved `cwd`, and
@@ -127,12 +133,17 @@ The matching CLI entry is:
 
 ```bash
 aikito prepare project example --agent pi
+# With an explicit directory override:
+aikito prepare project example --path /path/to/checkout --agent pi
 ```
 
-Preparation requires exactly one active configured path. It fails instead of
-guessing when no path or several paths are active. V1 supports Pi for prepared
-project runs; normal synchronization remains available to every configured
-Agent.
+When no explicit path is given, preparation requires exactly one active configured
+path on this host. It fails instead of guessing when no path or several paths are
+active. Supplying an explicit path directly prepares that directory and disambiguates
+multiple checkouts without modifying `agent.toml`. This is intended for ephemeral
+CI and deployment checkouts; the caller is responsible for selecting the correct
+directory. V1 supports Pi for prepared project runs; normal synchronization
+remains available to every configured Agent.
 
 `aikito maintain memory` defaults to the project whose locally present path
 contains the current directory and launches the `codex` runner configured in
