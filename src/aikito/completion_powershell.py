@@ -136,6 +136,10 @@ $script:AikitoCompleterBlock = {{
             Invoke-Candidates 'paths'
             return $results
         }}
+        if ($previous -eq '--project') {{
+            Invoke-Candidates 'projects'
+            return $results
+        }}
         if ($wordToComplete -like '-*') {{
             if ($subFlags.$pair) {{
                 foreach ($f in $subFlags.$pair) {{ Add-Candidate $f $f }}

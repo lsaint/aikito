@@ -47,7 +47,7 @@ version.
 | `aikito show inbox [target]` | Print raw markdown content of an inbox note, or list all inbox notes if target is omitted |
 | `aikito edit inbox <target>` | Open an inbox note in `$VISUAL` or `$EDITOR` |
 | `aikito rm inbox <target>` | Remove an inbox note file |
-| `aikito show memory [target]` | Print a memory note, or list all memory notes if target is omitted |
+| `aikito show memory [target] [--project <name>]` | Print a memory note, or list memory notes (optionally filtered by project) |
 | `aikito show skill [target]` | Print a skill's SKILL.md file, or list all skills if target is omitted |
 | `aikito rename memory <target> <new-name>` | Atomically rename a memory note, update its index entry, and refactor inbound wikilinks |
 | `aikito rm memory <target>` | Remove a memory note, prune its index entry, and scan for inbound wikilinks |

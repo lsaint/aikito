@@ -370,8 +370,20 @@ jobs:
             ${{ runner.temp }}/aikito-ws/memory/notes/ci-memory.md
           printf '\n- [[ci-memory|CI memory]]\n' >> \
             ${{ runner.temp }}/aikito-ws/memory/index.md
+          mkdir -p ${{ runner.temp }}/aikito-ws/projects/example/memory/notes
+          printf '# CI project memory note\n' > \
+            ${{ runner.temp }}/aikito-ws/projects/example/memory/notes/ci-proj-memory.md
+          printf '\n- [[ci-proj-memory|CI project memory]]\n' >> \
+            ${{ runner.temp }}/aikito-ws/projects/example/memory/index.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show memory --project example | grep -q "ci-proj-memory"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show memory ci-proj-memory --project example | \
+            grep -q "CI project memory note"
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito show memory ci-memory | grep -q "CI memory note"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show memory ci-memory --project global | grep -q "CI memory note"
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito rename memory ci-memory ci-memory-renamed
           test -f ${{ runner.temp }}/aikito-ws/memory/notes/ci-memory-renamed.md
@@ -384,6 +396,10 @@ jobs:
             ${{ runner.temp }}/aikito-ws/memory/index.md; then
             exit 1
           fi
+          test -f ${{ runner.temp }}/aikito-ws/projects/example/memory/notes/ci-proj-memory.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm memory ci-proj-memory
+          test ! -e ${{ runner.temp }}/aikito-ws/projects/example/memory/notes/ci-proj-memory.md
 
       # doctor should report all symlinks and config.toml OK after sync
       - name: aikito doctor
@@ -517,6 +533,7 @@ jobs:
           python -c "import os; from pathlib import Path; from aikito import Project; updated = Project.load('example').add_path(os.environ['AIKITO_TEST_PROJECT_PATH']); assert Path(os.environ['AIKITO_TEST_PROJECT_PATH']).resolve() in updated.paths"
           python -m aikito doctor
           python -m aikito status
+          python -m aikito show memory --project example
 
       - name: Verify Graceful Failure When Symlinks Unavailable
         shell: pwsh

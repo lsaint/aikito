@@ -879,6 +879,166 @@ class ShowMemoryTest(unittest.TestCase):
             self.assertIn("Scope", output)
             self.assertIn("Note File", output)
 
+    def test_show_memory_project_filter_table(self) -> None:
+        global_note = self.aikito_dir / "memory" / "notes" / "global-note.md"
+        global_note.write_text("# Global Note")
+        proj_note = (
+            self.aikito_dir
+            / "projects"
+            / "doxturbo"
+            / "memory"
+            / "notes"
+            / "doxturbo-note.md"
+        )
+        proj_note.write_text("# Doxturbo Note")
+
+        # 1. Filter to specific project
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "memory", "--project", "doxturbo"]
+            )
+            args.func(args)
+            output = mock_stdout.getvalue()
+            self.assertIn("doxturbo-note", output)
+            self.assertIn("doxturbo", output)
+            self.assertNotIn("global-note", output)
+
+        # 2. Filter to global scope
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "memory", "--project", "global"]
+            )
+            args.func(args)
+            output = mock_stdout.getvalue()
+            self.assertIn("global-note", output)
+            self.assertNotIn("doxturbo-note", output)
+
+    def test_show_memory_disambiguates_conflict_with_project_flag(self) -> None:
+        g_note = self.aikito_dir / "memory" / "notes" / "conflict.md"
+        g_note.write_text("# Global Conflict Content")
+        p_note = (
+            self.aikito_dir
+            / "projects"
+            / "doxturbo"
+            / "memory"
+            / "notes"
+            / "conflict.md"
+        )
+        p_note.write_text("# Project Conflict Content")
+
+        # Directly resolves to project note when --project is passed
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "memory", "conflict", "--project", "doxturbo"]
+            )
+            args.func(args)
+            self.assertEqual(mock_stdout.getvalue(), "# Project Conflict Content")
+
+        # Directly resolves to global note when --project global is passed
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "memory", "conflict", "--project", "global"]
+            )
+            args.func(args)
+            self.assertEqual(mock_stdout.getvalue(), "# Global Conflict Content")
+
+    def test_show_memory_project_not_found(self) -> None:
+        with (
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "memory", "--project", "nonexistent"]
+            )
+            with self.assertRaises(SystemExit) as cm:
+                args.func(args)
+
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn(
+            "[ERROR] Project 'nonexistent' not found.", mock_stderr.getvalue()
+        )
+
+    def test_show_memory_project_conflict(self) -> None:
+        (self.aikito_dir / "projects" / "doxextra").mkdir(parents=True, exist_ok=True)
+        with (
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "memory", "--project", "dox"]
+            )
+            with self.assertRaises(SystemExit) as cm:
+                args.func(args)
+
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn(
+            "[CONFLICT] Multiple projects match 'dox':", mock_stderr.getvalue()
+        )
+
+    def test_show_memory_project_from_cwd(self) -> None:
+        proj_dir = self.aikito_dir / "projects" / "doxturbo"
+        proj_note = proj_dir / "memory" / "notes" / "doxturbo-note.md"
+        proj_note.write_text("# Doxturbo Note")
+
+        with (
+            patch("pathlib.Path.cwd", return_value=proj_dir),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["show", "memory", "--project"])
+            args.func(args)
+            output = mock_stdout.getvalue()
+            self.assertIn("doxturbo-note", output)
+
+    def test_show_memory_project_from_cwd_not_in_project(self) -> None:
+        with (
+            patch("pathlib.Path.cwd", return_value=Path("/unregistered/dir")),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["show", "memory", "--project"])
+            with self.assertRaises(SystemExit) as cm:
+                args.func(args)
+
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn(
+            "[ERROR] Current directory is not inside a registered project:",
+            mock_stderr.getvalue(),
+        )
+
+    def test_show_memory_note_not_found_in_project(self) -> None:
+        with (
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "memory", "missing-note", "--project", "doxturbo"]
+            )
+            with self.assertRaises(SystemExit) as cm:
+                args.func(args)
+
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn(
+            "[ERROR] Memory note 'missing-note' not found in project 'doxturbo'.",
+            mock_stderr.getvalue(),
+        )
+        self.assertIn(
+            "Run 'aikito show memory --project doxturbo' to view available memory files.",
+            mock_stderr.getvalue(),
+        )
+
 
 class ShowSkillTest(unittest.TestCase):
     def setUp(self) -> None:

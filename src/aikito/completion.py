@@ -342,6 +342,12 @@ _aikito() {{
         4)
             local cmd="${{words[2]}}"
             local sub="${{words[3]}}"
+            if [[ "${{words[CURRENT-1]}}" == "--project" ]]; then
+                local cands
+                cands=(${{(f)"$(aikito completion candidates projects 2>/dev/null)"}})
+                compadd -a cands
+                return
+            fi
             if [[ $cur == -* ]]; then
                 case "$cmd $sub" in
 {sub_flags_str}
@@ -400,6 +406,12 @@ _aikito() {{
         5)
             local cmd="${{words[2]}}"
             local sub="${{words[3]}}"
+            if [[ "${{words[CURRENT-1]}}" == "--project" ]]; then
+                local cands
+                cands=(${{(f)"$(aikito completion candidates projects 2>/dev/null)"}})
+                compadd -a cands
+                return
+            fi
             case "$cmd $sub" in
                 (sync\\ project|init\\ project)
                     _files -/
@@ -528,6 +540,14 @@ _aikito_completion() {{
     fi
 
     if [[ $COMP_CWORD -ge 3 ]]; then
+        local prev_word="${{COMP_WORDS[COMP_CWORD-1]}}"
+        if [[ $prev_word == "--project" ]]; then
+            local projects
+            projects=$(aikito completion candidates projects 2>/dev/null)
+            COMPREPLY=( $(compgen -W "$projects" -- "$cur") )
+            return 0
+        fi
+
         if [[ $cur == -* ]]; then
             case "$cmd $sub" in
 {sub_flags_str}
@@ -683,6 +703,8 @@ def generate_fish(parser: argparse.ArgumentParser | None = None) -> str:
         "# Dynamic candidates & positionals",
         "complete -c aikito -f -n '__fish_seen_subcommand_from show edit rename rm remove; and __fish_seen_subcommand_from memory' "
         "-a '(aikito completion candidates memory-completions 2>/dev/null)'",
+        "complete -c aikito -f -n '__fish_seen_subcommand_from show; and __fish_seen_subcommand_from memory' "
+        "-l project -a '(aikito completion candidates projects 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from show edit rm remove; and __fish_seen_subcommand_from inbox' "
         "-a '(aikito completion candidates inbox-completions 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from show edit; and __fish_seen_subcommand_from skill skills' "

@@ -99,6 +99,9 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         show_sub_flags = schema["commands"]["show"]["subcommands"]["subagents"]["flags"]
         self.assertIn("--agent", show_sub_flags)
 
+        show_memory_flags = schema["commands"]["show"]["subcommands"]["memory"]["flags"]
+        self.assertIn("--project", show_memory_flags)
+
         maintain_flags = schema["commands"]["maintain"]["subcommands"]["memory"][
             "flags"
         ]

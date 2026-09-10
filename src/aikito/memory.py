@@ -111,38 +111,44 @@ def extract_note_title(note_path: Path) -> str:
     )
 
 
-def find_memory_files(aikito_dir: Path) -> List[MemoryFileItem]:
+def find_memory_files(
+    aikito_dir: Path, project: Optional[str] = None
+) -> List[MemoryFileItem]:
     items = []
 
     # 1. Global memory
-    global_mem = aikito_dir / "memory"
-    if global_mem.is_dir():
-        for file_path in global_mem.rglob("*.md"):
-            if file_path.is_file():
-                rel_path = file_path.relative_to(global_mem)
-                items.append(
-                    MemoryFileItem(
-                        scope="global", rel_path=rel_path, full_path=file_path
+    if project is None or project.lower() == "global":
+        global_mem = aikito_dir / "memory"
+        if global_mem.is_dir():
+            for file_path in global_mem.rglob("*.md"):
+                if file_path.is_file():
+                    rel_path = file_path.relative_to(global_mem)
+                    items.append(
+                        MemoryFileItem(
+                            scope="global", rel_path=rel_path, full_path=file_path
+                        )
                     )
-                )
 
     # 2. Project memory
-    projects_dir = aikito_dir / "projects"
-    if projects_dir.is_dir():
-        for proj_folder in sorted(projects_dir.iterdir()):
-            if proj_folder.is_dir():
-                proj_mem = proj_folder / "memory"
-                if proj_mem.is_dir():
-                    for file_path in proj_mem.rglob("*.md"):
-                        if file_path.is_file():
-                            rel_path = file_path.relative_to(proj_mem)
-                            items.append(
-                                MemoryFileItem(
-                                    scope=proj_folder.name,
-                                    rel_path=rel_path,
-                                    full_path=file_path,
+    if project is None or project.lower() != "global":
+        projects_dir = aikito_dir / "projects"
+        if projects_dir.is_dir():
+            for proj_folder in sorted(projects_dir.iterdir()):
+                if proj_folder.is_dir():
+                    if project is not None and proj_folder.name != project:
+                        continue
+                    proj_mem = proj_folder / "memory"
+                    if proj_mem.is_dir():
+                        for file_path in proj_mem.rglob("*.md"):
+                            if file_path.is_file():
+                                rel_path = file_path.relative_to(proj_mem)
+                                items.append(
+                                    MemoryFileItem(
+                                        scope=proj_folder.name,
+                                        rel_path=rel_path,
+                                        full_path=file_path,
+                                    )
                                 )
-                            )
 
     return items
 
@@ -174,13 +180,15 @@ def ensure_safe_path(
     return resolved_path
 
 
-def resolve_memory_target(aikito_dir: Path, target: str) -> Path:
+def resolve_memory_target(
+    aikito_dir: Path, target: str, project: Optional[str] = None
+) -> Path:
     target_raw = target.strip()
     if target_raw.endswith("…"):
         target_raw = target_raw[:-1]
     target_norm = target_raw[:-3] if target_raw.endswith(".md") else target_raw
 
-    items = find_memory_files(aikito_dir)
+    items = find_memory_files(aikito_dir, project=project)
 
     matched = []
     seen_paths = set()
@@ -216,16 +224,28 @@ def resolve_memory_target(aikito_dir: Path, target: str) -> Path:
     if len(matched) > 1:
         raise MemoryTargetConflictError(target, matched)
 
-    print(f"[ERROR] Memory note '{target}' not found.", file=sys.stderr)
-    print("Run 'aikito show memory' to view available memory files.", file=sys.stderr)
+    if project:
+        print(
+            f"[ERROR] Memory note '{target}' not found in project '{project}'.",
+            file=sys.stderr,
+        )
+        print(
+            f"Run 'aikito show memory --project {project}' to view available memory files.",
+            file=sys.stderr,
+        )
+    else:
+        print(f"[ERROR] Memory note '{target}' not found.", file=sys.stderr)
+        print(
+            "Run 'aikito show memory' to view available memory files.", file=sys.stderr
+        )
     sys.exit(1)
 
 
 def resolve_memory_target_for_command(
-    aikito_dir: Path, target: str, operation: str
+    aikito_dir: Path, target: str, operation: str, project: Optional[str] = None
 ) -> Path:
     try:
-        return resolve_memory_target(aikito_dir, target)
+        return resolve_memory_target(aikito_dir, target, project=project)
     except MemoryTargetConflictError as exc:
         print(
             f"[CONFLICT] Multiple memory notes match '{exc.target}':\n",

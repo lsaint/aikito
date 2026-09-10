@@ -9,7 +9,7 @@ import tomllib
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .link import SymlinkVerdict, classify_symlink, symlink_verdict_to_status
 from .mcp import (
@@ -726,71 +726,77 @@ def _parse_index_titles(index_file: Path) -> Tuple[Set[str], Dict[str, str]]:
     return indexed_stems, titles
 
 
-def collect_memory_notes_rows(aikito_dir: Path, home: Path) -> List[MemoryNoteRow]:
+def collect_memory_notes_rows(
+    aikito_dir: Path, home: Path, project: Optional[str] = None
+) -> List[MemoryNoteRow]:
     rows = []
 
     # 1. Global Memory Notes
-    global_mem = aikito_dir / "memory"
-    global_index_file = global_mem / "index.md"
-    g_indexed_stems, g_titles = _parse_index_titles(global_index_file)
+    if project is None or project.lower() == "global":
+        global_mem = aikito_dir / "memory"
+        global_index_file = global_mem / "index.md"
+        g_indexed_stems, g_titles = _parse_index_titles(global_index_file)
 
-    global_notes_dir = global_mem / "notes"
-    if global_notes_dir.is_dir():
-        for note_file in sorted(global_notes_dir.glob("*.md")):
-            stem = note_file.stem
-            is_indexed = stem in g_indexed_stems
-            title = g_titles.get(stem, "-")
-            rows.append(
-                MemoryNoteRow(
-                    scope_name="Global",
-                    note_name=stem,
-                    title=title,
-                    is_indexed=is_indexed,
-                    link_status="SKIP",
+        global_notes_dir = global_mem / "notes"
+        if global_notes_dir.is_dir():
+            for note_file in sorted(global_notes_dir.glob("*.md")):
+                stem = note_file.stem
+                is_indexed = stem in g_indexed_stems
+                title = g_titles.get(stem, "-")
+                rows.append(
+                    MemoryNoteRow(
+                        scope_name="Global",
+                        note_name=stem,
+                        title=title,
+                        is_indexed=is_indexed,
+                        link_status="SKIP",
+                    )
                 )
-            )
 
     # 2. Project Memory Notes
-    projects_dir = aikito_dir / "projects"
-    if projects_dir.is_dir():
-        for proj_folder in sorted(projects_dir.iterdir()):
-            if proj_folder.is_dir():
-                proj_mem = proj_folder / "memory"
-                proj_index = proj_mem / "index.md"
-                proj_notes = proj_mem / "notes"
+    if project is None or project.lower() != "global":
+        projects_dir = aikito_dir / "projects"
+        if projects_dir.is_dir():
+            for proj_folder in sorted(projects_dir.iterdir()):
+                if proj_folder.is_dir():
+                    if project is not None and proj_folder.name != project:
+                        continue
+                    proj_mem = proj_folder / "memory"
+                    proj_index = proj_mem / "index.md"
+                    proj_notes = proj_mem / "notes"
 
-                p_indexed_stems, p_titles = _parse_index_titles(proj_index)
+                    p_indexed_stems, p_titles = _parse_index_titles(proj_index)
 
-                agent_toml = proj_folder / "agent.toml"
-                link_st = "MISSING"
-                if agent_toml.is_file():
-                    try:
-                        with open(agent_toml, "rb") as f:
-                            data = tomllib.load(f)
-                        binding = resolve_project_binding(data, Path.home())
-                        if binding.active_entries:
-                            if all(
-                                (e.resolved_path / ".agents" / "memory").exists()
-                                for e in binding.active_entries
-                            ):
-                                link_st = "OK"
-                    except Exception:
-                        pass
+                    agent_toml = proj_folder / "agent.toml"
+                    link_st = "MISSING"
+                    if agent_toml.is_file():
+                        try:
+                            with open(agent_toml, "rb") as f:
+                                data = tomllib.load(f)
+                            binding = resolve_project_binding(data, home)
+                            if binding.active_entries:
+                                if all(
+                                    (e.resolved_path / ".agents" / "memory").exists()
+                                    for e in binding.active_entries
+                                ):
+                                    link_st = "OK"
+                        except Exception:
+                            pass
 
-                if proj_notes.is_dir():
-                    for p_note in sorted(proj_notes.glob("*.md")):
-                        p_stem = p_note.stem
-                        p_indexed = p_stem in p_indexed_stems
-                        p_title = p_titles.get(p_stem, "-")
-                        rows.append(
-                            MemoryNoteRow(
-                                scope_name=proj_folder.name,
-                                note_name=p_stem,
-                                title=p_title,
-                                is_indexed=p_indexed,
-                                link_status=link_st,
+                    if proj_notes.is_dir():
+                        for p_note in sorted(proj_notes.glob("*.md")):
+                            p_stem = p_note.stem
+                            p_indexed = p_stem in p_indexed_stems
+                            p_title = p_titles.get(p_stem, "-")
+                            rows.append(
+                                MemoryNoteRow(
+                                    scope_name=proj_folder.name,
+                                    note_name=p_stem,
+                                    title=p_title,
+                                    is_indexed=p_indexed,
+                                    link_status=link_st,
+                                )
                             )
-                        )
 
     return rows
 

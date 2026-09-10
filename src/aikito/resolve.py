@@ -345,6 +345,91 @@ def resolve_inbox_target(aikito_dir: Path, target: str, operation: str) -> Path:
     return resolve_inbox_target_for_command(inbox_dir, target, operation)
 
 
+def resolve_project_filter(
+    aikito_dir: Path,
+    project_target: str,
+    cwd: Path,
+    home: Path,
+) -> str:
+    """Resolve project target string (e.g. name, prefix, or '.') to an exact project name or 'global'."""
+    clean_target = project_target.strip()
+    if clean_target.lower() == "global":
+        return "global"
+
+    projects_dir = aikito_dir / "projects"
+
+    if clean_target == ".":
+        current = cwd.resolve()
+        # 1. Check if cwd is inside aikito_dir/projects/<project_name>
+        if projects_dir.is_dir():
+            try:
+                if current.is_relative_to(projects_dir.resolve()):
+                    rel = current.relative_to(projects_dir.resolve())
+                    if rel.parts:
+                        proj_candidate = rel.parts[0]
+                        if (
+                            projects_dir / proj_candidate
+                        ).is_dir() and not proj_candidate.startswith("."):
+                            return proj_candidate
+            except (ValueError, AttributeError):
+                pass
+
+        # 2. Check if cwd is inside any active project path
+        matches: list[tuple[str, Path]] = []
+        if projects_dir.is_dir():
+            for proj_folder in sorted(projects_dir.iterdir()):
+                if not proj_folder.is_dir() or proj_folder.name.startswith("."):
+                    continue
+                agent_toml = proj_folder / "agent.toml"
+                if not agent_toml.is_file():
+                    continue
+                try:
+                    config = tomllib.loads(agent_toml.read_text(encoding="utf-8"))
+                except (OSError, tomllib.TOMLDecodeError):
+                    continue
+                binding = resolve_project_binding(config, home)
+                for entry in binding.active_entries:
+                    if current == entry.resolved_path or current.is_relative_to(
+                        entry.resolved_path
+                    ):
+                        matches.append((proj_folder.name, entry.resolved_path))
+
+        if matches:
+            project_name, _ = max(matches, key=lambda item: len(item[1].parts))
+            return project_name
+
+        print(
+            f"[ERROR] Current directory is not inside a registered project: {current}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    registered: list[str] = []
+    if projects_dir.is_dir():
+        for p in sorted(projects_dir.iterdir()):
+            if p.is_dir() and not p.name.startswith("."):
+                registered.append(p.name)
+
+    exact = [p for p in registered if p == clean_target]
+    if exact:
+        return exact[0]
+
+    matches_prefix = [p for p in registered if p.startswith(clean_target)]
+    if len(matches_prefix) == 1:
+        return matches_prefix[0]
+
+    if len(matches_prefix) > 1:
+        names = ", ".join(matches_prefix)
+        print(
+            f"[CONFLICT] Multiple projects match '{clean_target}': {names}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print(f"[ERROR] Project '{clean_target}' not found.", file=sys.stderr)
+    sys.exit(1)
+
+
 __all__ = [
     "SkillTargetConflictError",
     "collect_instruction_agent_status",
@@ -354,6 +439,7 @@ __all__ = [
     "resolve_inbox_target",
     "resolve_instruction_target",
     "resolve_mcp_target_for_command",
+    "resolve_project_filter",
     "resolve_skill_target",
     "resolve_skill_target_for_command",
     "resolve_subagent_target_for_command",

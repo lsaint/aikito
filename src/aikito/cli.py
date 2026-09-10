@@ -28,6 +28,7 @@ from .resolve import (
     open_in_editor,
     resolve_instruction_target,
     resolve_mcp_target_for_command,
+    resolve_project_filter,
     resolve_skill_target_for_command,
     resolve_subagent_target_for_command,
 )
@@ -1207,16 +1208,28 @@ def cmd_show_memory(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
     home = Path.home()
     target = getattr(args, "target", None)
+    project_arg = getattr(args, "project", None)
+
+    resolved_project = None
+    if project_arg is not None:
+        resolved_project = resolve_project_filter(
+            aikito_dir=aikito_dir,
+            project_target=project_arg,
+            cwd=Path.cwd(),
+            home=home,
+        )
 
     if not target:
         use_unicode, use_color = resolve_color_flags(args)
-        note_rows = collect_memory_notes_rows(aikito_dir=aikito_dir, home=home)
+        note_rows = collect_memory_notes_rows(
+            aikito_dir=aikito_dir, home=home, project=resolved_project
+        )
         table_str = render_memory_notes_table(note_rows, use_unicode, use_color)
         print(table_str)
         return
 
     target_file = resolve_memory_target_for_command(
-        aikito_dir, target, operation="show"
+        aikito_dir, target, operation="show", project=resolved_project
     )
 
     try:
@@ -1900,6 +1913,13 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="?",
         default=None,
         help="Exact name, unique prefix, or path of the memory note (e.g. simplified-clean, global/example)",
+    )
+    p_show_memory.add_argument(
+        "--project",
+        nargs="?",
+        const=".",
+        default=None,
+        help="Filter memory notes to a specific project (by name, prefix, or '.' for current directory)",
     )
     add_color_args(p_show_memory)
     p_show_memory.set_defaults(func=cmd_show_memory)

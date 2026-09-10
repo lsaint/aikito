@@ -78,7 +78,16 @@ aikito show memory
 ```
 
 The output lists global and project scopes, note identifiers, index state, and
-project link state.
+project link state. You can also narrow output to a specific project or the
+project bound to the current working directory:
+
+```bash
+# Filter memory notes to a specific project
+aikito show memory --project example
+
+# Filter memory notes to the current directory's project
+aikito show memory --project
+```
 
 Example output from a configured workspace:
 
@@ -98,12 +107,16 @@ Example output from a configured workspace:
 
 ```bash
 aikito show memory skill-authoring
+
+# Disambiguate or resolve directly within a project scope
+aikito show memory release-checklist --project example
 ```
 
 Targets may be an exact note name, a qualified project path, or any unique
 prefix displayed in the `Note File` column. A copied truncated value such as
 `skill-authoring-guideli…` also works. Ambiguous prefixes are rejected with the
-matching full identifiers.
+matching full identifiers. Specifying `--project <project>` restricts the lookup
+to that project, avoiding naming collisions with global or other projects' notes.
 
 ## Edit a Note
 
