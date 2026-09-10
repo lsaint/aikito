@@ -53,7 +53,7 @@ class ProjectApiTest(unittest.TestCase):
             "# Project instructions\n", encoding="utf-8"
         )
         (self.definition / "agent.toml").write_text(
-            f'name = "demo"\npath = "{self.project_path}"\n'
+            f'name = "demo"\npath = "{self.project_path.as_posix()}"\n'
             'sync_mode = "link"\nskills = ["demo-skill"]\n'
             'memory = ["shared"]\n',
             encoding="utf-8",
@@ -99,7 +99,7 @@ class ProjectApiTest(unittest.TestCase):
 
     def test_rejects_invalid_project_resource_lists(self) -> None:
         (self.definition / "agent.toml").write_text(
-            f'name = "demo"\npath = "{self.project_path}"\nskills = "bad"\n',
+            f'name = "demo"\npath = "{self.project_path.as_posix()}"\nskills = "bad"\n',
             encoding="utf-8",
         )
 
@@ -117,7 +117,7 @@ class ProjectApiTest(unittest.TestCase):
         second_path = self.root / "second-code"
         second_path.mkdir()
         (self.definition / "agent.toml").write_text(
-            f'name = "demo"\npaths = ["{self.project_path}", "{second_path}"]\n'
+            f'name = "demo"\npaths = ["{self.project_path.as_posix()}", "{second_path.as_posix()}"]\n'
             "skills = []\n",
             encoding="utf-8",
         )
@@ -244,7 +244,7 @@ class ProjectApiTest(unittest.TestCase):
         second_path = self.home / "second-checkout"
         second_path.mkdir(parents=True)
         (self.definition / "agent.toml").write_text(
-            f'name = "demo"\npaths = ["{self.project_path}", "{second_path}"]\n'
+            f'name = "demo"\npaths = ["{self.project_path.as_posix()}", "{second_path.as_posix()}"]\n'
             "skills = []\n",
             encoding="utf-8",
         )

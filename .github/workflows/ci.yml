@@ -247,8 +247,14 @@ jobs:
           test -L ${{ runner.temp }}/example-project/.agents/memory/index.md
           mkdir -p ${{ runner.temp }}/example-project-second
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 -m aikito init project example \
-              ${{ runner.temp }}/example-project-second
+            AIKITO_TEST_PROJECT_PATH=${{ runner.temp }}/example-project-second \
+            python3 -c "
+          import os
+          from pathlib import Path
+          from aikito import Project
+          updated = Project.load('example').add_path(os.environ['AIKITO_TEST_PROJECT_PATH'])
+          assert Path(os.environ['AIKITO_TEST_PROJECT_PATH']).resolve() in updated.paths
+          "
           if AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -c "from aikito import Project; Project.load('example').prepare(agent='pi')" \
               2>${{ runner.temp }}/prepare-ambiguous.log; then
