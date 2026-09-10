@@ -30,11 +30,11 @@ ROOT = Path(__file__).resolve().parents[1]
 class ProjectApiTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary_directory.name)
-        self.home = self.root / "home"
-        self.workspace = self.root / "workspace"
-        self.project_path = self.root / "code"
-        self.definition = self.workspace / "projects" / "demo"
+        self.root = Path(self.temporary_directory.name).resolve()
+        self.home = (self.root / "home").resolve()
+        self.workspace = (self.root / "workspace").resolve()
+        self.project_path = (self.root / "code").resolve()
+        self.definition = (self.workspace / "projects" / "demo").resolve()
         self.home.mkdir()
         self.project_path.mkdir()
         (self.definition / "memory" / "notes").mkdir(parents=True)
@@ -69,8 +69,7 @@ class ProjectApiTest(unittest.TestCase):
         self.temporary_directory.cleanup()
 
     def load_project(self) -> Project:
-        with patch("pathlib.Path.home", return_value=self.home):
-            return Project.load("demo", workspace=self.workspace)
+        return Project.load("demo", workspace=self.workspace, home=self.home)
 
     def test_loads_and_resolves_the_only_active_path(self) -> None:
         project = self.load_project()

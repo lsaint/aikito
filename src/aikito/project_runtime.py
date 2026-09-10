@@ -102,14 +102,23 @@ class Project:
     _config: Mapping[str, Any]
 
     @classmethod
-    def load(cls, name: str, workspace: Path | str | None = None) -> Project:
+    def load(
+        cls,
+        name: str,
+        workspace: Path | str | None = None,
+        home: Path | str | None = None,
+    ) -> Project:
         """Load a named project without changing the persistent workspace pointer."""
         if not isinstance(name, str) or not PROJECT_NAME_RE.fullmatch(name):
             raise InvalidProjectConfigError(f"Invalid Aikito project name: {name!r}")
 
-        home = Path.home()
+        home_path = (
+            Path.home().resolve()
+            if home is None
+            else Path(home).expanduser().resolve()
+        )
         if workspace is None:
-            workspace_path = resolve_workspace(home)
+            workspace_path = resolve_workspace(home_path)
         else:
             supplied = Path(workspace).expanduser()
             if not supplied.is_absolute():
@@ -135,7 +144,7 @@ class Project:
                 f"{configured_name!r}"
             )
         _validate_project_config(config_path, config)
-        return cls(name, workspace_path, home, MappingProxyType(config))
+        return cls(name, workspace_path, home_path, MappingProxyType(config))
 
     @property
     def paths(self) -> tuple[Path, ...]:
@@ -173,7 +182,7 @@ class Project:
                 f"Failed to append candidate path to {config_path}: {exc}"
             ) from exc
 
-        return self.load(self.name, workspace=self.workspace)
+        return self.load(self.name, workspace=self.workspace, home=self._home)
 
     def prepare(
         self,
