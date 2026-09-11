@@ -121,7 +121,7 @@ function markdown(source, wikilinks = {}) {
 function show(detail) {
   const switcher=detail.kind === "markdown" ? `<div class="view-switch"><button class="active" data-view="rendered">Rendered</button><button data-view="raw">Raw</button></div>` : "";
   const body=detail.kind === "markdown" ? `<article class="rendered-content">${markdown(detail.content,detail.wikilinks)}</article>` : properties(detail.content);
-  content.innerHTML=`<div class="title"><h1>${escapeHtml(detail.name)}</h1><div class="title-meta"><span class="muted">${escapeHtml(detail.kind)}</span>${switcher}</div></div>${body}`;
+  content.innerHTML=`<div class="title"><h1>${escapeHtml(detail.name)}</h1><div class="title-meta"><span class="kind-badge">${escapeHtml(detail.kind)}</span>${switcher}</div></div>${body}`;
   if(detail.kind === "markdown") document.querySelector(".view-switch").onclick=event=>{
     const selected=event.target.closest("button[data-view]"); if(!selected) return;
     const article=document.querySelector("#content article");
