@@ -2,11 +2,11 @@
 
 ## `aikito web`
 
-Start the read-only local Web Console on `127.0.0.1`:
+Start the read-only local Web Console on `127.0.0.1:8765`:
 
 ```bash
 aikito web
-aikito web --port 8765
+aikito web --port 9000
 aikito web --no-open
 ```
 
@@ -132,8 +132,8 @@ path on this host. It fails instead of guessing when no path or several paths ar
 active. Supplying an explicit path directly prepares that directory and disambiguates
 multiple checkouts without modifying `agent.toml`. This is intended for ephemeral
 CI and deployment checkouts; the caller is responsible for selecting the correct
-directory. V1 supports Pi for prepared project runs; normal synchronization
-remains available to every configured Agent.
+directory. Project preparation supports any agent configured in the workspace's
+`agents.toml`.
 
 `Project.prepare()` is a Python API for execution engines such as Rundo. It has
 no separate CLI wrapper. Operators use `aikito sync project <name>` for manual
