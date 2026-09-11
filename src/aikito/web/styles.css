@@ -46,19 +46,28 @@ h1 { margin:0 0 5px; font-size:25px; } h2 { font-size:14px; text-transform:upper
 .rendered-content { max-width:760px; font-size:15px; } .rendered-content h1 { font-size:23px; margin:28px 0 12px; }
 .rendered-content h2 { font-size:17px; text-transform:none; letter-spacing:0; margin:25px 0 9px; }
 .rendered-content h3 { font-size:15px; margin:20px 0 7px; } .rendered-content p { margin:7px 0; }
-.rendered-content pre { padding:14px; background:var(--soft); overflow:auto; } .list-item { padding-left:12px; }
+.rendered-content pre { padding:14px; background:var(--soft); overflow:auto; } .rendered-content pre code { padding:0; background:transparent; border-radius:0; font:inherit; }
+.rendered-content :not(pre) > code,
 .inline-code { padding:1px 4px; border-radius:3px; background:var(--soft); font:13px/1.5 ui-monospace,SFMono-Regular,monospace; }
+.rendered-content ul, .rendered-content ol { padding-left:24px; margin:8px 0; } .rendered-content li { margin:4px 0; }
+.rendered-content blockquote { margin:12px 0; padding:4px 14px; border-left:3px solid var(--border); color:var(--muted); }
+.list-item { padding-left:12px; }
 .external-link { color:inherit; text-decoration-color:var(--muted); text-underline-offset:2px; overflow-wrap:anywhere; }
 .external-link:hover { text-decoration-thickness:2px; }
 span.external-link { text-decoration-style:dotted; text-underline-offset:3px; cursor:help; }
 .wikilink { color:inherit; text-decoration-style:dotted; text-decoration-color:var(--muted); text-underline-offset:3px; }
 .wikilink:hover { text-decoration-style:solid; }
+.rendered-content hr,
 .markdown-divider { margin:22px 0; border:0; border-top:1px solid var(--border); }
 .markdown-frontmatter { width:100%; margin:0 0 24px; border:0; border-collapse:collapse; }
 .markdown-frontmatter th, .markdown-frontmatter td { border:0; padding:4px 0; text-align:left; vertical-align:top; }
 .markdown-frontmatter th { width:1%; padding-right:24px; color:var(--muted); font-weight:500; white-space:nowrap; }
+.rendered-content table,
 .markdown-table { width:100%; margin:16px 0; border-collapse:collapse; }
+.rendered-content th,
+.rendered-content td,
 .markdown-table th, .markdown-table td { border:1px solid var(--border); padding:7px 10px; text-align:left; vertical-align:top; }
+.rendered-content th,
 .markdown-table th { background:var(--soft); font-weight:600; }
 .pretty-data { margin:0; padding:18px; border:1px solid var(--border); background:var(--soft); overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font:13px/1.65 ui-monospace,SFMono-Regular,monospace; }
 .properties dd .pretty-data { margin-top:8px; }

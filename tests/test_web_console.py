@@ -71,6 +71,7 @@ name_style = "verbatim"
         self.web = self.root / "web"
         self.web.mkdir()
         (self.web / "index.html").write_text("console", encoding="utf-8")
+        (self.web / "marked.umd.js").write_text("/* marked */", encoding="utf-8")
         data = ConsoleData(self.root, self.root, "test")
         self.server = ThreadingHTTPServer(
             ("127.0.0.1", 0), make_handler(data, self.web)
@@ -116,6 +117,10 @@ process.stdout.write(markdown(JSON.parse(process.argv[2]), JSON.parse(process.ar
     def test_serves_static_console_and_resource_api(self) -> None:
         with urllib.request.urlopen(self.base_url + "/") as response:
             self.assertEqual(response.read(), b"console")
+
+        with urllib.request.urlopen(self.base_url + "/marked.umd.js") as response:
+            self.assertEqual(response.read(), b"/* marked */")
+            self.assertIn("javascript", response.headers.get("Content-Type", ""))
 
         skills = self.get_json("/api/skills")
         self.assertEqual(skills[0]["skill_name"], "sample")
@@ -236,6 +241,15 @@ process.stdout.write(markdown(JSON.parse(process.argv[2]), JSON.parse(process.ar
         with self.assertRaises(urllib.error.HTTPError) as error:
             urllib.request.urlopen(self.base_url + "/api/skills/../global")
         self.assertEqual(error.exception.code, 404)
+
+    def test_package_web_assets_contain_marked(self) -> None:
+        from aikito.web_console import _resolve_web_dir
+
+        web_dir = _resolve_web_dir()
+        self.assertTrue((web_dir / "marked.umd.js").is_file())
+        self.assertTrue((web_dir / "index.html").is_file())
+        self.assertTrue((web_dir / "app.js").is_file())
+        self.assertTrue((web_dir / "styles.css").is_file())
 
 
 class WebCommandParserTest(unittest.TestCase):

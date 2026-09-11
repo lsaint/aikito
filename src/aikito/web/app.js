@@ -14,78 +14,109 @@ const id = (kind,item) => kind === "memory" ? `${item.scope_name}/${item.note_na
 async function get(path) { const response=await fetch(path); if(!response.ok) throw new Error((await response.json()).error || response.statusText); return response.json(); }
 function propertyValue(key,value) { return key === "details" ? `<pre class="pretty-data">${escapeHtml(JSON.stringify(value,null,2))}</pre>` : escapeHtml(typeof value === "object" ? JSON.stringify(value) : value); }
 function properties(value) { return `<dl class="properties">${Object.entries(value || {}).map(([key,item]) => `<dt>${escapeHtml(key.replaceAll("_"," "))}</dt><dd>${propertyValue(key,item)}</dd>`).join("")}</dl>`; }
-const inlineMarkdown = (value,wikilinks={}) => {
-  const pattern=/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|(https?:\/\/[^\s<]+)/g;
-  let output=""; let cursor=0;
-  for(const match of value.matchAll(pattern)) {
-    const [original,linkTarget,linkLabel,mdLabel,mdTarget,codeValue,boldValue,urlValue]=match;
-    output+=escapeHtml(value.slice(cursor,match.index));
-    if(linkTarget !== undefined) {
-      const target=wikilinks[linkTarget.trim()];
-      output+=target ? `<a class="wikilink" href="#" data-kind="${escapeAttribute(target.kind)}" data-name="${escapeAttribute(target.name)}">${escapeHtml(linkLabel || linkTarget)}</a>` : escapeHtml(original);
-    } else if(mdLabel !== undefined && mdTarget !== undefined) {
-      const targetUrl=mdTarget.trim();
-      const isHttp=/^https?:\/\//i.test(targetUrl);
-      output+=isHttp
-        ? `<a class="external-link" href="${escapeAttribute(targetUrl)}" title="${escapeAttribute(targetUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(mdLabel)}</a>`
-        : `<span class="external-link" title="${escapeAttribute(targetUrl)}">${escapeHtml(mdLabel)}</span>`;
-    } else if(codeValue !== undefined) output+=`<span class="inline-code">${escapeHtml(codeValue)}</span>`;
-    else if(boldValue !== undefined) output+=`<strong>${escapeHtml(boldValue)}</strong>`;
-    else if(urlValue !== undefined) {
-      const trailing=urlValue.match(/[)\]},.;:!?。，；：！？、）】》]+$/)?.[0] || ""; const url=trailing ? urlValue.slice(0,-trailing.length) : urlValue;
-      output+=`<a class="external-link" href="${escapeAttribute(url)}" title="${escapeAttribute(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>${escapeHtml(trailing)}`;
-    }
-    cursor=match.index+original.length;
-  }
-  return output+escapeHtml(value.slice(cursor));
-};
-const tableCells = line => line.trim().replace(/^\|/g,"").replace(/\|$/g,"").split("|").map(cell=>cell.trim());
-const isTableDivider = line => {
-  const cells=tableCells(line);
-  return cells.length > 0 && cells.every(cell=>/^:?-{3,}:?$/.test(cell));
-};
-function markdown(source,wikilinks={}) {
-  const lines=source.split("\n");
-  let frontmatter="";
-  if(lines[0]?.trim() === "---") {
-    const end=lines.findIndex((line,index)=>index > 0 && line.trim() === "---");
-    if(end > 0) {
-      const rows=lines.slice(1,end).map(line=>{
-        const separator=line.indexOf(":");
-        if(separator < 0) return `<tr><td colspan="2">${inlineMarkdown(line,wikilinks)}</td></tr>`;
-        return `<tr><th>${escapeHtml(line.slice(0,separator).trim())}</th><td>${inlineMarkdown(line.slice(separator+1).trim(),wikilinks)}</td></tr>`;
-      }).join("");
-      frontmatter=`<table class="markdown-frontmatter"><tbody>${rows}</tbody></table>`;
-      lines.splice(0,end+1);
-    }
-  }
-  let code=false;
-  const output=[];
-  for(let index=0;index<lines.length;index++) {
-    const line=lines[index];
-    if(line.startsWith("```")) { code=!code; output.push(code ? "<pre><code>" : "</code></pre>"); continue; }
-    if(code) { output.push(escapeHtml(line)+"\n"); continue; }
-    if(line.includes("|") && isTableDivider(lines[index+1] || "")) {
-      const headers=tableCells(line).map(cell=>`<th>${inlineMarkdown(cell,wikilinks)}</th>`).join("");
-      const rows=[];
-      index+=2;
-      while(index<lines.length && lines[index].includes("|")) {
-        const cells=tableCells(lines[index]).map(cell=>`<td>${inlineMarkdown(cell,wikilinks)}</td>`).join("");
-        rows.push(`<tr>${cells}</tr>`);
-        index++;
+if (typeof marked === "undefined" && typeof require !== "undefined") {
+  const path = require("path");
+  const baseDir = (typeof __filename !== "undefined" && __filename !== "[eval]")
+    ? path.dirname(__filename)
+    : (process.argv[1] ? path.dirname(process.argv[1]) : ".");
+  globalThis.marked = require(path.resolve(baseDir, "marked.umd.js"));
+}
+
+marked.use({
+  breaks: true,
+  gfm: true,
+  extensions: [
+    {
+      name: "wikilink",
+      level: "inline",
+      start(src) { return src.indexOf("[["); },
+      tokenizer(src) {
+        const match = /^\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/.exec(src);
+        if (match) {
+          return {
+            type: "wikilink",
+            raw: match[0],
+            target: match[1].trim(),
+            label: match[2] !== undefined ? match[2].trim() : match[1].trim(),
+          };
+        }
+      },
+      renderer(token) {
+        const wikilinks = this.parser?.options?.wikilinks || {};
+        const target = wikilinks[token.target];
+        if (target) {
+          return `<a class="wikilink" href="#" data-kind="${escapeAttribute(target.kind)}" data-name="${escapeAttribute(target.name)}">${escapeHtml(token.label)}</a>`;
+        }
+        return escapeHtml(token.raw);
+      },
+    },
+  ],
+  tokenizer: {
+    url(src) {
+      const match = /^https?:\/\/[^\s<]+/i.exec(src);
+      if (match) {
+        const trailing = match[0].match(/[)\]},.;:!?。，；：！？、）】》]+$/)?.[0] || "";
+        const url = trailing ? match[0].slice(0, -trailing.length) : match[0];
+        return {
+          type: "link",
+          raw: url,
+          text: url,
+          href: url,
+          tokens: [{ type: "text", raw: url, text: url }],
+        };
       }
-      index--;
-      output.push(`<table class="markdown-table"><thead><tr>${headers}</tr></thead><tbody>${rows.join("")}</tbody></table>`);
-      continue;
+    },
+  },
+  renderer: {
+    link({ href, title, text, tokens }) {
+      const targetUrl = href.trim();
+      const isHttp = /^https?:\/\//i.test(targetUrl);
+      const titleAttr = title ? ` title="${escapeAttribute(title)}"` : (targetUrl ? ` title="${escapeAttribute(targetUrl)}"` : "");
+      const content = tokens ? this.parser.parseInline(tokens) : escapeHtml(text);
+      if (isHttp) {
+        return `<a class="external-link" href="${escapeAttribute(targetUrl)}"${titleAttr} target="_blank" rel="noopener noreferrer">${content}</a>`;
+      }
+      return `<span class="external-link"${titleAttr}>${content}</span>`;
+    },
+    html({ text }) {
+      return escapeHtml(text);
+    },
+    codespan({ text }) {
+      return `<span class="inline-code">${text}</span>`;
+    },
+    hr() {
+      return '<hr class="markdown-divider">';
+    },
+    table(token) {
+      const header = token.header.map(c => `<th>${this.parser.parseInline(c.tokens)}</th>`).join("");
+      const rows = token.rows.map(r => `<tr>${r.map(c => `<td>${this.parser.parseInline(c.tokens)}</td>`).join("")}</tr>`).join("");
+      return `<table class="markdown-table"><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table>`;
+    },
+  },
+});
+
+function markdown(source, wikilinks = {}) {
+  if (!source) return "";
+  let text = String(source);
+  let frontmatter = "";
+  if (text.startsWith("---")) {
+    const lines = text.split("\n");
+    if (lines[0].trim() === "---") {
+      const end = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
+      if (end > 0) {
+        const rows = lines.slice(1, end).map(line => {
+          const sep = line.indexOf(":");
+          if (sep < 0) return `<tr><td colspan="2">${marked.parseInline(line, { wikilinks })}</td></tr>`;
+          const k = line.slice(0, sep).trim();
+          const v = line.slice(sep + 1).trim();
+          return `<tr><th>${escapeHtml(k)}</th><td>${marked.parseInline(v, { wikilinks })}</td></tr>`;
+        }).join("");
+        frontmatter = `<table class="markdown-frontmatter"><tbody>${rows}</tbody></table>`;
+        text = lines.slice(end + 1).join("\n");
+      }
     }
-    if(line.trim() === "---") output.push('<hr class="markdown-divider">');
-    else if(line.startsWith("### ")) output.push(`<h3>${inlineMarkdown(line.slice(4),wikilinks)}</h3>`);
-    else if(line.startsWith("## ")) output.push(`<h2>${inlineMarkdown(line.slice(3),wikilinks)}</h2>`);
-    else if(line.startsWith("# ")) output.push(`<h1>${inlineMarkdown(line.slice(2),wikilinks)}</h1>`);
-    else if(line.startsWith("- ")) output.push(`<div class="list-item">• ${inlineMarkdown(line.slice(2),wikilinks)}</div>`);
-    else if(line) output.push(`<p>${inlineMarkdown(line,wikilinks)}</p>`);
   }
-  return frontmatter+output.join("");
+  return frontmatter + marked.parse(text, { wikilinks });
 }
 function show(detail) {
   const switcher=detail.kind === "markdown" ? `<div class="view-switch"><button class="active" data-view="rendered">Rendered</button><button data-view="raw">Raw</button></div>` : "";

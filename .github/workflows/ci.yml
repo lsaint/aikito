@@ -154,6 +154,10 @@ jobs:
 
           src_data = open('src/aikito/web/assets/logo.png', 'rb').read()
           assert hashlib.sha256(wheel_data).hexdigest() == hashlib.sha256(src_data).hexdigest(), 'logo.png SHA256 mismatch'
+
+          marked_wheel = z.read('aikito/web/marked.umd.js')
+          marked_src = open('src/aikito/web/marked.umd.js', 'rb').read()
+          assert hashlib.sha256(marked_wheel).hexdigest() == hashlib.sha256(marked_src).hexdigest(), 'marked.umd.js SHA256 mismatch'
           print('Wheel contents and metadata verified OK')
 
           # Verify sdist test suite execution
