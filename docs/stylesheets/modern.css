@@ -502,8 +502,13 @@ body {
 
 .md-typeset .admonition-title,
 .md-typeset summary {
+  padding-block: 0.35rem;
   border-bottom-color: var(--aikito-line);
   background: var(--aikito-surface-2);
+}
+
+.md-typeset .admonition > :last-child {
+  margin-bottom: 0.5rem;
 }
 
 /* ---------- Tabs ---------- */

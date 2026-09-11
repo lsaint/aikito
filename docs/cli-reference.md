@@ -103,41 +103,15 @@ listed in `index.md`; use `doctor` for that index consistency check. Use
 `show project <name>` to inspect the exact runtime resource paths and link
 issues for one project.
 
-## Prepare a Project for an Agent Run
+## Python API
 
-The public Python API lets an external runner prepare one existing Aikito
-project without reading workspace configuration directly:
+See the [Python API Reference](python-api.md) for `Project.load()`,
+`Project.prepare()`, `Project.add_path()`, `PreparedProject`, and the full
+exception hierarchy.
 
-```python
-from aikito import Project
-
-project = Project.load("example")
-prepared = project.prepare(agent="pi")
-
-# Or supply an explicit target path (bypasses candidate path resolution):
-prepared = project.prepare(agent="pi", path="/path/to/checkout")
-
-# Or register a newly discovered checkout path in agent.toml:
-project = project.add_path("/path/to/checkout")
-```
-
-`PreparedProject` contains the project name, Agent name, resolved `cwd`, and
-read-only `env_overrides`. Preparation uses the existing persistent project
-sync rules for instructions, selected skills, and memory. It does not launch
-the Agent or synchronize global instructions, global skills, MCP servers, or
-subagents.
-
-When no explicit path is given, preparation requires exactly one active configured
-path on this host. It fails instead of guessing when no path or several paths are
-active. Supplying an explicit path directly prepares that directory and disambiguates
-multiple checkouts without modifying `agent.toml`. This is intended for ephemeral
-CI and deployment checkouts; the caller is responsible for selecting the correct
-directory. Project preparation supports any agent configured in the workspace's
-`agents.toml`.
-
-`Project.prepare()` is a Python API for execution engines such as Rundo. It has
-no separate CLI wrapper. Operators use `aikito sync project <name>` for manual
-project synchronization and path registration.
+`Project.prepare()` has no CLI wrapper. Operators use
+`aikito sync project <name>` for manual project synchronisation and path
+registration.
 
 `aikito maintain memory` defaults to the project whose locally present path
 contains the current directory and launches the `codex` runner configured in

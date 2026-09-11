@@ -57,6 +57,7 @@ nav:
       - Memory Scope and Lifecycle: memory-workflow.md
   - Reference:
       - CLI Reference: cli-reference.md
+      - Python API Reference: python-api.md
       - Safety Model: safety.md
       - FAQ: faq.md
   - About:
