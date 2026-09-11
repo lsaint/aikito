@@ -216,9 +216,7 @@ class AikitoPlatformTest(unittest.TestCase):
                     # Patch path to include a single quote
                     tricky = Path("/home/user/o'brien/.claude.json")
                     with patch.object(Path, "exists", return_value=True):
-                        with patch(
-                            "aikito.compat.is_windows", return_value=True
-                        ):
+                        with patch("aikito.compat.is_windows", return_value=True):
                             check_credential_permissions(tricky)
                 # The PowerShell command arg must escape single quotes with ''
                 ps_call = next(c for c in captured if "powershell" in c[0])

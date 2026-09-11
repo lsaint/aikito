@@ -1286,9 +1286,7 @@ class AgentDetectionTest(unittest.TestCase):
             self.assertIs(is_agent_installed("grok", self.home), True)
 
     def test_binary_counts_as_installed(self) -> None:
-        with patch(
-            "aikito.mcp.shutil.which", return_value="/usr/local/bin/grok"
-        ):
+        with patch("aikito.mcp.shutil.which", return_value="/usr/local/bin/grok"):
             self.assertIs(is_agent_installed("grok", self.home), True)
 
     def test_absent_agent_is_not_installed(self) -> None:

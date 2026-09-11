@@ -112,9 +112,7 @@ class Project:
             raise InvalidProjectConfigError(f"Invalid Aikito project name: {name!r}")
 
         home_path = (
-            Path.home().resolve()
-            if home is None
-            else Path(home).expanduser().resolve()
+            Path.home().resolve() if home is None else Path(home).expanduser().resolve()
         )
         if workspace is None:
             workspace_path = resolve_workspace(home_path)

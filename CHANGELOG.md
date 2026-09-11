@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.32.0] - 2026-09-11
+
+### Added
+
+- Bundled `marked.umd.js` into the Web Console package distribution for complete GitHub Flavored Markdown (GFM) rendering, including tables, task lists, and `[[target|label]]` wikilinks.
+
+### Changed
+
+- Modernized the Web Console UI inspired by the documentation theme: warm paper / basalt palette, frosted glass headers, pill badges, and refined typography scales.
+- Updated documentation screenshots with the modern Web Console UI.
+
 ## [1.31.1] - 2026-09-10
 
 ### Changed
@@ -614,7 +625,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.31.1...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.32.0...HEAD
+[1.32.0]: https://github.com/lsaint/aikito/compare/v1.31.1...v1.32.0
 [1.31.1]: https://github.com/lsaint/aikito/compare/v1.31.0...v1.31.1
 [1.31.0]: https://github.com/lsaint/aikito/compare/v1.30.1...v1.31.0
 [1.30.1]: https://github.com/lsaint/aikito/compare/v1.30.0...v1.30.1
