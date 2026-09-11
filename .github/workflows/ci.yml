@@ -139,6 +139,7 @@ jobs:
                   if n.startswith('aikito/templates/') and not n.endswith('/')
               )
               wheel_data = z.read('aikito/web/assets/logo.png')
+              marked_wheel = z.read('aikito/web/marked.umd.js')
               metadata_names = [n for n in z.namelist() if n.endswith('/METADATA')]
               assert metadata_names, 'METADATA missing from wheel'
               metadata_text = z.read(metadata_names[0]).decode('utf-8')
@@ -155,7 +156,6 @@ jobs:
           src_data = open('src/aikito/web/assets/logo.png', 'rb').read()
           assert hashlib.sha256(wheel_data).hexdigest() == hashlib.sha256(src_data).hexdigest(), 'logo.png SHA256 mismatch'
 
-          marked_wheel = z.read('aikito/web/marked.umd.js')
           marked_src = open('src/aikito/web/marked.umd.js', 'rb').read()
           assert hashlib.sha256(marked_wheel).hexdigest() == hashlib.sha256(marked_src).hexdigest(), 'marked.umd.js SHA256 mismatch'
           print('Wheel contents and metadata verified OK')
