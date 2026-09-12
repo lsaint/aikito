@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.33.0] - 2026-09-12
+
 ### Added
 
 - Added an `aikito doctor` warning for subdirectories under Memory `notes/`, which are intentionally not scanned.
@@ -633,7 +635,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.32.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.33.0...HEAD
+[1.33.0]: https://github.com/lsaint/aikito/compare/v1.32.0...v1.33.0
 [1.32.0]: https://github.com/lsaint/aikito/compare/v1.31.1...v1.32.0
 [1.31.1]: https://github.com/lsaint/aikito/compare/v1.31.0...v1.31.1
 [1.31.0]: https://github.com/lsaint/aikito/compare/v1.30.1...v1.31.0
