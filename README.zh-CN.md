@@ -130,14 +130,14 @@ Windows 请开启 Developer Mode，使用 `uv tool install aikito` 或参考 [Po
 包含 1 条全局笔记和 `example` 项目的 2 条笔记：
 
 ```text
-┌─────────┬───────────────────┬──────────────────────────────┬───────┬──────┐
-│ Scope   │ Note File         │ Title                        │ Index │ Link │
-├─────────┼───────────────────┼──────────────────────────────┼───────┼──────┤
-│ Global  │ writing-style     │ Keep explanations concise    │ ✓     │ –    │
-├─────────┼───────────────────┼──────────────────────────────┼───────┼──────┤
-│ example │ api-retry-policy  │ Retry external APIs safely   │ ✓     │ ✓    │
-│ example │ release-checklist │ Release verification steps   │ ✓     │ ✓    │
-└─────────┴───────────────────┴──────────────────────────────┴───────┴──────┘
+┌─────────┬───────────────────┬──────────────────────────────┬──────┐
+│ Scope   │ Note File         │ Title                        │ Link │
+├─────────┼───────────────────┼──────────────────────────────┼──────┤
+│ Global  │ writing-style     │ Keep explanations concise    │ –    │
+├─────────┼───────────────────┼──────────────────────────────┼──────┤
+│ example │ api-retry-policy  │ Retry external APIs safely   │ ✓    │
+│ example │ release-checklist │ Release verification steps   │ ✓    │
+└─────────┴───────────────────┴──────────────────────────────┴──────┘
 ```
 
 全局笔记保存跨项目知识，项目笔记保存局部决策。完整操作见

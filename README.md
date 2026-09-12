@@ -142,14 +142,14 @@ configured workspace (agents and counts depend on your setup):
 shows one global note and two notes for project `example`:
 
 ```text
-┌─────────┬───────────────────┬──────────────────────────────┬───────┬──────┐
-│ Scope   │ Note File         │ Title                        │ Index │ Link │
-├─────────┼───────────────────┼──────────────────────────────┼───────┼──────┤
-│ Global  │ writing-style     │ Keep explanations concise    │ ✓     │ –    │
-├─────────┼───────────────────┼──────────────────────────────┼───────┼──────┤
-│ example │ api-retry-policy  │ Retry external APIs safely   │ ✓     │ ✓    │
-│ example │ release-checklist │ Release verification steps   │ ✓     │ ✓    │
-└─────────┴───────────────────┴──────────────────────────────┴───────┴──────┘
+┌─────────┬───────────────────┬──────────────────────────────┬──────┐
+│ Scope   │ Note File         │ Title                        │ Link │
+├─────────┼───────────────────┼──────────────────────────────┼──────┤
+│ Global  │ writing-style     │ Keep explanations concise    │ –    │
+├─────────┼───────────────────┼──────────────────────────────┼──────┤
+│ example │ api-retry-policy  │ Retry external APIs safely   │ ✓    │
+│ example │ release-checklist │ Release verification steps   │ ✓    │
+└─────────┴───────────────────┴──────────────────────────────┴──────┘
 ```
 
 Global notes hold cross-project knowledge; project notes hold local decisions.
