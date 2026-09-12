@@ -45,8 +45,6 @@ class RenameResult(NamedTuple):
     scope: str
     old_stem: str
     new_stem: str
-    index_file: Optional[Path]
-    index_updated: bool
     refactored_notes: List[Path]
 
 
@@ -60,8 +58,6 @@ class RemoveResult(NamedTuple):
     deleted_path: Path
     scope: str
     stem: str
-    index_file: Optional[Path]
-    index_updated: bool
     inbound_references: List[InboundReference]
 
 
@@ -118,11 +114,11 @@ def find_memory_files(
 
     # 1. Global memory
     if project is None or project.lower() == "global":
-        global_mem = aikito_dir / "memory"
-        if global_mem.is_dir():
-            for file_path in global_mem.rglob("*.md"):
+        global_notes = aikito_dir / "memory" / "notes"
+        if global_notes.is_dir():
+            for file_path in global_notes.glob("*.md"):
                 if file_path.is_file():
-                    rel_path = file_path.relative_to(global_mem)
+                    rel_path = file_path.relative_to(aikito_dir / "memory")
                     items.append(
                         MemoryFileItem(
                             scope="global", rel_path=rel_path, full_path=file_path
@@ -138,8 +134,9 @@ def find_memory_files(
                     if project is not None and proj_folder.name != project:
                         continue
                     proj_mem = proj_folder / "memory"
-                    if proj_mem.is_dir():
-                        for file_path in proj_mem.rglob("*.md"):
+                    proj_notes = proj_mem / "notes"
+                    if proj_notes.is_dir():
+                        for file_path in proj_notes.glob("*.md"):
                             if file_path.is_file():
                                 rel_path = file_path.relative_to(proj_mem)
                                 items.append(
@@ -283,10 +280,22 @@ def _determine_scope_and_dir(aikito_dir: Path, note_path: Path) -> tuple[str, Pa
     return (scope_dir.name, scope_dir)
 
 
+def resolve_memory_note_scope(
+    aikito_dir: Path, note_path: Path, *, operation: str
+) -> tuple[str, Path]:
+    """Validate an atomic note target and return its memory scope."""
+    if note_path.parent.name != "notes":
+        raise ValueError(
+            f"Cannot {operation} '{note_path.name}'. Only atomic memory notes "
+            "in 'notes/' can be changed."
+        )
+    return _determine_scope_and_dir(aikito_dir, note_path)
+
+
 def rename_memory_note(
     aikito_dir: Path, target: str | Path, new_name: str
 ) -> RenameResult:
-    """Atomically rename a memory note, update its index entry, and refactor inbound wikilinks."""
+    """Rename a memory note and refactor inbound wikilinks."""
     err = validate_memory_name(new_name)
     if err:
         raise ValueError(err)
@@ -295,11 +304,6 @@ def rename_memory_note(
         target_path = target
     else:
         target_path = resolve_memory_target(aikito_dir, target)
-
-    if target_path.parent.name != "notes" or target_path.name == "index.md":
-        raise ValueError(
-            f"Cannot rename '{target_path.name}'. Only atomic memory notes in 'notes/' can be renamed."
-        )
 
     old_stem = target_path.stem
     if old_stem == new_name:
@@ -310,23 +314,16 @@ def rename_memory_note(
     if new_path.exists() and new_path.resolve() != target_path.resolve():
         raise FileExistsError(f"Target memory note '{new_path.name}' already exists.")
 
-    scope, scope_dir = _determine_scope_and_dir(aikito_dir, target_path)
-    index_file = scope_dir / "index.md"
+    scope, scope_dir = resolve_memory_note_scope(
+        aikito_dir, target_path, operation="rename"
+    )
 
     # 1. Rename physical note file
     target_path.rename(new_path)
 
-    # 2. Update index.md in the note's scope
-    index_updated = False
     pattern = re.compile(r"\[\[" + re.escape(old_stem) + r"(?=[|#\]])")
-    if index_file.is_file():
-        index_content = index_file.read_text(encoding="utf-8")
-        new_index_content, n_subs = pattern.subn(f"[[{new_name}", index_content)
-        if n_subs > 0:
-            index_file.write_text(new_index_content, encoding="utf-8")
-            index_updated = True
 
-    # 3. Refactor inbound wikilinks in notes within the same scope
+    # 2. Refactor inbound wikilinks in notes within the same scope
     scope_notes_dir = scope_dir / "notes"
     refactored_notes: List[Path] = []
     if scope_notes_dir.is_dir():
@@ -346,27 +343,21 @@ def rename_memory_note(
         scope=scope,
         old_stem=old_stem,
         new_stem=new_name,
-        index_file=index_file if index_file.exists() else None,
-        index_updated=index_updated,
         refactored_notes=refactored_notes,
     )
 
 
 def remove_memory_note(aikito_dir: Path, target: str | Path) -> RemoveResult:
-    """Remove a memory note, prune its index entry, and scan for inbound wikilinks."""
+    """Remove a memory note and scan for inbound wikilinks."""
     if isinstance(target, Path):
         target_path = target
     else:
         target_path = resolve_memory_target(aikito_dir, target)
 
-    if target_path.parent.name != "notes" or target_path.name == "index.md":
-        raise ValueError(
-            f"Cannot remove '{target_path.name}'. Only atomic memory notes in 'notes/' can be removed."
-        )
-
     stem = target_path.stem
-    scope, scope_dir = _determine_scope_and_dir(aikito_dir, target_path)
-    index_file = scope_dir / "index.md"
+    scope, scope_dir = resolve_memory_note_scope(
+        aikito_dir, target_path, operation="remove"
+    )
     pattern = re.compile(r"\[\[" + re.escape(stem) + r"(?=[|#\]])")
 
     # 1. Scan inbound references within the same scope before deletion
@@ -393,28 +384,9 @@ def remove_memory_note(aikito_dir: Path, target: str | Path) -> RemoveResult:
     # 2. Delete physical file
     target_path.unlink()
 
-    # 3. Prune index.md
-    index_updated = False
-    if index_file.is_file():
-        lines = index_file.read_text(encoding="utf-8").splitlines()
-        new_lines = []
-        for line in lines:
-            if pattern.search(line):
-                index_updated = True
-                continue
-            new_lines.append(line)
-
-        if index_updated:
-            output_text = "\n".join(new_lines)
-            if output_text and not output_text.endswith("\n"):
-                output_text += "\n"
-            index_file.write_text(output_text, encoding="utf-8")
-
     return RemoveResult(
         deleted_path=target_path,
         scope=scope,
         stem=stem,
-        index_file=index_file if index_file.exists() else None,
-        index_updated=index_updated,
         inbound_references=inbound_references,
     )

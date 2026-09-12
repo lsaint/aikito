@@ -1213,7 +1213,7 @@ def cmd_rename_memory(args: argparse.Namespace) -> None:
 
     try:
         result = rename_memory_note(aikito_dir, target_file, new_name)
-    except (ValueError, FileExistsError) as e:
+    except (ValueError, FileExistsError, UnicodeError, OSError) as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         sys.exit(1)
 
@@ -1223,12 +1223,6 @@ def cmd_rename_memory(args: argparse.Namespace) -> None:
     except ValueError:
         rel_new = result.new_path
     print(f"  - File: {rel_new}")
-    if result.index_updated and result.index_file:
-        try:
-            rel_idx = result.index_file.relative_to(aikito_dir)
-        except ValueError:
-            rel_idx = result.index_file
-        print(f"  - Index updated: {rel_idx}")
     if result.refactored_notes:
         print(
             f"  - Updated inbound wikilinks in {len(result.refactored_notes)} file(s):"
@@ -1251,17 +1245,16 @@ def cmd_rm_memory(args: argparse.Namespace) -> None:
 
     try:
         result = remove_memory_note(aikito_dir, target_file)
-    except (ValueError, FileNotFoundError) as e:
+    except (
+        ValueError,
+        FileNotFoundError,
+        UnicodeError,
+        OSError,
+    ) as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         sys.exit(1)
 
     print(f"[OK] Removed memory note '{result.stem}' ({result.deleted_path.name})")
-    if result.index_updated and result.index_file:
-        try:
-            rel_idx = result.index_file.relative_to(aikito_dir)
-        except ValueError:
-            rel_idx = result.index_file
-        print(f"  - Index entry removed: {rel_idx}")
     if result.inbound_references:
         print(
             f"  - [WARN] {len(result.inbound_references)} inbound reference(s) still exist:"
@@ -1995,7 +1988,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_rename_memory = rename_subparsers.add_parser(
         "memory",
-        help="Atomically rename a memory note, update its index entry, and refactor inbound wikilinks",
+        help="Atomically rename a memory note and refactor inbound wikilinks",
     )
     p_rename_memory.add_argument(
         "target",
@@ -2016,7 +2009,7 @@ def build_parser() -> argparse.ArgumentParser:
         rm_subparsers = p_rm.add_subparsers(dest=f"{cmd_name}_target", required=True)
         p_rm_memory = rm_subparsers.add_parser(
             "memory",
-            help="Remove a memory note, prune its index entry, and check for inbound wikilinks",
+            help="Remove a memory note and check for inbound wikilinks",
         )
         p_rm_memory.add_argument(
             "target",
@@ -2048,7 +2041,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_doctor.add_argument(
         "--fix",
         action="store_true",
-        help="Automatically repair fixable issues (reconcile memory index, prune dangling index entries)",
+        help="Automatically repair fixable issues",
     )
     p_doctor.add_argument(
         "--stale-days",

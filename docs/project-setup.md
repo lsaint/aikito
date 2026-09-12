@@ -28,7 +28,6 @@ files inside your **Aikito workspace**, separate from the code repository:
 ├── agent.toml
 ├── AGENTS.md
 └── memory/
-    ├── index.md
     └── notes/
 ```
 

@@ -364,6 +364,34 @@ class ProjectSyncSafetyTest(unittest.TestCase):
         self.assertFalse(runtime.exists())
         self.assertEqual(config.read_text(encoding="utf-8"), original_config)
 
+    def test_project_sync_ignores_legacy_memory_index(self) -> None:
+        memory = self.workspace / "projects" / "example" / "memory"
+        note = memory / "notes" / "legacy.md"
+        note.write_text("# Legacy\n", encoding="utf-8")
+        index_file = memory / "index.md"
+        original_index = "## Decisions\n- [[legacy|Legacy]]\n"
+        index_file.write_text(original_index, encoding="utf-8")
+        runtime_index = self.project / ".agents" / "memory" / "index.md"
+        runtime_index.parent.mkdir(parents=True)
+        runtime_index.symlink_to(index_file)
+
+        self._run_sync()
+
+        self.assertNotIn("category:", note.read_text(encoding="utf-8"))
+        self.assertEqual(index_file.read_text(encoding="utf-8"), original_index)
+        self.assertFalse(runtime_index.exists())
+        self.assertTrue((self.project / ".agents" / "memory" / "notes").is_symlink())
+
+    def test_project_sync_accepts_note_without_category(self) -> None:
+        memory = self.workspace / "projects" / "example" / "memory"
+        note = memory / "notes" / "bad.md"
+        note.write_text("# Bad\n", encoding="utf-8")
+        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            self._run_sync()
+
+        self.assertNotIn("category:", note.read_text(encoding="utf-8"))
+        self.assertEqual(stderr.getvalue(), "")
+
     def test_copy_mode_refuses_drift_unless_forced(self) -> None:
         canonical = self.workspace / "skills" / "example-skill"
         canonical.mkdir()
@@ -507,6 +535,54 @@ class GlobalSyncSafetyTest(unittest.TestCase):
             self._run_sync()
         self.assertEqual((selected / "SKILL.md").read_text(encoding="utf-8"), "local\n")
 
+    def test_sync_ignores_legacy_memory_index(self) -> None:
+        notes = self.workspace / "memory" / "notes"
+        notes.mkdir(parents=True)
+        note = notes / "legacy.md"
+        note.write_text("# Legacy\n", encoding="utf-8")
+        (self.workspace / "memory" / "index.md").write_text(
+            "## Decisions\n- [[legacy|Legacy]]\n", encoding="utf-8"
+        )
+
+        original_index = (self.workspace / "memory" / "index.md").read_text(
+            encoding="utf-8"
+        )
+        self._run_sync()
+
+        self.assertNotIn("category:", note.read_text(encoding="utf-8"))
+        self.assertEqual(
+            (self.workspace / "memory" / "index.md").read_text(encoding="utf-8"),
+            original_index,
+        )
+
+    def test_sync_dry_run_ignores_legacy_memory_index(self) -> None:
+        notes = self.workspace / "memory" / "notes"
+        notes.mkdir(parents=True)
+        note = notes / "legacy.md"
+        note.write_text("# Legacy\n", encoding="utf-8")
+        index_file = self.workspace / "memory" / "index.md"
+        original_index = "## Decisions\n- [[legacy|Legacy]]\n"
+        index_file.write_text(original_index, encoding="utf-8")
+
+        with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            self._run_sync("--dry-run")
+
+        self.assertNotIn("memory index", stdout.getvalue())
+        self.assertNotIn("category:", note.read_text(encoding="utf-8"))
+        self.assertEqual(index_file.read_text(encoding="utf-8"), original_index)
+
+    def test_sync_accepts_note_without_category(self) -> None:
+        notes = self.workspace / "memory" / "notes"
+        notes.mkdir(parents=True)
+        note = notes / "bad.md"
+        note.write_text("# Bad\n", encoding="utf-8")
+
+        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            self._run_sync()
+
+        self.assertNotIn("category:", note.read_text(encoding="utf-8"))
+        self.assertEqual(stderr.getvalue(), "")
+
 
 class InitSubcommandParserTest(unittest.TestCase):
     def test_init_workspace_and_project_subcommands(self) -> None:
@@ -575,8 +651,8 @@ class InitSubcommandParserTest(unittest.TestCase):
             self.assertFalse((project / "AGENTS.md").exists())
             self.assertFalse((project / ".claude" / "CLAUDE.md").exists())
             self.assertEqual(
-                (runtime / "memory" / "index.md").resolve(),
-                (canonical / "memory" / "index.md").resolve(),
+                (runtime / "memory" / "notes").resolve(),
+                (canonical / "memory" / "notes").resolve(),
             )
 
             (project / "AGENTS.md").symlink_to(canonical / "AGENTS.md")
@@ -1127,7 +1203,7 @@ class EditMemoryTest(unittest.TestCase):
 
     def test_edit_memory_invokes_editor_with_shlex(self) -> None:
         global_note = self.aikito_dir / "memory" / "notes" / "edit-note.md"
-        global_note.write_text("# Edit Note")
+        global_note.write_text("---\ncategory: Notes\n---\n\n# Edit Note")
 
         mock_proc = MagicMock()
         mock_proc.returncode = 0
@@ -1140,6 +1216,52 @@ class EditMemoryTest(unittest.TestCase):
             args = AIKITO_CLI.build_parser().parse_args(["edit", "memory", "edit-note"])
             args.func(args)
             mock_run.assert_called_once_with(["code", "--wait", str(global_note)])
+
+    def test_edit_memory_ignores_legacy_index(self) -> None:
+        global_note = self.aikito_dir / "memory" / "notes" / "legacy-note.md"
+        global_note.write_text("# Legacy Note\n", encoding="utf-8")
+        (self.aikito_dir / "memory" / "index.md").write_text(
+            "## Decisions\n- [[legacy-note|Legacy Note]]\n", encoding="utf-8"
+        )
+
+        with (
+            patch.object(AIKITO_CLI, "open_in_editor"),
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["edit", "memory", "legacy-note"]
+            )
+            args.func(args)
+
+        self.assertEqual(global_note.read_text(encoding="utf-8"), "# Legacy Note\n")
+
+    def test_edit_memory_does_not_expose_legacy_indexes_as_notes(
+        self,
+    ) -> None:
+        global_index = self.aikito_dir / "memory" / "index.md"
+        global_index.write_text("# Memory Index\n", encoding="utf-8")
+        project_memory = self.aikito_dir / "projects" / "demo" / "memory"
+        project_memory.mkdir(parents=True)
+        (project_memory / "index.md").write_text(
+            "# Project Memory Index\n", encoding="utf-8"
+        )
+
+        with (
+            patch.object(AIKITO_CLI, "open_in_editor") as mock_editor,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+        ):
+            for target in ("global/index", "demo/index"):
+                args = AIKITO_CLI.build_parser().parse_args(["edit", "memory", target])
+                with self.assertRaises(SystemExit) as cm:
+                    args.func(args)
+                self.assertEqual(cm.exception.code, 1)
+
+        mock_editor.assert_not_called()
+        self.assertIn("Memory note 'global/index' not found", mock_stderr.getvalue())
+        self.assertIn("Memory note 'demo/index' not found", mock_stderr.getvalue())
+        self.assertFalse((self.aikito_dir / "index.md").exists())
+        self.assertFalse((project_memory.parent / "index.md").exists())
 
     def test_edit_memory_conflict_suggests_edit_command(self) -> None:
         project_notes = self.aikito_dir / "projects" / "doxturbo" / "memory" / "notes"
@@ -1997,11 +2119,9 @@ class TestMemoryRenameAndRemove(unittest.TestCase):
             (self.aikito_dir / "memory" / "notes" / "note-alpha.md").exists()
         )
 
-        # Check index.md updated
+        # Legacy indexes are preserved but ignored.
         index_text = (self.aikito_dir / "memory" / "index.md").read_text()
-        self.assertIn("- [[note-alpha|Note A Title]]", index_text)
-        self.assertNotIn("[[note-a|", index_text)
-        self.assertNotIn("[[note-a]]", index_text)
+        self.assertEqual(index_text, "- [[note-a|Note A Title]]\n- [[note-b|Note B]]\n")
 
         # Check note-b inbound references updated
         note_b_text = (self.aikito_dir / "memory" / "notes" / "note-b.md").read_text()
@@ -2040,6 +2160,40 @@ class TestMemoryRenameAndRemove(unittest.TestCase):
             self.assertEqual(cm.exception.code, 1)
             self.assertIn("already exists", mock_stderr.getvalue())
 
+    def test_rename_memory_preserves_optional_category(self) -> None:
+        bad_note = self.aikito_dir / "memory" / "notes" / "bad.md"
+        bad_note.write_text("# Bad Note\n", encoding="utf-8")
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("sys.stdout", new_callable=io.StringIO),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["rename", "memory", "bad", "repaired"]
+            )
+            args.func(args)
+
+        repaired = self.aikito_dir / "memory" / "notes" / "repaired.md"
+        self.assertFalse(bad_note.exists())
+        self.assertEqual(repaired.read_text(encoding="utf-8"), "# Bad Note\n")
+
+    def test_rename_memory_is_not_blocked_by_note_without_category(self) -> None:
+        bad_note = self.aikito_dir / "memory" / "notes" / "bad.md"
+        bad_note.write_text("# Bad Note\n", encoding="utf-8")
+        target = self.aikito_dir / "memory" / "notes" / "note-a.md"
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["rename", "memory", "note-a", "renamed"]
+            )
+            args.func(args)
+
+        self.assertFalse(target.exists())
+        self.assertTrue(target.with_name("renamed.md").exists())
+        self.assertEqual(bad_note.read_text(encoding="utf-8"), "# Bad Note\n")
+
     def test_rm_memory_success_and_warn_inbound(self) -> None:
         with (
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
@@ -2050,16 +2204,44 @@ class TestMemoryRenameAndRemove(unittest.TestCase):
 
         self.assertFalse((self.aikito_dir / "memory" / "notes" / "note-a.md").exists())
         index_text = (self.aikito_dir / "memory" / "index.md").read_text()
-        self.assertNotIn("[[note-a", index_text)
-        self.assertIn("- [[note-b|Note B]]", index_text)
+        self.assertIn("[[note-a", index_text)
 
         out = mock_stdout.getvalue()
         self.assertIn("[OK] Removed memory note 'note-a'", out)
         self.assertIn("[WARN] 1 inbound reference(s) still exist", out)
 
+    def test_rm_memory_allows_malformed_target_to_remove_itself(self) -> None:
+        bad_note = self.aikito_dir / "memory" / "notes" / "bad.md"
+        bad_note.write_text("# Bad Note\n", encoding="utf-8")
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("sys.stdout", new_callable=io.StringIO),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["rm", "memory", "bad"])
+            args.func(args)
+
+        self.assertFalse(bad_note.exists())
+
+    def test_rm_memory_is_not_blocked_by_note_without_category(self) -> None:
+        bad_note = self.aikito_dir / "memory" / "notes" / "bad.md"
+        bad_note.write_text("# Bad Note\n", encoding="utf-8")
+        target = self.aikito_dir / "memory" / "notes" / "note-a.md"
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["rm", "memory", "note-a"])
+            args.func(args)
+
+        self.assertFalse(target.exists())
+        self.assertEqual(bad_note.read_text(encoding="utf-8"), "# Bad Note\n")
+
     def test_remove_memory_alias(self) -> None:
         (self.aikito_dir / "memory" / "notes" / "solo-note.md").write_text("# Solo")
-        (self.aikito_dir / "memory" / "index.md").write_text("- [[solo-note|Solo]]\n")
+        (self.aikito_dir / "memory" / "index.md").write_text(
+            "- [[note-a|Note A Title]]\n- [[note-b|Note B]]\n- [[solo-note|Solo]]\n"
+        )
 
         with (
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
@@ -2077,7 +2259,7 @@ class TestMemoryRenameAndRemove(unittest.TestCase):
         self.assertIn("[OK] Removed memory note 'solo-note'", out)
         self.assertIn("No inbound references found", out)
 
-    def test_rename_index_file_rejected(self) -> None:
+    def test_rename_legacy_index_is_not_exposed_as_note(self) -> None:
         with (
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
@@ -2088,9 +2270,9 @@ class TestMemoryRenameAndRemove(unittest.TestCase):
             with self.assertRaises(SystemExit) as cm:
                 args.func(args)
             self.assertEqual(cm.exception.code, 1)
-            self.assertIn("Cannot rename 'index.md'", mock_stderr.getvalue())
+            self.assertIn("Memory note 'index' not found", mock_stderr.getvalue())
 
-    def test_rm_index_file_rejected(self) -> None:
+    def test_rm_legacy_index_is_not_exposed_as_note(self) -> None:
         with (
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
@@ -2099,7 +2281,7 @@ class TestMemoryRenameAndRemove(unittest.TestCase):
             with self.assertRaises(SystemExit) as cm:
                 args.func(args)
             self.assertEqual(cm.exception.code, 1)
-            self.assertIn("Cannot remove 'index.md'", mock_stderr.getvalue())
+            self.assertIn("Memory note 'index' not found", mock_stderr.getvalue())
         self.assertTrue((self.aikito_dir / "memory" / "index.md").exists())
 
     def test_rename_memory_conflict_handling(self) -> None:
@@ -2148,10 +2330,6 @@ class TestMemoryRenameAndRemove(unittest.TestCase):
         proj_notes.mkdir(parents=True)
         (proj_notes / "note-a.md").write_text("# Demo Note A")
         (proj_notes / "proj-other.md").write_text("See [[note-a]] in demo.")
-        (self.aikito_dir / "projects" / "demo" / "memory" / "index.md").write_text(
-            "- [[note-a|Demo Note A]]\n- [[proj-other|Proj Other]]\n"
-        )
-
         with (
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
             patch("sys.stdout", new_callable=io.StringIO),
@@ -2191,7 +2369,10 @@ class TestDoctorFixCli(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def test_doctor_fix_flag(self) -> None:
+    def test_doctor_fix_ignores_legacy_index(self) -> None:
+        (self.aikito_dir / "memory" / "index.md").write_text(
+            "- [[bare]] — Some Description\n", encoding="utf-8"
+        )
         with (
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
@@ -2204,13 +2385,11 @@ class TestDoctorFixCli(unittest.TestCase):
             except SystemExit:
                 pass
 
-        out = mock_stdout.getvalue()
-        self.assertIn("[FIX] Removed dangling index entry [[ghost-note]]", out)
-        self.assertIn("[FIX] Normalized index entry for [[bare]]", out)
-
+        self.assertNotIn("memory index", mock_stdout.getvalue())
         index_text = (self.aikito_dir / "memory" / "index.md").read_text()
-        self.assertNotIn("ghost-note", index_text)
-        self.assertIn("- [[bare|Bare Note Title]]", index_text)
+        self.assertEqual(index_text, "- [[bare]] — Some Description\n")
+        note_text = (self.aikito_dir / "memory" / "notes" / "bare.md").read_text()
+        self.assertNotIn("category:", note_text)
 
     def test_doctor_json_flag(self) -> None:
         with (

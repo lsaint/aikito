@@ -1182,7 +1182,7 @@ class MemoryFormatAndNamingTest(unittest.TestCase):
             )
         )
 
-    def test_non_standard_index_entry_warns(self) -> None:
+    def test_legacy_index_is_ignored(self) -> None:
         from aikito.doctor import check_memory_integrity
 
         (self.notes_dir / "note-b.md").write_text("# Note B")
@@ -1190,13 +1190,41 @@ class MemoryFormatAndNamingTest(unittest.TestCase):
             "- [[valid-note|Valid Note]]\n- [[note-b]] — Trailing Description\n"
         )
         section = check_memory_integrity(self.aikito_dir, self.home)
-        warns = [f for f in section.findings if f.status == "WARN"]
-        self.assertTrue(
-            any(
-                "note-b" in f.message and "non-standard format" in f.message
-                for f in warns
-            )
+        self.assertFalse(
+            any("index" in finding.message for finding in section.findings)
         )
+
+    def test_note_without_category_is_valid(self) -> None:
+        from aikito.doctor import check_memory_integrity
+
+        (self.notes_dir / "bad.md").write_text("# Bad\n", encoding="utf-8")
+
+        section = check_memory_integrity(self.aikito_dir, self.home)
+        related = [
+            finding
+            for finding in section.findings
+            if "bad" in finding.message or "bad" in finding.fix_hint
+        ]
+
+        self.assertEqual(related, [])
+
+    def test_nested_note_directories_warn_that_they_are_not_scanned(self) -> None:
+        from aikito.doctor import check_memory_integrity
+
+        nested = self.notes_dir / "archive"
+        nested.mkdir()
+        (nested / "hidden.md").write_text("# Hidden\n", encoding="utf-8")
+
+        section = check_memory_integrity(self.aikito_dir, self.home)
+        warnings = [
+            finding
+            for finding in section.findings
+            if finding.status == "WARN" and "archive/" in finding.message
+        ]
+
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("is not scanned", warnings[0].message)
+        self.assertIn("directly", warnings[0].fix_hint)
 
 
 class DoctorFixesTest(unittest.TestCase):
@@ -1223,14 +1251,14 @@ class DoctorFixesTest(unittest.TestCase):
             '[agents.codex]\ndisplay_name = "Custom Codex"\n', encoding="utf-8"
         )
 
-        fixes = run_doctor_fixes(self.aikito_dir, self.home)
+        result = run_doctor_fixes(self.aikito_dir, self.home)
 
         with agents_path.open("rb") as config_file:
             codex = tomllib.load(config_file)["agents"]["codex"]
         self.assertEqual(codex["display_name"], "Custom Codex")
         self.assertEqual(codex["project_instruction_path"], "AGENTS.md")
         self.assertEqual(codex["runner"]["command"][0], "codex")
-        self.assertTrue(any("project_instruction_path" in fix for fix in fixes))
+        self.assertTrue(any("project_instruction_path" in fix for fix in result))
 
     def test_run_doctor_fixes_registers_installed_supported_agent(self) -> None:
         from aikito.doctor import run_doctor_fixes
@@ -1241,13 +1269,13 @@ class DoctorFixesTest(unittest.TestCase):
         (self.home / ".grok").mkdir()
 
         with patch("aikito.init.shutil.which", return_value=None):
-            fixes = run_doctor_fixes(self.aikito_dir, self.home)
+            result = run_doctor_fixes(self.aikito_dir, self.home)
 
         with agents_path.open("rb") as config_file:
             grok = tomllib.load(config_file)["agents"]["grok"]
         self.assertEqual(grok["project_instruction_path"], "AGENTS.md")
         self.assertEqual(grok["runner"]["command"][0], "grok")
-        self.assertTrue(any("agents.grok" in fix for fix in fixes))
+        self.assertTrue(any("agents.grok" in fix for fix in result))
 
     def test_run_doctor_prune_is_deprecated_and_preserves_agents(self) -> None:
         self.aikito_dir.mkdir(exist_ok=True)
@@ -1279,7 +1307,7 @@ class DoctorFixesTest(unittest.TestCase):
         self.assertIn("Project 'p1': offline on this host", oks[0].message)
         self.assertFalse(any(f.status == "FAIL" for f in section.findings))
 
-    def test_run_doctor_fixes_reconciles_memory_index(self) -> None:
+    def test_run_doctor_fixes_ignores_legacy_index(self) -> None:
         from aikito.doctor import run_doctor_fixes
 
         # 1. Existing note
@@ -1308,18 +1336,13 @@ class DoctorFixesTest(unittest.TestCase):
             encoding="utf-8",
         )
 
-        fixes = run_doctor_fixes(self.aikito_dir)
-        self.assertTrue(any("ghost-note" in f for f in fixes))
-        self.assertTrue(any("bare-note" in f for f in fixes))
-        self.assertTrue(any("old-format" in f for f in fixes))
+        original_index = self.index_file.read_text(encoding="utf-8")
+        result = run_doctor_fixes(self.aikito_dir)
 
-        updated_index = self.index_file.read_text()
-        self.assertNotIn("ghost-note", updated_index)
-        self.assertIn("- [[existing-note|Existing Title]]", updated_index)
-        self.assertIn("- [[bare-note|Bare Note Title]]", updated_index)
-        self.assertIn("- [[old-format|Old Title]]", updated_index)
-        # Missing note is reported by doctor diagnostics, not blindly appended to preserve index structure
-        self.assertNotIn("missing-note", updated_index)
+        self.assertEqual(result, [])
+        self.assertEqual(self.index_file.read_text(encoding="utf-8"), original_index)
+        for note in self.notes_dir.glob("*.md"):
+            self.assertNotIn("category:", note.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

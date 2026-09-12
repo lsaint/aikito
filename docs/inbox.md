@@ -141,8 +141,8 @@ projects/<project-name>/memory/notes/
 
 Do not copy an Inbox note into Memory unchanged. Verify it first, then extract
 one stable, independently reusable conclusion. Use a short lowercase
-kebab-case filename, such as `payment-idempotency.md`, and link the note from
-the scope's `index.md` when useful.
+kebab-case filename, such as `payment-idempotency.md`. Optional `category`
+frontmatter may be used for custom grouping.
 
 See [Memory workflow](memory-workflow.md) for persistence criteria and
 [Work with memory](durable-memory.md) for operational guidance.

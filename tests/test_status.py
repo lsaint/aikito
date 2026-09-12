@@ -284,14 +284,12 @@ class AikitoStatusRenderTest(unittest.TestCase):
                 scope_name="Global",
                 note_name="demo",
                 title="Demo Title",
-                is_indexed=True,
                 link_status="SKIP",
             ),
             MemoryNoteRow(
                 scope_name="aikito",
                 note_name="unindexed",
                 title="-",
-                is_indexed=False,
                 link_status="OK",
             ),
         ]
@@ -299,8 +297,8 @@ class AikitoStatusRenderTest(unittest.TestCase):
         self.assertIn("Global", rendered)
         self.assertIn("demo", rendered)
         self.assertIn("Demo Title", rendered)
+        self.assertIn("–", rendered)
         self.assertIn("✓", rendered)
-        self.assertIn("⚠ M", rendered)
 
     def test_render_memory_notes_table_balances_note_and_title_widths(self) -> None:
         notes = [
@@ -308,7 +306,6 @@ class AikitoStatusRenderTest(unittest.TestCase):
                 scope_name="aikito",
                 note_name="aikito-distribution-and-install-architecture",
                 title="Aikito keeps source code and user workspaces separate",
-                is_indexed=True,
                 link_status="OK",
             )
         ]
@@ -557,7 +554,6 @@ class AikitoStatusRenderTest(unittest.TestCase):
                 scope_name="Global",
                 note_name="demo",
                 title="Demo Title",
-                is_indexed=True,
                 link_status="OK",
             )
         ]
@@ -566,26 +562,11 @@ class AikitoStatusRenderTest(unittest.TestCase):
         )
         self.assertNotIn("Legend:", out_clean)
 
-        unindexed_notes = [
-            MemoryNoteRow(
-                scope_name="Global",
-                note_name="demo",
-                title="Demo Title",
-                is_indexed=False,
-                link_status="OK",
-            )
-        ]
-        out_issue = render_memory_notes_table(
-            unindexed_notes, use_unicode=True, use_color=False
-        )
-        self.assertIn("Legend:", out_issue)
-
         conflict_notes = [
             MemoryNoteRow(
                 scope_name="Global",
                 note_name="demo",
                 title="Demo Title",
-                is_indexed=True,
                 link_status="CONFLICT",
             )
         ]
@@ -665,6 +646,20 @@ class AikitoStatusCollectorTest(unittest.TestCase):
         self.assertTrue(len(data.memories) > 0)
         self.assertTrue(data.total_skills_count >= 0)
         self.assertTrue(data.total_memory_notes >= 0)
+
+    def test_status_ignores_legacy_index(self) -> None:
+        note = self.aikito_dir / "memory" / "notes" / "decision.md"
+        note.write_text(
+            "---\ncategory: Decisions\n---\n\n# Decision\n", encoding="utf-8"
+        )
+        index_file = self.aikito_dir / "memory" / "index.md"
+        index_file.write_text("# Legacy\n", encoding="utf-8")
+
+        data = get_status_report_data(self.aikito_dir, self.home)
+
+        global_memory = next(row for row in data.memories if row.scope == "Global")
+        self.assertEqual(global_memory.status, "OK")
+        self.assertEqual(index_file.read_text(encoding="utf-8"), "# Legacy\n")
 
     def test_capable_agent_without_targets_shows_zero_not_skip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

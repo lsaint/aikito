@@ -82,7 +82,6 @@ class MemoryNoteRow:
     scope_name: str
     note_name: str
     title: str
-    is_indexed: bool
     link_status: str  # "OK", "DANGLING", "N/A"
 
 
@@ -756,9 +755,7 @@ def render_memory_notes_table(
     use_unicode: bool,
     use_color: bool,
 ) -> str:
-    headers = ["Scope", "Note File", "Title", "Index", "Link"]
-    ok_sym = "✓" if use_unicode else "v"
-    warn_sym = "⚠" if use_unicode else "!"
+    headers = ["Scope", "Note File", "Title", "Link"]
 
     formatted_rows: List[Any] = []
     last_scope = None
@@ -768,11 +765,6 @@ def render_memory_notes_table(
             formatted_rows.append("---SEPARATOR---")
         last_scope = n.scope_name
 
-        idx_str = ok_sym if n.is_indexed else f"{warn_sym} M"
-        idx_badge = _colorize(
-            idx_str, COLOR_GREEN if n.is_indexed else COLOR_RED, use_color
-        )
-
         link_badge = _format_status_badge(n.link_status, use_unicode, use_color)
 
         formatted_rows.append(
@@ -780,7 +772,6 @@ def render_memory_notes_table(
                 n.scope_name,
                 n.note_name,
                 n.title if n.title else "-",
-                idx_badge,
                 link_badge,
             ]
         )
@@ -789,8 +780,7 @@ def render_memory_notes_table(
         headers, formatted_rows, use_unicode, use_color, truncatable_cols=[2, 1]
     )
     has_issue = any(
-        not n.is_indexed or _format_badge_text(n.link_status, use_unicode)[1] == "issue"
-        for n in notes
+        _format_badge_text(n.link_status, use_unicode)[1] == "issue" for n in notes
     )
     if has_issue:
         return f"{table}\n\n{render_legend(use_unicode, use_color)}"

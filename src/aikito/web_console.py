@@ -222,16 +222,6 @@ class ConsoleData:
             )
             path = _safe_child(root / "notes", f"{note}.md")
             detail = self._markdown_detail(note, path, scope, "Durable")
-            rows = collect_memory_notes_rows(self.aikito_dir, self.home)
-            row = next(
-                (
-                    item
-                    for item in rows
-                    if item.scope_name == scope and item.note_name == note
-                ),
-                None,
-            )
-            detail["indexed"] = row.is_indexed if row else False
             detail["freshness_days"] = (
                 datetime.now().timestamp() - path.stat().st_mtime
             ) // 86400

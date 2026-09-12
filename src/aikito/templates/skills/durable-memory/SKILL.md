@@ -18,9 +18,9 @@ Decide autonomously when to retrieve, follow related knowledge, or persist. This
 Resolve `<workspace>` with `aikito path workspace`. All memory lives there under Git:
 
 - **Global Memory** — `<workspace>/memory/`: cross-project experience, user preferences, general engineering patterns. Always available.
-- **Project Memory** — `<workspace>/projects/<project-name>/memory/`: project-specific constraints, historical architecture decisions, project-unique debugging lessons. Usually reached through the `.agents/memory/` symlink in registered projects.
+- **Project Memory** — `<workspace>/projects/<project-name>/memory/`: project-specific constraints, historical architecture decisions, project-unique debugging lessons. Usually reached through the `.agents/memory/` runtime entry in registered projects.
 
-Each scope holds an `index.md` navigation entry and a `notes/` directory of atomic notes. `.agents/memory/` is only a runtime entry point and keeps no independent copy; all memory operations act directly on the canonical files above.
+Each scope stores atomic notes under `notes/`. These files are the complete source of truth; no separate index is required. `.agents/memory/` is only a runtime entry point and keeps no independent copy; all memory operations act directly on the canonical notes above.
 
 ## Decision Principles
 
@@ -39,7 +39,7 @@ Persist at natural work milestones when knowledge stabilizes — neither waiting
 
 ## Retrieval
 
-Enter through `<workspace>/memory/index.md` or, when present, `.agents/memory/index.md`, choosing by the task's likely scope. Search with the most efficient method available, using filenames, headings, body text, or wikilinks, and follow links to related notes when necessary. When memory conflicts with current code, tests, or configuration, ground decisions in current code facts and update the stale memory.
+Search the relevant global or project `notes/` directory directly with filenames, headings, body text, or wikilinks, and follow related links only when necessary. Prefer one targeted search over reading every note. When memory conflicts with current code, tests, or configuration, ground decisions in current code facts and update the stale memory.
 
 ## Ownership & Persistence
 
@@ -50,13 +50,13 @@ If worthwhile project-specific knowledge has nowhere to go because project memor
 ## Formatting & Organization
 
 - Prefer one durable, independently reusable concept per note.
+- A note may use `category` frontmatter for optional display grouping; missing category never makes a note invalid.
 - Use stable lowercase kebab-case note names (filename stems) of at most 50 characters (e.g., `payment-idempotency`).
 - In project memory, omit the project name as a filename prefix unless it prevents a real ambiguity within that project.
 - Use titles that state the durable idea clearly and stay recognizable in search results or wikilinks; explain scope, rationale, and actionable guidance in the body.
 - Reference other notes with Obsidian-style wikilinks: `[[note-name]]` or `[[note-name|Display Text]]`.
-- Keep `index.md` strictly a categorized list of `[[note-name|Display Text]]` links, without trailing descriptions or note contents.
 
-When duplication is plausible, check related notes first and prefer updating or consolidating existing knowledge over adding another note. Correct obsolete content directly, cleaning up indices and links as needed; Git history replaces in-note changelogs.
+When duplication is plausible, check related notes first and prefer updating or consolidating existing knowledge over adding another note. Correct obsolete content directly and repair related links as needed; Git history replaces in-note changelogs.
 
 ## Retirement
 
@@ -64,8 +64,8 @@ Memory stays trustworthy only if invalidated knowledge leaves it. A note has out
 
 Prefer the least destructive remedy that restores accuracy: rewrite when the topic still matters, merge when notes overlap, delete only when the topic itself stopped being worth remembering. Act autonomously when retirement is clear; ask only when the note may still encode a valid user preference, decision, or context you cannot verify.
 
-A retired note leaves nothing pointing at it: drop its index entry and repair inbound `[[wikilinks]]`. Keep no tombstones or deprecation stubs.
+A retired note leaves nothing pointing at it: remove it with `aikito rm memory`, repair inbound `[[wikilinks]]`, and keep no tombstones or deprecation stubs.
 
 ## Commit & Version Control
 
-When memory changes, stage only the files that change requires — including the index entries and wikilink repairs a deletion forces — and create one narrowly scoped, reviewable local Git commit in `<workspace>`.
+When memory changes, stage only the note files and wikilink repairs that change requires, then create one narrowly scoped, reviewable local Git commit in `<workspace>`.

@@ -128,7 +128,7 @@ memory/notes/
 projects/<project-name>/memory/notes/
 ```
 
-不要直接把原始 Inbox 文件复制进 Memory。应先核实内容，再提炼为一个稳定、可以独立复用的结论。文件名使用简短、稳定的小写 kebab-case，例如 `payment-idempotency.md`；必要时将笔记链接到对应 scope 的 `index.md`。
+不要直接把原始 Inbox 文件复制进 Memory。应先核实内容，再提炼为一个稳定、可以独立复用的结论。文件名使用简短、稳定的小写 kebab-case，例如 `payment-idempotency.md`；可选的 `category` frontmatter 可供自定义工具分组展示。
 
 完整的持久化判断标准参见 [Memory workflow](memory-workflow.md)，具体操作参见 [Work with memory](durable-memory.md)。
 

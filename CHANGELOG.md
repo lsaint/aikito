@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added an `aikito doctor` warning for subdirectories under Memory `notes/`, which are intentionally not scanned.
+
+### Changed
+
+- Made `notes/*.md` the sole durable Memory source, removed generated indexes and rebuild behavior, and made `category` optional. Existing `memory/index.md` files are preserved but ignored.
+
 ## [1.32.0] - 2026-09-11
 
 ### Added

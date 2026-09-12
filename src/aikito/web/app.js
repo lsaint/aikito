@@ -129,7 +129,7 @@ function show(detail) {
     if(selected.dataset.view === "raw") { article.className="source-content"; article.textContent=detail.content; }
     if(selected.dataset.view === "rendered") { article.className="rendered-content"; article.innerHTML=markdown(detail.content,detail.wikilinks); }
   };
-  governance.innerHTML=`<h2>Governance</h2>${properties({Source:detail.source,Scope:detail.scope,Trust:detail.trust,Updated:detail.updated,Indexed:detail.indexed,Freshness:detail.freshness_days == null ? undefined : `${detail.freshness_days} days / ${detail.stale_after_days} days`})}`;
+  governance.innerHTML=`<h2>Governance</h2>${properties({Source:detail.source,Scope:detail.scope,Trust:detail.trust,Updated:detail.updated,Freshness:detail.freshness_days == null ? undefined : `${detail.freshness_days} days / ${detail.stale_after_days} days`})}`;
 }
 async function openResource(kind,item,button) { document.querySelectorAll(".resource").forEach(node=>node.classList.remove("selected")); button.classList.add("selected"); try { show(await get(`/api/${kind}/${encodeURI(id(kind,item))}`)); } catch(error) { content.innerHTML=`<p>${escapeHtml(error.message)}</p>`; } }
 content.addEventListener("click",async event=>{ const link=event.target.closest("a.wikilink"); if(!link) return; event.preventDefault(); try { const detail=await get(`/api/${link.dataset.kind}/${encodeURI(link.dataset.name)}`); show(detail); const button=[...document.querySelectorAll(".resource[data-kind]")].find(item=>item.dataset.kind === link.dataset.kind && item.dataset.name === link.dataset.name); if(button) { document.querySelectorAll(".resource").forEach(item=>item.classList.remove("selected")); button.classList.add("selected"); for(const parent of button.closest(".group").querySelectorAll("details")) { if(parent.contains(button)) parent.open=true; } } } catch(error) { content.innerHTML=`<p>${escapeHtml(error.message)}</p>`; } });
@@ -210,4 +210,3 @@ function initResizers() {
   bind(right, false);
 }
 initResizers();
-

@@ -45,7 +45,7 @@ class AikitoInitTest(unittest.TestCase):
         self.assertTrue((self.target_path / "config.toml").is_file())
         self.assertTrue((self.target_path / "agents.toml").is_file())
         self.assertTrue((self.target_path / "subagents.toml").is_file())
-        self.assertTrue((self.target_path / "memory" / "index.md").is_file())
+        self.assertFalse((self.target_path / "memory" / "index.md").exists())
         self.assertTrue((self.target_path / "skills.toml").is_file())
         self.assertTrue((self.target_path / "global" / "AGENTS.md").is_file())
         for skill_name in ("aikito", "durable-memory"):
@@ -265,7 +265,7 @@ class AikitoInitTest(unittest.TestCase):
         project_dir = self.target_path / "projects" / "example"
         self.assertTrue((project_dir / "AGENTS.md").is_file())
         self.assertEqual((project_dir / "AGENTS.md").read_text(encoding="utf-8"), "")
-        self.assertTrue((project_dir / "memory" / "index.md").is_file())
+        self.assertFalse((project_dir / "memory" / "index.md").exists())
         self.assertTrue((project_dir / "memory" / "notes").is_dir())
         config = (project_dir / "agent.toml").read_text(encoding="utf-8")
         self.assertIn('name = "example"', config)

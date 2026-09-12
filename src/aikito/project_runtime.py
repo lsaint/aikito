@@ -334,8 +334,8 @@ def _resolve_project_sync_inputs(
 
     selected_skills = set(skills)
     selected_memory = {Path(name).parts[0] for name in memory_files if Path(name).parts}
-    if proj_mem_source.is_dir():
-        selected_memory.update(item.name for item in proj_mem_source.iterdir())
+    if (proj_mem_source / "notes").is_dir():
+        selected_memory.add("notes")
 
     skill_cleanup = plan_runtime_cleanup(
         agents_skills_dir,
@@ -463,15 +463,13 @@ def sync_project_path(
         if not sync_resource(source, target, mode="link", dry_run=dry_run):
             raise RuntimeError(f"Failed to synchronize project memory: {memory_file}")
 
-    if inputs.proj_mem_source.is_dir():
-        for item in inputs.proj_mem_source.iterdir():
-            target = inputs.agents_memory_dir / item.name
-            if not sync_resource(item, target, mode="link", dry_run=dry_run):
-                raise RuntimeError(
-                    f"Failed to synchronize project memory item: {item.name}"
-                )
+    project_notes = inputs.proj_mem_source / "notes"
+    if project_notes.is_dir():
+        target = inputs.agents_memory_dir / "notes"
+        if not sync_resource(project_notes, target, mode="link", dry_run=dry_run):
+            raise RuntimeError("Failed to synchronize project memory notes")
     else:
-        print(f"[INFO] No project memory dir found at {inputs.proj_mem_source}")
+        print(f"[INFO] No project memory notes found at {project_notes}")
 
     project_instructions = aikito_dir / "projects" / project_name / "AGENTS.md"
     if not project_instructions.exists():

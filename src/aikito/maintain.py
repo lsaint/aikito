@@ -186,13 +186,13 @@ Canonical memory directory: {scope.memory_dir}
 
 For this task, review the complete selected scope rather than maintaining memory only opportunistically.
 
-Inspect the scope index, every memory note in the scope, and relevant inbound wikilinks. Evaluate each note for accuracy, durability, duplication, scope ownership, naming, index consistency, and continued decision value.
+Inspect every memory note in the scope and relevant inbound wikilinks. Evaluate each note for accuracy, durability, duplication, scope ownership, naming, and continued decision value.
 
 Use current code, configuration, documentation, and Git history when needed to verify claims. Do not treat age alone as evidence that a note is obsolete. Preserve unrelated user changes.
 
 Also compare notes with relevant canonical skills and instructions. Treat duplicated or conflicting operational guidance as a maintenance issue. Keep reusable procedures in skills, binding rules in instructions, and retain in memory only durable decisions, rationale, or constraints not readily available from those sources. Resolve conflicts using current code, configuration, documentation, tests, or Git history when they provide sufficient evidence. When a conflict cannot be verified objectively, present the alternatives and ask the user to decide. Do not modify skills or instructions as part of this workflow; report any required upstream correction separately.
 
-Propose the smallest set of meaningful changes. Group the proposal into update, merge, move, retire, and index or wikilink repair. For every proposed change, explain the reason and identify the affected files. Explicitly report when no meaningful maintenance is needed.
+Propose the smallest set of meaningful changes. Group the proposal into update, merge, move, retire, and wikilink repair. For every proposed change, explain the reason and identify the affected files. Explicitly report when no meaningful maintenance is needed.
 
 Do not modify files, stage changes, or create commits until the user confirms the proposal.
 

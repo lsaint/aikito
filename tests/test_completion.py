@@ -162,7 +162,7 @@ class AikitoCompletionTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp_dir.cleanup()
 
-    def test_list_memories_uses_canonical_rglob_and_full_identifiers(self) -> None:
+    def test_list_memories_uses_canonical_note_directories(self) -> None:
         global_mem = self.aikito_dir / "memory"
         (global_mem / "notes" / "sub").mkdir(parents=True, exist_ok=True)
         (global_mem / "index.md").write_text("# Global Index", encoding="utf-8")
@@ -179,13 +179,9 @@ class AikitoCompletionTest(unittest.TestCase):
 
         expected = sorted(
             [
-                "global/index",
                 "bare",
                 "global/bare",
                 "global/notes/bare",
-                "nested",
-                "global/nested",
-                "global/notes/sub/nested",
                 "proj-note",
                 "myproj/proj-note",
                 "myproj/notes/proj-note",
@@ -213,7 +209,7 @@ class AikitoCompletionTest(unittest.TestCase):
             ],
         )
 
-    def test_list_memory_completions_uses_full_identifier_when_short_is_ambiguous(
+    def test_list_memory_completions_ignores_nested_noncanonical_files(
         self,
     ) -> None:
         global_notes = self.aikito_dir / "memory" / "notes"
@@ -223,10 +219,7 @@ class AikitoCompletionTest(unittest.TestCase):
 
         self.assertEqual(
             list_memory_completions(self.aikito_dir),
-            [
-                "global/notes/dup",
-                "global/notes/sub/dup",
-            ],
+            ["global/dup"],
         )
 
     def test_list_skills_includes_global_disk_and_project_registered_skills(

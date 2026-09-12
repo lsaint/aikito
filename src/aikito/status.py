@@ -3,13 +3,12 @@ Status aggregation module for aikito.
 Gathers synchronization status data across agents, memory, instructions, skills, MCP, and subagents.
 """
 
-import re
 import sys
 import tomllib
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set
 
 from .link import SymlinkVerdict, classify_symlink, symlink_verdict_to_status
 from .mcp import (
@@ -21,6 +20,7 @@ from .mcp import (
     read_entry,
     redact_mcp_entry,
 )
+from .memory import extract_note_title
 from .project import resolve_project_binding
 from .subagent import build_plan
 from .render import (
@@ -469,23 +469,19 @@ def collect_memory_status_rows(
     mem_issues = 0
 
     def latest_memory_update(memory_dir: Path) -> date | None:
-        candidates = [memory_dir / "index.md"]
         notes_dir = memory_dir / "notes"
-        if notes_dir.is_dir():
-            candidates.extend(notes_dir.glob("*.md"))
-        existing = [path for path in candidates if path.is_file()]
+        existing = list(notes_dir.glob("*.md")) if notes_dir.is_dir() else []
         if not existing:
             return None
         return date.fromtimestamp(max(path.stat().st_mtime for path in existing))
 
     # Global Memory: Global memory has no ~/.agents/memory symlink requirement.
     global_mem_dir = aikito_dir / "memory"
-    global_index = global_mem_dir / "index.md"
-    global_index_status = "OK" if global_index.is_file() else "MISSING"
-    if global_index_status != "OK":
+    notes_dir = global_mem_dir / "notes"
+    global_status = "OK" if notes_dir.is_dir() else "MISSING"
+    if global_status != "OK":
         mem_issues += 1
 
-    notes_dir = global_mem_dir / "notes"
     global_notes_count = len(list(notes_dir.glob("*.md"))) if notes_dir.is_dir() else 0
     total_notes += global_notes_count
 
@@ -493,7 +489,7 @@ def collect_memory_status_rows(
         MemoryStatusRow(
             name="Global Memory",
             scope="Global",
-            status=global_index_status,
+            status=global_status,
             notes_count=global_notes_count,
             updated_on=latest_memory_update(global_mem_dir),
         )
@@ -505,12 +501,11 @@ def collect_memory_status_rows(
         for proj_folder in sorted(projects_dir.iterdir()):
             if proj_folder.is_dir():
                 proj_mem = proj_folder / "memory"
-                proj_index = proj_mem / "index.md"
-                proj_index_status = "OK" if proj_index.is_file() else "MISSING"
-                if proj_index_status != "OK":
+                proj_notes = proj_mem / "notes"
+                canonical_status = "OK" if proj_notes.is_dir() else "MISSING"
+                if canonical_status != "OK":
                     mem_issues += 1
 
-                proj_notes = proj_mem / "notes"
                 proj_notes_count = (
                     len(list(proj_notes.glob("*.md"))) if proj_notes.is_dir() else 0
                 )
@@ -538,8 +533,8 @@ def collect_memory_status_rows(
                             if proj_agents_mem.is_symlink():
                                 active_statuses.append("OK")
                             elif proj_agents_mem.is_dir():
-                                idx_link = proj_agents_mem / "index.md"
-                                if idx_link.is_symlink():
+                                notes_link = proj_agents_mem / "notes"
+                                if notes_link.is_symlink():
                                     active_statuses.append("OK")
                                 else:
                                     active_statuses.append("CONFLICT")
@@ -563,8 +558,8 @@ def collect_memory_status_rows(
                         name=proj_folder.name,
                         scope="Project",
                         status=(
-                            proj_index_status
-                            if proj_index_status != "OK"
+                            canonical_status
+                            if canonical_status != "OK"
                             else p_link_status
                         ),
                         notes_count=proj_notes_count,
@@ -708,24 +703,6 @@ def collect_subagents_matrix(
     return subagent_rows, orphan_files, agent_names
 
 
-def _parse_index_titles(index_file: Path) -> Tuple[Set[str], Dict[str, str]]:
-    indexed_stems: Set[str] = set()
-    titles: Dict[str, str] = {}
-    if not index_file.exists():
-        return indexed_stems, titles
-
-    content = index_file.read_text(encoding="utf-8", errors="ignore")
-    pattern = re.compile(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]")
-    for match in pattern.finditer(content):
-        stem = match.group(1).strip()
-        title = match.group(2).strip() if match.group(2) else ""
-        indexed_stems.add(stem)
-        if title:
-            titles[stem] = title
-
-    return indexed_stems, titles
-
-
 def collect_memory_notes_rows(
     aikito_dir: Path, home: Path, project: Optional[str] = None
 ) -> List[MemoryNoteRow]:
@@ -733,22 +710,14 @@ def collect_memory_notes_rows(
 
     # 1. Global Memory Notes
     if project is None or project.lower() == "global":
-        global_mem = aikito_dir / "memory"
-        global_index_file = global_mem / "index.md"
-        g_indexed_stems, g_titles = _parse_index_titles(global_index_file)
-
-        global_notes_dir = global_mem / "notes"
+        global_notes_dir = aikito_dir / "memory" / "notes"
         if global_notes_dir.is_dir():
             for note_file in sorted(global_notes_dir.glob("*.md")):
-                stem = note_file.stem
-                is_indexed = stem in g_indexed_stems
-                title = g_titles.get(stem, "-")
                 rows.append(
                     MemoryNoteRow(
                         scope_name="Global",
-                        note_name=stem,
-                        title=title,
-                        is_indexed=is_indexed,
+                        note_name=note_file.stem,
+                        title=extract_note_title(note_file),
                         link_status="SKIP",
                     )
                 )
@@ -762,10 +731,7 @@ def collect_memory_notes_rows(
                     if project is not None and proj_folder.name != project:
                         continue
                     proj_mem = proj_folder / "memory"
-                    proj_index = proj_mem / "index.md"
                     proj_notes = proj_mem / "notes"
-
-                    p_indexed_stems, p_titles = _parse_index_titles(proj_index)
 
                     agent_toml = proj_folder / "agent.toml"
                     link_st = "MISSING"
@@ -785,15 +751,11 @@ def collect_memory_notes_rows(
 
                     if proj_notes.is_dir():
                         for p_note in sorted(proj_notes.glob("*.md")):
-                            p_stem = p_note.stem
-                            p_indexed = p_stem in p_indexed_stems
-                            p_title = p_titles.get(p_stem, "-")
                             rows.append(
                                 MemoryNoteRow(
                                     scope_name=proj_folder.name,
-                                    note_name=p_stem,
-                                    title=p_title,
-                                    is_indexed=p_indexed,
+                                    note_name=p_note.stem,
+                                    title=extract_note_title(p_note),
                                     link_status=link_st,
                                 )
                             )

@@ -9,7 +9,7 @@ Aikito separates Memory storage, Agent capability, and Agent behavior:
 
 | Layer | Configuration | Effect |
 | --- | --- | --- |
-| Storage | `aikito init workspace` or `aikito init project` | Creates the canonical Memory directories and indices. |
+| Storage | `aikito init workspace` or `aikito init project` | Creates the canonical Memory note directories. |
 | Capability | `durable-memory` in global `skills.toml` or project `agent.toml` | Makes the skill available to the selected Agents after synchronization. |
 | Behavior | A rule in global or project `AGENTS.md` | Tells Agents when they must apply the skill, including whether every task should evaluate Memory relevance. |
 
@@ -77,7 +77,7 @@ and write behavior match your workflow.
 aikito show memory
 ```
 
-The output lists global and project scopes, note identifiers, index state, and
+The output lists global and project scopes, note identifiers, titles, and
 project link state. You can also narrow output to a specific project or the
 project bound to the current working directory:
 
@@ -92,15 +92,15 @@ aikito show memory --project
 Example output from a configured workspace:
 
 ```text
-┌─────────┬────────────────────────────┬────────────────────────────────┬───────┬──────┐
-│ Scope   │ Note File                  │ Title                          │ Index │ Link │
-├─────────┼────────────────────────────┼────────────────────────────────┼───────┼──────┤
-│ Global  │ cross-agent-memory         │ Cross-agent memory rules       │ ✓     │ –    │
-│ Global  │ skill-authoring-guidelines │ Guidelines for reusable skills │ ✓     │ –    │
-├─────────┼────────────────────────────┼────────────────────────────────┼───────┼──────┤
-│ example │ api-retry-policy           │ Retry external APIs safely     │ ✓     │ ✓    │
-│ example │ release-checklist          │ Release verification checklist │ ✓     │ ✓    │
-└─────────┴────────────────────────────┴────────────────────────────────┴───────┴──────┘
+┌─────────┬────────────────────────────┬────────────────────────────────┬──────┐
+│ Scope   │ Note File                  │ Title                          │ Link │
+├─────────┼────────────────────────────┼────────────────────────────────┼──────┤
+│ Global  │ cross-agent-memory         │ Cross-agent memory rules       │ –    │
+│ Global  │ skill-authoring-guidelines │ Guidelines for reusable skills │ –    │
+├─────────┼────────────────────────────┼────────────────────────────────┼──────┤
+│ example │ api-retry-policy           │ Retry external APIs safely     │ ✓    │
+│ example │ release-checklist          │ Release verification checklist │ ✓    │
+└─────────┴────────────────────────────┴────────────────────────────────┴──────┘
 ```
 
 ## Show a Note
@@ -124,9 +124,19 @@ to that project, avoiding naming collisions with global or other projects' notes
 aikito edit memory example/release-checklist
 ```
 
-The command opens the canonical note with `$VISUAL` or `$EDITOR`. Review and
-commit the resulting change in the Aikito workspace after verifying the
-conclusion.
+The command opens the canonical note with `$VISUAL` or `$EDITOR`. Its first
+`#` heading supplies the display title. Optional `category` frontmatter can be
+used by custom tools for grouping, but missing category never invalidates a note:
+
+```markdown
+---
+category: Project Decisions
+---
+
+# Retry external APIs safely
+```
+
+Review and commit the note after verifying the conclusion.
 
 ## Rename a Note
 
@@ -134,9 +144,8 @@ conclusion.
 aikito rename memory old-note-name new-note-name
 ```
 
-The command atomically renames the note file, updates its entry in `index.md`,
-and refactors all inbound `[[wikilinks]]` pointing to the note across the entire
-workspace.
+The command renames the note file and refactors inbound `[[wikilinks]]` in the
+same memory scope.
 
 ## Retire a Note
 
@@ -144,13 +153,13 @@ workspace.
 aikito rm memory example/release-checklist
 ```
 
-The command deletes the note file, removes its entry from `index.md`, and scans
-the workspace for any remaining inbound `[[wikilinks]]`, reporting their exact
+The command deletes the note file and scans the same scope for remaining
+inbound `[[wikilinks]]`, reporting their exact
 file and line numbers so you can review and adjust referencing notes.
 
 ## Memory Integrity and Auto-Repair
 
-Run `aikito doctor` to inspect memory note filename validity, index consistency,
+Run `aikito doctor` to inspect memory note filename validity, cross-note links,
 and staleness:
 
 ```bash
@@ -158,13 +167,11 @@ aikito doctor
 aikito doctor --fix
 ```
 
-With `--fix`, Aikito safely reconciles mechanical `index.md` formatting:
-- Prunes dangling index entries pointing to non-existent notes;
-- Normalizes non-standard index entries into the canonical `[[note-stem|Display Text]]` syntax using the note's heading title and removing trailing descriptions.
+Dangling wikilinks are reported without destructive repair. `doctor --fix`
+repairs supported workspace configuration issues but does not rewrite notes.
 
-Missing notes and dangling wikilinks in note bodies are reported by diagnostics
-without being automatically appended or removed, preserving the curated
-categorization of `index.md` and placeholder markers for future knowledge.
+Older workspaces may retain `memory/index.md` files. Aikito preserves these
+files as user data but no longer reads, updates, synchronizes, or requires them.
 
 Memory has two scopes:
 

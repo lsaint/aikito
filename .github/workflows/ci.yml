@@ -228,7 +228,7 @@ jobs:
           test ! -e ${{ runner.temp }}/example-project/.agents/AGENTS.md
           test ! -e ${{ runner.temp }}/example-project/AGENTS.md
           test ! -e ${{ runner.temp }}/example-project/.claude/CLAUDE.md
-          test -L ${{ runner.temp }}/example-project/.agents/memory/index.md
+          test -L ${{ runner.temp }}/example-project/.agents/memory/notes
 
       - name: aikito project inspection and dry-run
         run: |
@@ -248,7 +248,7 @@ jobs:
           test -L ${{ runner.temp }}/example-project/AGENTS.md
           test -L \
             ${{ runner.temp }}/example-project/.agents/skills/durable-memory
-          test -L ${{ runner.temp }}/example-project/.agents/memory/index.md
+          test -L ${{ runner.temp }}/example-project/.agents/memory/notes
           mkdir -p ${{ runner.temp }}/example-project-second
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             AIKITO_TEST_PROJECT_PATH=${{ runner.temp }}/example-project-second \
@@ -281,7 +281,7 @@ jobs:
           test -L ${{ runner.temp }}/example-project-second/AGENTS.md
           test -L \
             ${{ runner.temp }}/example-project-second/.agents/skills/durable-memory
-          test -L ${{ runner.temp }}/example-project-second/.agents/memory/index.md
+          test -L ${{ runner.temp }}/example-project-second/.agents/memory/notes
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito show projects
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
@@ -384,15 +384,25 @@ jobs:
       - name: aikito memory lifecycle
         run: |
           mkdir -p ${{ runner.temp }}/aikito-ws/memory/notes
-          printf '# CI memory note\n' > \
+          printf '%s\n' '# CI memory note' > \
             ${{ runner.temp }}/aikito-ws/memory/notes/ci-memory.md
-          printf '\n- [[ci-memory|CI memory]]\n' >> \
-            ${{ runner.temp }}/aikito-ws/memory/index.md
           mkdir -p ${{ runner.temp }}/aikito-ws/projects/example/memory/notes
-          printf '# CI project memory note\n' > \
+          printf '%s\n' '# CI project memory note' > \
             ${{ runner.temp }}/aikito-ws/projects/example/memory/notes/ci-proj-memory.md
-          printf '\n- [[ci-proj-memory|CI project memory]]\n' >> \
+          printf '%s\n' '# Legacy index' '- [[ci-memory|CI memory note]]' > \
+            ${{ runner.temp }}/aikito-ws/memory/index.md
+          printf '%s\n' '# Legacy project index' '- [[ci-proj-memory|CI project memory note]]' > \
             ${{ runner.temp }}/aikito-ws/projects/example/memory/index.md
+          if EDITOR=true AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito edit memory global/index; then
+            exit 1
+          fi
+          test ! -e ${{ runner.temp }}/aikito-ws/index.md
+          if EDITOR=true AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito edit memory example/index; then
+            exit 1
+          fi
+          test ! -e ${{ runner.temp }}/aikito-ws/projects/example/index.md
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito show memory --project example | grep -q "ci-proj-memory"
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
@@ -406,24 +416,57 @@ jobs:
             python3 -m aikito rename memory ci-memory ci-memory-renamed
           test -f ${{ runner.temp }}/aikito-ws/memory/notes/ci-memory-renamed.md
           test ! -e ${{ runner.temp }}/aikito-ws/memory/notes/ci-memory.md
-          grep -q 'ci-memory-renamed' ${{ runner.temp }}/aikito-ws/memory/index.md
+          grep -q 'ci-memory|CI memory note' ${{ runner.temp }}/aikito-ws/memory/index.md
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito rm memory ci-memory-renamed
           test ! -e ${{ runner.temp }}/aikito-ws/memory/notes/ci-memory-renamed.md
-          if grep -q 'ci-memory-renamed' \
-            ${{ runner.temp }}/aikito-ws/memory/index.md; then
-            exit 1
-          fi
+          grep -q 'ci-memory|CI memory note' ${{ runner.temp }}/aikito-ws/memory/index.md
           test -f ${{ runner.temp }}/aikito-ws/projects/example/memory/notes/ci-proj-memory.md
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito rm memory ci-proj-memory
           test ! -e ${{ runner.temp }}/aikito-ws/projects/example/memory/notes/ci-proj-memory.md
+          printf '%s\n' '# Malformed memory note' > \
+            ${{ runner.temp }}/aikito-ws/memory/notes/malformed.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm memory malformed
+          test ! -e ${{ runner.temp }}/aikito-ws/memory/notes/malformed.md
+          printf '%s\n' '# Rename repair note' > \
+            ${{ runner.temp }}/aikito-ws/memory/notes/rename-repair.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rename memory rename-repair renamed-repair
+          test -f ${{ runner.temp }}/aikito-ws/memory/notes/renamed-repair.md
+          if grep -q 'category:' \
+            ${{ runner.temp }}/aikito-ws/memory/notes/renamed-repair.md; then
+            exit 1
+          fi
+          printf '%s\n' '# Sync malformed note' > \
+            ${{ runner.temp }}/aikito-ws/projects/example/memory/notes/sync-malformed.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync project example 2> \
+            ${{ runner.temp }}/project-memory-sync.err
+          test ! -s ${{ runner.temp }}/project-memory-sync.err
+          test -L ${{ runner.temp }}/example-project/.agents/memory/notes
+          test ! -e ${{ runner.temp }}/example-project/.agents/memory/index.md
+          if grep -q 'category:' \
+            ${{ runner.temp }}/aikito-ws/projects/example/memory/notes/sync-malformed.md; then
+            exit 1
+          fi
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm memory sync-malformed
 
       # doctor should report all symlinks and config.toml OK after sync
       - name: aikito doctor
         run: |
+          mkdir -p ${{ runner.temp }}/aikito-ws/memory/notes/nested
+          printf '%s\n' '# Hidden nested note' > \
+            ${{ runner.temp }}/aikito-ws/memory/notes/nested/hidden.md
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 -m aikito doctor
+            python3 -m aikito doctor --no-color | \
+            tee ${{ runner.temp }}/doctor-memory-layout.log
+          grep -q "memory notes subdirectory 'nested/' is not scanned" \
+            ${{ runner.temp }}/doctor-memory-layout.log
+          rm ${{ runner.temp }}/aikito-ws/memory/notes/nested/hidden.md
+          rmdir ${{ runner.temp }}/aikito-ws/memory/notes/nested
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito doctor --stale-days 14
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
@@ -535,22 +578,67 @@ jobs:
           $projectDir = Join-Path $env:RUNNER_TEMP "example-project"
           New-Item -ItemType Directory -Force -Path $projectDir | Out-Null
           python -m aikito init project example "$projectDir"
+          $globalNote = Join-Path $wsDir "memory\notes\windows-memory.md"
+          @("# Windows Memory") | Set-Content $globalNote
+          $projectNote = Join-Path $wsDir "projects\example\memory\notes\windows-project-memory.md"
+          @("# Windows Project Memory") | Set-Content $projectNote
+          $globalIndex = Join-Path $wsDir "memory\index.md"
+          @("# Legacy Index", "- [[windows-memory|Windows Memory]]") | Set-Content $globalIndex
+          $projectIndex = Join-Path $wsDir "projects\example\memory\index.md"
+          @("# Legacy Project Index", "- [[windows-project-memory|Windows Project Memory]]") | Set-Content $projectIndex
+          python -m aikito show memory windows-memory | Select-String "Windows Memory"
+          python -m aikito show memory windows-project-memory --project example | Select-String "Windows Project Memory"
+          $env:EDITOR = 'python -c "import sys"'
+          python -m aikito edit memory global/index
+          if ($LASTEXITCODE -eq 0) {
+            throw "Editing a legacy memory index unexpectedly succeeded"
+          }
+          if (Test-Path (Join-Path $wsDir "index.md")) {
+            throw "Editing a memory index created a fake workspace index"
+          }
+          $malformedNote = Join-Path $wsDir "memory\notes\windows-malformed.md"
+          @("# Windows Malformed Memory") | Set-Content $malformedNote
+          $syncError = Join-Path $env:RUNNER_TEMP "windows-memory-sync.err"
+          python -m aikito sync global 2> $syncError
+          if ($LASTEXITCODE -ne 0) {
+            throw "Global sync failed because of malformed memory"
+          }
+          if ((Get-Item $syncError).Length -ne 0) {
+            throw "Global sync emitted an unexpected memory warning"
+          }
+          if (Select-String -Path $malformedNote -Pattern "category:") {
+            throw "Global sync unexpectedly modified canonical memory"
+          }
+          python -m aikito rm memory windows-malformed
+          if (Test-Path $malformedNote) {
+            throw "Malformed target memory note was not removed"
+          }
           python -c "from aikito import Project; prepared = Project.load('example').prepare(agent='pi'); assert prepared.name == 'example'"
-          if (-not (Test-Path (Join-Path $projectDir ".agents\memory\index.md"))) {
+          if (-not (Test-Path (Join-Path $projectDir ".agents\memory\notes"))) {
             throw "Prepared project memory link is missing"
+          }
+          if (Test-Path (Join-Path $projectDir ".agents\memory\index.md")) {
+            throw "Legacy project memory index was synchronized"
           }
           $secondProjectDir = Join-Path $env:RUNNER_TEMP "example-project-second"
           New-Item -ItemType Directory -Force -Path $secondProjectDir | Out-Null
           $env:AIKITO_TEST_PROJECT_PATH = $secondProjectDir
           python -c "import os; from pathlib import Path; from aikito import Project; prepared = Project.load('example').prepare(agent='pi', path=os.environ['AIKITO_TEST_PROJECT_PATH']); assert prepared.cwd == Path(os.environ['AIKITO_TEST_PROJECT_PATH']).resolve()"
-          if (-not (Test-Path (Join-Path $secondProjectDir ".agents\memory\index.md"))) {
+          if (-not (Test-Path (Join-Path $secondProjectDir ".agents\memory\notes"))) {
             throw "Prepared explicit project path memory link is missing"
           }
           $thirdProjectDir = Join-Path $env:RUNNER_TEMP "example-project-third"
           New-Item -ItemType Directory -Force -Path $thirdProjectDir | Out-Null
           $env:AIKITO_TEST_PROJECT_PATH = $thirdProjectDir
           python -c "import os; from pathlib import Path; from aikito import Project; updated = Project.load('example').add_path(os.environ['AIKITO_TEST_PROJECT_PATH']); assert Path(os.environ['AIKITO_TEST_PROJECT_PATH']).resolve() in updated.paths"
-          python -m aikito doctor
+          $nestedNotes = Join-Path $wsDir "memory\notes\nested"
+          New-Item -ItemType Directory -Force -Path $nestedNotes | Out-Null
+          @("# Hidden nested note") | Set-Content (Join-Path $nestedNotes "hidden.md")
+          $doctorOutput = python -m aikito doctor --no-color | Out-String
+          if ($doctorOutput -notmatch "memory notes subdirectory 'nested/' is not scanned") {
+            throw "Doctor did not report the nested memory note directory"
+          }
+          Remove-Item -Recurse $nestedNotes
           python -m aikito status
           python -m aikito show memory --project example
 

@@ -46,9 +46,6 @@ class ProjectApiTest(unittest.TestCase):
         (self.workspace / "memory" / "shared" / "index.md").write_text(
             "# Shared memory\n", encoding="utf-8"
         )
-        (self.definition / "memory" / "index.md").write_text(
-            "# Project memory\n", encoding="utf-8"
-        )
         (self.definition / "AGENTS.md").write_text(
             "# Project instructions\n", encoding="utf-8"
         )
@@ -153,8 +150,8 @@ class ProjectApiTest(unittest.TestCase):
             (self.workspace / "memory" / "shared").resolve(),
         )
         self.assertEqual(
-            (self.project_path / ".agents" / "memory" / "index.md").resolve(),
-            (self.definition / "memory" / "index.md").resolve(),
+            (self.project_path / ".agents" / "memory" / "notes").resolve(),
+            (self.definition / "memory" / "notes").resolve(),
         )
 
     def test_prepare_rejects_unsupported_agent(self) -> None:
@@ -253,7 +250,7 @@ class ProjectApiTest(unittest.TestCase):
         self.assertTrue(
             (custom_path / ".agents" / "skills" / "demo-skill").is_symlink()
         )
-        self.assertTrue((custom_path / ".agents" / "memory" / "index.md").is_symlink())
+        self.assertTrue((custom_path / ".agents" / "memory" / "notes").is_symlink())
         # Ensure agent.toml was not modified
         self.assertEqual(project.paths, (self.project_path.resolve(),))
 
@@ -361,17 +358,11 @@ class ProjectSummaryTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (definition / "AGENTS.md").write_text("Project rules\n", encoding="utf-8")
-            (definition / "memory" / "index.md").write_text(
-                "# Index\n", encoding="utf-8"
-            )
             (notes / "one.md").write_text("# One\n", encoding="utf-8")
             (project / "AGENTS.md").symlink_to(definition / "AGENTS.md")
             (project / ".claude").mkdir()
             (project / ".claude" / "CLAUDE.md").symlink_to(definition / "AGENTS.md")
             (runtime / "skills" / "example").symlink_to(skill)
-            (runtime / "memory" / "index.md").symlink_to(
-                definition / "memory" / "index.md"
-            )
             (runtime / "memory" / "notes").symlink_to(notes)
 
             summaries = collect_project_summaries(workspace, root)
@@ -504,9 +495,6 @@ class ProjectSummaryTest(unittest.TestCase):
             )
             (definition / "AGENTS.md").write_text("Rules\n", encoding="utf-8")
             (definition / "memory").mkdir()
-            (definition / "memory" / "index.md").write_text(
-                "# Index\n", encoding="utf-8"
-            )
 
             summary = collect_project_summaries(root, root)[0]
             detail = render_project_detail(summary, False, False)
@@ -514,7 +502,6 @@ class ProjectSummaryTest(unittest.TestCase):
         self.assertIn("MISSING", detail)
         self.assertIn("Issue:", detail)
         self.assertIn("Instructions (codex) [MISSING]: Missing", detail)
-        self.assertIn("Memory [MISSING]", detail)
 
     def test_detail_renders_each_resource_problem_on_its_own_line(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -531,20 +518,17 @@ class ProjectSummaryTest(unittest.TestCase):
             (definition / "AGENTS.md").write_text("", encoding="utf-8")
             memory = definition / "memory"
             memory.mkdir()
-            (memory / "index.md").write_text("# Index\n", encoding="utf-8")
             (memory / "notes").mkdir()
             runtime_memory = project / ".agents" / "memory"
             runtime_memory.mkdir(parents=True)
-            (runtime_memory / "index.md").write_text("Local\n", encoding="utf-8")
             (runtime_memory / "notes").mkdir()
 
             summary = collect_project_summaries(root, root)[0]
             detail = render_project_detail(summary, False, False)
 
         memory_lines = [line for line in detail.splitlines() if "Memory [" in line]
-        self.assertEqual(len(memory_lines), 2)
-        self.assertTrue(any("index.md:" in line for line in memory_lines))
-        self.assertTrue(any("notes:" in line for line in memory_lines))
+        self.assertEqual(len(memory_lines), 1)
+        self.assertIn("notes:", memory_lines[0])
 
     def test_resolve_project_binding_named_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

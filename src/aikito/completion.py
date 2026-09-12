@@ -83,8 +83,7 @@ def list_memories(aikito_dir: Path) -> List[str]:
     items = find_memory_files(aikito_dir)
     cands: set[str] = set()
     for item in items:
-        if item.stem != "index":
-            cands.add(item.stem)
+        cands.add(item.stem)
         cands.add(item.short_identifier)
         cands.add(item.full_identifier)
     return sorted(cands)

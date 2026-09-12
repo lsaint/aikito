@@ -49,7 +49,7 @@ from .mcp import (
     load_agents,
     is_agent_installed,
 )
-from .memory import extract_note_title, validate_memory_name
+from .memory import validate_memory_name
 from .project import collect_project_summaries, resolve_project_binding
 from .registry import (
     add_missing_agent_fields,
@@ -521,13 +521,11 @@ def _git_last_commit_epoch(repo_dir: Path, file_path: Path) -> int | None:
 def check_memory_integrity(
     aikito_dir: Path, home: Path, stale_days_override: Optional[int] = None
 ) -> DoctorSection:
-    """Validate durable memory notes: index/link consistency and staleness.
+    """Validate durable memory note names, links, and staleness.
 
     This is separate from Configuration because it inspects memory *content*
-    (index completeness, cross-note wikilinks, edit recency) rather than
-    config file syntax. Memory is curated knowledge, not a config file, and
-    its health signals are different: a dangling [[wikilink]] or a note that
-    has not been touched in months is a curation gap, not a parse error.
+    rather than config file syntax. Memory is curated knowledge, so a dangling
+    [[wikilink]] or an old note is a curation gap, not a parse error.
     """
     findings: List[DoctorFinding] = []
     scope_dirs = _memory_scope_dirs(aikito_dir)
@@ -539,19 +537,19 @@ def check_memory_integrity(
         else ws_config.memory.stale_days
     )
 
-    # Index completeness: notes not referenced from index.md, and index.md
-    # entries pointing at notes that no longer exist.
     for scope_dir, scope_label, _proj_folder in scope_dirs:
-        index_file = scope_dir / "index.md"
         notes_dir = scope_dir / "notes"
-        if not index_file.exists():
-            continue
-        content = index_file.read_text(encoding="utf-8", errors="ignore")
-        indexed_stems = {
-            m.group(1).strip()
-            for m in re.finditer(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]", content)
-        }
         if notes_dir.is_dir():
+            for child in sorted(notes_dir.iterdir()):
+                if child.is_dir():
+                    findings.append(
+                        _warn(
+                            f"{scope_label} memory notes subdirectory "
+                            f"'{child.name}/' is not scanned",
+                            "Move its Markdown files directly into the scope's "
+                            "notes/ directory or remove the subdirectory",
+                        )
+                    )
             for note_file in sorted(notes_dir.glob("*.md")):
                 stem = note_file.stem
                 name_err = validate_memory_name(stem)
@@ -562,42 +560,8 @@ def check_memory_integrity(
                             f"Rename note using 'aikito rename memory {stem} <valid-name>'",
                         )
                     )
-                if stem not in indexed_stems:
-                    findings.append(
-                        _warn(
-                            f"{scope_label} note '{stem}' exists but is not referenced in index.md",
-                            f"Add [[{stem}]] to {scope_label}'s index.md, or delete the note if it's obsolete",
-                        )
-                    )
-            for stem in sorted(indexed_stems):
-                note_path = notes_dir / f"{stem}.md"
-                if not note_path.exists():
-                    findings.append(
-                        _fail(
-                            f"{scope_label} index.md references [[{stem}]] but file not found",
-                            f"Remove the [[{stem}]] entry from index.md, or restore notes/{stem}.md",
-                        )
-                    )
 
-        # Check index entry formatting: standard format is "- [[note-stem|Display Text]]"
-        for line in content.splitlines():
-            if "[[" in line and "]]" in line:
-                m_link = re.search(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]", line)
-                if m_link:
-                    link_stem = m_link.group(1).strip()
-                    has_pipe = bool(m_link.group(2))
-                    has_trailing_desc = bool(re.search(r"\]\]\s*[-—:]\s*\S+", line))
-                    if not has_pipe or has_trailing_desc:
-                        findings.append(
-                            _warn(
-                                f"{scope_label} index.md entry for '[[{link_stem}]]' uses non-standard format",
-                                "Run 'aikito doctor --fix' to format index entries as [[note-stem|Display Text]]",
-                            )
-                        )
-
-    # Cross-note wikilinks: notes reference each other via [[note-name]] in
-    # their body, not just from index.md. A dangling reference here is
-    # invisible to index-only checks and rots silently.
+    # Cross-note wikilinks can rot silently when a target is renamed or removed.
     for scope_dir, scope_label, _proj_folder in scope_dirs:
         notes_dir = scope_dir / "notes"
         if not notes_dir.is_dir():
@@ -1251,14 +1215,7 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
 
 
 def run_doctor_fixes(aikito_dir: Path, home: Optional[Path] = None) -> List[str]:
-    """Apply safe automated fixes to memory index files.
-
-    1. Prune dangling entries in index.md (pointing to non-existent notes).
-    2. Normalize non-standard index entries (convert bare [[stem]] or entries with
-       trailing descriptions to [[stem|Title]] using the note's heading title).
-
-    Returns a list of human-readable descriptions of the fixes performed.
-    """
+    """Apply safe Agent registry fixes."""
     fixes: List[str] = []
     resolved_home = home or Path.home()
     agents_path = aikito_dir / "agents.toml"
@@ -1274,64 +1231,6 @@ def run_doctor_fixes(aikito_dir: Path, home: Optional[Path] = None) -> List[str]
             )
         except (OSError, tomllib.TOMLDecodeError):
             pass
-    scope_dirs = _memory_scope_dirs(aikito_dir)
-
-    for scope_dir, scope_label, _proj_folder in scope_dirs:
-        index_file = scope_dir / "index.md"
-        notes_dir = scope_dir / "notes"
-        if not index_file.exists():
-            continue
-
-        existing_notes = (
-            {p.stem: p for p in notes_dir.glob("*.md") if p.is_file()}
-            if notes_dir.is_dir()
-            else {}
-        )
-        content = index_file.read_text(encoding="utf-8", errors="ignore")
-        lines = content.splitlines()
-
-        new_lines: List[str] = []
-        modified = False
-
-        for line in lines:
-            m = re.search(
-                r"^(\s*-\s*)\[\[([^\]|]+)(?:\|([^\]]+))?\]\](?:\s*[-—:]\s*.+)?$", line
-            )
-            if not m:
-                new_lines.append(line)
-                continue
-
-            prefix = m.group(1)
-            stem = m.group(2).strip()
-            existing_display = m.group(3).strip() if m.group(3) else None
-
-            # 1. Prune dangling index entry
-            if stem not in existing_notes:
-                fixes.append(
-                    f"Removed dangling index entry [[{stem}]] from {scope_label}/index.md"
-                )
-                modified = True
-                continue
-
-            # 2. Normalize index entry format: [[stem|Title]] without trailing descriptions
-            display_title = existing_display or extract_note_title(existing_notes[stem])
-            normalized_line = f"{prefix}[[{stem}|{display_title}]]"
-
-            if normalized_line != line:
-                fixes.append(
-                    f"Normalized index entry for [[{stem}]] in {scope_label}/index.md"
-                )
-                new_lines.append(normalized_line)
-                modified = True
-            else:
-                new_lines.append(line)
-
-        if modified:
-            output_text = "\n".join(new_lines)
-            if output_text and not output_text.endswith("\n"):
-                output_text += "\n"
-            index_file.write_text(output_text, encoding="utf-8")
-
     return fixes
 
 

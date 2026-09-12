@@ -29,7 +29,7 @@ handle most of the mechanical migration:
 - move the source of truth into the public repository;
 - preserve packaging, privacy, and verification gates;
 - register a separate Aikito project;
-- move notes, repair indexes and links, synchronize runtimes, and run tests.
+- move notes, repair links, synchronize runtimes, and run tests.
 
 But automation alone did not identify the right final design. Human review
 introduced several semantic corrections.

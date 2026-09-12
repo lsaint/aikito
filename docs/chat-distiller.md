@@ -28,7 +28,7 @@ flowchart LR
 4. Decide the note's path based on your task:
    - **For immediate tasks**: Let a coding agent read notes directly from `inbox/` without committing raw drafts.
    - **For durable knowledge**: Review the Markdown in `inbox/`, correct inaccuracies, and move verified conclusions into `memory/` or `projects/<name>/memory/`.
-5. Link durable memory notes from that scope's `index.md` when useful.
+5. Optionally assign durable memory notes a `category` for custom grouping.
 6. Commit verified memory changes with Git.
 
 ## What `inbox/` Means
@@ -48,8 +48,8 @@ After review for long-term storage:
 - put project-specific knowledge in `projects/<name>/memory/notes/`;
 - discard transient, unverified, duplicated, or low-value material.
 
-Prefer one stable conclusion per memory note. Keep each `index.md` as navigation
-instead of copying the note body into it. See [Memory workflow](memory-workflow.md)
+Prefer one stable conclusion per memory note. Agents search the note files
+directly. See [Memory workflow](memory-workflow.md)
 for the full persistence criteria and [Work with memory](durable-memory.md) for
 the operational commands.
 

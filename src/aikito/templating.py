@@ -34,7 +34,6 @@ TEMPLATE_FILES: list[tuple[str, str, str]] = [
     ("agents.toml", "agents/_header.toml", "Detected agents config"),
     ("skills.toml", "skills.toml", "Global skills config"),
     ("subagents.toml", "subagents.toml", "Subagents config template"),
-    ("memory/index.md", "memory/index.md", "Memory index file"),
     ("global/AGENTS.md", "global/AGENTS.md", "Global agent instructions"),
     (".gitignore", "gitignore", "Workspace .gitignore with leading slashes"),
 ]
@@ -43,7 +42,6 @@ TEMPLATE_FILES: list[tuple[str, str, str]] = [
 # mark each rewrite rule below for readability.
 PROJECT_TEMPLATE_FILES: list[tuple[str, str]] = [
     ("AGENTS.md", "project/AGENTS.md"),
-    ("memory/index.md", "project/memory/index.md"),
 ]
 
 

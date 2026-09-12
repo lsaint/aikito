@@ -34,18 +34,32 @@ store the conclusion in the correct scope.
 
 ## Note Structure
 
-Each scope contains an `index.md` and focused notes under `notes/`:
+Each scope contains focused notes under `notes/`:
 
 ```text
 memory/
-├── index.md
 └── notes/
     ├── retry-policy.md
     └── release-checklist.md
 ```
 
-Use one stable conclusion per note. Keep `index.md` as navigation rather than a
-second copy of the note contents. Obsidian-style `[[wikilinks]]` can connect
+Keep notes directly in `notes/`; nested directories are not part of the memory
+collection. `aikito doctor` warns when it finds a subdirectory that would
+otherwise be invisible to memory commands.
+
+Use one stable conclusion per note. Optional `category` frontmatter can support
+custom grouping:
+
+```markdown
+---
+category: Project Decisions
+---
+
+# Retry external APIs safely
+```
+
+The note filename, first heading, and body are the source of truth. Missing
+`category` never invalidates a note. Obsidian-style `[[wikilinks]]` can connect
 related conclusions without imposing a database or proprietary format.
 
 ## Lifecycle
@@ -55,9 +69,8 @@ The practical loop is:
 1. Retrieve relevant notes before making a decision.
 2. Perform the work and verify the conclusion.
 3. Update an existing note or create one focused note.
-4. Link it from the scope index when useful.
-5. Retire notes the work just invalidated.
-6. Review the change and commit it with Git.
+4. Retire notes the work just invalidated.
+5. Review the change and commit it with Git.
 
 Step 5 is what keeps the store trustworthy. A note becomes a liability once
 current code contradicts it, the thing it describes is gone, a preference has
@@ -69,9 +82,8 @@ remembering.
 An Agent may delete a note on its own when it is plainly useless — the subject
 gone, the claim disproven, the content absorbed elsewhere. It should ask you
 first when the call is genuinely uncertain, and especially when the note records
-one of your own preferences or decisions. Either way the removal takes its
-`index.md` entry and inbound `[[wikilinks]]` with it, so the scope never
-accumulates dangling links. Aikito keeps no tombstones or deprecation stubs —
+one of your own preferences or decisions. Removal reports inbound `[[wikilinks]]`
+so the scope does not silently accumulate dangling links. Aikito keeps no tombstones or deprecation stubs —
 Git history is the record of what was removed, and every memory change is
 committed, so a deletion you disagree with is recoverable.
 

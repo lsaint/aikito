@@ -36,7 +36,6 @@ projects/example/
 ├── agent.toml
 ├── AGENTS.md
 └── memory/
-    ├── index.md
     └── notes/
 ```
 

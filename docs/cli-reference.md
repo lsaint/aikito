@@ -48,14 +48,14 @@ version.
 | `aikito rm inbox <target>` | Remove an inbox note file |
 | `aikito show memory [target] [--project <name>]` | Print a memory note, or list memory notes (optionally filtered by project) |
 | `aikito show skill [target]` | Print a skill's SKILL.md file, or list all skills if target is omitted |
-| `aikito rename memory <target> <new-name>` | Atomically rename a memory note, update its index entry, and refactor inbound wikilinks |
-| `aikito rm memory <target>` | Remove a memory note, prune its index entry, and scan for inbound wikilinks |
-| `aikito edit memory <target>` | Open a memory note in `$VISUAL` or `$EDITOR` |
+| `aikito rename memory <target> <new-name>` | Rename a memory note and refactor inbound wikilinks |
+| `aikito rm memory <target>` | Remove a memory note and scan for inbound wikilinks |
+| `aikito edit memory <target>` | Open a memory note in the configured editor |
 | `aikito maintain memory [global\|<project>\|.] [--agent <name>]` | Launch an Agent to review one complete memory scope and propose maintenance before making changes |
 | `aikito edit instructions <global|project|.>` | Open canonical instructions in `$VISUAL` or `$EDITOR` |
 | `aikito edit skill <target>` | Open a skill's SKILL.md in `$VISUAL` or `$EDITOR` |
 | `aikito edit subagent <target>` | Open a subagent's instruction markdown in `$VISUAL` or `$EDITOR` |
-| `aikito doctor [--fix]` | Run deep workspace diagnostics (and auto-repair fixable index issues; offline agents preserved) |
+| `aikito doctor [--fix]` | Run deep workspace diagnostics and repair supported configuration issues |
 | `aikito completion zsh\|bash\|fish\|powershell` | Print a shell completion script |
 | `aikito completion candidates projects\|skills\|subagents\|mcps\|memories\|memory-completions\|inbox\|inbox-completions\|paths [prefix]` | List dynamic completion candidates |
 | `aikito version` | Print the CLI version |
@@ -97,9 +97,8 @@ and point to `show project` for review. Findings are aggregated per project;
 when missing resources and conflicts coexist, the conflict action wins.
 
 `status` is the compact dashboard: its Memory `Status` column combines the
-presence of canonical `index.md` and runtime connection health, and the legend
-explains any warning symbols. It does not check whether individual notes are
-listed in `index.md`; use `doctor` for that index consistency check. Use
+presence of canonical note directories and runtime connection health, and the
+legend explains any warning symbols. Use
 `show project <name>` to inspect the exact runtime resource paths and link
 issues for one project.
 
