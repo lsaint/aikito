@@ -2386,9 +2386,9 @@ class TestDoctorFixCli(unittest.TestCase):
                 pass
 
         self.assertNotIn("memory index", mock_stdout.getvalue())
-        index_text = (self.aikito_dir / "memory" / "index.md").read_text()
-        self.assertEqual(index_text, "- [[bare]] — Some Description\n")
-        note_text = (self.aikito_dir / "memory" / "notes" / "bare.md").read_text()
+        index_text = (self.aikito_dir / "memory" / "index.md").read_text(encoding="utf-8")
+        self.assertEqual(index_text, "- [[bare]] \u2014 Some Description\n")
+        note_text = (self.aikito_dir / "memory" / "notes" / "bare.md").read_text(encoding="utf-8")
         self.assertNotIn("category:", note_text)
 
     def test_doctor_json_flag(self) -> None:

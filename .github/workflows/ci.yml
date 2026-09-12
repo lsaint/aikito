@@ -461,8 +461,8 @@ jobs:
           printf '%s\n' '# Hidden nested note' > \
             ${{ runner.temp }}/aikito-ws/memory/notes/nested/hidden.md
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 -m aikito doctor --no-color | \
-            tee ${{ runner.temp }}/doctor-memory-layout.log
+            python3 -m aikito doctor --no-color 2>&1 | \
+            tee ${{ runner.temp }}/doctor-memory-layout.log || true
           grep -q "memory notes subdirectory 'nested/' is not scanned" \
             ${{ runner.temp }}/doctor-memory-layout.log
           rm ${{ runner.temp }}/aikito-ws/memory/notes/nested/hidden.md
