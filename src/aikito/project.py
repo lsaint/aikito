@@ -681,7 +681,11 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
                 }
                 if project_memory.is_dir():
                     expected_memory.update(
-                        {item.name: item for item in project_memory.iterdir()}
+                        {
+                            item.name: item
+                            for item in project_memory.iterdir()
+                            if item.name != "index.md"
+                        }
                     )
                 memory_statuses: list[str] = []
                 memory_issues: list[str] = []
