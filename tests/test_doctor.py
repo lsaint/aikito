@@ -1495,6 +1495,39 @@ class ConflictMarkersTest(unittest.TestCase):
         fails = [f for f in section.findings if f.status == "FAIL"]
         self.assertTrue(any("agent.toml" in f.message for f in fails))
 
+    def test_conflict_in_workspace_config_toml_reported(self) -> None:
+        cfg = self.aikito_dir / "config.toml"
+        cfg.write_text(
+            "<<<<<<< HEAD\n[memory]\nstale_days = 14\n=======\n[memory]\nstale_days = 7\n>>>>>>> br\n",
+            encoding="utf-8",
+        )
+        section = check_conflict_markers(self.aikito_dir, self.home)
+        fails = [f for f in section.findings if f.status == "FAIL"]
+        self.assertTrue(any("config.toml" in f.message for f in fails))
+        fail_msgs = " ".join(f.message for f in fails)
+        self.assertIn(":1:", fail_msgs)
+        self.assertIn(":4:", fail_msgs)
+        self.assertIn(":7:", fail_msgs)
+        self.assertTrue(all(f.fix_hint for f in fails))
+
+    def test_conflict_in_config_toml_full_doctor_report(self) -> None:
+        cfg = self.aikito_dir / "config.toml"
+        cfg.write_text(
+            "<<<<<<< HEAD\n[memory]\nstale_days = 14\n=======\n[memory]\nstale_days = 7\n>>>>>>> br\n",
+            encoding="utf-8",
+        )
+        report = run_doctor(self.aikito_dir, self.home)
+        cm_section = next((s for s in report.sections if s.name == "ConflictMarkers"), None)
+        self.assertIsNotNone(cm_section)
+        fails = [f for f in cm_section.findings if f.status == "FAIL"]
+        self.assertTrue(any("config.toml" in f.message for f in fails))
+
+        # Also verify Configuration section does not report duplicate parse error
+        cfg_section = next((s for s in report.sections if s.name == "Configuration"), None)
+        self.assertIsNotNone(cfg_section)
+        cfg_fails = [f for f in cfg_section.findings if f.status == "FAIL" and "config.toml" in f.message]
+        self.assertEqual(cfg_fails, [])
+
     # ------------------------------------------------------------------
     # Project memory notes
     # ------------------------------------------------------------------

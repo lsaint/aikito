@@ -16,6 +16,7 @@ from types import MappingProxyType
 from typing import Any
 
 from .compat import can_symlink, safe_relative_path
+from .conflict import collect_resource_conflicts
 from .init import project_sync_validation_error
 from .mcp import MCPConfigError, collect_project_instruction_targets, load_agents
 from .project import (
@@ -127,6 +128,9 @@ class Project:
         config_path = workspace_path / "projects" / name / "agent.toml"
         if not config_path.is_file():
             raise ProjectNotFoundError(f"Aikito project not found: {name}")
+        conflicts = collect_resource_conflicts([config_path], home_path)
+        if conflicts:
+            raise InvalidProjectConfigError("; ".join(conflicts))
         try:
             config = tomllib.loads(config_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
@@ -402,6 +406,29 @@ def collect_project_prepare_errors(
     errors.extend(
         f"Unmanaged project runtime item: {path}" for path in inputs.cleanup_conflicts
     )
+
+    # Pre-check project-scoped resources for Git conflict markers
+    resource_paths: list[Path] = []
+    agent_toml = aikito_dir / "projects" / project_name / "agent.toml"
+    if agent_toml.is_file():
+        resource_paths.append(agent_toml)
+    project_instructions = aikito_dir / "projects" / project_name / "AGENTS.md"
+    if project_instructions.is_file():
+        resource_paths.append(project_instructions)
+    for skill_name in inputs.skills:
+        skill_dir = aikito_dir / "skills" / skill_name
+        if skill_dir.is_dir():
+            resource_paths.append(skill_dir)
+    if inputs.proj_mem_source.is_dir():
+        notes_dir = inputs.proj_mem_source / "notes"
+        if notes_dir.is_dir():
+            resource_paths.append(notes_dir)
+    for memory_file in inputs.memory_files:
+        mem_file_path = aikito_dir / "memory" / memory_file
+        if mem_file_path.exists():
+            resource_paths.append(mem_file_path)
+
+    errors.extend(collect_resource_conflicts(resource_paths, home))
 
     if inputs.sync_mode == "copy":
         states = collect_single_project_skill_states(

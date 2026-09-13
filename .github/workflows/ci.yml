@@ -528,6 +528,75 @@ jobs:
           printf '%s\n' 'skills = ["durable-memory"]' \
             > ${{ runner.temp }}/aikito-ws/skills.toml
 
+      - name: Verify sync and prepare conflict pre-check
+        run: |
+          # 1. Project preparation and sync fail if project instructions have conflict
+          example_agents="${{ runner.temp }}/aikito-ws/projects/example/AGENTS.md"
+          orig_agents=$(cat "$example_agents")
+          printf '%s\n' \
+            '# Conflicted instructions' \
+            '<<<<<<< HEAD' \
+            'rule A' \
+            '=======' \
+            'rule B' \
+            '>>>>>>> branch' \
+            > "$example_agents"
+
+          # Project.prepare() must raise ProjectPrepareConflictError
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws python3 -c "
+          from aikito import Project, ProjectPrepareConflictError
+          try:
+              Project.load('example').prepare(agent='pi')
+              raise AssertionError('prepare() did not raise ProjectPrepareConflictError')
+          except ProjectPrepareConflictError as exc:
+              assert 'Git conflict marker detected' in str(exc), f'Unexpected exc: {exc}'
+          "
+
+          # CLI sync project must fail (exit non-zero) and print conflict error
+          if AIKITO_DIR=${{ runner.temp }}/aikito-ws python3 -m aikito sync project example 2>${{ runner.temp }}/sync-proj-conflict.err; then
+            echo "Expected sync project example to fail on conflict"
+            exit 1
+          fi
+          grep -q "Git conflict marker detected" ${{ runner.temp }}/sync-proj-conflict.err
+
+          # --force must NOT bypass the conflict
+          if AIKITO_DIR=${{ runner.temp }}/aikito-ws python3 -m aikito sync project example --force 2>&1 | grep -q "Git conflict marker detected"; then
+            echo "sync project --force properly blocked by conflict"
+          else
+            echo "sync project --force was not blocked by conflict"
+            exit 1
+          fi
+
+          # Unrelated global sync must SUCCEED even while project example has conflict
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws python3 -m aikito sync global
+
+          # Restore clean project instructions
+          printf '%s\n' "$orig_agents" > "$example_agents"
+
+          # 2. Global sync fails if global instructions have conflict
+          global_agents="${{ runner.temp }}/aikito-ws/global/AGENTS.md"
+          orig_global=$(cat "$global_agents")
+          printf '%s\n' \
+            '# Conflicted global instructions' \
+            '<<<<<<< HEAD' \
+            'global A' \
+            '=======' \
+            'global B' \
+            '>>>>>>> branch' \
+            > "$global_agents"
+
+          if AIKITO_DIR=${{ runner.temp }}/aikito-ws python3 -m aikito sync global 2>${{ runner.temp }}/sync-global-conflict.err; then
+            echo "Expected sync global to fail on conflict"
+            exit 1
+          fi
+          grep -q "Git conflict marker detected" ${{ runner.temp }}/sync-global-conflict.err
+
+          # Unrelated project sync must SUCCEED even while global instructions have conflict
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws python3 -m aikito sync project example
+
+          # Restore clean global instructions
+          printf '%s\n' "$orig_global" > "$global_agents"
+
       - name: Verify workspace config customization in CI
         run: |
           cat << 'EOF' > ${{ runner.temp }}/aikito-ws/config.toml
@@ -736,6 +805,33 @@ jobs:
           }
           # Restore clean skills.toml
           Set-Content $skillsToml $skillsBefore
+
+          # Verify sync and prepare conflict pre-check on Windows
+          $exampleAgents = Join-Path $wsDir "projects\example\AGENTS.md"
+          $origAgents = Get-Content $exampleAgents -Raw
+          @("# Conflicted instructions", "<<<<<<< HEAD", "rule A", "=======", "rule B", ">>>>>>> branch") | Set-Content $exampleAgents
+
+          # Project.prepare() must fail with ProjectPrepareConflictError
+          python -c "
+          from aikito import Project, ProjectPrepareConflictError
+          try:
+              Project.load('example').prepare(agent='pi')
+              raise AssertionError('prepare() did not raise ProjectPrepareConflictError')
+          except ProjectPrepareConflictError as exc:
+              assert 'Git conflict marker detected' in str(exc)
+          "
+
+          # CLI sync project must fail and report conflict
+          $projSyncOutput = python -m aikito sync project example 2>&1 | Out-String
+          if ($projSyncOutput -notmatch "Git conflict marker detected") {
+            throw "Expected sync project to report Git conflict marker detected"
+          }
+
+          # Unrelated global sync must succeed despite project conflict
+          python -m aikito sync global
+
+          # Restore clean project instructions
+          Set-Content $exampleAgents $origAgents
 
       - name: Verify Graceful Failure When Symlinks Unavailable
         shell: pwsh

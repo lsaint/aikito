@@ -31,6 +31,11 @@ from .compat import (
     is_windows,
     safe_relative_path,
 )
+from .conflict import (
+    CONFLICT_FIX_HINT as _CONFLICT_FIX,
+    find_conflict_marker_lines,
+    has_any_conflict_markers as _has_conflict_markers,
+)
 
 
 from .templating import (
@@ -99,16 +104,6 @@ def _warn(message: str, fix_hint: str = "") -> DoctorFinding:
 def _home_rel(path: Path, home: Path) -> str:
     return safe_relative_path(path, home)
 
-
-# Regex matching the three Git conflict marker line patterns.
-_CONFLICT_RE = re.compile(r"^(<{7}|={7}|>{7})([ \t].*)?$")
-
-_CONFLICT_FIX = "Resolve the Git conflict manually, then run 'git add' and commit"
-
-
-def _has_conflict_markers(text: str) -> bool:
-    """Return True if text contains any Git conflict marker line."""
-    return any(_CONFLICT_RE.match(line) for line in text.splitlines())
 
 
 # ---------------------------------------------------------------------------
@@ -1252,6 +1247,9 @@ def check_conflict_markers(aikito_dir: Path, home: Path) -> DoctorSection:
 
     # 2. Top-level TOML config files
     toml_files: List[Path] = []
+    cfg_path = get_workspace_config_path(aikito_dir)
+    if cfg_path:
+        toml_files.append(cfg_path)
     for name in ("skills.toml", "agents.toml", "subagents.toml"):
         p = aikito_dir / name
         if p.is_file():
@@ -1272,35 +1270,34 @@ def check_conflict_markers(aikito_dir: Path, home: Path) -> DoctorSection:
 
     # --- scan markdown files ---
     for path in md_files:
-        try:
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
+        if not path.is_file():
             continue
         checked += 1
         rel = _home_rel(path, home)
-        for lineno, line in enumerate(lines, start=1):
-            if _CONFLICT_RE.match(line):
-                findings.append(
-                    _fail(
-                        f"{rel}:{lineno}: Git conflict marker detected",
-                        _CONFLICT_FIX,
-                    )
+        blocking_lines, isolated_lines = find_conflict_marker_lines(path)
+        for lineno in blocking_lines:
+            findings.append(
+                _fail(
+                    f"{rel}:{lineno}: Git conflict marker detected",
+                    _CONFLICT_FIX,
                 )
+            )
+        for lineno in isolated_lines:
+            findings.append(
+                _warn(
+                    f"{rel}:{lineno}: isolated Git conflict marker or heading underline",
+                    "Review file to confirm if this line is an intentional heading or unresolved conflict",
+                )
+            )
 
     # --- scan TOML files ---
     for path in toml_files:
-        try:
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
+        if not path.is_file():
             continue
         checked += 1
         rel = _home_rel(path, home)
-        # Check for conflict markers first; skip normal parse if any are found.
-        conflict_lines: List[int] = []
-        for lineno, line in enumerate(lines, start=1):
-            if _CONFLICT_RE.match(line):
-                conflict_lines.append(lineno)
-        for lineno in conflict_lines:
+        blocking_lines, _ = find_conflict_marker_lines(path)
+        for lineno in blocking_lines:
             findings.append(
                 _fail(
                     f"{rel}:{lineno}: Git conflict marker detected",

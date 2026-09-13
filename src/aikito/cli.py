@@ -17,6 +17,7 @@ from typing import Any, List, Optional
 from . import __version__
 from .add import add_mcp, add_skill, add_subagent
 from .adopt import build_adopt_plan, execute_adoption
+from .conflict import collect_resource_conflicts
 from .diff import collect_drift_diffs, render_drift_diffs
 from .doctor import run_doctor, run_doctor_fixes
 from .init import init_project, init_workspace
@@ -176,6 +177,13 @@ def sync_global_resources(
         print(f"[ERROR] Config file not found: {skills_toml_path}", file=sys.stderr)
         return False
 
+    toml_conflicts = collect_resource_conflicts([skills_toml_path], home)
+    if toml_conflicts:
+        for err in toml_conflicts:
+            print(f"[ERROR] {err}", file=sys.stderr)
+        print("[ERROR] Global synchronization aborted.", file=sys.stderr)
+        return False
+
     try:
         with open(skills_toml_path, "rb") as f:
             data = tomllib.load(f)
@@ -186,6 +194,21 @@ def sync_global_resources(
     skills = data.get("skills", [])
     if not isinstance(skills, list):
         print("[ERROR] 'skills' in skills.toml must be a list.", file=sys.stderr)
+        return False
+
+    # Check global instruction source and global skills for conflict markers
+    global_resources: list[Path] = []
+    if global_instruction_source.is_file():
+        global_resources.append(global_instruction_source)
+    for skill_name in skills:
+        s_dir = aikito_dir / "skills" / str(skill_name)
+        if s_dir.is_dir():
+            global_resources.append(s_dir)
+    global_conflicts = collect_resource_conflicts(global_resources, home)
+    if global_conflicts:
+        for err in global_conflicts:
+            print(f"[ERROR] {err}", file=sys.stderr)
+        print("[ERROR] Global synchronization aborted.", file=sys.stderr)
         return False
 
     # A legacy top-level link is safe to replace only when it points to Aikito.
@@ -319,6 +342,12 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
     agent_toml_path = aikito_dir / "projects" / project_name / "agent.toml"
     data: dict = {}
     if agent_toml_path.exists():
+        toml_conflicts = collect_resource_conflicts([agent_toml_path], home)
+        if toml_conflicts:
+            for err in toml_conflicts:
+                print(f"[ERROR] {err}", file=sys.stderr)
+            print("[ERROR] Project synchronization aborted.", file=sys.stderr)
+            sys.exit(1)
         try:
             with open(agent_toml_path, "rb") as f:
                 data = tomllib.load(f)
