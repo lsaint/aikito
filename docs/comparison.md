@@ -144,8 +144,7 @@ AI tooling is not mutually exclusive. Different tools address different layers o
 
 Aikito is designed for developers managing multiple agents and projects. You may not need Aikito if:
 
-* you use only one coding agent
-* you work mostly in a single project repository
+* you use only one coding agent and work mostly in a single project repository
 * you have only a few instructions or skills that rarely change
 * manual copy-paste is still sufficient for your workflow
 * you prefer your agent's built-in memory system without cross-tool sharing
