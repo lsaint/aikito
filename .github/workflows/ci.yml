@@ -474,7 +474,7 @@ jobs:
 
       - name: aikito doctor conflict markers
         run: |
-          # Inject conflict markers into a memory note and verify doctor reports FAIL
+          # --- Scenario 1: conflict in memory note only (no TOML conflict) ---
           printf '%s\n' \
             '# Conflicted Note' \
             '<<<<<<< HEAD' \
@@ -485,10 +485,20 @@ jobs:
             > ${{ runner.temp }}/aikito-ws/memory/notes/ci-conflict.md
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito doctor --no-color 2>&1 | \
-            tee ${{ runner.temp }}/doctor-conflict.log || true
+            tee ${{ runner.temp }}/doctor-conflict-md.log || true
           grep -q "Git conflict marker detected" \
-            ${{ runner.temp }}/doctor-conflict.log
-          # Inject conflict markers into a TOML file and verify doctor reports FAIL
+            ${{ runner.temp }}/doctor-conflict-md.log
+          # doctor --fix must NOT modify the conflicted file
+          conflict_before=$(cat ${{ runner.temp }}/aikito-ws/memory/notes/ci-conflict.md)
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito doctor --fix --no-color 2>&1 || true
+          conflict_after=$(cat ${{ runner.temp }}/aikito-ws/memory/notes/ci-conflict.md)
+          [ "$conflict_before" = "$conflict_after" ] || \
+            { echo "doctor --fix modified conflicted file"; exit 1; }
+          # Clean up before TOML scenario
+          rm ${{ runner.temp }}/aikito-ws/memory/notes/ci-conflict.md
+
+          # --- Scenario 2: conflict in TOML only (no conflicted note) ---
           printf '%s\n' \
             '<<<<<<< HEAD' \
             'skills = ["a"]' \
@@ -502,8 +512,19 @@ jobs:
           grep -q "skills.toml" ${{ runner.temp }}/doctor-conflict-toml.log
           grep -q "Git conflict marker detected" \
             ${{ runner.temp }}/doctor-conflict-toml.log
-          # Restore clean skills.toml and remove conflicted note
-          rm ${{ runner.temp }}/aikito-ws/memory/notes/ci-conflict.md
+          # Conflicted TOML must NOT produce a duplicate "TOML parse error" line
+          if grep -q "TOML parse error" ${{ runner.temp }}/doctor-conflict-toml.log; then
+            echo "check_config_syntax still reported a parse error for conflicted TOML"
+            exit 1
+          fi
+          # doctor --fix must NOT modify the conflicted TOML file
+          toml_before=$(cat ${{ runner.temp }}/aikito-ws/skills.toml)
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito doctor --fix --no-color 2>&1 || true
+          toml_after=$(cat ${{ runner.temp }}/aikito-ws/skills.toml)
+          [ "$toml_before" = "$toml_after" ] || \
+            { echo "doctor --fix modified conflicted TOML file"; exit 1; }
+          # Restore clean skills.toml
           printf '%s\n' 'skills = ["durable-memory"]' \
             > ${{ runner.temp }}/aikito-ws/skills.toml
 
@@ -676,14 +697,45 @@ jobs:
           Remove-Item -Recurse $nestedNotes
           python -m aikito status
           python -m aikito show memory --project example
-          # Verify conflict marker detection in memory notes
+          # Verify conflict marker detection in memory notes (Scenario 1: MD only)
           $conflictNote = Join-Path $wsDir "memory\notes\ci-conflict.md"
           @("# Conflicted Note", "<<<<<<< HEAD", "version A", "=======", "version B", ">>>>>>> branch") | Set-Content $conflictNote
           $conflictOutput = python -m aikito doctor --no-color | Out-String
           if ($conflictOutput -notmatch "Git conflict marker detected") {
             throw "Doctor did not report Git conflict markers in memory note"
           }
+          # doctor --fix must NOT modify the conflicted file
+          $conflictBefore = Get-Content $conflictNote -Raw
+          python -m aikito doctor --fix --no-color | Out-Null
+          $conflictAfter = Get-Content $conflictNote -Raw
+          if ($conflictBefore -ne $conflictAfter) {
+            throw "doctor --fix modified conflicted memory note"
+          }
           Remove-Item $conflictNote
+
+          # Scenario 2: TOML conflict only (no conflicted note)
+          $skillsToml = Join-Path $wsDir "skills.toml"
+          $skillsBefore = Get-Content $skillsToml -Raw
+          @("<<<<<<< HEAD", 'skills = ["a"]', "=======", 'skills = ["b"]', ">>>>>>> branch") | Set-Content $skillsToml
+          $tomlConflictOutput = python -m aikito doctor --no-color | Out-String
+          if ($tomlConflictOutput -notmatch "skills.toml") {
+            throw "Doctor did not mention skills.toml for TOML conflict"
+          }
+          if ($tomlConflictOutput -notmatch "Git conflict marker detected") {
+            throw "Doctor did not report Git conflict markers in skills.toml"
+          }
+          if ($tomlConflictOutput -match "TOML parse error") {
+            throw "Doctor reported duplicate TOML parse error for conflicted TOML"
+          }
+          # doctor --fix must NOT modify the conflicted TOML file
+          $tomlBefore = Get-Content $skillsToml -Raw
+          python -m aikito doctor --fix --no-color | Out-Null
+          $tomlAfter = Get-Content $skillsToml -Raw
+          if ($tomlBefore -ne $tomlAfter) {
+            throw "doctor --fix modified conflicted TOML file"
+          }
+          # Restore clean skills.toml
+          Set-Content $skillsToml $skillsBefore
 
       - name: Verify Graceful Failure When Symlinks Unavailable
         shell: pwsh

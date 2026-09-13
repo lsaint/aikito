@@ -307,6 +307,28 @@ class CheckConfigSyntaxTest(unittest.TestCase):
             msg=f"Expected skills.toml failure, got: {[f.message for f in fails]}",
         )
 
+    def test_conflicted_toml_not_reported_as_parse_error(self) -> None:
+        # When a TOML file has Git conflict markers, check_config_syntax must
+        # silently skip it (check_conflict_markers already reports it).
+        self._write_minimal_toml_files()
+        (self.aikito_dir / "skills.toml").write_text(
+            "<<<<<<< HEAD\nskills = [\"a\"]\n=======\nskills = [\"b\"]\n>>>>>>> branch\n",
+            encoding="utf-8",
+        )
+        section = check_config_syntax(self.aikito_dir, self.home)
+        # Must NOT produce a parse-error finding for skills.toml
+        parse_error_findings = [
+            f
+            for f in section.findings
+            if f.status == "FAIL" and "skills.toml" in f.message
+        ]
+        self.assertEqual(
+            parse_error_findings,
+            [],
+            msg=f"check_config_syntax must skip conflicted TOML, got: {[f.message for f in parse_error_findings]}",
+        )
+
+
     def test_missing_toml_produces_fail(self) -> None:
         # Don't create any files
         section = check_config_syntax(self.aikito_dir, self.home)

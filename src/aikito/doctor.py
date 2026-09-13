@@ -100,6 +100,17 @@ def _home_rel(path: Path, home: Path) -> str:
     return safe_relative_path(path, home)
 
 
+# Regex matching the three Git conflict marker line patterns.
+_CONFLICT_RE = re.compile(r"^(<{7}|={7}|>{7})([ \t].*)?$")
+
+_CONFLICT_FIX = "Resolve the Git conflict manually, then run 'git add' and commit"
+
+
+def _has_conflict_markers(text: str) -> bool:
+    """Return True if text contains any Git conflict marker line."""
+    return any(_CONFLICT_RE.match(line) for line in text.splitlines())
+
+
 # ---------------------------------------------------------------------------
 # §1 Symlinks
 # ---------------------------------------------------------------------------
@@ -653,9 +664,12 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
     cfg_path = get_workspace_config_path(aikito_dir)
     if cfg_path:
         try:
-            with open(cfg_path, "rb") as f:
-                tomllib.load(f)
-            findings.append(_ok(f"{cfg_path.name}: valid TOML"))
+            cfg_text = cfg_path.read_text(encoding="utf-8", errors="replace")
+            if _has_conflict_markers(cfg_text):
+                pass  # already reported by check_conflict_markers
+            else:
+                tomllib.loads(cfg_text)
+                findings.append(_ok(f"{cfg_path.name}: valid TOML"))
         except tomllib.TOMLDecodeError as exc:
             findings.append(_fail(f"{cfg_path.name}: TOML parse error — {exc}"))
 
@@ -665,15 +679,14 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
         if not path.exists():
             findings.append(_fail(f"{filename}: file not found"))
             continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if _has_conflict_markers(text):
+            continue  # already reported by check_conflict_markers
         try:
-            with open(path, "rb") as f:
-                tomllib.load(f)
+            tomllib.loads(text)
             findings.append(_ok(f"{filename}: valid TOML"))
             if filename == "agents.toml":
-                with path.open("rb") as registry_file:
-                    registered_agents = set(
-                        tomllib.load(registry_file).get("agents", {})
-                    )
+                registered_agents = set(tomllib.loads(text).get("agents", {}))
                 installed_agents = detected_agent_names(detect_existing_agents(home))
                 for agent_name in installed_agents:
                     if agent_name not in registered_agents:
@@ -716,9 +729,11 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
         if not toml_files:
             findings.append(_ok("mcps: directory present (empty)"))
         for toml_path in toml_files:
+            toml_text = toml_path.read_text(encoding="utf-8", errors="replace")
+            if _has_conflict_markers(toml_text):
+                continue  # already reported by check_conflict_markers
             try:
-                with open(toml_path, "rb") as f:
-                    tomllib.load(f)
+                tomllib.loads(toml_text)
                 findings.append(_ok(f"mcps/{toml_path.name}: valid TOML"))
             except tomllib.TOMLDecodeError as exc:
                 findings.append(
@@ -734,9 +749,11 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
             agent_toml = proj_folder / "agent.toml"
             if not agent_toml.exists():
                 continue
+            agent_toml_text = agent_toml.read_text(encoding="utf-8", errors="replace")
+            if _has_conflict_markers(agent_toml_text):
+                continue  # already reported by check_conflict_markers
             try:
-                with open(agent_toml, "rb") as f:
-                    data = tomllib.load(f)
+                data = tomllib.loads(agent_toml_text)
                 findings.append(
                     _ok(f"projects/{proj_folder.name}/agent.toml: valid TOML")
                 )
@@ -1217,11 +1234,6 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
 # ---------------------------------------------------------------------------
 # §8 Conflict Markers
 # ---------------------------------------------------------------------------
-
-# Regex that matches the three Git conflict marker line patterns.
-_CONFLICT_RE = re.compile(r"^(<{7}|={7}|>{7})([ \t].*)?$")
-
-_CONFLICT_FIX = "Resolve the Git conflict manually, then run 'git add' and commit"
 
 
 def check_conflict_markers(aikito_dir: Path, home: Path) -> DoctorSection:
