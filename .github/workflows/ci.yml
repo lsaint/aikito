@@ -790,8 +790,9 @@ jobs:
           Remove-Item -Recurse $nestedNotes
           python -m aikito status
           python -m aikito show memory --project example
-          # Verify show project Fix: and doctor sync hints on missing runtime instructions
-          Remove-Item (Join-Path $projectDir "AGENTS.md")
+          # Verify show project Fix: and doctor sync hints on missing runtime notes
+          $runtimeNotes = Join-Path $projectDir ".agents\memory\notes"
+          Remove-Item $runtimeNotes
           $showProjOutput = python -m aikito show project example | Out-String
           if ($showProjOutput -notmatch "Fix:.*aikito sync project example") {
             throw "show project did not display expected Fix hint"
@@ -801,8 +802,8 @@ jobs:
             throw "doctor did not display expected aikito sync project hint"
           }
           python -m aikito sync project example | Out-Null
-          if (-not (Test-Path (Join-Path $projectDir "AGENTS.md"))) {
-            throw "AGENTS.md link was not restored by sync"
+          if (-not (Test-Path $runtimeNotes)) {
+            throw "runtime notes link was not restored by sync"
           }
           # Verify conflict marker detection in memory notes (Scenario 1: MD only)
           $conflictNote = Join-Path $wsDir "memory\notes\ci-conflict.md"
