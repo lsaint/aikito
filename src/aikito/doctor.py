@@ -11,19 +11,12 @@ import os
 import re
 import shutil
 import subprocess
-
 import sys
 import time
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, List, Optional
 
-
-from .config import (
-    get_project_memory_stale_days,
-    get_workspace_config_path,
-    load_workspace_config,
-)
 from .compat import (
     can_symlink,
     check_credential_permissions,
@@ -31,17 +24,19 @@ from .compat import (
     is_windows,
     safe_relative_path,
 )
+from .config import (
+    get_project_memory_stale_days,
+    get_workspace_config_path,
+    load_workspace_config,
+)
 from .conflict import (
     CONFLICT_FIX_HINT as _CONFLICT_FIX,
-    find_conflict_marker_lines,
-    has_any_conflict_markers as _has_conflict_markers,
 )
-
-
-from .templating import (
-    detect_existing_agents,
-    detected_agent_names,
-    load_agents_template,
+from .conflict import (
+    find_conflict_marker_lines,
+)
+from .conflict import (
+    has_any_conflict_markers as _has_conflict_markers,
 )
 from .link import SymlinkVerdict, classify_symlink
 from .mcp import (
@@ -50,9 +45,9 @@ from .mcp import (
     _load_document,
     _parse_jsonc,
     evaluate_spec_status,
+    is_agent_installed,
     load_agent_specs,
     load_agents,
-    is_agent_installed,
 )
 from .memory import validate_memory_name
 from .project import (
@@ -71,6 +66,11 @@ from .subagent import (
     build_plan,
     load_subagent_definitions,
     validate_platform_opts,
+)
+from .templating import (
+    detect_existing_agents,
+    detected_agent_names,
+    load_agents_template,
 )
 
 
@@ -116,7 +116,7 @@ def _home_rel(path: Path, home: Path) -> str:
 
 def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
     """Check all managed symlinks for dangling, wrong-target, or missing."""
-    findings: List[DoctorFinding] = []
+    findings: list[DoctorFinding] = []
 
     try:
         agents = load_agents(aikito_dir, home)
@@ -130,7 +130,7 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
     # 1a. Per-agent instruction symlinks
     inst_fail_count = 0
     instr_total = 0
-    for name, definition in agents.items():
+    for definition in agents.values():
         if definition.instruction_path is None:
             continue
         target = definition.instruction_path
@@ -183,7 +183,7 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
     skills_fail_count = 0
     seen_skill_targets: set[Path] = set()
     skills_toml_path = aikito_dir / "skills.toml"
-    global_skills: List[str] = []
+    global_skills: list[str] = []
     if skills_toml_path.exists():
         try:
             with open(skills_toml_path, "rb") as f:
@@ -310,7 +310,7 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
 
 def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
     """Check for orphan subagent config files and unused skill directories."""
-    findings: List[DoctorFinding] = []
+    findings: list[DoctorFinding] = []
 
     # 2a. Subagent orphans — reuse collect_subagents_matrix output
     try:
@@ -381,7 +381,7 @@ def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
 
     agents_skills_dir = home / ".agents" / "skills"
     if agents_skills_dir.is_dir():
-        stale: List[str] = []
+        stale: list[str] = []
         for item in sorted(agents_skills_dir.iterdir()):
             if item.name not in global_skills:
                 stale.append(item.name)
@@ -453,7 +453,7 @@ def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
                     doc = _parse_jsonc(text)
                     if isinstance(doc, dict):
                         existing_servers = set(doc.get("mcp", {}).keys())
-                except Exception:
+                except Exception:  # noqa: BLE001, S110
                     pass
 
             for srv_key in sorted(existing_servers):
@@ -481,10 +481,10 @@ def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
 # ---------------------------------------------------------------------------
 
 
-def _memory_scope_dirs(aikito_dir: Path) -> List[tuple]:
+def _memory_scope_dirs(aikito_dir: Path) -> list[tuple]:
     """Return [(scope_dir, scope_label, proj_folder)] for global memory plus every
     registered project's memory directory."""
-    scope_dirs: List[tuple] = [(aikito_dir / "memory", "Global", None)]
+    scope_dirs: list[tuple] = [(aikito_dir / "memory", "Global", None)]
     projects_dir = aikito_dir / "projects"
     if projects_dir.is_dir():
         for p in sorted(projects_dir.iterdir()):
@@ -514,6 +514,7 @@ def _git_last_commit_epoch(repo_dir: Path, file_path: Path) -> int | None:
             encoding="utf-8",
             errors="replace",
             timeout=10,
+            check=False,
         )
 
     except (OSError, subprocess.TimeoutExpired):
@@ -528,7 +529,7 @@ def _git_last_commit_epoch(repo_dir: Path, file_path: Path) -> int | None:
 
 
 def check_memory_integrity(
-    aikito_dir: Path, home: Path, stale_days_override: Optional[int] = None
+    aikito_dir: Path, home: Path, stale_days_override: int | None = None
 ) -> DoctorSection:
     """Validate durable memory note names, links, and staleness.
 
@@ -536,7 +537,7 @@ def check_memory_integrity(
     rather than config file syntax. Memory is curated knowledge, so a dangling
     [[wikilink]] or an old note is a curation gap, not a parse error.
     """
-    findings: List[DoctorFinding] = []
+    findings: list[DoctorFinding] = []
     scope_dirs = _memory_scope_dirs(aikito_dir)
     ws_config = load_workspace_config(aikito_dir)
 
@@ -656,7 +657,7 @@ def check_memory_integrity(
 
 def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
     """Validate syntax of all TOML/JSON workspace config files."""
-    findings: List[DoctorFinding] = []
+    findings: list[DoctorFinding] = []
 
     # Optional workspace config (config.toml)
     cfg_path = get_workspace_config_path(aikito_dir)
@@ -796,7 +797,7 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
     # 3c. Agent native config files
     try:
         agents = load_agents(aikito_dir, home)
-        for name, definition in agents.items():
+        for definition in agents.values():
             cfg = definition.mcp_config_path
             if cfg is None or not cfg.exists():
                 continue
@@ -873,10 +874,10 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
 
 def check_projects(aikito_dir: Path, home: Path) -> DoctorSection:
     """Report project runtime health using the same model as `show project`."""
-    findings: List[DoctorFinding] = []
+    findings: list[DoctorFinding] = []
     projects = collect_project_summaries(aikito_dir, home)
     active_ok_count = 0
-    failing_projects: List[ProjectSummary] = []
+    failing_projects: list[ProjectSummary] = []
 
     for project in projects:
         if project.runtime_status == "OK":
@@ -943,7 +944,7 @@ def check_projects(aikito_dir: Path, home: Path) -> DoctorSection:
 
 def check_drift(aikito_dir: Path, home: Path) -> DoctorSection:
     """Check MCP managed-section fingerprint drift via evaluate_spec_status."""
-    findings: List[DoctorFinding] = []
+    findings: list[DoctorFinding] = []
 
     try:
         specs = load_agent_specs(aikito_dir, home)
@@ -1068,7 +1069,7 @@ def check_drift(aikito_dir: Path, home: Path) -> DoctorSection:
 
 def check_security(aikito_dir: Path, home: Path) -> DoctorSection:
     """Check file permissions and security-sensitive configurations."""
-    findings: List[DoctorFinding] = []
+    findings: list[DoctorFinding] = []
 
     # 5a. Platform synchronization capability
     if is_windows():
@@ -1148,7 +1149,7 @@ def check_security(aikito_dir: Path, home: Path) -> DoctorSection:
 
 def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
     """Check runtime environment: AIKITO_DIR, interpreter consistency, agent CLIs."""
-    findings: List[DoctorFinding] = []
+    findings: list[DoctorFinding] = []
 
     # 6a. AIKITO_DIR resolves to a valid workspace
     env_dir = os.environ.get("AIKITO_DIR")
@@ -1214,7 +1215,7 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
                     )
                 else:
                     findings.append(_ok(f"Interpreter consistent: {path_python}"))
-            except Exception:
+            except Exception:  # noqa: BLE001
                 findings.append(_warn("Cannot compare interpreter paths"))
         else:
             name = "python or py" if is_windows() else "python3"
@@ -1231,11 +1232,19 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
         "dsh": "dsh",
         "grok": "grok",
     }
+    found_clis: list[str] = []
     for label, binary in cli_map.items():
         if shutil.which(binary):
             findings.append(_ok(f"{label} CLI found ({binary})"))
-        else:
-            findings.append(_warn(f"{label} CLI not found in $PATH ({binary})"))
+            found_clis.append(label)
+
+    if not found_clis:
+        findings.append(
+            _warn(
+                "No supported agent CLI found in $PATH (install at least one: "
+                f"{', '.join(sorted(cli_map.keys()))})"
+            )
+        )
 
     return DoctorSection(name="Environment", findings=findings)
 
@@ -1247,20 +1256,20 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
 
 def check_conflict_markers(aikito_dir: Path, home: Path) -> DoctorSection:
     """Detect Git conflict markers in memory notes and workspace config files."""
-    findings: List[DoctorFinding] = []
+    findings: list[DoctorFinding] = []
     checked = 0
 
     # --- collect files to scan ---
 
     # 1. Memory notes: global memory/notes/*.md and projects/*/memory/notes/*.md
-    md_files: List[Path] = []
+    md_files: list[Path] = []
     for scope_dir, _label, _proj in _memory_scope_dirs(aikito_dir):
         notes_dir = scope_dir / "notes"
         if notes_dir.is_dir():
             md_files.extend(sorted(notes_dir.glob("*.md")))
 
     # 2. Top-level TOML config files
-    toml_files: List[Path] = []
+    toml_files: list[Path] = []
     cfg_path = get_workspace_config_path(aikito_dir)
     if cfg_path:
         toml_files.append(cfg_path)
@@ -1326,9 +1335,9 @@ def check_conflict_markers(aikito_dir: Path, home: Path) -> DoctorSection:
     return DoctorSection(name="ConflictMarkers", findings=findings)
 
 
-def run_doctor_fixes(aikito_dir: Path, home: Optional[Path] = None) -> List[str]:
+def run_doctor_fixes(aikito_dir: Path, home: Path | None = None) -> list[str]:
     """Apply safe Agent registry fixes."""
-    fixes: List[str] = []
+    fixes: list[str] = []
     resolved_home = home or Path.home()
     agents_path = aikito_dir / "agents.toml"
     if agents_path.is_file():
@@ -1391,7 +1400,7 @@ def _find_agent_references(aikito_dir: Path, agent_name: str) -> list[str]:
 
 
 def run_doctor_prune(
-    aikito_dir: Path, home: Optional[Path] = None
+    aikito_dir: Path, home: Path | None = None
 ) -> tuple[list[str], list[str]]:
     """Deprecated: In multi-host SoT setups, offline agents must not be pruned from agents.toml."""
     return [], [
@@ -1407,8 +1416,8 @@ def run_doctor_prune(
 def run_doctor(
     aikito_dir: Path,
     home: Path,
-    stale_days: Optional[int] = None,
-    on_progress: Optional[Callable[[Optional[str]], None]] = None,
+    stale_days: int | None = None,
+    on_progress: Callable[[str | None], None] | None = None,
 ) -> DoctorReport:
     """Run all diagnostic checks and return a structured DoctorReport."""
     steps = [

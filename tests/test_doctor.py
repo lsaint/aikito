@@ -170,11 +170,7 @@ class RenderDoctorReportTest(unittest.TestCase):
         rendered = render_doctor_report(report, is_tty=True, no_color=True)
         lines = rendered.splitlines()
         # Find all title box header lines (starting with ╭, │, or ╰)
-        box_lines = [
-            line
-            for line in lines
-            if line.startswith("╭") or line.startswith("│") or line.startswith("╰")
-        ]
+        box_lines = [line for line in lines if line.startswith(("╭", "│", "╰"))]
         widths = [len(line) for line in box_lines]
         # All title box header lines across ALL sections must have identical width (max_title_w + 5)!
         self.assertEqual(
@@ -186,9 +182,7 @@ class RenderDoctorReportTest(unittest.TestCase):
             widths[0], 16
         )  # len("Environment") = 11 -> inner 14 -> total 16
         for line in box_lines:
-            self.assertTrue(
-                line.endswith("╮") or line.endswith("│") or line.endswith("╯")
-            )
+            self.assertTrue(line.endswith(("╮", "│", "╯")))
 
     def test_use_unicode_defaults_to_true_even_if_not_tty(self) -> None:
         report = self._make_report()
@@ -765,6 +759,38 @@ class CheckEnvironmentTest(unittest.TestCase):
             any("AIKITO_DIR" in m for m in warn_messages),
             msg=f"Expected AIKITO_DIR warning, got: {warn_messages}",
         )
+
+    def test_agent_cli_found_omits_uninstalled_warnings(self) -> None:
+        def fake_which(cmd: str) -> str | None:
+            return "/usr/local/bin/agy" if cmd == "agy" else None
+
+        with patch("shutil.which", side_effect=fake_which):
+            section = check_environment(self.aikito_dir, self.home)
+
+        cli_warns = [
+            f.message
+            for f in section.findings
+            if f.status == "WARN" and "CLI not found" in f.message
+        ]
+        self.assertEqual(cli_warns, [])
+        self.assertTrue(
+            any(
+                "agy CLI found" in f.message
+                for f in section.findings
+                if f.status == "OK"
+            )
+        )
+
+    def test_no_agent_clis_found_produces_single_warn(self) -> None:
+        with patch("shutil.which", return_value=None):
+            section = check_environment(self.aikito_dir, self.home)
+
+        no_cli_warns = [
+            f.message
+            for f in section.findings
+            if f.status == "WARN" and "No supported agent CLI found" in f.message
+        ]
+        self.assertEqual(len(no_cli_warns), 1)
 
 
 # ---------------------------------------------------------------------------
