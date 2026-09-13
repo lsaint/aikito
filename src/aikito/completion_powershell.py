@@ -212,9 +212,14 @@ $script:AikitoCompleterBlock = {{
     return $results
 }}
 
-if ((-not (Get-Alias aikito -ErrorAction SilentlyContinue)) -and (Get-Command aikito.ps1 -ErrorAction SilentlyContinue)) {{
-    $targetPs1 = (Get-Command aikito.ps1).Source
-    Set-Alias -Name aikito -Value $targetPs1 -Scope Global -ErrorAction SilentlyContinue
+if (-not (Get-Alias aikito -ErrorAction SilentlyContinue)) {{
+    $targetCmd = Get-Command aikito.ps1, aikito.exe, aikito.cmd -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $targetCmd) {{
+        $targetCmd = Get-Command aikito -CommandType Application -ErrorAction SilentlyContinue
+    }}
+    if ($targetCmd) {{
+        Set-Alias -Name aikito -Value $targetCmd.Source -Scope Global -ErrorAction SilentlyContinue
+    }}
 }}
 
 $script:AikitoCommandNames = @('aikito', 'aikito.exe', 'aikito.cmd', 'aikito.ps1')

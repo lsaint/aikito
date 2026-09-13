@@ -1,7 +1,6 @@
 import unittest
 
 from aikito import cli as AIKITO_CLI
-
 from aikito.completion import generate_powershell
 from aikito.completion_powershell import generate_powershell as gen_pwsh_direct
 
@@ -43,6 +42,7 @@ class AikitoCompletionPowerShellTest(unittest.TestCase):
         self.assertIn("$commandAst.CommandElements", script)
         self.assertIn("Set-Alias -Name aikito", script)
         self.assertIn("Get-Command pwsh", script)
+        self.assertIn("aikito.exe", script)
 
     def test_direct_generator_matches_wrapper(self) -> None:
         parser = AIKITO_CLI.build_parser()
