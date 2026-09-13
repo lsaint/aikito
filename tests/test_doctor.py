@@ -267,6 +267,70 @@ class CheckProjectsTest(unittest.TestCase):
         self.assertIn("1 missing, 1 conflict", finding.message)
         self.assertEqual(finding.fix_hint, "aikito show project demo")
 
+    def test_multiple_failing_projects_consolidates_sync_action(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            workspace = root / "workspace"
+            project1_path = root / "p1"
+            project2_path = root / "p2"
+            project1_path.mkdir()
+            project2_path.mkdir()
+            project1_dir = workspace / "projects" / "p1"
+            project2_dir = workspace / "projects" / "p2"
+            project1_dir.mkdir(parents=True)
+            project2_dir.mkdir(parents=True)
+            (workspace / "agents.toml").write_text(
+                '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n',
+                encoding="utf-8",
+            )
+            (project1_dir / "agent.toml").write_text(
+                f'path = "{project1_path.as_posix()}"\nskills = []\n',
+                encoding="utf-8",
+            )
+            (project2_dir / "agent.toml").write_text(
+                f'path = "{project2_path.as_posix()}"\nskills = []\n',
+                encoding="utf-8",
+            )
+            (project1_dir / "AGENTS.md").write_text("Rules\n", encoding="utf-8")
+            (project2_dir / "AGENTS.md").write_text("Rules\n", encoding="utf-8")
+            (project1_dir / "memory").mkdir()
+            (project2_dir / "memory").mkdir()
+
+            section = check_projects(workspace, root)
+
+        failures = [finding for finding in section.findings if finding.status == "FAIL"]
+        self.assertEqual(len(failures), 2)
+        # Earlier project has empty fix_hint (not repeating redundant hint)
+        self.assertEqual(failures[0].fix_hint, "")
+        # Last project displays the consolidated 'aikito sync' action at the bottom
+        self.assertEqual(failures[1].fix_hint, "aikito sync")
+
+    def test_doctor_projects_copy_drift_hints_aikito_diff(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            workspace = root / "workspace"
+            project_path = root / "demo"
+            canonical_skill = workspace / "skills" / "my-skill"
+            runtime_skill = project_path / ".agents" / "skills" / "my-skill"
+            project_dir = workspace / "projects" / "demo"
+            canonical_skill.mkdir(parents=True)
+            runtime_skill.mkdir(parents=True)
+            project_dir.mkdir(parents=True)
+            (workspace / "agents.toml").write_text("[agents]\n", encoding="utf-8")
+            (project_dir / "agent.toml").write_text(
+                f'path = "{project_path.as_posix()}"\nsync_mode = "copy"\nskills = ["my-skill"]\n',
+                encoding="utf-8",
+            )
+            (canonical_skill / "SKILL.md").write_text("canonical\n", encoding="utf-8")
+            (runtime_skill / "SKILL.md").write_text("modified\n", encoding="utf-8")
+
+            section = check_projects(workspace, root)
+
+        failures = [finding for finding in section.findings if finding.status == "FAIL"]
+        self.assertEqual(len(failures), 1)
+        self.assertIn("Project 'demo': DRIFT", failures[0].message)
+        self.assertEqual(failures[0].fix_hint, "aikito diff")
+
 
 # ---------------------------------------------------------------------------
 # Doctor check_config_syntax tests
@@ -312,7 +376,7 @@ class CheckConfigSyntaxTest(unittest.TestCase):
         # silently skip it (check_conflict_markers already reports it).
         self._write_minimal_toml_files()
         (self.aikito_dir / "skills.toml").write_text(
-            "<<<<<<< HEAD\nskills = [\"a\"]\n=======\nskills = [\"b\"]\n>>>>>>> branch\n",
+            '<<<<<<< HEAD\nskills = ["a"]\n=======\nskills = ["b"]\n>>>>>>> branch\n',
             encoding="utf-8",
         )
         section = check_config_syntax(self.aikito_dir, self.home)
@@ -327,7 +391,6 @@ class CheckConfigSyntaxTest(unittest.TestCase):
             [],
             msg=f"check_config_syntax must skip conflicted TOML, got: {[f.message for f in parse_error_findings]}",
         )
-
 
     def test_missing_toml_produces_fail(self) -> None:
         # Don't create any files
@@ -1370,7 +1433,6 @@ class DoctorFixesTest(unittest.TestCase):
             self.assertNotIn("category:", note.read_text(encoding="utf-8"))
 
 
-
 class ConflictMarkersTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -1452,20 +1514,16 @@ class ConflictMarkersTest(unittest.TestCase):
 
     def test_conflict_in_toml_reports_fail(self) -> None:
         (self.aikito_dir / "skills.toml").write_text(
-            "<<<<<<< HEAD\nskills = [\"a\"]\n=======\nskills = [\"b\"]\n>>>>>>> branch\n",
+            '<<<<<<< HEAD\nskills = ["a"]\n=======\nskills = ["b"]\n>>>>>>> branch\n',
             encoding="utf-8",
         )
         section = check_conflict_markers(self.aikito_dir, self.home)
         fails = [f for f in section.findings if f.status == "FAIL"]
         self.assertTrue(any("skills.toml" in f.message for f in fails))
-        self.assertTrue(
-            any("Git conflict marker detected" in f.message for f in fails)
-        )
+        self.assertTrue(any("Git conflict marker detected" in f.message for f in fails))
 
     def test_toml_conflict_reports_all_marker_lines(self) -> None:
-        content = (
-            "<<<<<<< HEAD\nskills = [\"a\"]\n=======\nskills = [\"b\"]\n>>>>>>> br\n"
-        )
+        content = '<<<<<<< HEAD\nskills = ["a"]\n=======\nskills = ["b"]\n>>>>>>> br\n'
         (self.aikito_dir / "skills.toml").write_text(content, encoding="utf-8")
         section = check_conflict_markers(self.aikito_dir, self.home)
         fails = [f for f in section.findings if f.status == "FAIL"]
@@ -1488,7 +1546,7 @@ class ConflictMarkersTest(unittest.TestCase):
         proj_dir = self.aikito_dir / "projects" / "myproject"
         proj_dir.mkdir(parents=True)
         (proj_dir / "agent.toml").write_text(
-            "<<<<<<< HEAD\npath = \"/a\"\n=======\npath = \"/b\"\n>>>>>>> br\n",
+            '<<<<<<< HEAD\npath = "/a"\n=======\npath = "/b"\n>>>>>>> br\n',
             encoding="utf-8",
         )
         section = check_conflict_markers(self.aikito_dir, self.home)
@@ -1517,15 +1575,23 @@ class ConflictMarkersTest(unittest.TestCase):
             encoding="utf-8",
         )
         report = run_doctor(self.aikito_dir, self.home)
-        cm_section = next((s for s in report.sections if s.name == "ConflictMarkers"), None)
+        cm_section = next(
+            (s for s in report.sections if s.name == "ConflictMarkers"), None
+        )
         self.assertIsNotNone(cm_section)
         fails = [f for f in cm_section.findings if f.status == "FAIL"]
         self.assertTrue(any("config.toml" in f.message for f in fails))
 
         # Also verify Configuration section does not report duplicate parse error
-        cfg_section = next((s for s in report.sections if s.name == "Configuration"), None)
+        cfg_section = next(
+            (s for s in report.sections if s.name == "Configuration"), None
+        )
         self.assertIsNotNone(cfg_section)
-        cfg_fails = [f for f in cfg_section.findings if f.status == "FAIL" and "config.toml" in f.message]
+        cfg_fails = [
+            f
+            for f in cfg_section.findings
+            if f.status == "FAIL" and "config.toml" in f.message
+        ]
         self.assertEqual(cfg_fails, [])
 
     # ------------------------------------------------------------------

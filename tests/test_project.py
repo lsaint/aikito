@@ -16,6 +16,8 @@ from aikito import (
 )
 
 from aikito.project import (
+    ProjectResourceDetail,
+    ProjectSummary,
     append_candidate_path_to_config,
     collect_project_skill_states,
     collect_project_summaries,
@@ -502,6 +504,107 @@ class ProjectSummaryTest(unittest.TestCase):
         self.assertIn("MISSING", detail)
         self.assertIn("Issue:", detail)
         self.assertIn("Instructions (codex) [MISSING]: Missing", detail)
+        self.assertIn("Fix:", detail)
+        self.assertIn(
+            "Run 'aikito sync project demo' (or 'aikito sync') to reconcile runtime",
+            detail,
+        )
+
+    def test_detail_renders_conflict_fix_hint(self) -> None:
+        summary = ProjectSummary(
+            name="demo",
+            path="~/demo",
+            sync_mode="symlink",
+            instructions_status="DRIFT",
+            skills_count=0,
+            memory_notes_count=0,
+            runtime_status="DRIFT",
+            config_path=Path("/workspace/projects/demo/agent.toml"),
+            details=(
+                ProjectResourceDetail(
+                    resource="Instructions (codex)",
+                    canonical_path=Path("/workspace/projects/demo/AGENTS.md"),
+                    runtime_path=Path("~/demo/AGENTS.md"),
+                    status="CONFLICT",
+                    detail="File exists but does not point to workspace instructions",
+                ),
+            ),
+        )
+        detail = render_project_detail(summary, False, False)
+        self.assertIn("Issue:", detail)
+        self.assertIn("Fix:", detail)
+        self.assertIn(
+            "Remove unmanaged files from .agents/ or reconcile conflicting resources",
+            detail,
+        )
+
+    def test_detail_renders_copied_skill_drift_fix_hint(self) -> None:
+        summary = ProjectSummary(
+            name="demo",
+            path="~/demo",
+            sync_mode="copy",
+            instructions_status="OK",
+            skills_count=1,
+            memory_notes_count=0,
+            runtime_status="DRIFT",
+            config_path=Path("/workspace/projects/demo/agent.toml"),
+            details=(
+                ProjectResourceDetail(
+                    resource="Skills",
+                    canonical_path=Path("/workspace/skills"),
+                    runtime_path=Path("~/demo/.agents/skills"),
+                    status="DRIFT",
+                    detail="my-skill: Copied project skill drifted from workspace skill",
+                ),
+            ),
+        )
+        detail = render_project_detail(summary, False, False)
+        self.assertIn("Issue:", detail)
+        self.assertIn("Fix:", detail)
+        self.assertIn(
+            "Run 'aikito diff' to review changes, then 'aikito sync project demo --force' after review",
+            detail,
+        )
+
+    def test_real_workspace_copy_drift_integration(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            workspace = root / "workspace"
+            project_path = root / "demo"
+            canonical_skill = workspace / "skills" / "my-skill"
+            runtime_skill = project_path / ".agents" / "skills" / "my-skill"
+            project_dir = workspace / "projects" / "demo"
+            canonical_skill.mkdir(parents=True)
+            runtime_skill.mkdir(parents=True)
+            project_dir.mkdir(parents=True)
+            (workspace / "agents.toml").write_text("[agents]\n", encoding="utf-8")
+            (project_dir / "agent.toml").write_text(
+                f'path = "{project_path.as_posix()}"\nsync_mode = "copy"\nskills = ["my-skill"]\n',
+                encoding="utf-8",
+            )
+            (canonical_skill / "SKILL.md").write_text("canonical\n", encoding="utf-8")
+            (runtime_skill / "SKILL.md").write_text("modified\n", encoding="utf-8")
+
+            summaries = collect_project_summaries(workspace, root)
+            self.assertEqual(len(summaries), 1)
+            summary = summaries[0]
+
+            self.assertEqual(summary.runtime_status, "DRIFT")
+            self.assertTrue(summary.has_copied_skill_drift)
+            self.assertFalse(summary.is_sync_fixable)
+            self.assertEqual(summary.fix_action, "aikito diff")
+            self.assertIn(
+                "Run 'aikito diff' to review changes, then 'aikito sync project demo --force' after review",
+                summary.fix_hint,
+            )
+
+            detail = render_project_detail(summary, False, False)
+            self.assertIn("Issue:", detail)
+            self.assertIn("Fix:", detail)
+            self.assertIn(
+                "Run 'aikito diff' to review changes, then 'aikito sync project demo --force' after review",
+                detail,
+            )
 
     def test_detail_renders_each_resource_problem_on_its_own_line(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -529,6 +632,31 @@ class ProjectSummaryTest(unittest.TestCase):
         memory_lines = [line for line in detail.splitlines() if "Memory [" in line]
         self.assertEqual(len(memory_lines), 1)
         self.assertIn("notes:", memory_lines[0])
+
+    def test_project_memory_ignores_non_notes_files_in_canonical_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            project = root / "project"
+            definition = root / "projects" / "demo"
+            project.mkdir()
+            definition.mkdir(parents=True)
+            (definition / "agent.toml").write_text(
+                f'path = "{project.as_posix()}"\nskills = []\n', encoding="utf-8"
+            )
+            (root / "agents.toml").write_text("[agents]\n", encoding="utf-8")
+            (definition / "AGENTS.md").write_text("", encoding="utf-8")
+            memory = definition / "memory"
+            memory.mkdir()
+            (memory / "notes").mkdir()
+            (memory / "README.md").write_text(
+                "# Project memory docs\n", encoding="utf-8"
+            )
+            runtime_memory = project / ".agents" / "memory"
+            runtime_memory.mkdir(parents=True)
+            (runtime_memory / "notes").symlink_to(memory / "notes")
+
+            summary = collect_project_summaries(root, root)[0]
+            self.assertEqual(summary.runtime_status, "OK")
 
     def test_resolve_project_binding_named_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

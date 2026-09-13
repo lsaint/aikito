@@ -936,6 +936,8 @@ def render_project_detail(
                 ("Issue:", f"{detail.resource} [{detail.status}]: {message}")
                 for message in messages
             )
+        if project.fix_hint:
+            fields.append(("Fix:", project.fix_hint))
     elif project.runtime_status == "OFFLINE":
         candidates_disp = ", ".join(
             f"[{label}] {p}" if label != "default" else p

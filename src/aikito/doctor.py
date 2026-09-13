@@ -55,7 +55,11 @@ from .mcp import (
     is_agent_installed,
 )
 from .memory import validate_memory_name
-from .project import collect_project_summaries, resolve_project_binding
+from .project import (
+    ProjectSummary,
+    collect_project_summaries,
+    resolve_project_binding,
+)
 from .registry import (
     add_missing_agent_fields,
     missing_agent_fields,
@@ -103,7 +107,6 @@ def _warn(message: str, fix_hint: str = "") -> DoctorFinding:
 
 def _home_rel(path: Path, home: Path) -> str:
     return safe_relative_path(path, home)
-
 
 
 # ---------------------------------------------------------------------------
@@ -873,6 +876,8 @@ def check_projects(aikito_dir: Path, home: Path) -> DoctorSection:
     findings: List[DoctorFinding] = []
     projects = collect_project_summaries(aikito_dir, home)
     active_ok_count = 0
+    failing_projects: List[ProjectSummary] = []
+
     for project in projects:
         if project.runtime_status == "OK":
             active_ok_count += 1
@@ -888,6 +893,15 @@ def check_projects(aikito_dir: Path, home: Path) -> DoctorSection:
                 )
             )
             continue
+        failing_projects.append(project)
+
+    sync_fixable_projects = [
+        project for project in failing_projects if project.is_sync_fixable
+    ]
+    multiple_sync_fixable = len(sync_fixable_projects) > 1
+    last_sync_fixable = sync_fixable_projects[-1] if sync_fixable_projects else None
+
+    for project in failing_projects:
         if project.details:
             counts: dict[str, int] = {}
             for detail in project.details:
@@ -906,11 +920,11 @@ def check_projects(aikito_dir: Path, home: Path) -> DoctorSection:
             if project.error:
                 message += f" — {project.error}"
 
-        action = (
-            f"aikito sync project {project.name}"
-            if project.runtime_status == "MISSING"
-            else f"aikito show project {project.name}"
-        )
+        if project.is_sync_fixable and multiple_sync_fixable:
+            action = "aikito sync" if project is last_sync_fixable else ""
+        else:
+            action = project.fix_action
+
         findings.append(_fail(message, action))
 
     if not findings:

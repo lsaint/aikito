@@ -27,12 +27,7 @@ class ConflictDetectionTest(unittest.TestCase):
     def test_grouped_conflict_in_markdown_is_blocking(self) -> None:
         md = self.root / "note.md"
         md.write_text(
-            "# Note\n"
-            "<<<<<<< HEAD\n"
-            "version A\n"
-            "=======\n"
-            "version B\n"
-            ">>>>>>> branch\n",
+            "# Note\n<<<<<<< HEAD\nversion A\n=======\nversion B\n>>>>>>> branch\n",
             encoding="utf-8",
         )
         blocking, isolated = find_conflict_marker_lines(md)
@@ -42,9 +37,7 @@ class ConflictDetectionTest(unittest.TestCase):
     def test_isolated_heading_underline_is_not_blocking(self) -> None:
         md = self.root / "heading.md"
         md.write_text(
-            "Section Title\n"
-            "=======\n"
-            "Some content here\n",
+            "Section Title\n=======\nSome content here\n",
             encoding="utf-8",
         )
         blocking, isolated = find_conflict_marker_lines(md)
@@ -70,13 +63,7 @@ class ConflictDetectionTest(unittest.TestCase):
     def test_diff3_conflict_is_blocking(self) -> None:
         md = self.root / "diff3.md"
         md.write_text(
-            "<<<<<<< HEAD\n"
-            "A\n"
-            "||||||| base\n"
-            "base content\n"
-            "=======\n"
-            "B\n"
-            ">>>>>>> branch\n",
+            "<<<<<<< HEAD\nA\n||||||| base\nbase content\n=======\nB\n>>>>>>> branch\n",
             encoding="utf-8",
         )
         blocking, isolated = find_conflict_marker_lines(md)
@@ -106,11 +93,7 @@ class ConflictDetectionTest(unittest.TestCase):
     def test_toml_any_marker_is_blocking(self) -> None:
         t = self.root / "config.toml"
         t.write_text(
-            "<<<<<<< HEAD\n"
-            "a = 1\n"
-            "=======\n"
-            "a = 2\n"
-            ">>>>>>> branch\n",
+            "<<<<<<< HEAD\na = 1\n=======\na = 2\n>>>>>>> branch\n",
             encoding="utf-8",
         )
         blocking, isolated = find_conflict_marker_lines(t)
@@ -196,11 +179,7 @@ class ProjectPrepareConflictCheckTest(unittest.TestCase):
 
     def test_prepare_aborts_on_project_skill_conflict(self) -> None:
         (self.workspace / "skills" / "demo-skill" / "SKILL.md").write_text(
-            "<<<<<<< HEAD\n"
-            "# Skill A\n"
-            "=======\n"
-            "# Skill B\n"
-            ">>>>>>> branch\n",
+            "<<<<<<< HEAD\n# Skill A\n=======\n# Skill B\n>>>>>>> branch\n",
             encoding="utf-8",
         )
         project = Project.load("demo", workspace=self.workspace, home=self.home)
@@ -213,11 +192,7 @@ class ProjectPrepareConflictCheckTest(unittest.TestCase):
     def test_prepare_aborts_on_project_memory_note_conflict(self) -> None:
         note = self.definition / "memory" / "notes" / "arch.md"
         note.write_text(
-            "<<<<<<< HEAD\n"
-            "note A\n"
-            "=======\n"
-            "note B\n"
-            ">>>>>>> branch\n",
+            "<<<<<<< HEAD\nnote A\n=======\nnote B\n>>>>>>> branch\n",
             encoding="utf-8",
         )
         project = Project.load("demo", workspace=self.workspace, home=self.home)
@@ -232,11 +207,7 @@ class ProjectPrepareConflictCheckTest(unittest.TestCase):
         shared_mem.mkdir(parents=True, exist_ok=True)
         conflicted = shared_mem / "shared-note.md"
         conflicted.write_text(
-            "<<<<<<< HEAD\n"
-            "shared A\n"
-            "=======\n"
-            "shared B\n"
-            ">>>>>>> branch\n",
+            "<<<<<<< HEAD\nshared A\n=======\nshared B\n>>>>>>> branch\n",
             encoding="utf-8",
         )
         # Update agent.toml to include memory = ["shared"] (a directory)
@@ -255,9 +226,7 @@ class ProjectPrepareConflictCheckTest(unittest.TestCase):
 
     def test_prepare_isolated_heading_underline_does_not_abort(self) -> None:
         (self.definition / "AGENTS.md").write_text(
-            "Project Title\n"
-            "=======\n"
-            "Legitimate content\n",
+            "Project Title\n=======\nLegitimate content\n",
             encoding="utf-8",
         )
         project = Project.load("demo", workspace=self.workspace, home=self.home)
@@ -298,11 +267,7 @@ class ProjectPrepareConflictCheckTest(unittest.TestCase):
 
     def test_project_load_aborts_on_agent_toml_conflict(self) -> None:
         (self.definition / "agent.toml").write_text(
-            "<<<<<<< HEAD\n"
-            "name = 'demo'\n"
-            "=======\n"
-            "name = 'demo2'\n"
-            ">>>>>>> branch\n",
+            "<<<<<<< HEAD\nname = 'demo'\n=======\nname = 'demo2'\n>>>>>>> branch\n",
             encoding="utf-8",
         )
         with self.assertRaises(InvalidProjectConfigError) as ctx:
@@ -363,9 +328,11 @@ class SyncCliConflictCheckTest(unittest.TestCase):
             dry_run=False,
             force=False,
         )
-        with patch("aikito.cli.get_aikito_dir", return_value=self.workspace), patch(
-            "pathlib.Path.home", return_value=self.home
-        ), self.assertRaises(SystemExit) as ctx:
+        with (
+            patch("aikito.cli.get_aikito_dir", return_value=self.workspace),
+            patch("pathlib.Path.home", return_value=self.home),
+            self.assertRaises(SystemExit) as ctx,
+        ):
             cmd_project_sync(args)
         self.assertEqual(ctx.exception.code, 1)
         self.assertFalse((self.project_path / ".agents").exists())
@@ -382,9 +349,11 @@ class SyncCliConflictCheckTest(unittest.TestCase):
             dry_run=False,
             force=True,
         )
-        with patch("aikito.cli.get_aikito_dir", return_value=self.workspace), patch(
-            "pathlib.Path.home", return_value=self.home
-        ), self.assertRaises(SystemExit) as ctx:
+        with (
+            patch("aikito.cli.get_aikito_dir", return_value=self.workspace),
+            patch("pathlib.Path.home", return_value=self.home),
+            self.assertRaises(SystemExit) as ctx,
+        ):
             cmd_project_sync(args)
         self.assertEqual(ctx.exception.code, 1)
         self.assertFalse((self.project_path / ".agents").exists())
@@ -401,9 +370,11 @@ class SyncCliConflictCheckTest(unittest.TestCase):
             dry_run=True,
             force=False,
         )
-        with patch("aikito.cli.get_aikito_dir", return_value=self.workspace), patch(
-            "pathlib.Path.home", return_value=self.home
-        ), self.assertRaises(SystemExit) as ctx:
+        with (
+            patch("aikito.cli.get_aikito_dir", return_value=self.workspace),
+            patch("pathlib.Path.home", return_value=self.home),
+            self.assertRaises(SystemExit) as ctx,
+        ):
             cmd_project_sync(args)
         self.assertEqual(ctx.exception.code, 1)
 
@@ -414,9 +385,11 @@ class SyncCliConflictCheckTest(unittest.TestCase):
         import argparse
 
         args = argparse.Namespace(dry_run=False)
-        with patch("aikito.cli.get_aikito_dir", return_value=self.workspace), patch(
-            "pathlib.Path.home", return_value=self.home
-        ), self.assertRaises(SystemExit) as ctx:
+        with (
+            patch("aikito.cli.get_aikito_dir", return_value=self.workspace),
+            patch("pathlib.Path.home", return_value=self.home),
+            self.assertRaises(SystemExit) as ctx,
+        ):
             cmd_global_sync(args)
         self.assertEqual(ctx.exception.code, 1)
 
@@ -427,10 +400,10 @@ class SyncCliConflictCheckTest(unittest.TestCase):
         import argparse
 
         args = argparse.Namespace(dry_run=False)
-        with patch("aikito.cli.get_aikito_dir", return_value=self.workspace), patch(
-            "pathlib.Path.home", return_value=self.home
-        ), patch(
-            "aikito.cli.get_agents_dir", return_value=self.home / ".agents"
+        with (
+            patch("aikito.cli.get_aikito_dir", return_value=self.workspace),
+            patch("pathlib.Path.home", return_value=self.home),
+            patch("aikito.cli.get_agents_dir", return_value=self.home / ".agents"),
         ):
             cmd_global_sync(args)
         # Should complete successfully without raising SystemExit

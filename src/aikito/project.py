@@ -78,6 +78,58 @@ class ProjectSummary:
     offline_paths: tuple[tuple[str, str], ...] = ()
     candidate_paths: tuple[tuple[str, str, bool], ...] = ()
 
+    @property
+    def has_conflict(self) -> bool:
+        if self.runtime_status == "CONFLICT":
+            return True
+        return any(detail.status == "CONFLICT" for detail in self.details)
+
+    @property
+    def has_copied_skill_drift(self) -> bool:
+        if self.sync_mode != "copy":
+            return False
+        for detail in self.details:
+            if detail.resource.startswith("Skills") and detail.status == "DRIFT":
+                if not (detail.detail or "").startswith("Deselected managed skill"):
+                    return True
+        return False
+
+    @property
+    def is_sync_fixable(self) -> bool:
+        if self.runtime_status not in ("MISSING", "DRIFT"):
+            return False
+        if self.has_conflict or self.has_copied_skill_drift:
+            return False
+        return True
+
+    @property
+    def fix_action(self) -> str:
+        """Command recommendation for doctor or CLI diagnosis."""
+        if self.has_conflict:
+            return f"aikito show project {self.name}"
+        if self.has_copied_skill_drift:
+            return "aikito diff"
+        if self.is_sync_fixable:
+            return f"aikito sync project {self.name}"
+        return ""
+
+    @property
+    def fix_hint(self) -> str:
+        """User-facing resolution instructions for project details view."""
+        if self.has_conflict:
+            return "Remove unmanaged files from .agents/ or reconcile conflicting resources"
+        if self.has_copied_skill_drift:
+            return (
+                f"Run 'aikito diff' to review changes, then 'aikito sync "
+                f"project {self.name} --force' after review"
+            )
+        if self.is_sync_fixable:
+            return (
+                f"Run 'aikito sync project {self.name}' (or 'aikito sync') "
+                "to reconcile runtime"
+            )
+        return ""
+
 
 def get_project_candidate_paths(config: dict) -> list[tuple[str, str]]:
     """Return list of (label, raw_path) from config.
@@ -679,14 +731,8 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
                     for reference in memory_refs
                     if Path(reference).parts
                 }
-                if project_memory.is_dir():
-                    expected_memory.update(
-                        {
-                            item.name: item
-                            for item in project_memory.iterdir()
-                            if item.name != "index.md"
-                        }
-                    )
+                if (project_memory / "notes").is_dir():
+                    expected_memory["notes"] = project_memory / "notes"
                 memory_statuses: list[str] = []
                 memory_issues: list[str] = []
                 for name, source in sorted(expected_memory.items()):
@@ -790,6 +836,7 @@ def classify_project_skill_state(
             status, reason = "CONFLICT", error
         elif not matches:
             status = "DRIFT"
+            reason = "Copied project skill drifted from workspace skill"
     return ProjectSkillState(
         project_name=project_name,
         skill_name=skill_name,

@@ -292,6 +292,30 @@ jobs:
             python3 -m aikito sync project example --dry-run
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito diff
+          # Assert single-project Fix: and doctor hints on missing runtime instructions
+          rm ${{ runner.temp }}/example-project/AGENTS.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show project example | grep -q "Fix:"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show project example | grep -q "aikito sync project example"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito doctor --no-color | grep -q "aikito sync project example"
+          # Add second project and break its runtime link to ensure multiple projects fail
+          mkdir -p ${{ runner.temp }}/example-project-b
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito init project example-b ${{ runner.temp }}/example-project-b
+          rm ${{ runner.temp }}/example-project-b/.agents/memory/notes
+          # Doctor output should now consolidate to a single 'aikito sync' on the first failing project
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito doctor --no-color > ${{ runner.temp }}/multi-doctor.log || true
+          grep -E "→ aikito sync$" ${{ runner.temp }}/multi-doctor.log
+          ! grep -q "aikito sync project" ${{ runner.temp }}/multi-doctor.log
+          # Full workspace sync repairs all projects
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync
+          test -L ${{ runner.temp }}/example-project/AGENTS.md
+          test -L ${{ runner.temp }}/example-project-b/.agents/memory/notes
+          rm -rf ${{ runner.temp }}/aikito-ws/projects/example-b ${{ runner.temp }}/example-project-b
 
       - name: aikito add resources (skill, subagent, mcp)
         run: |
@@ -766,6 +790,20 @@ jobs:
           Remove-Item -Recurse $nestedNotes
           python -m aikito status
           python -m aikito show memory --project example
+          # Verify show project Fix: and doctor sync hints on missing runtime instructions
+          Remove-Item (Join-Path $projectDir "AGENTS.md")
+          $showProjOutput = python -m aikito show project example | Out-String
+          if ($showProjOutput -notmatch "Fix:.*aikito sync project example") {
+            throw "show project did not display expected Fix hint"
+          }
+          $doctorProjOutput = python -m aikito doctor --no-color | Out-String
+          if ($doctorProjOutput -notmatch "aikito sync project example") {
+            throw "doctor did not display expected aikito sync project hint"
+          }
+          python -m aikito sync project example | Out-Null
+          if (-not (Test-Path (Join-Path $projectDir "AGENTS.md"))) {
+            throw "AGENTS.md link was not restored by sync"
+          }
           # Verify conflict marker detection in memory notes (Scenario 1: MD only)
           $conflictNote = Join-Path $wsDir "memory\notes\ci-conflict.md"
           @("# Conflicted Note", "<<<<<<< HEAD", "version A", "=======", "version B", ">>>>>>> branch") | Set-Content $conflictNote
