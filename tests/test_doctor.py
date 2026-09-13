@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from aikito.doctor import (
     check_config_syntax,
+    check_conflict_markers,
     check_drift,
     check_environment,
     check_orphans,
@@ -850,7 +851,7 @@ class RunDoctorIntegrationTest(unittest.TestCase):
         # Run against the actual aikito workspace (read-only)
         report = run_doctor(ROOT, Path(tempfile.gettempdir()))
         self.assertIsInstance(report, DoctorReport)
-        self.assertTrue(len(report.sections) == 8)
+        self.assertTrue(len(report.sections) == 9)
         # All section names present
         names = {s.name for s in report.sections}
         for expected in (
@@ -861,6 +862,7 @@ class RunDoctorIntegrationTest(unittest.TestCase):
             "Drift",
             "Security",
             "Environment",
+            "ConflictMarkers",
         ):
             self.assertIn(expected, names)
 
@@ -881,6 +883,7 @@ class RunDoctorIntegrationTest(unittest.TestCase):
                 "Drift",
                 "Security",
                 "Environment",
+                "ConflictMarkers",
                 "Projects",
                 "Configuration",
                 None,
@@ -1343,6 +1346,160 @@ class DoctorFixesTest(unittest.TestCase):
         self.assertEqual(self.index_file.read_text(encoding="utf-8"), original_index)
         for note in self.notes_dir.glob("*.md"):
             self.assertNotIn("category:", note.read_text(encoding="utf-8"))
+
+
+
+class ConflictMarkersTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.aikito_dir = Path(self.tmp.name)
+        self.home = Path(self.tmp.name) / "home"
+        self.home.mkdir()
+        # Minimal workspace structure
+        for name in ("agents.toml", "skills.toml", "subagents.toml"):
+            (self.aikito_dir / name).write_text("", encoding="utf-8")
+        (self.aikito_dir / "mcps").mkdir()
+        (self.aikito_dir / "projects").mkdir()
+        self.notes_dir = self.aikito_dir / "memory" / "notes"
+        self.notes_dir.mkdir(parents=True)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _make_note(self, name: str, content: str) -> Path:
+        p = self.notes_dir / f"{name}.md"
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    # ------------------------------------------------------------------
+    # Clean cases
+    # ------------------------------------------------------------------
+
+    def test_no_notes_no_files_reports_ok(self) -> None:
+        section = check_conflict_markers(self.aikito_dir, self.home)
+        self.assertFalse(any(f.status == "FAIL" for f in section.findings))
+        ok_msgs = [f.message for f in section.findings if f.status == "OK"]
+        self.assertTrue(any("No conflict markers detected" in m for m in ok_msgs))
+
+    def test_clean_note_reports_ok(self) -> None:
+        self._make_note("clean", "# Clean Note\n\nNo conflicts here.\n")
+        section = check_conflict_markers(self.aikito_dir, self.home)
+        self.assertFalse(any(f.status == "FAIL" for f in section.findings))
+
+    def test_clean_toml_reports_ok(self) -> None:
+        (self.aikito_dir / "skills.toml").write_text(
+            'skills = ["my-skill"]\n', encoding="utf-8"
+        )
+        section = check_conflict_markers(self.aikito_dir, self.home)
+        self.assertFalse(any(f.status == "FAIL" for f in section.findings))
+
+    # ------------------------------------------------------------------
+    # Markdown conflict detection
+    # ------------------------------------------------------------------
+
+    def test_conflict_in_markdown_note_reports_fail(self) -> None:
+        self._make_note(
+            "conflicted",
+            "# Note\n<<<<<<< HEAD\nversion A\n=======\nversion B\n>>>>>>> branch\n",
+        )
+        section = check_conflict_markers(self.aikito_dir, self.home)
+        fails = [f for f in section.findings if f.status == "FAIL"]
+        self.assertGreaterEqual(len(fails), 3)  # three conflict marker lines
+        messages = " ".join(f.message for f in fails)
+        self.assertIn("Git conflict marker detected", messages)
+
+    def test_conflict_marker_line_number_reported(self) -> None:
+        content = "# Note\nOK line\n<<<<<<< HEAD\nA\n=======\nB\n>>>>>>> br\n"
+        self._make_note("numbered", content)
+        section = check_conflict_markers(self.aikito_dir, self.home)
+        fail_messages = [f.message for f in section.findings if f.status == "FAIL"]
+        # Line 3 is '<<<<<<<', line 5 is '=======', line 7 is '>>>>>>>'
+        self.assertTrue(any(":3:" in m for m in fail_messages))
+        self.assertTrue(any(":5:" in m for m in fail_messages))
+        self.assertTrue(any(":7:" in m for m in fail_messages))
+
+    def test_conflict_fix_hint_present(self) -> None:
+        self._make_note("hint", "<<<<<<< HEAD\nA\n=======\nB\n>>>>>>> br\n")
+        section = check_conflict_markers(self.aikito_dir, self.home)
+        fails = [f for f in section.findings if f.status == "FAIL"]
+        self.assertTrue(any(f.fix_hint for f in fails))
+
+    # ------------------------------------------------------------------
+    # TOML conflict detection
+    # ------------------------------------------------------------------
+
+    def test_conflict_in_toml_reports_fail(self) -> None:
+        (self.aikito_dir / "skills.toml").write_text(
+            "<<<<<<< HEAD\nskills = [\"a\"]\n=======\nskills = [\"b\"]\n>>>>>>> branch\n",
+            encoding="utf-8",
+        )
+        section = check_conflict_markers(self.aikito_dir, self.home)
+        fails = [f for f in section.findings if f.status == "FAIL"]
+        self.assertTrue(any("skills.toml" in f.message for f in fails))
+        self.assertTrue(
+            any("Git conflict marker detected" in f.message for f in fails)
+        )
+
+    def test_toml_conflict_reports_all_marker_lines(self) -> None:
+        content = (
+            "<<<<<<< HEAD\nskills = [\"a\"]\n=======\nskills = [\"b\"]\n>>>>>>> br\n"
+        )
+        (self.aikito_dir / "skills.toml").write_text(content, encoding="utf-8")
+        section = check_conflict_markers(self.aikito_dir, self.home)
+        fails = [f for f in section.findings if f.status == "FAIL"]
+        # All three marker lines (1, 3, 5) must be reported
+        fail_messages = " ".join(f.message for f in fails)
+        self.assertIn(":1:", fail_messages)
+        self.assertIn(":3:", fail_messages)
+        self.assertIn(":5:", fail_messages)
+
+    def test_conflict_in_mcp_toml_reported(self) -> None:
+        mcp_file = self.aikito_dir / "mcps" / "my-server.toml"
+        mcp_file.write_text(
+            "<<<<<<< HEAD\nkey = 1\n=======\nkey = 2\n>>>>>>> br\n", encoding="utf-8"
+        )
+        section = check_conflict_markers(self.aikito_dir, self.home)
+        fails = [f for f in section.findings if f.status == "FAIL"]
+        self.assertTrue(any("my-server.toml" in f.message for f in fails))
+
+    def test_conflict_in_project_agent_toml_reported(self) -> None:
+        proj_dir = self.aikito_dir / "projects" / "myproject"
+        proj_dir.mkdir(parents=True)
+        (proj_dir / "agent.toml").write_text(
+            "<<<<<<< HEAD\npath = \"/a\"\n=======\npath = \"/b\"\n>>>>>>> br\n",
+            encoding="utf-8",
+        )
+        section = check_conflict_markers(self.aikito_dir, self.home)
+        fails = [f for f in section.findings if f.status == "FAIL"]
+        self.assertTrue(any("agent.toml" in f.message for f in fails))
+
+    # ------------------------------------------------------------------
+    # Project memory notes
+    # ------------------------------------------------------------------
+
+    def test_conflict_in_project_memory_note_reported(self) -> None:
+        proj_notes = self.aikito_dir / "projects" / "proj1" / "memory" / "notes"
+        proj_notes.mkdir(parents=True)
+        proj_agent = self.aikito_dir / "projects" / "proj1" / "agent.toml"
+        proj_agent.write_text('path = "/nonexistent"\n', encoding="utf-8")
+        (proj_notes / "proj-note.md").write_text(
+            "<<<<<<< HEAD\nA\n=======\nB\n>>>>>>> br\n", encoding="utf-8"
+        )
+        section = check_conflict_markers(self.aikito_dir, self.home)
+        fails = [f for f in section.findings if f.status == "FAIL"]
+        self.assertTrue(any("proj-note.md" in f.message for f in fails))
+
+    # ------------------------------------------------------------------
+    # Checked-file count
+    # ------------------------------------------------------------------
+
+    def test_ok_message_includes_file_count(self) -> None:
+        self._make_note("a", "# A\n")
+        self._make_note("b", "# B\n")
+        section = check_conflict_markers(self.aikito_dir, self.home)
+        ok_msgs = [f.message for f in section.findings if f.status == "OK"]
+        # 2 notes + 3 top-level toml files = 5
+        self.assertTrue(any("5 files checked" in m for m in ok_msgs))
 
 
 if __name__ == "__main__":

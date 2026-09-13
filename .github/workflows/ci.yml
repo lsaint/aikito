@@ -472,6 +472,41 @@ jobs:
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito doctor --json
 
+      - name: aikito doctor conflict markers
+        run: |
+          # Inject conflict markers into a memory note and verify doctor reports FAIL
+          printf '%s\n' \
+            '# Conflicted Note' \
+            '<<<<<<< HEAD' \
+            'version A' \
+            '=======' \
+            'version B' \
+            '>>>>>>> branch' \
+            > ${{ runner.temp }}/aikito-ws/memory/notes/ci-conflict.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito doctor --no-color 2>&1 | \
+            tee ${{ runner.temp }}/doctor-conflict.log || true
+          grep -q "Git conflict marker detected" \
+            ${{ runner.temp }}/doctor-conflict.log
+          # Inject conflict markers into a TOML file and verify doctor reports FAIL
+          printf '%s\n' \
+            '<<<<<<< HEAD' \
+            'skills = ["a"]' \
+            '=======' \
+            'skills = ["b"]' \
+            '>>>>>>> branch' \
+            > ${{ runner.temp }}/aikito-ws/skills.toml
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito doctor --no-color 2>&1 | \
+            tee ${{ runner.temp }}/doctor-conflict-toml.log || true
+          grep -q "skills.toml" ${{ runner.temp }}/doctor-conflict-toml.log
+          grep -q "Git conflict marker detected" \
+            ${{ runner.temp }}/doctor-conflict-toml.log
+          # Restore clean skills.toml and remove conflicted note
+          rm ${{ runner.temp }}/aikito-ws/memory/notes/ci-conflict.md
+          printf '%s\n' 'skills = ["durable-memory"]' \
+            > ${{ runner.temp }}/aikito-ws/skills.toml
+
       - name: Verify workspace config customization in CI
         run: |
           cat << 'EOF' > ${{ runner.temp }}/aikito-ws/config.toml
@@ -641,6 +676,14 @@ jobs:
           Remove-Item -Recurse $nestedNotes
           python -m aikito status
           python -m aikito show memory --project example
+          # Verify conflict marker detection in memory notes
+          $conflictNote = Join-Path $wsDir "memory\notes\ci-conflict.md"
+          @("# Conflicted Note", "<<<<<<< HEAD", "version A", "=======", "version B", ">>>>>>> branch") | Set-Content $conflictNote
+          $conflictOutput = python -m aikito doctor --no-color | Out-String
+          if ($conflictOutput -notmatch "Git conflict marker detected") {
+            throw "Doctor did not report Git conflict markers in memory note"
+          }
+          Remove-Item $conflictNote
 
       - name: Verify Graceful Failure When Symlinks Unavailable
         shell: pwsh

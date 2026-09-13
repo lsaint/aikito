@@ -1214,6 +1214,95 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
     return DoctorSection(name="Environment", findings=findings)
 
 
+# ---------------------------------------------------------------------------
+# §8 Conflict Markers
+# ---------------------------------------------------------------------------
+
+# Regex that matches the three Git conflict marker line patterns.
+_CONFLICT_RE = re.compile(r"^(<{7}|={7}|>{7})([ \t].*)?$")
+
+_CONFLICT_FIX = "Resolve the Git conflict manually, then run 'git add' and commit"
+
+
+def check_conflict_markers(aikito_dir: Path, home: Path) -> DoctorSection:
+    """Detect Git conflict markers in memory notes and workspace config files."""
+    findings: List[DoctorFinding] = []
+    checked = 0
+
+    # --- collect files to scan ---
+
+    # 1. Memory notes: global memory/notes/*.md and projects/*/memory/notes/*.md
+    md_files: List[Path] = []
+    for scope_dir, _label, _proj in _memory_scope_dirs(aikito_dir):
+        notes_dir = scope_dir / "notes"
+        if notes_dir.is_dir():
+            md_files.extend(sorted(notes_dir.glob("*.md")))
+
+    # 2. Top-level TOML config files
+    toml_files: List[Path] = []
+    for name in ("skills.toml", "agents.toml", "subagents.toml"):
+        p = aikito_dir / name
+        if p.is_file():
+            toml_files.append(p)
+
+    # 3. mcps/*.toml
+    mcps_dir = aikito_dir / "mcps"
+    if mcps_dir.is_dir():
+        toml_files.extend(sorted(mcps_dir.glob("*.toml")))
+
+    # 4. projects/*/agent.toml
+    projects_dir = aikito_dir / "projects"
+    if projects_dir.is_dir():
+        for proj in sorted(projects_dir.iterdir()):
+            agent_toml = proj / "agent.toml"
+            if agent_toml.is_file():
+                toml_files.append(agent_toml)
+
+    # --- scan markdown files ---
+    for path in md_files:
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        checked += 1
+        rel = _home_rel(path, home)
+        for lineno, line in enumerate(lines, start=1):
+            if _CONFLICT_RE.match(line):
+                findings.append(
+                    _fail(
+                        f"{rel}:{lineno}: Git conflict marker detected",
+                        _CONFLICT_FIX,
+                    )
+                )
+
+    # --- scan TOML files ---
+    for path in toml_files:
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        checked += 1
+        rel = _home_rel(path, home)
+        # Check for conflict markers first; skip normal parse if any are found.
+        conflict_lines: List[int] = []
+        for lineno, line in enumerate(lines, start=1):
+            if _CONFLICT_RE.match(line):
+                conflict_lines.append(lineno)
+        for lineno in conflict_lines:
+            findings.append(
+                _fail(
+                    f"{rel}:{lineno}: Git conflict marker detected",
+                    _CONFLICT_FIX,
+                )
+            )
+
+    # --- summary ---
+    if not findings:
+        findings.append(_ok(f"No conflict markers detected ({checked} files checked)"))
+
+    return DoctorSection(name="ConflictMarkers", findings=findings)
+
+
 def run_doctor_fixes(aikito_dir: Path, home: Optional[Path] = None) -> List[str]:
     """Apply safe Agent registry fixes."""
     fixes: List[str] = []
@@ -1311,6 +1400,7 @@ def run_doctor(
         ("Drift", lambda: check_drift(aikito_dir, home)),
         ("Security", lambda: check_security(aikito_dir, home)),
         ("Environment", lambda: check_environment(aikito_dir, home)),
+        ("ConflictMarkers", lambda: check_conflict_markers(aikito_dir, home)),
         ("Projects", lambda: check_projects(aikito_dir, home)),
         # Keep check_config_syntax last: it's the slowest section (parses every
         # workspace config file), so cheaper checks report first.
