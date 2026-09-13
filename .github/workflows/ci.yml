@@ -546,7 +546,7 @@ jobs:
           AIKITO_DIR=${{ runner.temp }}/aikito-ws python3 -c "
           from aikito import Project, ProjectPrepareConflictError
           try:
-              Project.load('example').prepare(agent='pi')
+              Project.load('example').prepare(agent='pi', path='${{ runner.temp }}/example-project')
               raise AssertionError('prepare() did not raise ProjectPrepareConflictError')
           except ProjectPrepareConflictError as exc:
               assert 'Git conflict marker detected' in str(exc), f'Unexpected exc: {exc}'
@@ -812,10 +812,13 @@ jobs:
           @("# Conflicted instructions", "<<<<<<< HEAD", "rule A", "=======", "rule B", ">>>>>>> branch") | Set-Content $exampleAgents
 
           # Project.prepare() must fail with ProjectPrepareConflictError
+          $exampleProjDir = Join-Path $env:RUNNER_TEMP "example-project"
+          $env:AIKITO_SMOKE_PROJ_PATH = $exampleProjDir
           python -c "
+          import os
           from aikito import Project, ProjectPrepareConflictError
           try:
-              Project.load('example').prepare(agent='pi')
+              Project.load('example').prepare(agent='pi', path=os.environ['AIKITO_SMOKE_PROJ_PATH'])
               raise AssertionError('prepare() did not raise ProjectPrepareConflictError')
           except ProjectPrepareConflictError as exc:
               assert 'Git conflict marker detected' in str(exc)
