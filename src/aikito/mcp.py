@@ -26,7 +26,6 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .compat import resolve_executable, secure_file_permissions
 
-
 STATE_VERSION = 1
 DEFAULT_MCPS_DIR = Path("mcps")
 DEFAULT_AGENTS_CONFIG = Path("agents.toml")
@@ -315,22 +314,28 @@ def collect_project_instruction_targets(
     aikito_dir: Path,
     project_path: Path,
     home: Path,
+    *,
+    active_only: bool = False,
 ) -> dict[Path, tuple[str, ...]]:
     """Group agent-native project instruction targets by runtime path."""
     definitions = load_agents(aikito_dir, home)
-    grouped: dict[Path, list[str]] = {}
+    grouped: dict[Path, list[tuple[str, str]]] = {}
     for definition in definitions.values():
         relative_path = definition.project_instruction_path
         if relative_path is None:
             continue
         target = project_path / relative_path
-        grouped.setdefault(target, []).append(definition.display_name)
-    return {
-        target: tuple(sorted(agent_names))
-        for target, agent_names in sorted(
-            grouped.items(), key=lambda item: str(item[0])
+        grouped.setdefault(target, []).append(
+            (definition.name, definition.display_name)
         )
-    }
+
+    result: dict[Path, tuple[str, ...]] = {}
+    for target, agents in sorted(grouped.items(), key=lambda item: str(item[0])):
+        if active_only and not target.parent.exists():
+            if all(is_agent_installed(name, home) is False for name, _ in agents):
+                continue
+        result[target] = tuple(sorted(display_name for _, display_name in agents))
+    return result
 
 
 def _target_name(name_style: str, server_name: str) -> str:

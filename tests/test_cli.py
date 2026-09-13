@@ -14,7 +14,6 @@ from aikito import cli as AIKITO_CLI
 from aikito.status import MCPRuntimeRow
 from aikito.sync import sync_project_instruction
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -699,7 +698,7 @@ class InitSubcommandParserTest(unittest.TestCase):
             (root / ".claude").mkdir()
             with patch("aikito.init.shutil.which", return_value=None):
                 AIKITO_CLI.init_workspace(workspace, root)
-            AIKITO_CLI.init_project(workspace, project, "example")
+            AIKITO_CLI.init_project(workspace, project, "example", home=root)
             (workspace / "projects" / "example" / "AGENTS.md").write_text(
                 "Project rules\n", encoding="utf-8"
             )
@@ -710,7 +709,10 @@ class InitSubcommandParserTest(unittest.TestCase):
             )
 
             args = AIKITO_CLI.build_parser().parse_args(["sync", "project", "example"])
-            with patch.object(AIKITO_CLI, "get_aikito_dir", return_value=workspace):
+            with (
+                patch.object(AIKITO_CLI, "get_aikito_dir", return_value=workspace),
+                patch("pathlib.Path.home", return_value=root),
+            ):
                 args.func(args)
 
             self.assertFalse((project / "AGENTS.md").exists())

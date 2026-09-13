@@ -506,15 +506,18 @@ def sync_project_path(
         )
         return
 
-    instruction_targets = collect_project_instruction_targets(
+    all_instruction_targets = collect_project_instruction_targets(
         aikito_dir, project_path, home
+    )
+    instruction_targets = collect_project_instruction_targets(
+        aikito_dir, project_path, home, active_only=True
     )
     instructions_enabled = bool(
         project_instructions.read_text(encoding="utf-8", errors="replace").strip()
     )
     possible_stale_targets = {inputs.agents_dir / "AGENTS.md"}
     if not instructions_enabled:
-        possible_stale_targets.update(instruction_targets)
+        possible_stale_targets.update(all_instruction_targets)
     managed_stale_targets = tuple(
         sorted(
             target
@@ -531,6 +534,10 @@ def sync_project_path(
             "no Agent-native instruction links are required."
         )
         return
+
+    for target, agent_names in all_instruction_targets.items():
+        if target not in instruction_targets:
+            print(f"[SKIP] {', '.join(agent_names)} not detected: {target.parent}")
 
     for target, agent_names in instruction_targets.items():
         print(f"[INFO] Project instructions for {', '.join(agent_names)}")

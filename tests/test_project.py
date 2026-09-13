@@ -14,7 +14,6 @@ from aikito import (
     ProjectPrepareConflictError,
     UnsupportedProjectAgentError,
 )
-
 from aikito.project import (
     ProjectResourceDetail,
     ProjectSummary,
@@ -934,6 +933,50 @@ class ProjectSummaryTest(unittest.TestCase):
             self.assertEqual(len(states2), 1)
             self.assertEqual(states2[0].project_name, "p2")
             self.assertEqual(states2[0].status, "MISSING")
+
+    def test_uninstalled_agent_instruction_target_skipped_when_parent_missing(
+        self,
+    ) -> None:
+        from aikito.project_runtime import sync_project_path
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            workspace = root / "workspace"
+            project = root / "demo"
+            definition = workspace / "projects" / "demo"
+            workspace.mkdir()
+            project.mkdir()
+            definition.mkdir(parents=True)
+            (workspace / "agents.toml").write_text(
+                '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n'
+                '[agents.claude-code]\nproject_instruction_path = ".claude/CLAUDE.md"\n',
+                encoding="utf-8",
+            )
+            (definition / "agent.toml").write_text(
+                f'path = "{project.as_posix()}"\nskills = []\n', encoding="utf-8"
+            )
+            (definition / "AGENTS.md").write_text("Rules\n", encoding="utf-8")
+            (project / "AGENTS.md").symlink_to(definition / "AGENTS.md")
+
+            # Neither codex nor claude-code is installed in root, and project/.claude does not exist.
+            # .claude/CLAUDE.md should not be considered MISSING.
+            summaries = collect_project_summaries(workspace, root)
+            self.assertEqual(len(summaries), 1)
+            self.assertEqual(summaries[0].runtime_status, "OK")
+            self.assertFalse((project / ".claude").exists())
+
+            # sync_project_path should skip creating .claude/CLAUDE.md
+            sync_project_path(workspace, "demo", project, {"skills": []}, root)
+            self.assertFalse((project / ".claude").exists())
+
+            # Now mock claude-code being installed in root.
+            (root / ".claude").mkdir()
+            summaries = collect_project_summaries(workspace, root)
+            self.assertEqual(summaries[0].runtime_status, "MISSING")
+
+            # With claude installed, sync_project_path provisions .claude/CLAUDE.md
+            sync_project_path(workspace, "demo", project, {"skills": []}, root)
+            self.assertTrue((project / ".claude" / "CLAUDE.md").is_symlink())
 
 
 if __name__ == "__main__":

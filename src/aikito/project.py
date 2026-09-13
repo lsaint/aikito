@@ -612,7 +612,7 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
                 statuses: list[str] = []
                 try:
                     instruction_targets = collect_project_instruction_targets(
-                        aikito_dir, project_path, home
+                        aikito_dir, project_path, home, active_only=True
                     )
                 except MCPConfigError:
                     # An unreadable agent registry is reported by doctor, not here.

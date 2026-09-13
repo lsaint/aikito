@@ -237,6 +237,7 @@ class CheckProjectsTest(unittest.TestCase):
             project = root / "project"
             definition = workspace / "projects" / "demo"
             project.mkdir()
+            (root / ".claude").mkdir()
             definition.mkdir(parents=True)
             (workspace / "agents.toml").write_text(
                 '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n'
