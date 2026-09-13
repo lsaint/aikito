@@ -8,7 +8,7 @@ import tomllib
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 from .link import SymlinkVerdict, classify_symlink, symlink_verdict_to_status
 from .mcp import (
@@ -22,7 +22,6 @@ from .mcp import (
 )
 from .memory import extract_note_title
 from .project import resolve_project_binding
-from .subagent import build_plan
 from .render import (
     AgentStatusRow,
     MCPServerRow,
@@ -33,6 +32,7 @@ from .render import (
     StatusReportData,
     SubagentRow,
 )
+from .subagent import build_plan
 
 
 @dataclass(frozen=True)
@@ -284,7 +284,7 @@ def collect_subagent_details(
     return rows
 
 
-def _get_skills_list(aikito_dir: Path) -> List[str]:
+def _get_skills_list(aikito_dir: Path) -> list[str]:
     skills_toml_path = aikito_dir / "skills.toml"
     if not skills_toml_path.exists():
         return []
@@ -299,7 +299,7 @@ def _get_skills_list(aikito_dir: Path) -> List[str]:
     return []
 
 
-def _summarize_subagent_status(actions: List[str]) -> str:
+def _summarize_subagent_status(actions: list[str]) -> str:
     total = len(actions)
     ok_count = actions.count("OK")
     if ok_count == total:
@@ -317,7 +317,7 @@ def _summarize_subagent_status(actions: List[str]) -> str:
 
 def collect_agent_status_rows(
     aikito_dir: Path, home: Path
-) -> tuple[List[AgentStatusRow], int, int, int]:
+) -> tuple[list[AgentStatusRow], int, int, int]:
     agents_dict = load_agents(aikito_dir, home)
     global_instruction_source = aikito_dir / "global" / "AGENTS.md"
     global_skills = _get_skills_list(aikito_dir)
@@ -337,7 +337,7 @@ def collect_agent_status_rows(
     )
     total_subagents_count = len(active_subagents)
 
-    rows: List[AgentStatusRow] = []
+    rows: list[AgentStatusRow] = []
     agent_issues = 0
 
     for name, definition in agents_dict.items():
@@ -463,8 +463,8 @@ def collect_agent_status_rows(
 
 def collect_memory_status_rows(
     aikito_dir: Path, home: Path
-) -> tuple[List[MemoryStatusRow], int, int]:
-    rows: List[MemoryStatusRow] = []
+) -> tuple[list[MemoryStatusRow], int, int]:
+    rows: list[MemoryStatusRow] = []
     total_notes = 0
     mem_issues = 0
 
@@ -594,13 +594,13 @@ def get_status_report_data(aikito_dir: Path, home: Path) -> StatusReportData:
 
 def collect_mcp_matrix(
     aikito_dir: Path, home: Path, live: bool = False
-) -> tuple[List[MCPServerRow], List[str]]:
+) -> tuple[list[MCPServerRow], list[str]]:
     agents_dict = load_agents(aikito_dir, home)
     specs = load_agent_specs(aikito_dir, home)
     agent_names = [a.display_name for a in agents_dict.values()]
     agent_key_to_display = {k: v.display_name for k, v in agents_dict.items()}
 
-    servers: Dict[str, Dict[str, str]] = {}
+    servers: dict[str, dict[str, str]] = {}
     for spec in specs:
         srv_name = spec.server
         ag_display = agent_key_to_display.get(spec.agent, spec.agent)
@@ -650,13 +650,13 @@ def collect_mcp_matrix(
 
 def collect_subagents_matrix(
     aikito_dir: Path, home: Path
-) -> tuple[List[SubagentRow], List[OrphanSubagentFile], List[str]]:
+) -> tuple[list[SubagentRow], list[OrphanSubagentFile], list[str]]:
     plan_items, _ = build_plan(aikito_dir=aikito_dir, home=home, allow_empty=True)
     agents_dict = load_agents(aikito_dir, home)
     agent_names = [a.display_name for a in agents_dict.values()]
 
-    subagents_map: Dict[str, Dict[str, str]] = {}
-    orphan_files: List[OrphanSubagentFile] = []
+    subagents_map: dict[str, dict[str, str]] = {}
+    orphan_files: list[OrphanSubagentFile] = []
 
     for item in plan_items:
         ag_def = agents_dict.get(item.agent_name)
@@ -704,8 +704,8 @@ def collect_subagents_matrix(
 
 
 def collect_memory_notes_rows(
-    aikito_dir: Path, home: Path, project: Optional[str] = None
-) -> List[MemoryNoteRow]:
+    aikito_dir: Path, home: Path, project: str | None = None
+) -> list[MemoryNoteRow]:
     rows = []
 
     # 1. Global Memory Notes
@@ -746,6 +746,10 @@ def collect_memory_notes_rows(
                                     for e in binding.active_entries
                                 ):
                                     link_st = "OK"
+                                else:
+                                    link_st = "MISSING"
+                            elif binding.entries:
+                                link_st = "OFFLINE"
                         except Exception:
                             pass
 
@@ -782,10 +786,10 @@ def _parse_skill_description(skill_dir: Path) -> str:
     return "-"
 
 
-def collect_skills_rows(aikito_dir: Path) -> List[SkillRow]:
+def collect_skills_rows(aikito_dir: Path) -> list[SkillRow]:
     global_skills = set(_get_skills_list(aikito_dir))
 
-    project_skills: Dict[str, Set[str]] = {}
+    project_skills: dict[str, set[str]] = {}
     projects_dir = aikito_dir / "projects"
     if projects_dir.is_dir():
         for proj_folder in sorted(projects_dir.iterdir()):
@@ -817,7 +821,7 @@ def collect_skills_rows(aikito_dir: Path) -> List[SkillRow]:
     for p_skills in project_skills.values():
         all_skill_names |= p_skills
 
-    rows: List[SkillRow] = []
+    rows: list[SkillRow] = []
 
     for name in sorted(all_skill_names):
         is_global = name in global_skills

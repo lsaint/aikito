@@ -20,8 +20,8 @@ from aikito.render import (
     render_agent_subagent_table,
     render_key_value_fields,
     render_legend,
-    render_mcp_status_table,
     render_mcp_runtime_table,
+    render_mcp_status_table,
     render_memory_notes_table,
     render_projects_table,
     render_skills_table,
@@ -37,6 +37,7 @@ from aikito.status import (
     collect_mcp_details,
     collect_mcp_matrix,
     collect_mcp_runtime,
+    collect_memory_notes_rows,
     collect_skills_rows,
     collect_subagents_matrix,
     get_status_report_data,
@@ -1031,6 +1032,35 @@ instruction_path = ".codex/AGENTS.md"
         self.assertIn("2 >", rendered_ascii)
         self.assertIn("2 >>", rendered_ascii)
         self.assertIn("-", rendered_ascii)
+
+    def test_collect_memory_notes_rows_offline_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            aikito_dir = Path(tmpdir) / "workspace"
+            home = Path(tmpdir) / "home"
+            init_workspace(aikito_dir, home)
+
+            proj_dir = aikito_dir / "projects" / "myproject"
+            proj_dir.mkdir(parents=True, exist_ok=True)
+            (proj_dir / "agent.toml").write_text(
+                'name = "myproject"\npath = "~/nonexistent-checkout"\n',
+                encoding="utf-8",
+            )
+            notes_dir = proj_dir / "memory" / "notes"
+            notes_dir.mkdir(parents=True, exist_ok=True)
+            (notes_dir / "demo.md").write_text(
+                "# Demo Title\nContent\n", encoding="utf-8"
+            )
+
+            rows = collect_memory_notes_rows(aikito_dir, home)
+            proj_rows = [r for r in rows if r.scope_name == "myproject"]
+            self.assertEqual(len(proj_rows), 1)
+            self.assertEqual(proj_rows[0].link_status, "OFFLINE")
+
+            rendered = render_memory_notes_table(
+                proj_rows, use_unicode=True, use_color=False
+            )
+            self.assertIn("–", rendered)
+            self.assertNotIn("Legend:", rendered)
 
 
 if __name__ == "__main__":
