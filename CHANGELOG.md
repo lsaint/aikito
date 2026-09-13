@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.34.0] - 2026-09-13
+
+### Added
+
+- Added Git conflict marker detection (`<<<<<<<`, `=======`, `>>>>>>>`) in `aikito doctor` across memory notes and workspace TOML configuration files.
+- Added pre-flight Git conflict marker checks before `Project.prepare()` and `aikito sync project` to prevent synchronizing conflicted files into runtime.
+- Added actionable `Fix:` guidance in `aikito show project` for conflicts, copied skill drifts, and runtime sync discrepancies.
+
+### Changed
+
+- Consolidated multi-project synchronization hints in `aikito doctor` into a single `→ aikito sync` action at the bottom of failing projects.
+- Aligned project memory runtime expectations in `collect_project_summaries` with `sync_project_path` to only expect `notes/` and configured memory references, ignoring documentation files like `README.md`.
+- Added descriptive reason reporting in `classify_project_skill_state` when copied project skills contain drift.
+
 ## [1.33.0] - 2026-09-12
 
 ### Added
@@ -635,7 +649,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.33.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.34.0...HEAD
+[1.34.0]: https://github.com/lsaint/aikito/compare/v1.33.0...v1.34.0
 [1.33.0]: https://github.com/lsaint/aikito/compare/v1.32.0...v1.33.0
 [1.32.0]: https://github.com/lsaint/aikito/compare/v1.31.1...v1.32.0
 [1.31.1]: https://github.com/lsaint/aikito/compare/v1.31.0...v1.31.1
