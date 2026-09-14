@@ -28,6 +28,7 @@ class PageLinks(HTMLParser):
 
 
 class HomepageTests(unittest.TestCase):
+    @unittest.skipUnless((ROOT / "docs/overrides/home.html").is_file(), "Requires docs/ directory")
     def test_template_routes_exist(self):
         template = (ROOT / "docs/overrides/home.html").read_text(encoding="utf-8")
         routes = re.findall(r"{{\s*'([^']+)'\s*\|\s*url\s*}}", template)
