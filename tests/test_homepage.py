@@ -29,7 +29,7 @@ class PageLinks(HTMLParser):
 
 class HomepageTests(unittest.TestCase):
     def test_template_routes_exist(self):
-        template = (ROOT / "docs/overrides/home.html").read_text()
+        template = (ROOT / "docs/overrides/home.html").read_text(encoding="utf-8")
         routes = re.findall(r"{{\s*'([^']+)'\s*\|\s*url\s*}}", template)
         self.assertTrue(routes)
         for route in routes:
@@ -45,7 +45,7 @@ class HomepageTests(unittest.TestCase):
     @unittest.skipUnless(os.environ.get("AIKITO_DOCS_SITE"), "Requires a built documentation site")
     def test_built_homepage_links_and_fragments(self):
         site = Path(os.environ["AIKITO_DOCS_SITE"]).resolve()
-        source = (site / "index.html").read_text()
+        source = (site / "index.html").read_text(encoding="utf-8")
         self.assertNotIn("{{", source)
         page = PageLinks(source)
         for link in page.links:
@@ -58,8 +58,8 @@ class HomepageTests(unittest.TestCase):
                     target /= "index.html"
                 self.assertTrue(target.is_file(), target)
                 if parsed.fragment:
-                    ids = PageLinks(target.read_text()).ids
+                    ids = PageLinks(target.read_text(encoding="utf-8")).ids
                     self.assertIn(unquote(parsed.fragment), ids)
-        guide = (site / "guide/index.html").read_text()
+        guide = (site / "guide/index.html").read_text(encoding="utf-8")
         self.assertIn('id="start-with-one-project"', guide)
         self.assertIn('id="find-a-specific-operation"', guide)

@@ -71,8 +71,9 @@ jobs:
           mkdocs build --strict
           test -f site/index.html
           test -f site/guide/index.html
+          test -f site/stylesheets/fonts.css
           test -f site/stylesheets/home.css
-          test -f site/javascripts/home.js
+          test -f site/assets/fonts/inter-latin.woff2
           AIKITO_DOCS_SITE=site python -m unittest discover -s tests -p test_homepage.py
 
       - name: aikito --help
