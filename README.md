@@ -21,7 +21,7 @@
   <img src="https://img.shields.io/badge/dependencies-stdlib%20only-brightgreen.svg" alt="Dependencies: stdlib only">
 </p>
 
-[简体中文](README.zh-CN.md) · [Documentation](https://lsaint.github.io/aikito/)
+[简体中文](README.zh-CN.md) · [Homepage](https://lsaint.github.io/aikito/) · [Documentation](https://lsaint.github.io/aikito/guide/)
 
 Aikito keeps coding-agent instructions, skills, MCP definitions, subagents, and
 durable memory in one Git-managed workspace, shared across agents and projects.
@@ -197,7 +197,7 @@ through the [Security Policy](SECURITY.md).
 conversations into Markdown notes in your Aikito Inbox. See the
 [capture and review workflow](docs/chat-distiller.md).
 
-Browse the full [documentation site](https://lsaint.github.io/aikito/) for more.
+Browse the full [documentation site](https://lsaint.github.io/aikito/guide/) for more.
 
 ## Support
 

@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aikito — One context. Many agents.</title>
+  <meta
+    name="description"
+    content="Keep instructions, skills, MCP servers, subagents, and durable memory in one Git-managed workspace — then sync them into Codex, Claude Code, OpenCode, Copilot CLI and 4 more, with one command."
+  />
+  <link rel="canonical" href="{{ page.canonical_url }}">
+  <meta property="og:title" content="Aikito — One context. Many agents.">
+  <meta property="og:description" content="Keep instructions, skills, MCP servers, subagents, and durable memory in one Git-managed workspace — then sync them into Codex, Claude Code, OpenCode, Copilot CLI and 4 more, with one command.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="{{ page.canonical_url }}">
+  <meta property="og:image" content="{{ config.site_url }}assets/social-preview.png">
+  <link rel="icon" href="{{ 'assets/logo-light.png' | url }}">
+  <link rel="stylesheet" href="{{ 'stylesheets/fonts.css' | url }}">
+  <link rel="stylesheet" href="{{ 'stylesheets/home.css' | url }}">
+  <noscript>
+    <style>
+      .reveal {
+        opacity: 1 !important;
+        transform: none !important;
+      }
+    </style>
+  </noscript>
+  <script>
+    (function () {
+      try {
+        for (var i = 0; i < localStorage.length; i++) {
+          var k = localStorage.key(i);
+          if (k && k.endsWith(".__palette")) {
+            var p = JSON.parse(localStorage.getItem(k));
+            if (p && p.color && p.color.scheme) {
+              document.documentElement.setAttribute("data-md-color-scheme", p.color.scheme);
+              break;
+            }
+          }
+        }
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#top">Skip to content</a>
+
+  <nav>
+    <div class="shell nav-inner">
+      <a class="brand" href="{{ '.' | url }}">
+        <img src="{{ 'assets/logo-light.png' | url }}" alt="Aikito" class="brand-logo" width="44" height="44">
+        <span>Aikito</span>
+      </a>
+
+      <div class="nav-links">
+        <a href="#why">Why</a>
+        <a href="#memory">Memory</a>
+        <a href="#cli">CLI</a>
+        <a href="{{ 'guide/' | url }}">Docs</a>
+        <a href="https://github.com/lsaint/aikito" target="_blank" rel="noreferrer">GitHub</a>
+        <a class="button primary nav-cta" href="#start">Get Started →</a>
+      </div>
+    </div>
+  </nav>
+
+  <main id="top">
+    <section class="shell hero">
+      <div class="reveal">
+        <div class="eyebrow mono">Multi-Agent · Multi-Project · Multi-OS · Multi-Machine</div>
+        <h1>One context. Many agents.</h1>
+        <p class="hero-copy">
+          Keep instructions, skills, MCP servers, subagents, and durable memory
+          in one Git-managed workspace — then sync them into Codex, Claude Code,
+          OpenCode, Copilot CLI and 4 more, with one command.
+        </p>
+        <div class="hero-actions">
+          <a class="button primary" href="#start">Get Started →</a>
+          <a class="button" href="https://github.com/lsaint/aikito" target="_blank" rel="noreferrer">View on GitHub ↗</a>
+        </div>
+        <div class="hero-badge mono">Python 3.12+ · stdlib only · no daemon, no database, no cloud</div>
+      </div>
+
+      <div class="hero-side reveal" aria-label="Aikito ensō illustration">
+        <div class="enso-large">
+          <img src="{{ 'assets/enso-outline.png' | url }}" alt="Aikito Ensō" class="enso-image" width="430" height="430">
+          <div class="orbit-label l1 mono">instructions</div>
+          <div class="orbit-label l2 mono">skills</div>
+          <div class="orbit-label l3 mono">subagents</div>
+          <div class="orbit-label l4 mono">mcps</div>
+          <div class="orbit-label l5 mono">memory</div>
+          <div class="orbit-label l6 mono">projects</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="why">
+      <div class="shell">
+        <div class="section-head reveal">
+          <div class="section-kicker">The problem</div>
+          <h2>Your agents keep changing.<br><span class="nowrap">Your context stays under control.</span></h2>
+          <p class="section-intro">
+            Every coding agent invents its own folders, memory conventions, skills and config formats.<br>
+            Hand-copying works — until one copy changes and you can't tell which is right.<br>
+            Aikito keeps one source of truth and renders it into whatever each agent expects.
+          </p>
+        </div>
+
+        <div class="flow reveal">
+          <div class="flow-col">
+            <div class="flow-label mono">One source of truth</div>
+            <div class="hub">
+              <div>
+                <h3>Aikito</h3>
+                <p>Your durable workspace across AI agents.</p>
+              </div>
+              <div class="tiny mono">Multi-Agent · Multi-Project · Multi-OS · Multi-Machine</div>
+            </div>
+          </div>
+
+          <div class="middle-arrow" aria-hidden="true">→</div>
+
+          <div class="flow-col">
+            <div class="flow-label mono">Every agent, its own format</div>
+            <div class="stack">
+              <div class="stack-item"><span>Codex</span><span class="mono">~/.codex/…</span></div>
+              <div class="stack-item"><span>Claude Code</span><span class="mono">~/.claude/…</span></div>
+              <div class="stack-item"><span>OpenCode</span><span class="mono">~/.config/…</span></div>
+              <div class="stack-item"><span>Copilot CLI</span><span class="mono">local rules</span></div>
+              <div class="stack-item"><span>Pi</span><span class="mono">own memory</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="objects reveal">
+          <div class="object">
+            <div class="oicon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+                <line x1="10" y1="9" x2="8" y2="9"></line>
+              </svg>
+            </div>
+            <div>
+              <h3>Instructions</h3>
+              <p>Write project rules once; every agent reads the same file.</p>
+            </div>
+          </div>
+          <div class="object">
+            <div class="oicon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+              </svg>
+            </div>
+            <div>
+              <h3>Skills</h3>
+              <p>Author a skill once; share it across agents and projects.</p>
+            </div>
+          </div>
+          <div class="object">
+            <div class="oicon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                <line x1="6" y1="18" x2="6.01" y2="18"></line>
+              </svg>
+            </div>
+            <div>
+              <h3>MCP</h3>
+              <p>Declare each server once; generate every agent's config.</p>
+            </div>
+          </div>
+          <div class="object">
+            <div class="oicon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 8V4H8"></path>
+                <rect width="16" height="12" x="4" y="8" rx="2"></rect>
+                <path d="M2 14h2"></path>
+                <path d="M20 14h2"></path>
+                <path d="M15 13v2"></path>
+                <path d="M9 13v2"></path>
+              </svg>
+            </div>
+            <div>
+              <h3>Subagents</h3>
+              <p>Define specialized roles that reuse the same project context.</p>
+            </div>
+          </div>
+          <div class="object">
+            <div class="oicon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"></path>
+                <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"></path>
+                <path d="M12 5v13"></path>
+                <path d="M15.5 13a3.5 3.5 0 0 0-3.5-3.5"></path>
+                <path d="M8.5 13a3.5 3.5 0 0 1 3.5-3.5"></path>
+              </svg>
+            </div>
+            <div>
+              <h3>Memory</h3>
+              <p>Keep durable decisions as Markdown you can read, diff and revert.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="memory">
+      <div class="shell">
+        <div class="section-head reveal">
+          <div class="section-kicker">Durable memory</div>
+          <h2>Memory should be a maintained project asset.</h2>
+          <p class="section-intro nowrap">
+            Keep long-lived decisions, conventions and lessons in plain files. Git makes them reviewable, reversible and portable.
+          </p>
+        </div>
+
+        <div class="memory-grid reveal">
+          <div class="tree mono">
+            <div class="accent">~/aikito/</div>
+            <div>├── global/AGENTS.md</div>
+            <div>├── skills/</div>
+            <div>├── subagents/</div>
+            <div>├── mcps/</div>
+            <div>├── memory/</div>
+            <div>└── projects/</div>
+            <div>&nbsp;&nbsp;&nbsp;&nbsp;└── my-project/</div>
+            <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── AGENTS.md</div>
+            <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="accent">memory/</span></div>
+            <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── notes/</div>
+            <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="accent">payment-idempotency.md</span></div>
+            <br/>
+            <div class="dim"># plain files &nbsp;·&nbsp; Git history &nbsp;·&nbsp; no proprietary memory DB</div>
+          </div>
+
+          <div class="memory-copy">
+            <blockquote>Read it.<br/>Diff it.<br/>Correct it.<br/>Keep it.</blockquote>
+            <p>
+              Chat history is a log; memory is a decision. Keep long-lived conventions and hard-won lessons in plain files, so Git can review, revert and move them.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="cli">
+      <div class="shell">
+        <div class="section-head reveal">
+          <div class="section-kicker">See the system</div>
+          <h2>Know what each agent sees.</h2>
+          <p class="section-intro">
+            Aikito turns agent configuration into something visible and governable —<br>
+            instead of scattered dotfolders that can easily drift out of sync.
+          </p>
+        </div>
+
+        <div class="terminal-wrap reveal">
+          <div class="terminal">
+            <div class="terminal-top">
+              <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+            </div>
+            <pre><span class="command">$ aikito status</span>
+
+┌───────────────────────┬──────────────┬────────┬────────────┬───────────┐
+│ Agent                 │ Instructions │ Skills │ MCP Config │ Subagents │
+├───────────────────────┼──────────────┼────────┼────────────┼───────────┤
+│ Codex                 │ <span class="ok">✓</span>            │ 16 ›   │ 6          │ 3         │
+│ Claude Code           │ <span class="ok">✓</span>            │ 16 »   │ 3          │ 6         │
+│ Antigravity CLI       │ <span class="ok">✓</span>            │ 16 »   │ 3          │ 5         │
+│ OpenCode              │ <span class="ok">✓</span>            │ 16 ›   │ 5          │ 2         │
+│ GitHub Copilot CLI    │ <span class="ok">✓</span>            │ 16 ›   │ 4          │ 0         │
+│ DeepSeek Harness      │ <span class="ok">✓</span>            │ 16 ›   │ 6          │ 3         │
+│ Grok Build            │ <span class="ok">✓</span>            │ 16 ›   │ 4          │ 0         │
+│ Pi                    │ <span class="ok">✓</span>            │ 16 ›   │ <span class="muted-term">–</span>          │ <span class="muted-term">–</span>         │
+└───────────────────────┴──────────────┴────────┴────────────┴───────────┘
+
+<span class="ok">✓ all synced · 8 agents · 16 skills · 6 notes across 3 scopes</span></pre>
+          </div>
+
+          <div class="terminal">
+            <div class="terminal-top">
+              <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+            </div>
+            <pre><span class="command">$ aikito show memory</span>
+
+┌─────────┬───────────────────┬────────────────────────────────┬──────┐
+│ Scope   │ Note File         │ Title                          │ Link │
+├─────────┼───────────────────┼────────────────────────────────┼──────┤
+│ Global  │ writing-style     │ Keep explanations concise      │ <span class="muted-term">–</span>    │
+│ Global  │ conventions       │ Workspace engineering rules    │ <span class="muted-term">–</span>    │
+├─────────┼───────────────────┼────────────────────────────────┼──────┤
+│ backend │ api-retry-policy  │ Retry external APIs safely     │ <span class="ok">✓</span>    │
+│ backend │ circuit-breaker   │ Fail fast on upstream outage   │ <span class="ok">✓</span>    │
+├─────────┼───────────────────┼────────────────────────────────┼──────┤
+│ portal  │ onboarding-flow   │ First-time activation steps    │ <span class="ok">✓</span>    │
+│ portal  │ release-checklist │ Pre-flight checks for ship     │ <span class="ok">✓</span>    │
+└─────────┴───────────────────┴────────────────────────────────┴──────┘
+
+<span class="ok">✓ all synced · 6 notes across 3 scopes</span></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="principles">
+      <div class="shell">
+        <div class="section-head reveal">
+          <div class="section-kicker">Design principles</div>
+          <h2><span class="nowrap">Simple primitives. Strong ownership.</span></h2>
+        </div>
+
+        <div class="principles reveal">
+          <div class="principle">
+            <div class="picon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="6" y1="3" x2="6" y2="15"></line>
+                <circle cx="18" cy="6" r="3"></circle>
+                <circle cx="6" cy="18" r="3"></circle>
+                <path d="M18 9a9 9 0 0 1-9 9"></path>
+              </svg>
+            </div>
+            <h3>Git-managed</h3>
+            <p>Your workspace has history. Decisions and memory can be reviewed and corrected.</p>
+          </div>
+          <div class="principle">
+            <div class="picon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="17 1 21 5 17 9"></polyline>
+                <path d="M3 5h18"></path>
+                <polyline points="7 23 3 19 7 15"></polyline>
+                <path d="M21 19H3"></path>
+              </svg>
+            </div>
+            <h3>Agent-neutral</h3>
+            <p>Your project context does not belong to a single vendor or coding agent.</p>
+          </div>
+          <div class="principle">
+            <div class="picon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+              </svg>
+            </div>
+            <h3>Local-first</h3>
+            <p>Plain files in normal paths. No daemon, no database, no account.</p>
+          </div>
+          <div class="principle">
+            <div class="picon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path>
+              </svg>
+            </div>
+            <h3>Inspectable</h3>
+            <p>See what every agent consumes and where that context came from.</p>
+          </div>
+        </div>
+
+        <div class="cta reveal" id="start">
+          <div>
+            <div class="section-kicker">Start in two minutes</div>
+            <h2>Three commands to a governed workspace.</h2>
+            <p class="cta-copy">
+              Install, create a workspace, connect your first project.<br/>
+              Nothing to configure, nothing to host — your context stays plain files under Git.
+            </p>
+            <div class="hero-actions">
+              <a class="button primary" href="{{ 'installation/' | url }}">Install Aikito →</a>
+              <a class="button" href="{{ 'guide/' | url }}">Read the docs</a>
+            </div>
+          </div>
+
+          <div class="install">
+            <div><span class="muted-term">$</span> brew install lsaint/tap/aikito</div>
+            <div><span class="muted-term">or</span></div>
+            <div><span class="muted-term">$</span> uv tool install aikito</div>
+            <br/>
+            <div><span class="muted-term">$</span> aikito init workspace ~/aikito</div>
+            <div><span class="muted-term">$</span> aikito sync</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="shell footer-inner">
+      <div class="footer-copy">© <span id="current-year">{{ build_date_utc.strftime('%Y') }}</span> · <a href="https://github.com/lsaint/" target="_blank" rel="noreferrer"><strong>Ethan St Lee</strong></a> · MIT licensed.</div>
+      <div class="footer-links">
+        <a
+          href="https://github.com/lsaint/aikito"
+          target="_blank"
+          rel="noreferrer"
+          aria-label="GitHub"
+          data-tooltip="GitHub"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+            <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0 0 22 12.017C22 6.484 17.522 2 12 2Z"/>
+          </svg>
+        </a>
+        <a
+          href="{{ 'guide/' | url }}"
+          aria-label="Docs"
+          data-tooltip="Docs"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+          </svg>
+        </a>
+        <a
+          class="support-link"
+          href="https://lsaint.github.io/donation/?utm_source=aikito&amp;utm_medium=homepage&amp;utm_campaign=support"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Support development"
+          data-tooltip="Support development"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+            <path d="M12 21.35 10.55 20.03C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09A6 6 0 0 1 16.5 3C19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35Z"/>
+          </svg>
+        </a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    const reveal = () => {
+      const items = document.querySelectorAll(".reveal");
+      const observer = new IntersectionObserver(
+        entries => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting) {
+              entry.target.classList.add("visible");
+              observer.unobserve(entry.target);
+            }
+          });
+        },
+        { threshold: 0.12 }
+      );
+      items.forEach(item => observer.observe(item));
+    };
+
+    reveal();
+
+    const yearEl = document.getElementById("current-year");
+    if (yearEl) {
+      yearEl.textContent = new Date().getFullYear();
+    }
+  </script>
+</body>
+</html>

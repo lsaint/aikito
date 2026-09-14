@@ -21,7 +21,7 @@
   <img src="https://img.shields.io/badge/dependencies-stdlib%20only-brightgreen.svg" alt="Dependencies: stdlib only">
 </p>
 
-[English](README.md) · [详细文档（英文）](https://lsaint.github.io/aikito/)
+[English](README.md) · [项目主页](https://lsaint.github.io/aikito/) · [详细文档（英文）](https://lsaint.github.io/aikito/guide/)
 
 Aikito 将 Coding Agent 的指令、Skills、MCP、Subagents 和长期记忆集中在一个
 Git 管理的工作区中，供不同 Agent 与项目使用。
@@ -182,7 +182,7 @@ Aikito 基于普通文件与 Git，无需后台服务。
 配套工具 [Chat Distiller](https://github.com/lsaint/chat-distiller) 可将浏览器 AI 对话
 提炼为 Markdown，存入 Aikito Inbox。详见[捕捉与整理流程（英文）](docs/chat-distiller.md)。
 
-更多内容见[文档网站](https://lsaint.github.io/aikito/)。
+更多内容见[文档网站](https://lsaint.github.io/aikito/guide/)。
 
 ## 关注作者
 

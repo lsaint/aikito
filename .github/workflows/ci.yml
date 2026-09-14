@@ -26,6 +26,11 @@ jobs:
       - name: Build documentation
         run: mkdocs build --strict
 
+      - name: Check homepage links
+        env:
+          AIKITO_DOCS_SITE: site
+        run: python -m unittest discover -s tests -p test_homepage.py
+
   test:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -59,6 +64,16 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Build and verify public site
+        run: |
+          python -m pip install -r requirements-docs.txt
+          mkdocs build --strict
+          test -f site/index.html
+          test -f site/guide/index.html
+          test -f site/stylesheets/home.css
+          test -f site/javascripts/home.js
+          AIKITO_DOCS_SITE=site python -m unittest discover -s tests -p test_homepage.py
 
       - name: aikito --help
         run: python3 -m aikito --help

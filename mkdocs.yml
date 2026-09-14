@@ -4,11 +4,14 @@ site_url: https://lsaint.github.io/aikito/
 repo_url: https://github.com/lsaint/aikito
 repo_name: lsaint/aikito
 edit_uri: edit/main/docs/
+copyright: 'Copyright &copy; 2026 · <strong><a href="https://github.com/lsaint/" target="_blank" rel="noopener">Ethan St Lee</a></strong> · MIT licensed'
 
 theme:
   name: material
+  custom_dir: docs/overrides
   logo: assets/logo-dark.png
   favicon: assets/logo-light.png
+  font: false
   features:
     - content.action.edit
     - content.code.copy
@@ -35,7 +38,8 @@ theme:
         name: Switch to system preference
 
 nav:
-  - Documentation: index.md
+  - Home: index.md
+  - Documentation: guide.md
   - Get Started:
       - 1. Install Aikito: installation.md
       - 2. Create a Workspace: workspace-setup.md
@@ -85,10 +89,14 @@ markdown_extensions:
   - toc:
       permalink: true
 
+exclude_docs: |
+  overrides/
+
 plugins:
   - search
 
 extra_css:
+  - stylesheets/fonts.css
   - stylesheets/modern.css
 
 validation:
