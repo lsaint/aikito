@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.35.0] - 2026-09-14
+
+### Added
+
+- Skipped provisioning dedicated instruction symlinks for uninstalled agents when their parent directory does not exist, avoiding cluttering project trees with unused agent directories.
+- Refined `aikito doctor` environment diagnostics to report detected agent CLIs as OK without warning on uninstalled ones, issuing a single warning only when no supported agent CLIs are found in `$PATH`.
+
+### Fixed
+
+- Marked project memory symlink status as `OFFLINE` in `aikito show memory` when project directories are inaccessible or not present on the current host.
+- Auto-registered PowerShell `aikito` alias pointing to the detected executable format (`aikito.exe`, `aikito.cmd`, or `aikito.ps1`) in generated completion scripts.
+
 ## [1.34.0] - 2026-09-13
 
 ### Added
@@ -649,7 +661,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.34.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.35.0...HEAD
+[1.35.0]: https://github.com/lsaint/aikito/compare/v1.34.0...v1.35.0
 [1.34.0]: https://github.com/lsaint/aikito/compare/v1.33.0...v1.34.0
 [1.33.0]: https://github.com/lsaint/aikito/compare/v1.32.0...v1.33.0
 [1.32.0]: https://github.com/lsaint/aikito/compare/v1.31.1...v1.32.0
