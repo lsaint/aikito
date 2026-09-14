@@ -958,25 +958,26 @@ class ProjectSummaryTest(unittest.TestCase):
             (definition / "AGENTS.md").write_text("Rules\n", encoding="utf-8")
             (project / "AGENTS.md").symlink_to(definition / "AGENTS.md")
 
-            # Neither codex nor claude-code is installed in root, and project/.claude does not exist.
-            # .claude/CLAUDE.md should not be considered MISSING.
-            summaries = collect_project_summaries(workspace, root)
-            self.assertEqual(len(summaries), 1)
-            self.assertEqual(summaries[0].runtime_status, "OK")
-            self.assertFalse((project / ".claude").exists())
+            with patch("shutil.which", return_value=None):
+                # Neither codex nor claude-code is installed in root, and project/.claude does not exist.
+                # .claude/CLAUDE.md should not be considered MISSING.
+                summaries = collect_project_summaries(workspace, root)
+                self.assertEqual(len(summaries), 1)
+                self.assertEqual(summaries[0].runtime_status, "OK")
+                self.assertFalse((project / ".claude").exists())
 
-            # sync_project_path should skip creating .claude/CLAUDE.md
-            sync_project_path(workspace, "demo", project, {"skills": []}, root)
-            self.assertFalse((project / ".claude").exists())
+                # sync_project_path should skip creating .claude/CLAUDE.md
+                sync_project_path(workspace, "demo", project, {"skills": []}, root)
+                self.assertFalse((project / ".claude").exists())
 
-            # Now mock claude-code being installed in root.
-            (root / ".claude").mkdir()
-            summaries = collect_project_summaries(workspace, root)
-            self.assertEqual(summaries[0].runtime_status, "MISSING")
+                # Now mock claude-code being installed in root.
+                (root / ".claude").mkdir()
+                summaries = collect_project_summaries(workspace, root)
+                self.assertEqual(summaries[0].runtime_status, "MISSING")
 
-            # With claude installed, sync_project_path provisions .claude/CLAUDE.md
-            sync_project_path(workspace, "demo", project, {"skills": []}, root)
-            self.assertTrue((project / ".claude" / "CLAUDE.md").is_symlink())
+                # With claude installed, sync_project_path provisions .claude/CLAUDE.md
+                sync_project_path(workspace, "demo", project, {"skills": []}, root)
+                self.assertTrue((project / ".claude" / "CLAUDE.md").is_symlink())
 
 
 if __name__ == "__main__":
