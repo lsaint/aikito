@@ -818,6 +818,18 @@ pre {
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: 13px;
   line-height: 1.8;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.install::-webkit-scrollbar {
+  display: none;
+}
+
+.install div {
+  white-space: nowrap;
 }
 
 .install .muted-term {
