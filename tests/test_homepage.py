@@ -92,5 +92,5 @@ class HomepageTests(unittest.TestCase):
                     ids = PageLinks(target.read_text(encoding="utf-8")).ids
                     self.assertIn(unquote(parsed.fragment), ids)
         guide = (site / "guide/index.html").read_text(encoding="utf-8")
-        self.assertIn('id="start-with-one-project"', guide)
+        self.assertIn('id="bring-your-existing-setup-under-control"', guide)
         self.assertIn('id="find-a-specific-operation"', guide)
