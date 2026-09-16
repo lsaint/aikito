@@ -7,8 +7,9 @@ Add a visible rule, check its connection, and confirm your agent can read it.
 
 > Add “Include a brief verification summary when reporting completed work” to
 > the canonical instructions for project example. Preserve existing content,
-> preview project synchronization, and apply it if there are no conflicts.
-> Show the instruction source and verify the native project instruction link.
+> synchronize the project, and stop with an explanation if synchronization
+> reports a conflict. Show the instruction source and verify the native project
+> instruction link.
 
 ## Edit and synchronize manually
 
@@ -26,12 +27,14 @@ Alternatively, edit `<workspace>/projects/example/AGENTS.md` directly. Add:
 - Include a brief verification summary when reporting completed work.
 ```
 
-Save the file, then preview and apply the connection:
+Save the file, then synchronize the connection:
 
 ```bash
-aikito sync project example --dry-run
 aikito sync project example
 ```
+
+Synchronization builds and validates its plan before writing. Add `--dry-run`
+only when you want to stop after a read-only preview.
 
 With nonempty instructions, Aikito links each registered agent's configured
 project instruction path to the canonical file. If a repository already owns

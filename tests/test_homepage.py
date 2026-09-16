@@ -28,7 +28,22 @@ class PageLinks(HTMLParser):
 
 
 class HomepageTests(unittest.TestCase):
-    @unittest.skipUnless((ROOT / "docs/overrides/home.html").is_file(), "Requires docs/ directory")
+    def test_readmes_reference_the_bundled_aikito_skill(self):
+        skill_path = "src/aikito/templates/skills/aikito/SKILL.md"
+        self.assertTrue((ROOT / skill_path).is_file())
+        for readme_name in ("README.md", "README.zh-CN.md"):
+            readme = (ROOT / readme_name).read_text(encoding="utf-8")
+            with self.subTest(readme=readme_name):
+                self.assertIn(skill_path, readme)
+
+    def test_homepage_routes_existing_configuration_through_adoption(self):
+        template = (ROOT / "docs/overrides/home.html").read_text(encoding="utf-8")
+        self.assertIn("aikito adopt", template)
+        self.assertIn("after init and before sync", template)
+
+    @unittest.skipUnless(
+        (ROOT / "docs/overrides/home.html").is_file(), "Requires docs/ directory"
+    )
     def test_template_routes_exist(self):
         template = (ROOT / "docs/overrides/home.html").read_text(encoding="utf-8")
         routes = re.findall(r"{{\s*'([^']+)'\s*\|\s*url\s*}}", template)
@@ -43,7 +58,9 @@ class HomepageTests(unittest.TestCase):
             with self.subTest(route=route):
                 self.assertTrue(target.is_file(), target)
 
-    @unittest.skipUnless(os.environ.get("AIKITO_DOCS_SITE"), "Requires a built documentation site")
+    @unittest.skipUnless(
+        os.environ.get("AIKITO_DOCS_SITE"), "Requires a built documentation site"
+    )
     def test_built_homepage_links_and_fragments(self):
         site = Path(os.environ["AIKITO_DOCS_SITE"]).resolve()
         source = (site / "index.html").read_text(encoding="utf-8")

@@ -69,7 +69,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
 
         # Flags per command & subcommand
         adopt_flags = schema["commands"]["adopt"]["flags"]
-        self.assertIn("--apply", adopt_flags)
+        self.assertNotIn("--apply", adopt_flags)
         self.assertIn("--dry-run", adopt_flags)
 
         doctor_flags = schema["commands"]["doctor"]["flags"]
@@ -120,7 +120,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("edit\\ inbox", zsh)
         self.assertIn("rm\\ inbox", zsh)
         self.assertIn("--dry-run", zsh)
-        self.assertIn("--apply", zsh)
+        self.assertNotIn("--apply", zsh)
         self.assertIn("--prune", zsh)
         self.assertIn("_files -/", zsh)
         self.assertIn("completion candidates paths", zsh)
@@ -134,7 +134,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("edit\\ inbox", bash)
         self.assertIn("rm\\ inbox", bash)
         self.assertIn("--dry-run", bash)
-        self.assertIn("--apply", bash)
+        self.assertNotIn("--apply", bash)
         self.assertIn("--prune", bash)
         self.assertIn("compgen -d", bash)
         self.assertIn("completion candidates paths", bash)
@@ -148,7 +148,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
             "show edit rm remove; and __fish_seen_subcommand_from inbox", fish
         )
         self.assertIn("-l dry-run", fish)
-        self.assertIn("-l apply", fish)
+        self.assertNotIn("-l apply", fish)
         self.assertIn("-l prune", fish)
         self.assertIn("-F", fish)
         self.assertIn("completion candidates paths", fish)

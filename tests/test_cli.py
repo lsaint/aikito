@@ -37,6 +37,66 @@ class MissingTemplatesStartupTest(unittest.TestCase):
         self.assertIn(f"aikito {AIKITO_CLI.__version__}", result.stdout)
         self.assertNotIn("Traceback", result.stderr)
 
+
+class WorkspaceInitGuidanceTest(unittest.TestCase):
+    def _run_init(self, root: Path, workspace: Path) -> str:
+        args = AIKITO_CLI.build_parser().parse_args(
+            ["init", "workspace", str(workspace)]
+        )
+        output = io.StringIO()
+        with (
+            patch.object(AIKITO_CLI.Path, "home", return_value=root),
+            patch("aikito.templating.shutil.which", return_value=None),
+            patch("aikito.mcp.shutil.which", return_value=None),
+            patch("sys.stdout", output),
+        ):
+            args.func(args)
+        return output.getvalue()
+
+    def test_init_without_agents_has_no_sync_instruction(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            rendered = self._run_init(root, root / "workspace")
+
+        self.assertIn("No supported Agents detected", rendered)
+        self.assertNotIn("aikito sync --dry-run", rendered)
+        self.assertNotIn("aikito adopt", rendered)
+
+    def test_init_with_installed_agent_points_to_safe_sync(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            (root / ".codex").mkdir()
+            rendered = self._run_init(root, root / "workspace")
+
+        self.assertIn("Run 'aikito sync'", rendered)
+        self.assertIn("checks the complete plan", rendered)
+        self.assertNotIn("aikito adopt", rendered)
+
+    def test_init_with_adoptable_config_points_to_safe_adopt(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            codex_dir = root / ".codex"
+            codex_dir.mkdir()
+            (codex_dir / "AGENTS.md").write_text(
+                "Existing instructions\n", encoding="utf-8"
+            )
+            rendered = self._run_init(root, root / "workspace")
+
+        self.assertIn("Run 'aikito adopt'", rendered)
+        self.assertIn("checks the complete import plan", rendered)
+        self.assertNotIn("aikito sync --dry-run", rendered)
+
+    def test_connect_existing_workspace_points_to_doctor(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            workspace = root / "workspace"
+            self._run_init(root, workspace)
+            rendered = self._run_init(root, workspace)
+
+        self.assertIn("[CONNECTED]", rendered)
+        self.assertIn("Run 'aikito doctor'", rendered)
+        self.assertNotIn("aikito sync --dry-run", rendered)
+
     def test_init_reports_missing_templates_without_traceback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             install_root = Path(tmp) / "install"
@@ -111,6 +171,21 @@ class GlobalEntrySyncTest(unittest.TestCase):
 
         self.assertTrue(result)
         self.assertEqual(target.resolve(), self.source.resolve())
+
+    def test_dry_run_does_not_create_installed_agent_parent_directory(self) -> None:
+        target = self.root / ".grok" / "rules" / "aikito.md"
+
+        result = AIKITO_CLI.sync_global_entry(
+            self.source,
+            target,
+            "Grok Build",
+            "instructions",
+            dry_run=True,
+            installed=True,
+        )
+
+        self.assertTrue(result)
+        self.assertFalse((self.root / ".grok").exists())
 
     def test_uninstalled_agent_missing_parent_directory_is_skipped(self) -> None:
         target = self.root / ".grok" / "rules" / "aikito.md"
@@ -210,6 +285,10 @@ class SyncSubcommandParserTest(unittest.TestCase):
         self.assertTrue(args_bare_dry.dry_run)
         self.assertEqual(args_bare_dry.func, AIKITO_CLI.cmd_sync_all)
 
+        args_bare_verbose = parser.parse_args(["sync", "--dry-run", "--verbose"])
+        self.assertTrue(args_bare_verbose.dry_run)
+        self.assertTrue(args_bare_verbose.verbose)
+
         args_prefix_dry = parser.parse_args(["sync", "--dry-run", "global"])
         self.assertTrue(args_prefix_dry.dry_run)
         self.assertEqual(args_prefix_dry.func, AIKITO_CLI.cmd_global_sync)
@@ -261,8 +340,122 @@ class SyncAllExecutionTest(unittest.TestCase):
             args = AIKITO_CLI.build_parser().parse_args(["sync", "--dry-run"])
             args.func(args)
             output = mock_stdout.getvalue()
-            self.assertIn("Full workspace sync preview completed successfully", output)
-            self.assertIn("offline on this host", output)
+            self.assertIn("Sync plan", output)
+            self.assertIn("Offline:   1", output)
+            self.assertIn("Safe to apply", output)
+            self.assertNotIn("offline on this host", output)
+
+    def test_cmd_sync_all_verbose_includes_item_details(self) -> None:
+        proj = self.aikito_dir / "projects" / "p1"
+        proj.mkdir()
+        (proj / "agent.toml").write_text(
+            '[paths]\nmac = "~/nonexistent_mac"\n', encoding="utf-8"
+        )
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("pathlib.Path.home", return_value=self.home),
+            patch.object(
+                AIKITO_CLI, "get_agents_dir", return_value=self.home / ".agents"
+            ),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["sync", "--dry-run", "--verbose"]
+            )
+            args.func(args)
+
+        output = mock_stdout.getvalue()
+        self.assertIn("Details", output)
+        self.assertIn("offline on this host", output)
+
+    def test_cmd_sync_all_does_not_apply_a_blocked_plan(self) -> None:
+        calls: list[bool] = []
+
+        def run_sync(_aikito_dir: Path, _home: Path, *, dry_run: bool) -> bool:
+            calls.append(dry_run)
+            print("[CONFLICT] unmanaged target", file=sys.stderr)
+            return False
+
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch("sys.stderr", new_callable=io.StringIO),
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("pathlib.Path.home", return_value=self.home),
+            patch.object(AIKITO_CLI, "_run_workspace_sync", side_effect=run_sync),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["sync"])
+            with self.assertRaises(SystemExit) as raised:
+                args.func(args)
+
+        self.assertEqual(raised.exception.code, 1)
+        self.assertEqual(calls, [True])
+        self.assertIn("Blocked; no changes were made", mock_stdout.getvalue())
+
+    def test_cmd_sync_all_project_conflict_prevents_global_writes(self) -> None:
+        project_path = self.root / "project-code"
+        project_path.mkdir()
+        (project_path / "AGENTS.md").write_text(
+            "# Unmanaged instructions\n", encoding="utf-8"
+        )
+        project_dir = self.aikito_dir / "projects" / "p1"
+        project_dir.mkdir()
+        (project_dir / "AGENTS.md").write_text(
+            "# Canonical instructions\n", encoding="utf-8"
+        )
+        (project_dir / "agent.toml").write_text(
+            f'name = "p1"\npath = "{project_path.as_posix()}"\n',
+            encoding="utf-8",
+        )
+        (self.home / ".codex").mkdir()
+        (self.aikito_dir / "agents.toml").write_text(
+            """
+[agents.codex]
+display_name = "Codex"
+instruction_path = ".codex/AGENTS.md"
+project_instruction_path = "AGENTS.md"
+skills_path = ".agents/skills"
+""".lstrip(),
+            encoding="utf-8",
+        )
+
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch("sys.stderr", new_callable=io.StringIO),
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("pathlib.Path.home", return_value=self.home),
+            patch.object(
+                AIKITO_CLI, "get_agents_dir", return_value=self.home / ".agents"
+            ),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["sync"])
+            with self.assertRaises(SystemExit) as raised:
+                args.func(args)
+
+        self.assertEqual(raised.exception.code, 1)
+        self.assertIn("Unmanaged project instructions", mock_stdout.getvalue())
+        self.assertFalse((self.home / ".agents").exists())
+        self.assertFalse((self.home / ".codex" / "AGENTS.md").exists())
+
+    def test_cmd_sync_all_preflights_before_apply(self) -> None:
+        calls: list[bool] = []
+
+        def run_sync(_aikito_dir: Path, _home: Path, *, dry_run: bool) -> bool:
+            calls.append(dry_run)
+            return True
+
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("pathlib.Path.home", return_value=self.home),
+            patch.object(AIKITO_CLI, "_run_workspace_sync", side_effect=run_sync),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["sync"])
+            args.func(args)
+
+        self.assertEqual(calls, [True, False])
+        self.assertIn(
+            "Full workspace sync completed successfully", mock_stdout.getvalue()
+        )
 
 
 class MaintainMemoryParserTest(unittest.TestCase):
@@ -2414,6 +2607,14 @@ class TestDoctorFixCli(unittest.TestCase):
         self.assertIn("warn_count", data)
         self.assertIn("fixes", data)
         self.assertNotIn("prune_blockers", data)
+        first_finding = next(
+            finding for section in data["sections"] for finding in section["findings"]
+        )
+        self.assertIn("code", first_finding)
+        self.assertIn("resource", first_finding)
+        self.assertIn("source", first_finding)
+        self.assertIn("reason", first_finding)
+        self.assertIn("actions", first_finding)
 
     def test_doctor_progress_shown_when_tty(self) -> None:
         mock_stdout = MagicMock()

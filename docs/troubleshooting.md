@@ -35,10 +35,16 @@ An unmanaged file occupies a path Aikito needs. Inspect both it and the workspac
 source before choosing which content to retain. Repository instructions may
 contain shared team rules.
 
-Use `aikito adopt` to inspect supported import candidates, and read
-[adoption rules](safety.md#adoption) before applying an import. Other conflicts
+Use `aikito adopt --dry-run --verbose` to inspect supported import candidates,
+and read [adoption rules](safety.md#adoption) before importing. Other conflicts
 need explicit reconciliation or a reviewed backup and relocation of the
-existing target. Re-run the preview after resolving the cause.
+existing target. Re-run the plan after resolving the cause.
+
+`aikito doctor` shows the same adoption finding with its resource, source,
+reason, and suggested commands. Fix the source when the resource should be
+imported. If one resource is intentionally excluded, rerun adoption with
+the displayed `--skip` command; skips are explicit, one-shot, and repeatable.
+Malformed or unreadable source files must be repaired and cannot be skipped.
 
 ## A copied or generated resource has drifted
 

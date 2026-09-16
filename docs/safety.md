@@ -51,10 +51,23 @@ agents are preserved safely across all machines.
 
 ## Adoption
 
-`aikito adopt` is a read-only preview unless `--apply` is supplied. Review all
-detected resources and resolve instruction conflicts before applying a plan.
+`aikito adopt` builds and validates the complete import plan before writing. It
+refuses the entire plan while instruction conflicts or invalid generated
+resources remain; unreadable or malformed source configuration also blocks the
+plan. Use `aikito adopt --dry-run` for a concise read-only plan, or
+add `--verbose` to inspect every source and target.
 
-`aikito adopt --apply` creates timestamped backups under:
+Each blocking finding names the affected resource, source, reason, and an exact
+next command. `aikito doctor` reports the same findings in its Adoption section
+without importing anything; `doctor --fix` does not apply or skip adoption.
+If a detected resource is intentionally out of scope, use a repeatable,
+one-shot `--skip instructions`, `--skip mcp/<name>`, or
+`--skip subagent/<name>`. Every skip is visible in the plan, and an unknown
+target fails. There is no global skip-errors mode. Unreadable or malformed
+source files remain unskippable because Aikito cannot safely determine their
+contents.
+
+An applied adoption creates timestamped backups under:
 
 ```text
 ~/.aikito/backups/adopt_<timestamp>
@@ -62,7 +75,10 @@ detected resources and resolve instruction conflicts before applying a plan.
 
 Adoption imports resources into the Aikito workspace. It does not overwrite the
 original Agent configuration files; Agent-native changes occur only during an
-explicit synchronization command.
+explicit synchronization command. After applying adoption, run `aikito sync`.
+It checks the complete workspace plan before writing and stops if any scope has
+a conflict. Use `aikito sync --dry-run --verbose` when a detailed read-only
+review is useful.
 
 ## Conflict and Drift Protection
 

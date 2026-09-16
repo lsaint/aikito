@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aikito.doctor import (
+    check_adoption,
     check_config_syntax,
     check_conflict_markers,
     check_drift,
@@ -17,6 +18,7 @@ from aikito.doctor import (
     run_doctor,
     run_doctor_prune,
 )
+from aikito.diagnostics import FindingAction
 from aikito.link import (
     SymlinkVerdict,
     classify_symlink,
@@ -134,6 +136,26 @@ class RenderDoctorReportTest(unittest.TestCase):
         report = self._make_report()
         rendered = render_doctor_report(report, is_tty=True, no_color=True)
         self.assertIn("aikito sync project foo", rendered)
+
+    def test_renders_structured_finding_details_and_actions(self) -> None:
+        finding = DoctorFinding(
+            status="WARN",
+            message="MCP server cannot be adopted",
+            resource="mcp/example",
+            source="~/.codex/config.toml",
+            reason="invalid TOML",
+            actions=(FindingAction("Skip", "aikito adopt --skip mcp/example"),),
+        )
+        report = DoctorReport(
+            sections=[DoctorSection(name="Adoption", findings=[finding])]
+        )
+
+        rendered = render_doctor_report(report, is_tty=False, no_color=True)
+
+        self.assertIn("Resource: mcp/example", rendered)
+        self.assertIn("Source: ~/.codex/config.toml", rendered)
+        self.assertIn("Reason: invalid TOML", rendered)
+        self.assertIn("Skip: aikito adopt --skip mcp/example", rendered)
 
     def test_summary_shows_counts(self) -> None:
         report = self._make_report()
@@ -958,12 +980,39 @@ agents = ["claude-code"]
 # ---------------------------------------------------------------------------
 
 
+class AdoptionDoctorTest(unittest.TestCase):
+    def test_adoption_section_reuses_actionable_findings_as_warnings(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            workspace = root / "workspace"
+            home = root / "home"
+            (workspace / "global").mkdir(parents=True)
+            (home / ".codex").mkdir(parents=True)
+            source = home / ".codex" / "config.toml"
+            source.write_text(
+                '[mcp_servers."../escape"]\ncommand = "example"\n',
+                encoding="utf-8",
+            )
+
+            section = check_adoption(workspace, home)
+
+        finding = next(
+            item for item in section.findings if item.code == "adopt.invalid_mcp"
+        )
+        self.assertEqual(section.name, "Adoption")
+        self.assertEqual(finding.status, "WARN")
+        self.assertEqual(finding.source, str(source))
+        self.assertEqual(
+            finding.actions[0].command, "aikito adopt --skip mcp/../escape"
+        )
+
+
 class RunDoctorIntegrationTest(unittest.TestCase):
     def test_run_doctor_returns_report(self) -> None:
         # Run against the actual aikito workspace (read-only)
         report = run_doctor(ROOT, Path(tempfile.gettempdir()))
         self.assertIsInstance(report, DoctorReport)
-        self.assertTrue(len(report.sections) == 9)
+        self.assertTrue(len(report.sections) == 10)
         # All section names present
         names = {s.name for s in report.sections}
         for expected in (
@@ -974,6 +1023,7 @@ class RunDoctorIntegrationTest(unittest.TestCase):
             "Drift",
             "Security",
             "Environment",
+            "Adoption",
             "ConflictMarkers",
         ):
             self.assertIn(expected, names)
@@ -995,6 +1045,7 @@ class RunDoctorIntegrationTest(unittest.TestCase):
                 "Drift",
                 "Security",
                 "Environment",
+                "Adoption",
                 "ConflictMarkers",
                 "Projects",
                 "Configuration",

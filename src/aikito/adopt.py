@@ -8,14 +8,17 @@ Supports --dry-run for previewing adoption changes without modifying workspace f
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .diagnostics import Finding, FindingAction
+from .render import render_finding_lines
 from .subagent import has_aikito_marker
 from .templating import (
     load_default_memory_instruction,
@@ -107,6 +110,7 @@ class MCPServerAdoption:
     agents: List[str]
     config_data: Dict[str, Any]
     source_agent: str
+    source_file: Optional[Path] = None
 
 
 @dataclass
@@ -127,6 +131,26 @@ class AdoptPlan:
     instructions: InstructionsAdoption
     mcp_servers: List[MCPServerAdoption]
     subagents: List[SubagentAdoption]
+    errors: tuple[Finding, ...] = ()
+    skipped: tuple[str, ...] = ()
+
+    @property
+    def has_conflicts(self) -> bool:
+        return self.instructions.has_conflict
+
+
+@dataclass(frozen=True)
+class AdoptSummary:
+    instruction_updates: int
+    mcp_imports: int
+    subagent_imports: int
+    conflicts: int
+    errors: int
+    skipped: int
+
+    @property
+    def total_changes(self) -> int:
+        return self.instruction_updates + self.mcp_imports + self.subagent_imports
 
 
 def _normalize_instructions_content(text: str) -> str:
@@ -168,7 +192,36 @@ def _merge_adopted_instructions(
     return True, None
 
 
-def scan_instructions(aikito_dir: Path, home: Path) -> InstructionsAdoption:
+class AdoptSkipError(ValueError):
+    """Raised when an explicit adoption skip target is unknown."""
+
+
+def _record_scan_error(
+    errors: list[Finding] | None,
+    message: str,
+    *,
+    source: Path,
+    resource: str,
+) -> None:
+    if errors is None:
+        print(f"[WARN] {message}", file=sys.stderr)
+    else:
+        errors.append(
+            Finding(
+                status="FAIL",
+                code="adopt.source_invalid",
+                resource=resource,
+                source=str(source),
+                message=f"Cannot inspect adoption source '{resource}'",
+                reason=message,
+                fix_hint=f"Repair or remove the invalid source: {source}",
+            )
+        )
+
+
+def scan_instructions(
+    aikito_dir: Path, home: Path, *, errors: list[Finding] | None = None
+) -> InstructionsAdoption:
     candidates = [
         ("codex", home / ".codex" / "AGENTS.md"),
         ("claude-code", home / ".claude" / "CLAUDE.md"),
@@ -186,9 +239,11 @@ def scan_instructions(aikito_dir: Path, home: Path) -> InstructionsAdoption:
                 if content:
                     sources.append((agent_name, path, content))
             except (PermissionError, OSError) as e:
-                print(
-                    f"[WARN] Unable to read instructions from '{path}': {e}",
-                    file=sys.stderr,
+                _record_scan_error(
+                    errors,
+                    f"Unable to read instructions: {e}",
+                    source=path,
+                    resource="instructions",
                 )
 
     if not sources:
@@ -259,7 +314,9 @@ def _sanitize_mcp_headers(headers: Dict[str, Any], server_name: str) -> Dict[str
     return sanitized
 
 
-def scan_mcp_servers(aikito_dir: Path, home: Path) -> List[MCPServerAdoption]:
+def scan_mcp_servers(
+    aikito_dir: Path, home: Path, *, errors: list[Finding] | None = None
+) -> List[MCPServerAdoption]:
     adopted_servers: Dict[str, MCPServerAdoption] = {}
 
     # 1. Claude Code (~/.claude.json) & Claude Desktop JSON
@@ -299,16 +356,21 @@ def scan_mcp_servers(aikito_dir: Path, home: Path) -> List[MCPServerAdoption]:
                                     agents=["claude-code"],
                                     config_data=s_cfg_copy,
                                     source_agent="claude-code",
+                                    source_file=c_path,
                                 )
             except json.JSONDecodeError as e:
-                print(
-                    f"[WARN] Failed to parse JSON in '{c_path}': {e}",
-                    file=sys.stderr,
+                _record_scan_error(
+                    errors,
+                    f"Failed to parse JSON: {e}",
+                    source=c_path,
+                    resource="mcp",
                 )
             except (PermissionError, OSError) as e:
-                print(
-                    f"[WARN] Failed to read MCP config file '{c_path}': {e}",
-                    file=sys.stderr,
+                _record_scan_error(
+                    errors,
+                    f"Failed to read MCP config file: {e}",
+                    source=c_path,
+                    resource="mcp",
                 )
 
     # 2. Codex TOML
@@ -337,16 +399,21 @@ def scan_mcp_servers(aikito_dir: Path, home: Path) -> List[MCPServerAdoption]:
                                     agents=["codex"],
                                     config_data=s_cfg_copy,
                                     source_agent="codex",
+                                    source_file=codex_toml,
                                 )
         except tomllib.TOMLDecodeError as e:
-            print(
-                f"[WARN] Failed to parse TOML in '{codex_toml}': {e}",
-                file=sys.stderr,
+            _record_scan_error(
+                errors,
+                f"Failed to parse TOML: {e}",
+                source=codex_toml,
+                resource="mcp",
             )
         except (PermissionError, OSError) as e:
-            print(
-                f"[WARN] Failed to read MCP config file '{codex_toml}': {e}",
-                file=sys.stderr,
+            _record_scan_error(
+                errors,
+                f"Failed to read MCP config file: {e}",
+                source=codex_toml,
+                resource="mcp",
             )
 
     # 3. GitHub Copilot CLI (~/.copilot/mcp-config.json)
@@ -398,16 +465,21 @@ def scan_mcp_servers(aikito_dir: Path, home: Path) -> List[MCPServerAdoption]:
                                     agents=["github-copilot"],
                                     config_data=s_cfg_copy,
                                     source_agent="github-copilot",
+                                    source_file=copilot_mcp_config,
                                 )
         except json.JSONDecodeError as e:
-            print(
-                f"[WARN] Failed to parse JSON in '{copilot_mcp_config}': {e}",
-                file=sys.stderr,
+            _record_scan_error(
+                errors,
+                f"Failed to parse JSON: {e}",
+                source=copilot_mcp_config,
+                resource="mcp",
             )
         except (PermissionError, OSError) as e:
-            print(
-                f"[WARN] Failed to read MCP config file '{copilot_mcp_config}': {e}",
-                file=sys.stderr,
+            _record_scan_error(
+                errors,
+                f"Failed to read MCP config file: {e}",
+                source=copilot_mcp_config,
+                resource="mcp",
             )
 
     return list(adopted_servers.values())
@@ -448,7 +520,9 @@ def _parse_markdown_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
     return meta, body
 
 
-def scan_subagents(aikito_dir: Path, home: Path) -> List[SubagentAdoption]:
+def scan_subagents(
+    aikito_dir: Path, home: Path, *, errors: list[Finding] | None = None
+) -> List[SubagentAdoption]:
     subagents: List[SubagentAdoption] = []
 
     # Claude Code Subagents
@@ -477,9 +551,11 @@ def scan_subagents(aikito_dir: Path, home: Path) -> List[SubagentAdoption]:
                     )
                 )
             except (PermissionError, OSError) as e:
-                print(
-                    f"[WARN] Failed to read subagent file '{agent_file}': {e}",
-                    file=sys.stderr,
+                _record_scan_error(
+                    errors,
+                    f"Failed to read subagent file: {e}",
+                    source=agent_file,
+                    resource=f"subagent/{s_name}",
                 )
 
     # GitHub Copilot CLI Subagents
@@ -532,18 +608,21 @@ def scan_subagents(aikito_dir: Path, home: Path) -> List[SubagentAdoption]:
                         )
                     )
             except (PermissionError, OSError) as e:
-                print(
-                    f"[WARN] Failed to read subagent file '{agent_file}': {e}",
-                    file=sys.stderr,
+                _record_scan_error(
+                    errors,
+                    f"Failed to read subagent file: {e}",
+                    source=agent_file,
+                    resource=f"subagent/{s_name}",
                 )
 
     return subagents
 
 
 def build_adopt_plan(aikito_dir: Path, home: Path) -> AdoptPlan:
-    instructions = scan_instructions(aikito_dir, home)
-    mcp_servers = scan_mcp_servers(aikito_dir, home)
-    subagents = scan_subagents(aikito_dir, home)
+    errors: list[Finding] = []
+    instructions = scan_instructions(aikito_dir, home, errors=errors)
+    mcp_servers = scan_mcp_servers(aikito_dir, home, errors=errors)
+    subagents = scan_subagents(aikito_dir, home, errors=errors)
 
     return AdoptPlan(
         aikito_dir=aikito_dir,
@@ -551,14 +630,200 @@ def build_adopt_plan(aikito_dir: Path, home: Path) -> AdoptPlan:
         instructions=instructions,
         mcp_servers=mcp_servers,
         subagents=subagents,
+        errors=tuple(errors),
     )
 
 
+def apply_adopt_skips(plan: AdoptPlan, requested: list[str] | None) -> AdoptPlan:
+    """Return a plan with explicitly named resources removed before validation."""
+    requested_set = set(requested or [])
+    if not requested_set:
+        return plan
+
+    available: set[str] = set()
+    if plan.instructions.sources:
+        available.add("instructions")
+    available.update(f"mcp/{server.server_name}" for server in plan.mcp_servers)
+    available.update(f"subagent/{sub.subagent_name}" for sub in plan.subagents)
+    unknown = sorted(requested_set - available)
+    if unknown:
+        available_text = ", ".join(sorted(available)) or "none"
+        raise AdoptSkipError(
+            f"Unknown adoption skip target(s): {', '.join(unknown)}. "
+            f"Available targets: {available_text}"
+        )
+
+    instructions = plan.instructions
+    if "instructions" in requested_set:
+        instructions = InstructionsAdoption(
+            sources=[],
+            target_path=plan.instructions.target_path,
+        )
+    return replace(
+        plan,
+        instructions=instructions,
+        mcp_servers=[
+            server
+            for server in plan.mcp_servers
+            if f"mcp/{server.server_name}" not in requested_set
+        ],
+        subagents=[
+            sub
+            for sub in plan.subagents
+            if f"subagent/{sub.subagent_name}" not in requested_set
+        ],
+        skipped=tuple(sorted(requested_set)),
+    )
+
+
+def summarize_adopt_plan(plan: AdoptPlan) -> AdoptSummary:
+    instruction_updates = 0
+    inst = plan.instructions
+    if inst.sources and not inst.has_conflict and inst.merged_content is not None:
+        current = ""
+        if inst.target_path and inst.target_path.is_file():
+            current = inst.target_path.read_text(encoding="utf-8")
+        if _normalize_instructions_content(current) != _normalize_instructions_content(
+            inst.merged_content
+        ):
+            instruction_updates = 1
+
+    mcp_imports = 0
+    for server in plan.mcp_servers:
+        target = plan.aikito_dir / "mcps" / f"{server.server_name}.toml"
+        content, _ = render_mcp_server_file(server)
+        if not target.exists() and content is not None:
+            mcp_imports += 1
+
+    subagents_path = plan.aikito_dir / "subagents.toml"
+    existing_subagents = (
+        subagents_path.read_text(encoding="utf-8") if subagents_path.is_file() else ""
+    )
+    _, subagent_logs = render_subagents_block(existing_subagents, plan.subagents)
+    subagent_imports = sum(
+        log.startswith("[ADOPT SUBAGENT]") for _, log in subagent_logs
+    )
+
+    return AdoptSummary(
+        instruction_updates=instruction_updates,
+        mcp_imports=mcp_imports,
+        subagent_imports=subagent_imports,
+        conflicts=1 if plan.has_conflicts else 0,
+        errors=len(collect_adopt_findings(plan)) - (1 if plan.has_conflicts else 0),
+        skipped=len(plan.skipped),
+    )
+
+
+def collect_adopt_findings(plan: AdoptPlan) -> tuple[Finding, ...]:
+    """Return every actionable issue that blocks the current adoption plan."""
+    findings = list(plan.errors)
+    if plan.has_conflicts:
+        source_paths = ", ".join(str(path) for _, path, _ in plan.instructions.sources)
+        target = (
+            plan.instructions.target_path or plan.aikito_dir / "global" / "AGENTS.md"
+        )
+        findings.append(
+            Finding(
+                status="FAIL",
+                code="adopt.instructions_conflict",
+                resource="instructions",
+                source=source_paths,
+                message="Global instructions cannot be adopted automatically",
+                reason="Detected instruction sources do not match",
+                fix_hint=f"Review and merge the sources into {target}",
+                actions=(
+                    FindingAction("Review", "aikito adopt --dry-run --verbose"),
+                    FindingAction("Skip", "aikito adopt --skip instructions"),
+                ),
+            )
+        )
+    for server in plan.mcp_servers:
+        content, log_message = render_mcp_server_file(server)
+        if content is None:
+            resource = f"mcp/{server.server_name}"
+            findings.append(
+                Finding(
+                    status="FAIL",
+                    code="adopt.invalid_mcp",
+                    resource=resource,
+                    source=str(server.source_file or server.source_agent),
+                    message=f"MCP server '{server.server_name}' cannot be adopted",
+                    reason=log_message,
+                    fix_hint="Repair or remove the definition in the source file",
+                    actions=(FindingAction("Skip", f"aikito adopt --skip {resource}"),),
+                )
+            )
+
+    subagents_path = plan.aikito_dir / "subagents.toml"
+    existing_subagents = (
+        subagents_path.read_text(encoding="utf-8") if subagents_path.is_file() else ""
+    )
+    _, subagent_logs = render_subagents_block(existing_subagents, plan.subagents)
+    subagents_by_name = {sub.subagent_name: sub for sub in plan.subagents}
+    for subagent_name, log_message in subagent_logs:
+        if "Skipping invalid" not in log_message:
+            continue
+        resource = f"subagent/{subagent_name}"
+        source = subagents_by_name[subagent_name].source_file
+        findings.append(
+            Finding(
+                status="FAIL",
+                code="adopt.invalid_subagent",
+                resource=resource,
+                source=str(source),
+                message=f"Subagent '{subagent_name}' cannot be adopted",
+                reason=log_message,
+                fix_hint="Repair or remove the definition in the source file",
+                actions=(FindingAction("Skip", f"aikito adopt --skip {resource}"),),
+            )
+        )
+    return tuple(findings)
+
+
+def _print_adopt_summary(summary: AdoptSummary, skipped: tuple[str, ...]) -> None:
+    print("Adoption plan")
+    print()
+    print(f"  Instructions: {summary.instruction_updates} update(s)")
+    print(f"  MCP servers:  {summary.mcp_imports} import(s)")
+    print(f"  Subagents:    {summary.subagent_imports} import(s)")
+    print(f"  Conflicts:    {summary.conflicts}")
+    print(f"  Errors:       {summary.errors}")
+    print(f"  Skipped:      {summary.skipped}")
+    for resource in skipped:
+        print(f"  [SKIP] {resource} (explicitly requested)")
+
+
 def execute_adoption(
-    plan: AdoptPlan, dry_run: bool = False, backup_dir: Optional[Path] = None
+    plan: AdoptPlan,
+    dry_run: bool = False,
+    backup_dir: Optional[Path] = None,
+    *,
+    verbose: bool = True,
 ) -> bool:
-    print(f"[INFO] {'Previewing' if dry_run else 'Executing'} Aikito adoption plan...")
-    print(f"       Target workspace: {plan.aikito_dir}")
+    summary = summarize_adopt_plan(plan)
+    _print_adopt_summary(summary, plan.skipped)
+
+    if summary.total_changes == 0 and not plan.has_conflicts and not summary.errors:
+        print("\n[OK] No adoptable Agent configuration found. No files were modified.")
+        return True
+
+    findings = collect_adopt_findings(plan)
+    if findings:
+        print("", file=sys.stderr)
+        for finding in findings:
+            for line in render_finding_lines(finding):
+                print(line, file=sys.stderr)
+        print(
+            "[ERROR] Adoption blocked; no files were modified. Resolve the "
+            "problems above and rerun 'aikito adopt'.",
+            file=sys.stderr,
+        )
+        return False
+
+    print("\nSafe to apply")
+    if dry_run and not verbose:
+        print("[DRY-RUN] No files were modified.")
+        return True
 
     # Create timestamped backup of local agent config files
     try:
@@ -571,32 +836,27 @@ def execute_adoption(
 
     inst = plan.instructions
     if inst.sources:
-        print("\n--- Global Instructions Adoption ---")
-        if inst.has_conflict:
-            print("[CONFLICT] Found conflicting global instructions:")
-            if inst.target_path and inst.target_path.is_file():
-                print(f"  - aikito: {inst.target_path}")
-            for ag, p, _ in inst.sources:
-                print(f"  - {ag}: {p}")
-            print(
-                "💡 Action required: Instructions conflict detected. Please manually review and merge into global/AGENTS.md"
-            )
-        else:
+        if verbose:
+            print("\n--- Global Instructions Adoption ---")
             ag_names = ", ".join(ag for ag, _, _ in inst.sources)
             print(f"[MERGE] Instructions from {ag_names} match perfectly.")
-            if inst.target_path:
-                if dry_run:
+            for agent_name, source_path, _ in inst.sources:
+                print(f"[SOURCE] {agent_name}: {source_path}")
+        if inst.target_path and summary.instruction_updates:
+            if dry_run:
+                if verbose:
                     print(
                         f"[DRY-RUN WRITE] Would write merged instructions to {inst.target_path}"
                     )
-                else:
-                    inst.target_path.parent.mkdir(parents=True, exist_ok=True)
-                    inst.target_path.write_text(inst.merged_content, encoding="utf-8")
+            else:
+                _write_text_atomic(inst.target_path, inst.merged_content or "")
+                if verbose:
                     print(f"[WRITE FILE] Updated {inst.target_path}")
 
     # 2. MCP Servers Adoption
     if plan.mcp_servers:
-        print("\n--- MCP Servers Adoption ---")
+        if verbose:
+            print("\n--- MCP Servers Adoption ---")
         mcps_dir = plan.aikito_dir / "mcps"
         if not dry_run:
             mcps_dir.mkdir(parents=True, exist_ok=True)
@@ -604,19 +864,23 @@ def execute_adoption(
         for srv in plan.mcp_servers:
             server_file = mcps_dir / f"{srv.server_name}.toml"
             if server_file.exists():
-                print(f"[SKIP MCP] Server '{srv.server_name}' already present")
+                if verbose:
+                    print(f"[SKIP MCP] Server '{srv.server_name}' already present")
                 continue
             content, log_msg = render_mcp_server_file(srv)
             if dry_run and log_msg.startswith("[ADOPT MCP]"):
                 log_msg = log_msg.replace("[ADOPT MCP]", "[DRY-RUN MCP] Would import")
-            print(log_msg)
+            if verbose:
+                print(log_msg)
             if not dry_run and content is not None:
-                server_file.write_text(content, encoding="utf-8")
-                print(f"[WRITE FILE] Created {server_file}")
+                _write_text_atomic(server_file, content)
+                if verbose:
+                    print(f"[WRITE FILE] Created {server_file}")
 
     # 3. Subagents Adoption (Pre-render in memory)
     if plan.subagents:
-        print("\n--- Subagents Adoption ---")
+        if verbose:
+            print("\n--- Subagents Adoption ---")
         sub_toml_path = plan.aikito_dir / "subagents.toml"
         existing_subs = (
             sub_toml_path.read_text(encoding="utf-8") if sub_toml_path.exists() else ""
@@ -630,31 +894,38 @@ def execute_adoption(
                 log_msg = log_msg.replace(
                     "[ADOPT SUBAGENT]", "[DRY-RUN SUBAGENT] Would import"
                 )
-            print(log_msg)
+            if verbose:
+                print(log_msg)
 
         if not dry_run and new_subs_content != existing_subs:
-            sub_toml_path.write_text(new_subs_content, encoding="utf-8")
-            print(f"[WRITE FILE] Updated {sub_toml_path}")
+            _write_text_atomic(sub_toml_path, new_subs_content)
+            if verbose:
+                print(f"[WRITE FILE] Updated {sub_toml_path}")
             instructions_dir = plan.aikito_dir / "subagents"
-            instructions_dir.mkdir(parents=True, exist_ok=True)
             for sub in plan.subagents:
                 instructions_path = instructions_dir / f"{sub.subagent_name}.md"
                 if not instructions_path.exists():
-                    instructions_path.write_text(
-                        sub.system_prompt.rstrip() + "\n", encoding="utf-8"
+                    _write_text_atomic(
+                        instructions_path, sub.system_prompt.rstrip() + "\n"
                     )
-                    print(f"[WRITE FILE] Created {instructions_path}")
+                    if verbose:
+                        print(f"[WRITE FILE] Created {instructions_path}")
 
     if dry_run:
-        print("\n[DRY-RUN SUMMARY] Preview complete. No files were modified.")
-        print(
-            "💡 Run 'aikito adopt --apply' to apply these adoption changes to your workspace."
-        )
+        print("\n[DRY-RUN] No files were modified.")
     else:
         print("\n[SUCCESS] Adoption executed successfully!")
-        print("💡 Run 'aikito status' to check workspace synchronization status.")
+        print("Next step: Run 'aikito sync' to check and apply runtime changes.")
 
     return True
+
+
+def _write_text_atomic(target: Path, content: str) -> None:
+    """Replace one workspace text file without exposing partial contents."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(f"{target.suffix}.tmp.{os.getpid()}")
+    temporary.write_text(content, encoding="utf-8")
+    temporary.replace(target)
 
 
 def _format_toml_key(key: str) -> str:
@@ -694,6 +965,12 @@ def render_mcp_server_file(
     Returns (toml_content_or_none, log_message)
     """
     cfg = srv.config_data
+    if (
+        not srv.server_name
+        or Path(srv.server_name).name != srv.server_name
+        or "\\" in srv.server_name
+    ):
+        return None, f"[ERROR] Invalid MCP server name: {srv.server_name!r}"
     lines = [f"agents = {_format_toml_value(srv.agents)}"]
 
     for key in ("command", "url", "args", "env", "transport", "headers"):

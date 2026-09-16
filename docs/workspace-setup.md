@@ -7,9 +7,11 @@ This step assumes [the CLI is installed](installation.md).
 ## Ask your agent
 
 > Initialize my Aikito workspace at ~/aikito, or inspect it if it already exists.
-> Preview workspace synchronization, report any conflicts, and synchronize when
-> there are none. Verify the workspace path and status. Do not adopt existing
-> configuration or register a project yet.
+> If existing Agent configuration is detected, run `aikito adopt` before
+> synchronization. Then run `aikito sync` and verify the workspace path and
+> status. Both commands preflight before writing; if either stops, explain the
+> findings and ask before skipping or forcing anything. Do not register a
+> project yet.
 
 ## Create and connect manually
 
@@ -24,6 +26,15 @@ If you already have a workspace, use its path instead.
 For a cloned workspace on another machine, follow
 [Connect a workspace on another machine](workspace-portability.md).
 
+If Aikito reports existing Agent configuration, import it before synchronization:
+
+```bash
+aikito adopt
+```
+
+Adoption first validates every detected resource. It writes only when the
+complete plan is safe and leaves the original Agent configuration unchanged.
+
 | Workspace path | What it holds |
 | --- | --- |
 | `global/AGENTS.md` | Instructions shared across projects |
@@ -33,18 +44,19 @@ For a cloned workspace on another machine, follow
 | `mcps/` | Model Context Protocol configurations |
 | `projects/` | Each registered project's configuration and memory |
 
-Preview and synchronize workspace resources:
+Synchronize workspace resources:
 
 ```bash
-aikito sync --dry-run
 aikito sync
 aikito status
 ```
 
-If the preview reports an unmanaged existing file, follow
+The command builds a complete read-only plan first and writes only when every
+scope is safe. Its default output is a concise summary. Use
+`aikito sync --dry-run` to stop after planning, and add `--verbose` when exact
+items and paths are needed. If the plan reports an unmanaged existing file, follow
 [conflict diagnosis](troubleshooting.md#existing-files-conflict) before applying.
-Existing configuration can be imported through a reviewed
-[adoption plan](safety.md#adoption).
+See the [adoption plan](safety.md#adoption) for source, backup, and write boundaries.
 
 ## Verify
 

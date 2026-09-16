@@ -86,9 +86,9 @@ failures.
 - Start read-only: inspect the relevant canonical files and run `aikito status`
   or the narrowest resource-specific status command. Do the same after every
   write, inspecting the reported targets.
-- Preview before applying: `aikito adopt` without `--apply`, and `--dry-run`
-  wherever synchronization supports it. Show the user the plan, conflicts, and
-  credential handling first.
+- Preview before applying when review is requested: use `--dry-run` for adoption
+  and synchronization. Both commands preflight complete plans before their
+  default write behavior. Show the user conflicts and credential handling first.
 - Treat unmanaged targets, drifted copies, and conflicting instructions as
   user decisions. Never silently overwrite them, and never force or prune
   merely to make status green. Warn first, scope the operation to the reviewed
@@ -233,8 +233,18 @@ aikito rm inbox <target>
 
 ## Adoption
 
-`aikito adopt` previews existing Agent configuration; `aikito adopt --apply`
-imports it only after the user reviews the plan and resolves instruction
-conflicts. Application creates timestamped backups under
+`aikito adopt` preflights existing Agent configuration and imports it only when
+the complete plan has no instruction conflicts or invalid generated resources.
+Unreadable or malformed source configuration also blocks adoption. Use
+`aikito adopt --dry-run --verbose` for detailed read-only review. Application
+creates timestamped backups under
 `~/.aikito/backups/adopt_<timestamp>`. Adoption writes into the workspace only;
-Agent-native configuration changes during explicit synchronization.
+Agent-native configuration changes during explicit synchronization. An
+instruction conflict blocks the entire apply operation. `aikito doctor` reports
+the same structured adoption findings but never imports or skips resources,
+including with `--fix`. If a resource is intentionally excluded, repeat
+`--skip instructions`, `--skip mcp/<name>`, or `--skip subagent/<name>` as
+needed. Skips are visible and last for one invocation; never use them to bypass
+an unreadable or malformed source. After adoption succeeds, run `aikito sync`;
+it preflights the complete workspace and writes only when the plan is safe. Use
+`aikito sync --dry-run --verbose` for a detailed read-only plan.

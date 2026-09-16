@@ -68,6 +68,7 @@ __all__ = [
     "SOURCE_CHECKOUT_MARKERS",
     "WORKSPACE_FILE_MARKERS",
     "WORKSPACE_DIRECTORY_MARKERS",
+    "is_recognized_workspace",
     "init_workspace",
     "init_project",
     "project_validation_error",
@@ -97,19 +98,19 @@ def _target_validation_error(target_dir: Path) -> Optional[str]:
             f"and workspace in separate directories: {target_dir}"
         )
 
-    has_workspace_files = all(
-        (target_dir / marker).is_file() for marker in WORKSPACE_FILE_MARKERS
-    )
-    has_workspace_directories = all(
-        (target_dir / marker).is_dir() for marker in WORKSPACE_DIRECTORY_MARKERS
-    )
-    if has_workspace_files and has_workspace_directories:
+    if is_recognized_workspace(target_dir):
         return None
 
     return (
         "Target directory is not empty and is not a recognized Aikito "
         f"workspace: {target_dir}"
     )
+
+
+def is_recognized_workspace(target_dir: Path) -> bool:
+    return all(
+        (target_dir / marker).is_file() for marker in WORKSPACE_FILE_MARKERS
+    ) and all((target_dir / marker).is_dir() for marker in WORKSPACE_DIRECTORY_MARKERS)
 
 
 def _load_templates_error() -> Optional[str]:
@@ -124,6 +125,7 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
     Creates skeleton directories, template configs, leading-slash .gitignore, and git repo.
     """
     target_dir = target_dir.expanduser().resolve()
+    existing_workspace = is_recognized_workspace(target_dir)
 
     validation_error = _target_validation_error(target_dir)
     if validation_error:
@@ -138,7 +140,12 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
     detected_agents = detect_existing_agents(home)
     installed_agent_names = detected_agent_names(detected_agents)
 
-    print(f"[INFO] Initializing Aikito workspace in: {target_dir}")
+    if existing_workspace and force:
+        print(f"[INFO] Refreshing Aikito workspace templates in: {target_dir}")
+    elif existing_workspace:
+        print(f"[INFO] Connecting to existing Aikito workspace: {target_dir}")
+    else:
+        print(f"[INFO] Initializing Aikito workspace in: {target_dir}")
 
     # 1. Create skeleton directories
     dirs_to_create = [
@@ -165,14 +172,15 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
                 "[FORCE WRITE]" if force and file_path.exists() else "[CREATE FILE]"
             )
             print(f"{status_tag} {file_path} ({desc})")
-        else:
+        elif not existing_workspace:
             print(f"[SKIP FILE] {file_path} (Already exists)")
 
     for skill_name in BUNDLED_SKILL_NAMES:
         bundled_skill_target = target_dir / "skills" / skill_name
         skill_source = bundled_skill_path(skill_name)
         if bundled_skill_target.exists():
-            print(f"[SKIP DIR] {bundled_skill_target} (Already exists)")
+            if force or not existing_workspace:
+                print(f"[SKIP DIR] {bundled_skill_target} (Already exists)")
             continue
         shutil.copytree(skill_source, bundled_skill_target)
         print(f"[CREATE DIR] {bundled_skill_target} (Bundled {skill_name} skill)")
@@ -195,18 +203,21 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
             print(f"[ERROR] Failed to run 'git init': {e.stderr.strip()}")
             return False
     else:
-        print(f"[SKIP GIT] Git repository already exists in {target_dir}")
+        if not existing_workspace:
+            print(f"[SKIP GIT] Git repository already exists in {target_dir}")
 
     # 4. Check existing agents & print next-step hints
-    print("\n[SUCCESS] Aikito workspace initialization complete!")
+    if existing_workspace and force:
+        print("\n[SUCCESS] Existing Aikito workspace templates refreshed!")
+    elif existing_workspace:
+        print("\n[CONNECTED] Existing Aikito workspace is ready on this host.")
+    else:
+        print("\n[SUCCESS] Aikito workspace initialization complete!")
 
     if detected_agents:
-        print("\n[INFO] Detected existing local agent configuration(s):")
+        print("\n[INFO] Detected installed Agent(s):")
         for name, p in detected_agents:
             print(f"  - {name} ({p})")
-        print(
-            "\n💡 Hint: You can run 'aikito adopt' to preview adoption changes, or 'aikito adopt --apply' to apply."
-        )
 
     return True
 

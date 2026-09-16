@@ -26,9 +26,11 @@ Initialization changes only the Aikito workspace. The integration becomes
 active only after an explicit synchronization:
 
 ```bash
-aikito sync --dry-run
 aikito sync
 ```
+
+Full workspace sync preflights every scope before applying changes. Use
+`aikito sync --dry-run --verbose` when you need a read-only path-level review.
 
 If existing Agent instructions are detected, run `aikito adopt` before
 synchronizing. When all detected Agent instructions agree and the canonical

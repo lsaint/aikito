@@ -29,11 +29,10 @@ version.
 | `aikito add skill <name>` | Create a canonical skill skeleton and register it in `skills.toml` or project config |
 | `aikito add subagent <name>` | Create a canonical subagent skeleton and register it in `subagents.toml` |
 | `aikito add mcp <name>` | Create a canonical MCP server configuration in `mcps/<name>.toml` |
-| `aikito adopt [path]` | Preview existing local configuration adoption |
-| `aikito adopt --apply` | Apply the reviewed adoption plan |
+| `aikito adopt [path] [--dry-run] [--verbose] [--skip <resource>]` | Preflight existing local configuration, then import it only when the complete plan is safe |
 | `aikito status` | Show the synchronization dashboard |
 | `aikito diff` | Show unified diffs for drifted MCP, subagent, and copied project skill resources |
-| `aikito sync [--dry-run]` | Synchronize all host-compatible resources (global, subagents, MCPs, active projects) |
+| `aikito sync [--dry-run] [--verbose]` | Preflight all host-compatible resources together, then synchronize only when the complete plan is safe |
 | `aikito sync global [--dry-run]` | Synchronize or preview global instructions and skills |
 | `aikito sync project <name> [--dry-run] [--force]` | Synchronize or preview a project's `.agents/` directory |
 | `aikito sync mcp` | Synchronize MCP entries |
@@ -73,17 +72,21 @@ aikito --version
 
 Commands differ in their effect:
 
-- `status`, `diff`, `show`, `completion`, and the default `adopt` plan are read-only;
+- `status`, `diff`, `show`, `completion`, and `adopt --dry-run` are read-only;
 - `init workspace` creates or updates a recognized workspace;
 - `init project` creates an idempotent canonical project skeleton and its runtime links;
 - `add` creates a canonical resource skeleton and performs required registration;
-- `adopt --apply` writes imported resources into the workspace after backup;
-- `sync` writes managed Agent or project runtime configuration;
+- `adopt` preflights all detected resources, then writes imported resources into
+  the workspace after backup only when the complete plan is safe;
+- `sync` preflights every workspace scope, then writes managed Agent or project
+  runtime configuration only when the complete plan is safe;
 - `edit` delegates a canonical memory, skill, instruction, or subagent file to an external editor.
 - `maintain memory` launches an interactive Agent whose prompt requires confirmation before writes.
 
-Use `--dry-run` to preview project, MCP, and subagent synchronization, and consult the
-[Safety model](safety.md) before applying changes to an existing setup.
+Bare `aikito sync --dry-run` prints a concise read-only plan; add `--verbose` for
+every item and path. Targeted project, MCP, and subagent sync commands also
+support `--dry-run`. Consult the [Safety model](safety.md) before applying
+changes to an existing setup.
 
 `doctor` compares registered Agents with the current bundled registry schema.
 Missing fields are warnings; `doctor --fix` adds bundled defaults without
@@ -95,6 +98,16 @@ It also reports each project's native instruction, skill, and memory runtime
 issues. Missing resources point to `sync project`; conflicts remain read-only
 and point to `show project` for review. Findings are aggregated per project;
 when missing resources and conflicts coexist, the conflict action wins.
+The Adoption section uses the same structured findings as `adopt`, including
+the affected resource, source, reason, and exact review or skip command.
+Adoption findings are warnings: `doctor` and `doctor --fix` never import or skip
+resources.
+
+When one detected resource is intentionally out of scope, repeat
+`--skip instructions`, `--skip mcp/<name>`, or `--skip subagent/<name>` as
+needed. Skips apply only to that invocation and are printed in the plan. Unknown
+resource names fail instead of being ignored; unreadable or malformed source
+configuration remains a plan-level error and cannot be skipped.
 
 `status` is the compact dashboard: its Memory `Status` column combines the
 presence of canonical note directories and runtime connection health, and the

@@ -119,8 +119,23 @@ jobs:
       - name: aikito init workspace (fresh workspace)
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 -m aikito init workspace ${{ runner.temp }}/aikito-ws
+            python3 -m aikito init workspace ${{ runner.temp }}/aikito-ws \
+            | tee ${{ runner.temp }}/init-workspace.out
           test -f ${{ runner.temp }}/aikito-ws/config.toml
+          grep -F "Run 'aikito sync'" ${{ runner.temp }}/init-workspace.out
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync --dry-run \
+            | tee ${{ runner.temp }}/sync-plan.out
+          grep -F "Sync plan" ${{ runner.temp }}/sync-plan.out
+          grep -F "Safe to apply" ${{ runner.temp }}/sync-plan.out
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync --dry-run --verbose \
+            | grep -F "Details"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito init workspace ${{ runner.temp }}/aikito-ws \
+            | tee ${{ runner.temp }}/connect-workspace.out
+          grep -F "[CONNECTED]" ${{ runner.temp }}/connect-workspace.out
+          grep -F "aikito doctor" ${{ runner.temp }}/connect-workspace.out
 
       - name: Pip install source and verify workspace init
         env:
@@ -649,6 +664,8 @@ jobs:
           EOF
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito doctor
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito doctor --no-color | grep -F "Adoption"
 
       - name: aikito inbox inspection (missing, empty, note list, and target reading)
         run: |
@@ -663,11 +680,28 @@ jobs:
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito show inbox ci-note
 
-      # README Migration: aikito adopt (dry-run, no --apply)
-      - name: aikito adopt (dry-run)
+      - name: aikito adopt (preflight and default apply)
         run: |
+          mkdir -p ~/.codex/agents
+          cat << 'EOF' > ~/.codex/agents/ci-adopt.md
+          ---
+          name: ci-adopt
+          description: CI adoption smoke test
+          ---
+          Review adoption behavior.
+          EOF
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito adopt --dry-run --verbose \
+            --skip subagent/ci-adopt \
+            | tee ${{ runner.temp }}/adopt-preview.out
+          grep -F "Safe to apply" ${{ runner.temp }}/adopt-preview.out
+          grep -F "[SKIP] subagent/ci-adopt" ${{ runner.temp }}/adopt-preview.out
+          test ! -f ${{ runner.temp }}/aikito-ws/subagents/ci-adopt.md
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito adopt
+          test -f ${{ runner.temp }}/aikito-ws/subagents/ci-adopt.md
+          grep -F "[subagents.ci-adopt]" \
+            ${{ runner.temp }}/aikito-ws/subagents.toml
 
       - name: aikito completion scripts and dynamic candidates
         run: |
@@ -738,7 +772,28 @@ jobs:
           $piDir = Join-Path $HOME ".pi\agent"
           New-Item -ItemType Directory -Force -Path $piDir | Out-Null
           $env:AIKITO_DIR = $wsDir
-          python -m aikito init workspace "$wsDir"
+          $initOutput = python -m aikito init workspace "$wsDir"
+          $initOutput | Write-Output
+          $initOutput | Select-String "Run 'aikito sync'"
+          $connectOutput = python -m aikito init workspace "$wsDir"
+          $connectOutput | Write-Output
+          $connectOutput | Select-String "\[CONNECTED\]"
+          $connectOutput | Select-String "aikito doctor"
+          $codexAgents = Join-Path $HOME ".codex\agents"
+          New-Item -ItemType Directory -Force -Path $codexAgents | Out-Null
+          $adoptSource = Join-Path $codexAgents "ci-adopt.md"
+          @("---", "name: ci-adopt", "description: CI adoption smoke test", "---", "Review adoption behavior.") | Set-Content $adoptSource
+          python -m aikito adopt --dry-run --verbose --skip subagent/ci-adopt
+          $adoptedSubagent = Join-Path $wsDir "subagents\ci-adopt.md"
+          if (Test-Path $adoptedSubagent) { throw "Dry-run wrote adopted subagent" }
+          python -m aikito doctor --no-color | Select-String "Adoption"
+          python -m aikito adopt
+          if (-not (Test-Path $adoptedSubagent)) { throw "Default adopt did not write subagent" }
+          $syncPlan = python -m aikito sync --dry-run
+          $syncPlan | Write-Output
+          $syncPlan | Select-String "Sync plan"
+          $syncPlan | Select-String "Safe to apply"
+          python -m aikito sync --dry-run --verbose | Select-String "Details"
           python -m aikito sync global
           $projectDir = Join-Path $env:RUNNER_TEMP "example-project"
           New-Item -ItemType Directory -Force -Path $projectDir | Out-Null

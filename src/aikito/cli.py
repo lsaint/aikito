@@ -7,20 +7,27 @@ Supports sync_mode: 'link' (symlinks) or 'copy' (file/directory copy).
 
 import argparse
 import errno
+import io
 import json
 import os
 import sys
 import tomllib
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any, List, Optional
 
 from . import __version__
 from .add import add_mcp, add_skill, add_subagent
-from .adopt import build_adopt_plan, execute_adoption
+from .adopt import (
+    apply_adopt_skips,
+    build_adopt_plan,
+    execute_adoption,
+    summarize_adopt_plan,
+)
 from .conflict import collect_resource_conflicts
 from .diff import collect_drift_diffs, render_drift_diffs
 from .doctor import run_doctor, run_doctor_fixes
-from .init import init_project, init_workspace
+from .init import init_project, init_workspace, is_recognized_workspace
 from .maintain import MemoryMaintenanceError, run_memory_maintenance
 from .resolve import (
     SkillTargetConflictError,
@@ -39,6 +46,7 @@ from .sync import (
     sync_global_entry,
     sync_resource,
 )
+from .sync_plan import capture_sync_plan
 from .memory import (
     MemoryTargetConflictError,
     remove_memory_note,
@@ -53,7 +61,7 @@ from .mcp import (
     load_agents,
     sync_mcp_configs,
 )
-from .templating import TemplateError
+from .templating import TemplateError, detect_existing_agents
 from .project import (
     append_candidate_path_to_config,
     collect_project_summaries,
@@ -258,10 +266,18 @@ def sync_global_resources(
         return False
     apply_runtime_cleanup(cleanup_paths, dry_run)
 
-    for skill_name in skills:
-        source = aikito_dir / "skills" / skill_name
-        target = agents_skills_dir / skill_name
-        sync_resource(source, target, mode="link", dry_run=dry_run)
+    skill_results = [
+        sync_resource(
+            aikito_dir / "skills" / skill_name,
+            agents_skills_dir / skill_name,
+            mode="link",
+            dry_run=dry_run,
+        )
+        for skill_name in skills
+    ]
+    if not all(skill_results):
+        print("[ERROR] Global skill synchronization aborted.", file=sys.stderr)
+        return False
 
     if not global_instruction_source.is_file():
         print(
@@ -530,12 +546,8 @@ def cmd_subagent_sync(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-def cmd_sync_all(args: argparse.Namespace) -> None:
-    require_symlink_support()
-    aikito_dir = get_aikito_dir()
-    home = Path.home()
-    dry_run = getattr(args, "dry_run", False)
-
+def _run_workspace_sync(aikito_dir: Path, home: Path, *, dry_run: bool) -> bool:
+    """Run all workspace sync scopes without terminating the process."""
     mode_str = " (dry run)" if dry_run else ""
     print(f"[INFO] Starting full workspace sync{mode_str}...\n")
 
@@ -652,10 +664,59 @@ def cmd_sync_all(args: argparse.Namespace) -> None:
 
     if not overall_success:
         print("[ERROR] Full workspace sync finished with errors.", file=sys.stderr)
-        sys.exit(1)
+        return False
 
     result = "preview completed successfully" if dry_run else "completed successfully"
     print(f"[SUCCESS] Full workspace sync {result}.")
+    return True
+
+
+def cmd_sync_all(args: argparse.Namespace) -> None:
+    require_symlink_support()
+    aikito_dir = get_aikito_dir()
+    home = Path.home()
+    dry_run = getattr(args, "dry_run", False)
+    verbose = getattr(args, "verbose", False)
+
+    plan = capture_sync_plan(
+        lambda: _run_workspace_sync(aikito_dir, home, dry_run=True)
+    )
+    print(plan.render(verbose=verbose))
+    if not plan.can_apply:
+        sys.exit(1)
+    if dry_run:
+        return
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    with redirect_stdout(stdout), redirect_stderr(stderr):
+        applied = _run_workspace_sync(aikito_dir, home, dry_run=False)
+    if verbose:
+        details = "\n".join(
+            part.rstrip()
+            for part in (stdout.getvalue(), stderr.getvalue())
+            if part.strip()
+        )
+        if details:
+            print("\nApply details\n")
+            print(details)
+    else:
+        follow_up_lines = [
+            line
+            for line in stdout.getvalue().splitlines()
+            if "[AUTH]" in line or "[BACKUP]" in line
+        ]
+        if follow_up_lines:
+            print("\n".join(follow_up_lines))
+        if stderr.getvalue().strip():
+            print(stderr.getvalue().rstrip(), file=sys.stderr)
+    if not applied:
+        print(
+            "[ERROR] Workspace changed during apply; sync did not complete.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    print("\n[SUCCESS] Full workspace sync completed successfully.")
 
 
 def cmd_status(args: argparse.Namespace) -> None:
@@ -704,6 +765,7 @@ def cmd_diff(args: argparse.Namespace) -> None:
 def cmd_init(args: argparse.Namespace) -> None:
     require_symlink_support()
     target = Path(args.workspace_path) if args.workspace_path else get_aikito_dir()
+    existing_workspace = is_recognized_workspace(target.expanduser().resolve())
     home = Path.home()
     success = init_workspace(target, home, force=args.force)
     if not success:
@@ -712,9 +774,30 @@ def cmd_init(args: argparse.Namespace) -> None:
         pointer_path = persist_workspace(target, home)
         print(f"[CONFIG] Default workspace: {target.expanduser().resolve()}")
         print(f"[CONFIG] Workspace pointer: {pointer_path}")
-    print(
-        "\n💡 Next step: Run 'aikito sync' to synchronize managed configurations and runtimes on this host."
-    )
+
+    resolved_target = target.expanduser().resolve()
+    adoption = summarize_adopt_plan(build_adopt_plan(resolved_target, home))
+    if adoption.total_changes or adoption.conflicts or adoption.errors:
+        print(
+            "\nNext step: Run 'aikito adopt'. It checks the complete import "
+            "plan before changing the workspace."
+        )
+    elif existing_workspace:
+        print(
+            "\nNext step: Run 'aikito doctor' to check this workspace against "
+            "the Agents and paths available on this host."
+        )
+    elif detect_existing_agents(home):
+        print(
+            "\nNext step: Run 'aikito sync'. It checks the complete plan for "
+            "conflicts before changing managed configuration on this host."
+        )
+    else:
+        print(
+            "\n[INFO] No supported Agents detected on this host. "
+            "The workspace is ready; synchronization can wait until an Agent "
+            "is installed."
+        )
 
 
 def cmd_path_workspace(args: argparse.Namespace) -> None:
@@ -1300,15 +1383,16 @@ def cmd_rm_memory(args: argparse.Namespace) -> None:
 
 
 def cmd_adopt(args: argparse.Namespace) -> None:
-    if args.apply and not args.dry_run:
-        require_symlink_support()
     target = Path(args.target) if args.target else get_aikito_dir()
     home = Path.home()
 
     try:
-        plan = build_adopt_plan(target, home)
-        dry_run = not args.apply or args.dry_run
-        success = execute_adoption(plan, dry_run=dry_run)
+        plan = apply_adopt_skips(build_adopt_plan(target, home), args.skip)
+        success = execute_adoption(
+            plan,
+            dry_run=args.dry_run,
+            verbose=args.verbose,
+        )
         if not success:
             sys.exit(1)
     except Exception as exc:
@@ -1369,6 +1453,14 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                                 "status": f.status,
                                 "message": f.message,
                                 "fix_hint": f.fix_hint,
+                                "code": f.code,
+                                "resource": f.resource,
+                                "source": f.source,
+                                "reason": f.reason,
+                                "actions": [
+                                    {"label": action.label, "command": action.command}
+                                    for action in f.actions
+                                ],
                             }
                             for f in s.findings
                         ],
@@ -1618,14 +1710,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Target directory (default: resolved active workspace)",
     )
     p_adopt.add_argument(
-        "--apply",
-        action="store_true",
-        help="Apply adoption changes to workspace (default: false, preview only)",
-    )
-    p_adopt.add_argument(
         "--dry-run",
         action="store_true",
         help="Preview adoption changes without modifying workspace files",
+    )
+    p_adopt.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show every source and target in the adoption plan",
+    )
+    p_adopt.add_argument(
+        "--skip",
+        action="append",
+        default=[],
+        metavar="RESOURCE",
+        help="Skip one explicit resource (instructions, mcp/<name>, or subagent/<name>); repeatable",
     )
     p_adopt.set_defaults(func=cmd_adopt)
 
@@ -1712,6 +1811,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="Report changes without modifying files or configurations",
+    )
+    p_sync.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show every item and path in the workspace synchronization plan",
     )
     p_sync.set_defaults(func=cmd_sync_all)
     sync_subparsers = p_sync.add_subparsers(dest="sync_target", required=False)

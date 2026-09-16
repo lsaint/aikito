@@ -13,6 +13,7 @@ from datetime import date
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from .diagnostics import Finding
 from .project import ProjectSummary
 
 
@@ -85,11 +86,7 @@ class MemoryNoteRow:
     link_status: str  # "OK", "DANGLING", "N/A"
 
 
-@dataclass
-class DoctorFinding:
-    status: str  # "OK" | "FAIL" | "WARN"
-    message: str  # Human-readable description
-    fix_hint: str = ""  # Suggested fix command (empty if none)
+DoctorFinding = Finding
 
 
 @dataclass
@@ -1078,12 +1075,14 @@ def render_doctor_report(
             else:
                 sym_colored = _colorize(warn_sym, COLOR_YELLOW, use_color)
 
-            lines.append(f"  {sym_colored} {finding.message}")
-
-            if finding.fix_hint:
-                hint_prefix = "    → " if use_unicode else "    -> "
-                hint_colored = _colorize(finding.fix_hint, COLOR_DIM, use_color)
-                lines.append(f"{hint_prefix}{hint_colored}")
+            lines.extend(
+                render_finding_lines(
+                    finding,
+                    symbol=sym_colored,
+                    use_unicode=use_unicode,
+                    use_color=use_color,
+                )
+            )
 
         output_blocks.append("\n".join(lines))
 
@@ -1108,3 +1107,36 @@ def render_doctor_report(
 
     output_blocks.append(summary)
     return "\n".join(output_blocks)
+
+
+def render_finding_lines(
+    finding: Finding,
+    *,
+    symbol: str | None = None,
+    use_unicode: bool = False,
+    use_color: bool = False,
+) -> list[str]:
+    """Render one structured finding consistently across commands."""
+    if symbol is None:
+        symbol = {
+            "OK": "[OK]",
+            "FAIL": "[FAIL]",
+            "WARN": "[WARN]",
+        }.get(finding.status, f"[{finding.status}]")
+    lines = [f"  {symbol} {finding.message}"]
+    detail_rows = (
+        ("Resource", finding.resource),
+        ("Source", finding.source),
+        ("Reason", finding.reason),
+    )
+    for label, value in detail_rows:
+        if value:
+            lines.append(f"      {label}: {value}")
+    if finding.fix_hint:
+        hint_prefix = "    → " if use_unicode else "    -> "
+        hint_colored = _colorize(finding.fix_hint, COLOR_DIM, use_color)
+        lines.append(f"{hint_prefix}{hint_colored}")
+    for action in finding.actions:
+        command = _colorize(action.command, COLOR_DIM, use_color)
+        lines.append(f"      {action.label}: {command}")
+    return lines

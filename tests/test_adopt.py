@@ -1,11 +1,21 @@
+import io
 import json
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
-
-from aikito.adopt import build_adopt_plan, execute_adoption
+from aikito import cli as AIKITO_CLI
+from aikito.adopt import (
+    AdoptSkipError,
+    apply_adopt_skips,
+    build_adopt_plan,
+    collect_adopt_findings,
+    execute_adoption,
+    summarize_adopt_plan,
+)
 from aikito.templating import (
     load_agents_template,
     load_default_memory_instruction,
@@ -148,10 +158,239 @@ class AikitoAdoptTest(unittest.TestCase):
 
         self.assertTrue(plan.instructions.has_conflict)
         self.assertIsNone(plan.instructions.merged_content)
-        execute_adoption(plan, dry_run=False)
+        self.assertFalse(execute_adoption(plan, dry_run=False))
         self.assertEqual(
             canonical.read_text(encoding="utf-8"), "# Existing Canonical Rules\n"
         )
+
+    def test_adopt_apply_blocks_all_writes_when_instructions_conflict(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Codex Rules\n", encoding="utf-8")
+        claude_dir = self.fake_home / ".claude"
+        claude_dir.mkdir(parents=True)
+        (claude_dir / "CLAUDE.md").write_text("Claude Rules\n", encoding="utf-8")
+        (claude_dir / "claude_desktop_config.json").write_text(
+            json.dumps({"mcpServers": {"example": {"command": "example"}}}),
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+
+        self.assertFalse(execute_adoption(plan, dry_run=False))
+        self.assertFalse((self.target_path / "mcps" / "example.toml").exists())
+
+    def test_empty_adopt_plan_is_a_no_op_without_apply_hint(self) -> None:
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            self.assertTrue(execute_adoption(plan, dry_run=True))
+
+        rendered = output.getvalue()
+        self.assertIn("No adoptable Agent configuration found", rendered)
+        self.assertNotIn("adopt --apply", rendered)
+
+    def test_adopt_summary_counts_pending_resources(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+        (codex_dir / "config.toml").write_text(
+            '[mcp_servers.example]\ncommand = "example"\n', encoding="utf-8"
+        )
+
+        summary = summarize_adopt_plan(
+            build_adopt_plan(self.target_path, self.fake_home)
+        )
+
+        self.assertEqual(summary.instruction_updates, 1)
+        self.assertEqual(summary.mcp_imports, 1)
+        self.assertEqual(summary.subagent_imports, 0)
+        self.assertEqual(summary.conflicts, 0)
+        self.assertEqual(summary.errors, 0)
+        self.assertEqual(summary.skipped, 0)
+
+    def test_adopt_invalid_mcp_blocks_all_writes_before_backup(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+        (codex_dir / "config.toml").write_text(
+            '[mcp_servers."../escape"]\ncommand = "example"\n', encoding="utf-8"
+        )
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+
+        self.assertEqual(summarize_adopt_plan(plan).errors, 1)
+        self.assertFalse(execute_adoption(plan, dry_run=False))
+        self.assertFalse((self.target_path / "global" / "AGENTS.md").exists())
+        self.assertFalse((self.fake_home / ".aikito" / "backups").exists())
+        self.assertFalse((self.target_path.parent / "escape.toml").exists())
+
+    def test_adopt_malformed_source_blocks_all_writes_before_backup(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+        (codex_dir / "config.toml").write_text("invalid = [\n", encoding="utf-8")
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+
+        self.assertEqual(summarize_adopt_plan(plan).errors, 1)
+        self.assertFalse(execute_adoption(plan, dry_run=False))
+        self.assertFalse((self.target_path / "global" / "AGENTS.md").exists())
+        self.assertFalse((self.fake_home / ".aikito" / "backups").exists())
+
+    def test_adopt_skip_invalid_mcp_applies_remaining_resources(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+        (codex_dir / "config.toml").write_text(
+            '[mcp_servers."../escape"]\ncommand = "example"\n', encoding="utf-8"
+        )
+        plan = apply_adopt_skips(
+            build_adopt_plan(self.target_path, self.fake_home),
+            ["mcp/../escape"],
+        )
+
+        self.assertTrue(execute_adoption(plan, dry_run=False, verbose=False))
+        self.assertEqual(summarize_adopt_plan(plan).skipped, 1)
+        self.assertTrue((self.target_path / "global" / "AGENTS.md").is_file())
+        self.assertFalse((self.target_path.parent / "escape.toml").exists())
+
+    def test_adopt_skip_instructions_allows_other_resources(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Codex Rules\n", encoding="utf-8")
+        claude_dir = self.fake_home / ".claude"
+        claude_dir.mkdir(parents=True)
+        (claude_dir / "CLAUDE.md").write_text("Claude Rules\n", encoding="utf-8")
+        (codex_dir / "config.toml").write_text(
+            '[mcp_servers.example]\ncommand = "example"\n', encoding="utf-8"
+        )
+        plan = apply_adopt_skips(
+            build_adopt_plan(self.target_path, self.fake_home), ["instructions"]
+        )
+
+        self.assertTrue(execute_adoption(plan, dry_run=False, verbose=False))
+        self.assertFalse((self.target_path / "global" / "AGENTS.md").exists())
+        self.assertTrue((self.target_path / "mcps" / "example.toml").is_file())
+
+    def test_adopt_rejects_unknown_skip_target(self) -> None:
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+
+        with self.assertRaises(AdoptSkipError) as raised:
+            apply_adopt_skips(plan, ["mcp/missing"])
+
+        self.assertIn("Unknown adoption skip target", str(raised.exception))
+
+    def test_adopt_findings_include_source_reason_and_skip_action(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        source = codex_dir / "config.toml"
+        source.write_text(
+            '[mcp_servers."../escape"]\ncommand = "example"\n', encoding="utf-8"
+        )
+
+        findings = collect_adopt_findings(
+            build_adopt_plan(self.target_path, self.fake_home)
+        )
+
+        finding = next(item for item in findings if item.code == "adopt.invalid_mcp")
+        self.assertEqual(finding.resource, "mcp/../escape")
+        self.assertEqual(finding.source, str(source))
+        self.assertTrue(finding.reason)
+        self.assertEqual(
+            finding.actions[0].command, "aikito adopt --skip mcp/../escape"
+        )
+
+    def test_cli_adopt_applies_by_default(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+        output = io.StringIO()
+
+        with (
+            patch("pathlib.Path.home", return_value=self.fake_home),
+            redirect_stdout(output),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["adopt", str(self.target_path)]
+            )
+            args.func(args)
+
+        self.assertEqual(
+            (self.target_path / "global" / "AGENTS.md").read_text(encoding="utf-8"),
+            "Shared Rules",
+        )
+        self.assertIn("Adoption plan", output.getvalue())
+        self.assertNotIn("Global Instructions Adoption", output.getvalue())
+
+    def test_cli_adopt_dry_run_is_read_only_and_verbose_is_detailed(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        source = codex_dir / "AGENTS.md"
+        source.write_text("Shared Rules\n", encoding="utf-8")
+        concise_output = io.StringIO()
+        output = io.StringIO()
+
+        with (
+            patch("pathlib.Path.home", return_value=self.fake_home),
+            redirect_stdout(concise_output),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["adopt", str(self.target_path), "--dry-run"]
+            )
+            args.func(args)
+
+        self.assertFalse((self.target_path / "global" / "AGENTS.md").exists())
+        self.assertIn("Safe to apply", concise_output.getvalue())
+        self.assertNotIn(str(source), concise_output.getvalue())
+
+        with (
+            patch("pathlib.Path.home", return_value=self.fake_home),
+            redirect_stdout(output),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["adopt", str(self.target_path), "--dry-run", "--verbose"]
+            )
+            args.func(args)
+
+        self.assertFalse((self.target_path / "global" / "AGENTS.md").exists())
+        self.assertIn("Global Instructions Adoption", output.getvalue())
+        self.assertIn(str(source), output.getvalue())
+        self.assertIn("No files were modified", output.getvalue())
+
+    def test_cli_adopt_accepts_repeatable_skip_targets(self) -> None:
+        args = AIKITO_CLI.build_parser().parse_args(
+            [
+                "adopt",
+                str(self.target_path),
+                "--skip",
+                "instructions",
+                "--skip",
+                "mcp/example",
+            ]
+        )
+
+        self.assertEqual(args.skip, ["instructions", "mcp/example"])
+
+    def test_cli_adopt_rejects_removed_apply_flag(self) -> None:
+        error = io.StringIO()
+
+        with redirect_stderr(error), self.assertRaises(SystemExit):
+            AIKITO_CLI.build_parser().parse_args(["adopt", "--apply"])
+
+        self.assertIn("unrecognized arguments: --apply", error.getvalue())
+
+    def test_adopt_apply_points_to_safe_sync(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            self.assertTrue(execute_adoption(plan, dry_run=False))
+
+        self.assertIn("aikito sync", output.getvalue())
+        self.assertNotIn("aikito sync --dry-run", output.getvalue())
 
     def test_adopt_mcp_servers(self) -> None:
         claude_dir = self.fake_home / ".claude"
@@ -284,6 +523,9 @@ class AikitoAdoptTest(unittest.TestCase):
     def test_adopt_handles_exceptions_with_friendly_error(self) -> None:
         from unittest.mock import patch
 
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
         plan = build_adopt_plan(self.target_path, self.fake_home)
         with patch(
             "aikito.adopt.create_adopt_backup",

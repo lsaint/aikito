@@ -65,14 +65,16 @@ agents. See [memory usage and opt-out](docs/durable-memory.md) and
 ### Let your coding agent set it up (recommended)
 
 > Install and configure Aikito from https://github.com/lsaint/aikito. Read the
-> README, `templates/skills/aikito/SKILL.md`, and any linked documentation relevant to the
-> setup, then follow their safety requirements to initialize the workspace,
-> synchronize resources with `aikito sync`, and verify the result with `aikito status`.
-> Before importing or changing any existing Agent configuration, show me the
-> planned changes and conflicts and wait for my approval. When setup is
-> complete, summarize what is ready and guide me through the next step, including
-> whether to register my first code project. Do not register a project without
-> my confirmation.
+> README, `src/aikito/templates/skills/aikito/SKILL.md`, and any linked
+> documentation relevant to the setup. Initialize the workspace. If existing
+> Agent configuration is detected, run `aikito adopt` before `aikito sync`;
+> otherwise continue directly with `aikito sync`. Both commands preflight their
+> complete plans before writing. If either command stops, explain the findings
+> and ask before using `--skip`, `--force`, `--prune`, or manually resolving a
+> conflict. Verify the result with `aikito status`. When setup is complete,
+> summarize what is ready and guide me through the next step, including whether
+> to register my first code project. Do not register a project without my
+> confirmation.
 
 <details>
 <summary>Install manually (macOS / Linux / Windows)</summary>
@@ -95,17 +97,28 @@ Or with pipx:
 pipx install aikito
 ```
 
-Initialize and synchronize your workspace:
+For a fresh setup, initialize and synchronize your workspace:
 
 ```bash
 aikito init workspace ~/aikito
-aikito sync --dry-run
 aikito sync
 aikito status
 ```
 
-Review the preview before applying synchronization. For existing configuration,
-see [migration and safety](#migration-and-safety).
+If you already have Agent configuration, adopt it after initialization and
+before synchronization:
+
+```bash
+aikito init workspace ~/aikito
+aikito adopt
+aikito sync
+aikito status
+```
+
+`aikito adopt` and `aikito sync` check their complete plans before writing and
+stop if anything needs attention. Use `--dry-run` for a concise read-only
+summary, or add `--verbose` for every item and path. For adoption details, see
+[migration and safety](#migration-and-safety).
 
 On Windows, enable Developer Mode and use `uv tool install aikito` or the
 [PowerShell installation guide](docs/installation.md#install-manually).
@@ -176,9 +189,12 @@ Aikito uses plain files and Git, with no background service required.
 
 ## Migration and Safety
 
-Already have agent configuration? Run `aikito adopt` for a read-only import
-preview. Review the plan before applying it; see
-[adoption and backups](docs/safety.md#adoption).
+Already have agent configuration? Run `aikito adopt`; it checks the complete
+import plan and stops before writing if anything needs attention. Use
+`aikito adopt --dry-run --verbose` for a detailed read-only review; see
+[adoption and backups](docs/safety.md#adoption). `aikito doctor` reports the
+same adoption issues; when one resource is intentionally excluded, use
+the exact resource-level `--skip` command shown in the finding.
 
 Your workspace is a local Git repository. Review it for secrets and private
 data before publishing; removing a secret in a later commit does not erase it

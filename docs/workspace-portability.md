@@ -28,14 +28,17 @@ without changing the workspace files or agent runtime configuration. Review
 doctor findings for installed agents missing from the registry; see
 [agent detection](troubleshooting.md#an-agent-is-missing).
 
-Preview the resources that will be connected on this host:
+Synchronize the resources that are available on this host:
 
 ```bash
-aikito sync --dry-run
+aikito sync
 ```
 
-Resolve any [existing-file conflicts](troubleshooting.md#existing-files-conflict)
-before applying:
+The command checks all scopes before writing and stops the whole operation on a
+conflict. Use `aikito sync --dry-run` for a read-only summary or
+`aikito sync --dry-run --verbose` to inspect every path. If synchronization is
+blocked, resolve any
+[existing-file conflicts](troubleshooting.md#existing-files-conflict), then rerun:
 
 ```bash
 aikito sync

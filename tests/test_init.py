@@ -1,6 +1,8 @@
+import io
 import tempfile
 import tomllib
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -167,6 +169,45 @@ class AikitoInitTest(unittest.TestCase):
         with (self.target_path / "agents.toml").open("rb") as config_file:
             agents = tomllib.load(config_file)["agents"]
         self.assertEqual(set(agents), {"claude-code"})
+
+    def test_init_workspace_describes_installed_agents_without_claiming_config(
+        self,
+    ) -> None:
+        (self.fake_home / ".codex").mkdir()
+        output = io.StringIO()
+
+        with (
+            patch("aikito.templating.shutil.which", return_value=None),
+            redirect_stdout(output),
+        ):
+            init_workspace(self.target_path, self.fake_home)
+
+        rendered = output.getvalue()
+        self.assertIn("Detected installed Agent(s)", rendered)
+        self.assertNotIn("existing local agent configuration", rendered)
+
+    def test_init_workspace_connects_existing_workspace_without_skip_noise(
+        self,
+    ) -> None:
+        with (
+            patch("aikito.templating.shutil.which", return_value=None),
+            redirect_stdout(io.StringIO()),
+        ):
+            init_workspace(self.target_path, self.fake_home)
+
+        output = io.StringIO()
+        with (
+            patch("aikito.templating.shutil.which", return_value=None),
+            redirect_stdout(output),
+        ):
+            init_workspace(self.target_path, self.fake_home)
+
+        rendered = output.getvalue()
+        self.assertIn("Connecting to existing Aikito workspace", rendered)
+        self.assertIn("[CONNECTED]", rendered)
+        self.assertNotIn("[SKIP FILE]", rendered)
+        self.assertNotIn("[SKIP DIR]", rendered)
+        self.assertNotIn("[SKIP GIT]", rendered)
 
     def test_agent_template_selection_keeps_comments_with_their_agent(self) -> None:
         rendered = filter_agents_template(("agy",))

@@ -25,7 +25,7 @@ You can expect an initial acknowledgement within 48 hours and progress updates u
 
 Aikito adheres to conservative security principles when managing workspace assets:
 
-- **Local Configuration Safeguards**: Commands like `aikito adopt --apply` take timestamped backups before modifying configuration files.
+- **Local Configuration Safeguards**: Commands like `aikito adopt` take timestamped backups before modifying configuration files.
 - **MCP Secret Reference Conversion**: Plaintext API keys or credentials in MCP configurations are converted to environment variable references rather than hardcoding secret values in synchronized files.
 - **Runner Environment Export Redaction**: Open-source exports remove every `agents.toml` `runner.env` value, including proxies, API keys, and tokens, while preserving non-secret runner configuration.
 - **Git & Memory Privacy**: `aikito init` creates a local Git repository for workspace tracking. Users are responsible for ensuring that memory notes and configurations do not contain API keys, credentials, customer data, or internal infrastructure details prior to adding remotes or pushing to public repositories.

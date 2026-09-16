@@ -15,8 +15,10 @@ import sys
 import time
 import tomllib
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
+from .adopt import build_adopt_plan, collect_adopt_findings, summarize_adopt_plan
 from .compat import (
     can_symlink,
     check_credential_permissions,
@@ -31,13 +33,10 @@ from .config import (
 )
 from .conflict import (
     CONFLICT_FIX_HINT as _CONFLICT_FIX,
-)
-from .conflict import (
     find_conflict_marker_lines,
-)
-from .conflict import (
     has_any_conflict_markers as _has_conflict_markers,
 )
+from .diagnostics import Finding, FindingAction
 from .link import SymlinkVerdict, classify_symlink
 from .mcp import (
     AGENT_INSTALL_MARKERS,
@@ -103,6 +102,34 @@ def _fail(message: str, fix_hint: str = "") -> DoctorFinding:
 
 def _warn(message: str, fix_hint: str = "") -> DoctorFinding:
     return DoctorFinding(status="WARN", message=message, fix_hint=fix_hint)
+
+
+def check_adoption(aikito_dir: Path, home: Path) -> DoctorSection:
+    """Report pending or blocked adoption without applying or skipping resources."""
+    plan = build_adopt_plan(aikito_dir, home)
+    summary = summarize_adopt_plan(plan)
+    findings: list[Finding] = [
+        replace(finding, status="WARN") for finding in collect_adopt_findings(plan)
+    ]
+    if summary.total_changes:
+        findings.append(
+            Finding(
+                status="WARN",
+                code="adopt.pending",
+                resource="adoption",
+                message=(
+                    f"{summary.total_changes} local Agent resource(s) are available "
+                    "to adopt"
+                ),
+                actions=(
+                    FindingAction("Review", "aikito adopt --dry-run --verbose"),
+                    FindingAction("Apply", "aikito adopt"),
+                ),
+            )
+        )
+    if not findings:
+        findings.append(_ok("No external Agent configuration needs adoption"))
+    return DoctorSection(name="Adoption", findings=findings)
 
 
 def _home_rel(path: Path, home: Path) -> str:
@@ -1432,6 +1459,7 @@ def run_doctor(
         ("Drift", lambda: check_drift(aikito_dir, home)),
         ("Security", lambda: check_security(aikito_dir, home)),
         ("Environment", lambda: check_environment(aikito_dir, home)),
+        ("Adoption", lambda: check_adoption(aikito_dir, home)),
         ("ConflictMarkers", lambda: check_conflict_markers(aikito_dir, home)),
         ("Projects", lambda: check_projects(aikito_dir, home)),
         # Keep check_config_syntax last: it's the slowest section (parses every

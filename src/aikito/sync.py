@@ -134,7 +134,8 @@ def sync_global_entry(
     """
     if not target.parent.exists():
         if installed is True:
-            target.parent.mkdir(parents=True)
+            if not dry_run:
+                target.parent.mkdir(parents=True)
         else:
             print(f"[SKIP] {agent_name} not detected: {target.parent}")
             return True
