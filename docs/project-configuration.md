@@ -1,7 +1,6 @@
 # Advanced Project Setup
 
-Complete [Connect a project](project-setup.md) and
-[Verify your first instruction](first-instruction.md) before using this guide.
+Complete [Connect a project](project-setup.md) before using this guide.
 Use this page for explicit naming, multiple checkouts, or copied skills.
 
 Register a project when it needs its own instructions, selected skills, or

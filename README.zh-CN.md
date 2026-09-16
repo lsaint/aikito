@@ -26,6 +26,8 @@
 Aikito 将 Coding Agent 的指令、Skills、MCP、Subagents 和长期记忆集中在一个
 Git 管理的工作区中，供不同 Agent 与项目使用。
 
+它面向已经在使用 Agent、但开始厌倦在不同工具、项目、机器和时间跨度中重复维护配置的人。
+
 Aikito 治理工作区，Agent 维护 memory，而一切由你把关。
 
 <p align="center">
@@ -60,12 +62,11 @@ Aikito 将源文件集中在个人工作区中，把选定的资源连接到各�
 ### 让 Coding Agent 完成配置（推荐）
 
 > 请从 https://github.com/lsaint/aikito 安装并配置 Aikito。阅读 README、
-> `src/aikito/templates/skills/aikito/SKILL.md` 及其中与本次配置相关的链接文档。初始化 workspace；
-> 如果检测到已有 Agent 配置，先运行 `aikito adopt`，再运行 `aikito sync`，否则直接运行
-> `aikito sync`。两个命令都会在写入前完整预检；如果命令停止，请解释诊断结果，并在使用
-> `--skip`、`--force`、`--prune` 或手工解决冲突前询问我。最后使用 `aikito status` 验证结果。
-> 配置完成后，总结已经就绪的内容，并引导我完成下一步，包括是否注册第一个代码项目；未经我确认，
-> 不要注册项目。
+> `src/aikito/templates/skills/aikito/SKILL.md` 及其中与本次配置相关的链接文档。检查我正在使用的
+> Agent 配置，初始化 Aikito workspace，接管其中支持的已有资源，通过 Aikito 同步，并使用
+> `aikito status` 验证结果。`adopt` 和 `sync` 都会在写入前完整预检；如果命令停止，请解释诊断
+> 结果，并在使用 `--skip`、`--force`、`--prune` 或手工解决冲突前询问我。保留我现有的配置，
+> 未经确认不要注册项目。如果没有可接管的内容，跳过该步骤并告诉我。
 
 <details>
 <summary>手动安装（macOS / Linux / Windows）</summary>
@@ -88,15 +89,7 @@ brew install lsaint/tap/aikito
 pipx install aikito
 ```
 
-全新环境直接初始化并同步 workspace：
-
-```bash
-aikito init workspace ~/aikito
-aikito sync
-aikito status
-```
-
-如果已经存在 Agent 配置，请在初始化后、同步前接管：
+将现有 Agent 配置纳入 Aikito 管理：
 
 ```bash
 aikito init workspace ~/aikito
@@ -109,12 +102,14 @@ aikito status
 需要只读摘要时使用 `--dry-run`，需要查看所有项目和路径时再加 `--verbose`。
 接管细节见[迁移与安全](#迁移与安全)。
 
+还没有任何 Agent 配置时，跳过 `aikito adopt` 即可，其余流程不变。
+
 Windows 请开启 Developer Mode，使用 `uv tool install aikito` 或参考 [PowerShell 安装指南（英文）](docs/installation.md#install-manually)。
 
 </details>
 
-接下来按照 **[四步入门教程（英文）](docs/installation.md)** 接入第一个项目并验证指令生效。
-其他任务可参考 [Agent 请求示例（英文）](docs/agent-workflow.md)。
+接下来按照 **[现有配置接管指南（英文）](docs/workspace-setup.md)** 整理 Agent 已经在使用的资源。
+从零创建资源、接入项目或执行其他任务时，可参考 [Agent 请求示例（英文）](docs/agent-workflow.md)。
 
 ## 查看运行结果
 
@@ -188,7 +183,7 @@ Aikito 基于普通文件与 Git，无需后台服务。
 
 详细文档以英文为规范来源：
 
-- [入门教程](docs/installation.md)：从安装到第一条指令生效。
+- [入门教程](docs/guide.md)：从安装到接管并同步现有 Agent 配置。
 - [工作区与同步](docs/architecture.md)：源文件、作用域和资源归属。
 - [接入另一台机器](docs/workspace-portability.md)：已有工作区与自定义路径。
 - [CLI 参考](docs/cli-reference.md)：命令与 Shell 补全。

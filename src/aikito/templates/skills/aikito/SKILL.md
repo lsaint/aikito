@@ -11,6 +11,8 @@ Use Aikito as the canonical, Git-managed source for durable Agent resources and
 synchronize those resources into supported coding agents and projects.
 Aikito governs resource ownership, scope, synchronization, and structural
 integrity. Ordinary file edits can be performed directly by Agents.
+The primary onboarding case is an existing Agent setup that has become tedious
+to maintain across tools, projects, or machines; adopt it before synchronization.
 
 ## Mental Model
 
@@ -59,13 +61,17 @@ git clone https://github.com/lsaint/aikito.git "$HOME/aikito-src"
 export PATH="$HOME/aikito-src/bin:$PATH"
 ```
 
-For a fresh workspace:
+For an existing local Agent setup:
 
 ```bash
 aikito init workspace ~/aikito
+aikito adopt
 aikito sync
 aikito status
 ```
+
+When no supported external resources exist, skip `aikito adopt`; creating
+resources from scratch is a secondary path after workspace initialization.
 
 For an existing workspace on a new machine:
 

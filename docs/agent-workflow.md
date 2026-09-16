@@ -1,7 +1,8 @@
 # Agent Request Examples
 
-For your first setup, follow the [four-step tutorial](installation.md).
-This page is a task-by-task prompt reference for an existing workspace.
+To bring an existing Agent setup under control, follow the
+[getting-started guide](installation.md). This page is a task-by-task prompt
+reference for an initialized workspace.
 
 Aikito is designed for coding agents to perform most workspace operations while
 the user retains control over important decisions. In normal use, tell the

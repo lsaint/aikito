@@ -1,4 +1,4 @@
-# 3. Connect a Project
+# Connect a Project
 
 Connect an existing code repository to your [initialized workspace](workspace-setup.md).
 We use `~/code/example`; replace it with your repository path.
@@ -49,4 +49,4 @@ If you used another directory name, substitute it for `example` in subsequent
 commands. For explicit names, multiple worktrees, or skill copy mode, see
 [Advanced project setup](project-configuration.md).
 
-Next: [Add and verify your first instruction](first-instruction.md).
+Next: [Create and verify a project instruction](first-instruction.md).

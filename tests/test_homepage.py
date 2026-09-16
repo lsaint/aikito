@@ -44,8 +44,15 @@ class HomepageTests(unittest.TestCase):
     )
     def test_homepage_routes_existing_configuration_through_adoption(self):
         template = (ROOT / "docs/overrides/home.html").read_text(encoding="utf-8")
-        self.assertIn("aikito adopt", template)
-        self.assertIn("after init and before sync", template)
+        commands = (
+            "aikito init workspace",
+            "aikito adopt",
+            "aikito sync",
+            "aikito status",
+        )
+        positions = [template.rindex(command) for command in commands]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("setup you already use", template)
 
     @unittest.skipUnless(
         (ROOT / "docs/overrides/home.html").is_file(), "Requires docs/ directory"

@@ -6,11 +6,11 @@
   <title>Aikito — One context. Many agents.</title>
   <meta
     name="description"
-    content="Keep instructions, skills, MCP servers, subagents, and durable memory in one Git-managed workspace — then sync them into Codex, Claude Code, OpenCode, Copilot CLI and 4 more, with one command."
+    content="Bring the coding-agent setup you already use into one Git-managed source of truth, then keep every Agent, project, and machine in sync."
   />
   <link rel="canonical" href="{{ page.canonical_url }}">
   <meta property="og:title" content="Aikito — One context. Many agents.">
-  <meta property="og:description" content="Keep instructions, skills, MCP servers, subagents, and durable memory in one Git-managed workspace — then sync them into Codex, Claude Code, OpenCode, Copilot CLI and 4 more, with one command.">
+  <meta property="og:description" content="Bring the coding-agent setup you already use into one Git-managed source of truth, then keep every Agent, project, and machine in sync.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="{{ page.canonical_url }}">
   <meta property="og:image" content="{{ config.site_url }}assets/social-preview.png">
@@ -69,9 +69,9 @@
         <div class="eyebrow mono">Multi-Agent · Multi-Project · Multi-OS · Multi-Machine</div>
         <h1>One context. Many agents.</h1>
         <p class="hero-copy">
-          Keep instructions, skills, MCP servers, subagents, and durable memory
-          in one Git-managed workspace — then sync them into Codex, Claude Code,
-          OpenCode, Copilot CLI and 4 more, with one command.
+          Keep the Agent setup you already use without maintaining it separately
+          in every tool, project, and machine. Aikito brings instructions,
+          skills, MCP servers, subagents, and durable memory under one source of truth.
         </p>
         <div class="hero-actions">
           <a class="button primary" href="#start">Get Started →</a>
@@ -360,10 +360,10 @@
         <div class="cta reveal" id="start">
           <div>
             <div class="section-kicker">Start in two minutes</div>
-            <h2>Three commands to a governed workspace.</h2>
+            <h2>Take control of the setup you already use.</h2>
             <p class="cta-copy">
-              Install, create, and synchronize your workspace.<br/>
-              Already have Agent configuration? Run <span class="mono">aikito adopt</span> after init and before sync.
+              Adopt supported Agent configuration, then synchronize it from one source of truth.<br/>
+              Starting from scratch? Adoption is simply a no-op.
             </p>
             <div class="hero-actions">
               <a class="button primary" href="{{ 'installation/' | url }}">Install Aikito →</a>
@@ -376,7 +376,9 @@
             <div data-os="linux"><span class="muted-term">$</span> pip install aikito</div>
             <div data-os="windows"><span class="muted-term">$</span> irm https://raw.githubusercontent.com/lsaint/aikito/main/install.ps1 | iex</div>
             <div><span class="muted-term">$</span> aikito init workspace <span id="install-workspace-path">~/aikito</span></div>
+            <div><span class="muted-term">$</span> aikito adopt</div>
             <div><span class="muted-term">$</span> aikito sync</div>
+            <div><span class="muted-term">$</span> aikito status</div>
           </div>
         </div>
       </div>

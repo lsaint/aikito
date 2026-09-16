@@ -1,7 +1,8 @@
 # Manage Instructions and Skills
 
 Use instructions for rules an agent should follow, and skills for reusable
-workflows. For your first setup, complete [your first instruction](first-instruction.md).
+workflows. If adoption did not import an instruction you need, follow
+[create an instruction from scratch](first-instruction.md).
 
 ## Edit instructions in the right scope
 

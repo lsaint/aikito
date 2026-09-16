@@ -42,10 +42,11 @@ nav:
   - Documentation: guide.md
   - Get Started:
       - 1. Install Aikito: installation.md
-      - 2. Create a Workspace: workspace-setup.md
-      - 3. Connect a Project: project-setup.md
-      - 4. Verify Your First Instruction: first-instruction.md
+      - 2. Adopt Your Existing Setup: workspace-setup.md
+      - 3. Synchronize and Verify: sync-existing-setup.md
   - Everyday Tasks:
+      - Connect a Project: project-setup.md
+      - Create an Instruction From Scratch: first-instruction.md
       - Instructions and Skills: instructions-and-skills.md
       - Durable Memory: durable-memory.md
       - MCP Servers: mcp-servers.md

@@ -26,6 +26,9 @@
 Aikito keeps coding-agent instructions, skills, MCP definitions, subagents, and
 durable memory in one Git-managed workspace, shared across agents and projects.
 
+It is built for people whose Agent setup already works, but has become tedious
+to keep consistent across tools, projects, machines, and time.
+
 Aikito governs the workspace, agents maintain the memory, and you oversee it all.
 
 <p align="center">
@@ -66,15 +69,14 @@ agents. See [memory usage and opt-out](docs/durable-memory.md) and
 
 > Install and configure Aikito from https://github.com/lsaint/aikito. Read the
 > README, `src/aikito/templates/skills/aikito/SKILL.md`, and any linked
-> documentation relevant to the setup. Initialize the workspace. If existing
-> Agent configuration is detected, run `aikito adopt` before `aikito sync`;
-> otherwise continue directly with `aikito sync`. Both commands preflight their
-> complete plans before writing. If either command stops, explain the findings
-> and ask before using `--skip`, `--force`, `--prune`, or manually resolving a
-> conflict. Verify the result with `aikito status`. When setup is complete,
-> summarize what is ready and guide me through the next step, including whether
-> to register my first code project. Do not register a project without my
-> confirmation.
+> documentation relevant to the setup. Inspect the Agent configuration I
+> already use, initialize the Aikito workspace, adopt supported existing resources,
+> synchronize them through Aikito, and verify the result with `aikito status`.
+> `adopt` and `sync` preflight their complete plans before writing. If either
+> command stops, explain the findings and ask before using `--skip`, `--force`,
+> `--prune`, or manually resolving a conflict. Preserve my current setup and do
+> not register a project without my confirmation. If there is nothing to adopt,
+> skip that step and tell me.
 
 <details>
 <summary>Install manually (macOS / Linux / Windows)</summary>
@@ -97,16 +99,7 @@ Or with pipx:
 pipx install aikito
 ```
 
-For a fresh setup, initialize and synchronize your workspace:
-
-```bash
-aikito init workspace ~/aikito
-aikito sync
-aikito status
-```
-
-If you already have Agent configuration, adopt it after initialization and
-before synchronization:
+Bring your existing Agent setup under Aikito:
 
 ```bash
 aikito init workspace ~/aikito
@@ -120,13 +113,17 @@ stop if anything needs attention. Use `--dry-run` for a concise read-only
 summary, or add `--verbose` for every item and path. For adoption details, see
 [migration and safety](#migration-and-safety).
 
+Starting without existing Agent configuration? Skip `aikito adopt`; the rest of
+the workflow is unchanged.
+
 On Windows, enable Developer Mode and use `uv tool install aikito` or the
 [PowerShell installation guide](docs/installation.md#install-manually).
 
 </details>
 
-Continue with the **[four-step tutorial](docs/installation.md)** to connect your
-first project and verify an instruction. For other tasks, use
+Continue with the **[existing-setup guide](docs/workspace-setup.md)** to consolidate
+what your Agents already use. To create resources from scratch, connect a
+project, or handle other tasks, use
 [Agent Request Examples](docs/agent-workflow.md).
 
 ## See the Result
@@ -203,7 +200,7 @@ through the [Security Policy](SECURITY.md).
 
 ## Documentation
 
-- [Getting started](docs/installation.md): installation through your first working instruction.
+- [Getting started](docs/guide.md): installation through adopting and synchronizing your existing setup.
 - [Workspace and synchronization](docs/architecture.md): source files, scopes, and resource ownership.
 - [Connect another machine](docs/workspace-portability.md): existing workspaces and custom paths.
 - [CLI reference](docs/cli-reference.md): commands and shell completion.

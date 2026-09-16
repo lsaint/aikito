@@ -1,7 +1,9 @@
-# 4. Verify Your First Instruction
+# Create an Instruction From Scratch
 
 You now have a workspace and a [registered project](project-setup.md).
-Add a visible rule, check its connection, and confirm your agent can read it.
+If adoption already imported useful instructions, edit those canonical files
+instead. This page covers the secondary, from-scratch path: add a visible rule,
+check its connection, and confirm your agent can read it.
 
 ## Ask your agent
 

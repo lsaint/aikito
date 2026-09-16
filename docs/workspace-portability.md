@@ -2,7 +2,7 @@
 
 Use this guide when you already have a Git-managed Aikito workspace and want
 to connect it on another host. For a new workspace, start with
-[Create a workspace](workspace-setup.md).
+[the getting-started guide](installation.md).
 
 ## Ask your agent
 

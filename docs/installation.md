@@ -72,7 +72,7 @@ To choose a different installation directory when installing to a virtual enviro
 The CLI installation directory is separate from your personal workspace.
 For example, after opening a new terminal, create the workspace with
 `aikito init workspace $env:USERPROFILE\aikito`, then follow
-[workspace synchronization](workspace-setup.md).
+[existing-setup adoption](workspace-setup.md).
 
 ### Shell completion
 
@@ -100,4 +100,4 @@ uv tool install --default-index https://pypi.org/simple/ aikito
 pipx install --index-url https://pypi.org/simple/ aikito
 ```
 
-Next: [Create a workspace](workspace-setup.md).
+Next: [Adopt your existing Agent setup](workspace-setup.md).
