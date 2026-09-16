@@ -272,6 +272,63 @@ class AikitoAdoptTest(unittest.TestCase):
         self.assertFalse((self.target_path / "global" / "AGENTS.md").exists())
         self.assertTrue((self.target_path / "mcps" / "example.toml").is_file())
 
+    def test_adopt_mcp_canonicalizes_underscore_to_existing_hyphen_server(self) -> None:
+        mcps_dir = self.target_path / "mcps"
+        mcps_dir.mkdir(parents=True)
+        (mcps_dir / "atlassian-rovo.toml").write_text(
+            'transport = "remote"\nurl = "https://mcp.atlassian.com/v2/mcp"\nagents = ["claude-code"]\n',
+            encoding="utf-8",
+        )
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+        (codex_dir / "config.toml").write_text(
+            '[mcp_servers.atlassian_rovo]\nurl = "https://mcp.atlassian.com/v2/mcp"\n',
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        self.assertEqual(len(plan.mcp_servers), 1)
+        self.assertEqual(plan.mcp_servers[0].server_name, "atlassian-rovo")
+        self.assertEqual(plan.mcp_servers[0].agents, ["codex"])
+
+        summary = summarize_adopt_plan(plan)
+        self.assertEqual(summary.mcp_imports, 0)
+
+        self.assertTrue(execute_adoption(plan, dry_run=False, verbose=False))
+        self.assertFalse((mcps_dir / "atlassian_rovo.toml").exists())
+        self.assertTrue((mcps_dir / "atlassian-rovo.toml").exists())
+
+    def test_adopt_mcp_unifies_hyphen_and_underscore_across_agents(self) -> None:
+        claude_dir = self.fake_home / ".claude"
+        claude_dir.mkdir(parents=True)
+        (claude_dir / "claude_desktop_config.json").write_text(
+            json.dumps(
+                {"mcpServers": {"atlassian-rovo": {"url": "https://example.com"}}}
+            ),
+            encoding="utf-8",
+        )
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+        (codex_dir / "config.toml").write_text(
+            '[mcp_servers.atlassian_rovo]\nurl = "https://example.com"\n',
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        self.assertEqual(len(plan.mcp_servers), 1)
+        self.assertEqual(plan.mcp_servers[0].server_name, "atlassian-rovo")
+        self.assertEqual(sorted(plan.mcp_servers[0].agents), ["claude-code", "codex"])
+
+        summary = summarize_adopt_plan(plan)
+        self.assertEqual(summary.mcp_imports, 1)
+
+        self.assertTrue(execute_adoption(plan, dry_run=False, verbose=False))
+        mcps_dir = self.target_path / "mcps"
+        self.assertTrue((mcps_dir / "atlassian-rovo.toml").exists())
+        self.assertFalse((mcps_dir / "atlassian_rovo.toml").exists())
+
     def test_adopt_rejects_unknown_skip_target(self) -> None:
         plan = build_adopt_plan(self.target_path, self.fake_home)
 

@@ -319,6 +319,72 @@ def scan_mcp_servers(
 ) -> List[MCPServerAdoption]:
     adopted_servers: Dict[str, MCPServerAdoption] = {}
 
+    existing_mcps: set[str] = set()
+    mcps_dir = aikito_dir / "mcps"
+    if mcps_dir.is_dir():
+        for p in mcps_dir.glob("*.toml"):
+            if p.is_file():
+                existing_mcps.add(p.stem)
+    mcps_toml = aikito_dir / "mcps.toml"
+    if mcps_toml.is_file():
+        try:
+            doc = tomllib.loads(mcps_toml.read_text(encoding="utf-8"))
+            if "servers" in doc and isinstance(doc["servers"], dict):
+                existing_mcps.update(doc["servers"].keys())
+        except Exception:
+            pass
+
+    def _resolve_canonical_name(name: str) -> str:
+        # 1. Exact match in existing workspace servers
+        if name in existing_mcps:
+            return name
+        # 2. Normalized match in existing workspace servers (e.g. atlassian_rovo -> atlassian-rovo)
+        for canon in existing_mcps:
+            if canon.replace("-", "_") == name.replace("-", "_"):
+                return canon
+
+        # 3. Exact match in already scanned adopted servers
+        if name in adopted_servers:
+            return name
+        # 4. Normalized match in already scanned adopted servers
+        for canon in adopted_servers:
+            if canon.replace("-", "_") == name.replace("-", "_"):
+                return canon
+
+        return name
+
+    def _register_server(
+        raw_name: str,
+        agent: str,
+        config: Dict[str, Any],
+        source_file: Path,
+    ) -> None:
+        canon_name = _resolve_canonical_name(raw_name)
+        if canon_name in adopted_servers:
+            # Upgrade key from snake_case to kebab-case if incoming raw_name has dashes
+            if (
+                "-" in raw_name
+                and "_" in canon_name
+                and raw_name.replace("-", "_") == canon_name
+                and canon_name not in existing_mcps
+            ):
+                item = adopted_servers.pop(canon_name)
+                item.server_name = raw_name
+                if agent not in item.agents:
+                    item.agents.append(agent)
+                adopted_servers[raw_name] = item
+            else:
+                if agent not in adopted_servers[canon_name].agents:
+                    adopted_servers[canon_name].agents.append(agent)
+        else:
+            adopted_servers[canon_name] = MCPServerAdoption(
+                server_name=canon_name,
+                agents=[agent],
+                config_data=config,
+                source_agent=agent,
+                source_file=source_file,
+            )
+
     # 1. Claude Code (~/.claude.json) & Claude Desktop JSON
     claude_json_candidates = [
         home / ".claude.json",
@@ -338,10 +404,7 @@ def scan_mcp_servers(
                     mcp_servers = data.get("mcpServers", {})
                     if isinstance(mcp_servers, dict):
                         for s_name, s_cfg in mcp_servers.items():
-                            if (
-                                isinstance(s_cfg, dict)
-                                and s_name not in adopted_servers
-                            ):
+                            if isinstance(s_cfg, dict):
                                 s_cfg_copy = dict(s_cfg)
                                 if "env" in s_cfg_copy and isinstance(
                                     s_cfg_copy["env"], dict
@@ -351,12 +414,11 @@ def scan_mcp_servers(
                                     )
                                     s_cfg_copy["env"] = sanitized_env
 
-                                adopted_servers[s_name] = MCPServerAdoption(
-                                    server_name=s_name,
-                                    agents=["claude-code"],
-                                    config_data=s_cfg_copy,
-                                    source_agent="claude-code",
-                                    source_file=c_path,
+                                _register_server(
+                                    s_name,
+                                    "claude-code",
+                                    s_cfg_copy,
+                                    c_path,
                                 )
             except json.JSONDecodeError as e:
                 _record_scan_error(
@@ -390,17 +452,12 @@ def scan_mcp_servers(
                                 sanitized_env, _ = _sanitize_mcp_env(s_cfg_copy["env"])
                                 s_cfg_copy["env"] = sanitized_env
 
-                            if s_name in adopted_servers:
-                                if "codex" not in adopted_servers[s_name].agents:
-                                    adopted_servers[s_name].agents.append("codex")
-                            else:
-                                adopted_servers[s_name] = MCPServerAdoption(
-                                    server_name=s_name,
-                                    agents=["codex"],
-                                    config_data=s_cfg_copy,
-                                    source_agent="codex",
-                                    source_file=codex_toml,
-                                )
+                            _register_server(
+                                s_name,
+                                "codex",
+                                s_cfg_copy,
+                                codex_toml,
+                            )
         except tomllib.TOMLDecodeError as e:
             _record_scan_error(
                 errors,
@@ -451,22 +508,12 @@ def scan_mcp_servers(
                                 continue
                             s_cfg_copy["transport"] = "remote"
 
-                            if s_name in adopted_servers:
-                                if (
-                                    "github-copilot"
-                                    not in adopted_servers[s_name].agents
-                                ):
-                                    adopted_servers[s_name].agents.append(
-                                        "github-copilot"
-                                    )
-                            else:
-                                adopted_servers[s_name] = MCPServerAdoption(
-                                    server_name=s_name,
-                                    agents=["github-copilot"],
-                                    config_data=s_cfg_copy,
-                                    source_agent="github-copilot",
-                                    source_file=copilot_mcp_config,
-                                )
+                            _register_server(
+                                s_name,
+                                "github-copilot",
+                                s_cfg_copy,
+                                copilot_mcp_config,
+                            )
         except json.JSONDecodeError as e:
             _record_scan_error(
                 errors,
