@@ -46,6 +46,13 @@ class WorkspaceInitGuidanceTest(unittest.TestCase):
         output = io.StringIO()
         with (
             patch.object(AIKITO_CLI.Path, "home", return_value=root),
+            patch.dict(
+                os.environ,
+                {
+                    "APPDATA": str(root / "AppData" / "Roaming"),
+                    "XDG_CONFIG_HOME": str(root / ".config"),
+                },
+            ),
             patch("aikito.templating.shutil.which", return_value=None),
             patch("aikito.mcp.shutil.which", return_value=None),
             patch("sys.stdout", output),
