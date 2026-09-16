@@ -257,6 +257,35 @@ jobs:
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito sync global
 
+      - name: Refresh divergent bundled skills
+        run: |
+          printf 'customized aikito\n' > \
+            ${{ runner.temp }}/aikito-ws/skills/aikito/SKILL.md
+          printf 'customized memory\n' > \
+            ${{ runner.temp }}/aikito-ws/skills/durable-memory/SKILL.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito status \
+            2> ${{ runner.temp }}/bundled-skill-notice.err
+          grep -F "Bundled skill snapshot differs" \
+            ${{ runner.temp }}/bundled-skill-notice.err
+          grep -F "customized aikito" \
+            ${{ runner.temp }}/aikito-ws/skills/aikito/SKILL.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync global \
+            | tee ${{ runner.temp }}/bundled-skill-refresh.out
+          grep -F "[REFRESH] Bundled skill 'aikito'" \
+            ${{ runner.temp }}/bundled-skill-refresh.out
+          grep -F "[REFRESH] Bundled skill 'durable-memory'" \
+            ${{ runner.temp }}/bundled-skill-refresh.out
+          cmp src/aikito/templates/skills/aikito/SKILL.md \
+            ${{ runner.temp }}/aikito-ws/skills/aikito/SKILL.md
+          cmp src/aikito/templates/skills/durable-memory/SKILL.md \
+            ${{ runner.temp }}/aikito-ws/skills/durable-memory/SKILL.md
+          test -f $(find ~/.aikito/backups -path \
+            '*/bundled-skills_*/aikito/SKILL.md' -print -quit)
+          test -f $(find ~/.aikito/backups -path \
+            '*/bundled-skills_*/durable-memory/SKILL.md' -print -quit)
+
       - name: aikito init project (fresh and idempotent)
         run: |
           mkdir -p ${{ runner.temp }}/example-project
@@ -813,6 +842,32 @@ jobs:
           $syncPlan | Select-String "Safe to apply"
           python -m aikito sync --dry-run --verbose | Select-String "Details"
           python -m aikito sync global
+          $aikitoSkill = Join-Path $wsDir "skills\aikito\SKILL.md"
+          $memorySkill = Join-Path $wsDir "skills\durable-memory\SKILL.md"
+          "customized aikito" | Set-Content $aikitoSkill
+          "customized memory" | Set-Content $memorySkill
+          $statusError = Join-Path $env:RUNNER_TEMP "bundled-skill-notice.err"
+          python -m aikito status 2> $statusError | Out-Null
+          if (-not (Select-String -Path $statusError -Pattern "Bundled skill snapshot differs")) {
+            throw "Status did not report divergent bundled skills"
+          }
+          $refreshOutput = python -m aikito sync global | Out-String
+          if ($refreshOutput -notmatch "\[REFRESH\] Bundled skill 'aikito'") {
+            throw "Aikito skill was not refreshed"
+          }
+          if ($refreshOutput -notmatch "\[REFRESH\] Bundled skill 'durable-memory'") {
+            throw "Durable memory skill was not refreshed"
+          }
+          if ((Get-Content $aikitoSkill -Raw) -ne (Get-Content "src\aikito\templates\skills\aikito\SKILL.md" -Raw)) {
+            throw "Aikito skill does not match the installed template"
+          }
+          if ((Get-Content $memorySkill -Raw) -ne (Get-Content "src\aikito\templates\skills\durable-memory\SKILL.md" -Raw)) {
+            throw "Durable memory skill does not match the installed template"
+          }
+          $backupRoot = Join-Path $HOME ".aikito\backups"
+          if (-not (Get-ChildItem $backupRoot -Recurse -Filter "SKILL.md" | Where-Object { $_.FullName -match "bundled-skills_" })) {
+            throw "Bundled skill backup was not created"
+          }
           $projectDir = Join-Path $env:RUNNER_TEMP "example-project"
           New-Item -ItemType Directory -Force -Path $projectDir | Out-Null
           python -m aikito init project example "$projectDir"

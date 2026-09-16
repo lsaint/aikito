@@ -24,6 +24,12 @@ from .adopt import (
     execute_adoption,
     summarize_adopt_plan,
 )
+from .bundled_skills import (
+    BundledSkillRefreshError,
+    outdated_bundled_skills,
+    print_bundled_skill_notice,
+    refresh_bundled_skills,
+)
 from .conflict import collect_resource_conflicts
 from .diff import collect_drift_diffs, render_drift_diffs
 from .doctor import run_doctor, run_doctor_fixes
@@ -204,13 +210,15 @@ def sync_global_resources(
         print("[ERROR] 'skills' in skills.toml must be a list.", file=sys.stderr)
         return False
 
+    outdated_bundled = set(outdated_bundled_skills(aikito_dir))
+
     # Check global instruction source and global skills for conflict markers
     global_resources: list[Path] = []
     if global_instruction_source.is_file():
         global_resources.append(global_instruction_source)
     for skill_name in skills:
         s_dir = aikito_dir / "skills" / str(skill_name)
-        if s_dir.is_dir():
+        if s_dir.is_dir() and str(skill_name) not in outdated_bundled:
             global_resources.append(s_dir)
     global_conflicts = collect_resource_conflicts(global_resources, home)
     if global_conflicts:
@@ -264,17 +272,26 @@ def sync_global_resources(
             print(f"[CONFLICT] Unmanaged global skill item: {path}", file=sys.stderr)
         print("[ERROR] Global synchronization aborted.", file=sys.stderr)
         return False
+    try:
+        refreshed_bundled = set(
+            refresh_bundled_skills(aikito_dir, home, dry_run=dry_run)
+        )
+    except BundledSkillRefreshError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        return False
     apply_runtime_cleanup(cleanup_paths, dry_run)
 
-    skill_results = [
-        sync_resource(
-            aikito_dir / "skills" / skill_name,
-            agents_skills_dir / skill_name,
-            mode="link",
-            dry_run=dry_run,
+    skill_results: list[bool] = []
+    for skill_name in skills:
+        source = aikito_dir / "skills" / skill_name
+        target = agents_skills_dir / skill_name
+        if dry_run and skill_name in refreshed_bundled and not source.exists():
+            print(f"[DRY RUN LINK] {source} -> {target}")
+            skill_results.append(True)
+            continue
+        skill_results.append(
+            sync_resource(source, target, mode="link", dry_run=dry_run)
         )
-        for skill_name in skills
-    ]
     if not all(skill_results):
         print("[ERROR] Global skill synchronization aborted.", file=sys.stderr)
         return False
@@ -704,7 +721,7 @@ def cmd_sync_all(args: argparse.Namespace) -> None:
         follow_up_lines = [
             line
             for line in stdout.getvalue().splitlines()
-            if "[AUTH]" in line or "[BACKUP]" in line
+            if "[AUTH]" in line or "[BACKUP]" in line or "[REFRESH]" in line
         ]
         if follow_up_lines:
             print("\n".join(follow_up_lines))
@@ -723,6 +740,7 @@ def cmd_status(args: argparse.Namespace) -> None:
     aikito_dir, workspace_source = resolve_workspace_with_source(Path.home())
     home = Path.home()
     use_unicode, use_color = resolve_color_flags(args)
+    print_bundled_skill_notice(aikito_dir)
 
     # Top-level Dashboard report
     report_data = get_status_report_data(aikito_dir, home)
@@ -902,6 +920,7 @@ def cmd_show_skill(args: argparse.Namespace) -> None:
     target = getattr(args, "target", None)
 
     if not target:
+        print_bundled_skill_notice(aikito_dir)
         use_unicode, use_color = resolve_color_flags(args)
         skill_rows = collect_skills_rows(aikito_dir=aikito_dir)
         table_str = render_skills_table(skill_rows, use_unicode, use_color)
@@ -909,6 +928,7 @@ def cmd_show_skill(args: argparse.Namespace) -> None:
         return
 
     skill_file = resolve_skill_target_for_command(aikito_dir, target, operation="show")
+    print_bundled_skill_notice(aikito_dir, names=(skill_file.parent.name,))
 
     try:
         print(skill_file.read_text(encoding="utf-8"), end="")
@@ -1406,6 +1426,7 @@ def cmd_adopt(args: argparse.Namespace) -> None:
 def cmd_doctor(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
     home = Path.home()
+    print_bundled_skill_notice(aikito_dir)
 
     use_unicode, use_color = resolve_color_flags(args)
 

@@ -244,7 +244,9 @@ class AikitoInitTest(unittest.TestCase):
         init_workspace(self.target_path, self.fake_home, force=True)
         self.assertIn("[agents.codex]", agents_toml.read_text(encoding="utf-8"))
 
-    def test_init_workspace_preserves_existing_bundled_skill(self) -> None:
+    def test_init_workspace_refreshes_existing_bundled_skills_with_backups(
+        self,
+    ) -> None:
         init_workspace(self.target_path, self.fake_home)
         skill_files = [
             self.target_path / "skills" / name / "SKILL.md"
@@ -253,10 +255,19 @@ class AikitoInitTest(unittest.TestCase):
         for skill_file in skill_files:
             skill_file.write_text("customized\n", encoding="utf-8")
 
-        init_workspace(self.target_path, self.fake_home, force=True)
+        init_workspace(self.target_path, self.fake_home)
 
         for skill_file in skill_files:
-            self.assertEqual(skill_file.read_text(encoding="utf-8"), "customized\n")
+            self.assertNotEqual(skill_file.read_text(encoding="utf-8"), "customized\n")
+
+        backups = sorted(
+            (self.fake_home / ".aikito" / "backups").glob(
+                "bundled-skills_*/**/SKILL.md"
+            )
+        )
+        self.assertEqual(len(backups), 2)
+        for backup in backups:
+            self.assertEqual(backup.read_text(encoding="utf-8"), "customized\n")
 
     def test_init_workspace_rejects_cli_source_tree_before_writing(self) -> None:
         source_root = Path(self.tmp_dir.name) / "source"

@@ -5,6 +5,10 @@ description: Git-versioned memory stored in the Aikito workspace, separate from 
 
 # Durable Memory
 
+This bundled skill is a system-managed snapshot of the installed Aikito
+package. Do not customize it in place; put additional memory policy in global
+or project instructions.
+
 ## Objective
 
 Reduce redundant investigation and repeated pitfalls using a minimal, trustworthy, and searchable memory store.

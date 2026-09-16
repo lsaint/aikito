@@ -31,6 +31,12 @@ targets, not independent sources. Modify canonical resources first and then
 synchronize them. Never treat generated Agent-native instructions, skills,
 subagents, or MCP entries as sources.
 
+The bundled `aikito` and `durable-memory` skills are system-managed snapshots,
+not user-customizable canonical resources. Aikito refreshes them from the
+installed package during workspace initialization and global synchronization,
+backing up divergent contents first. Put lasting custom behavior in global or
+project instructions, or in a separately named skill.
+
 Resolve `<workspace>` with `aikito path workspace` before editing canonical
 files directly. `AIKITO_DIR` temporarily overrides the persisted workspace.
 Use the installed `aikito` command and treat `aikito <command> --help` as the

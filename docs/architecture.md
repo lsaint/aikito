@@ -59,6 +59,14 @@ review requirements to match your environment.
 | Subagents | `subagents.toml`, `subagents/` | Cross-Agent specialist definitions |
 | Agent registry | `agents.toml` | Integration paths and supported capabilities |
 
+The bundled `skills/aikito/` and `skills/durable-memory/` directories are
+system-managed snapshots whose source is the installed Aikito package. Read-only
+inspection commands report divergence. Workspace initialization and global
+synchronization back up divergent snapshots under
+`~/.aikito/backups/bundled-skills_<timestamp>/` and replace them before
+synchronizing Agent runtime targets. Other workspace skills remain
+user-managed canonical resources.
+
 Aikito calls the resource “instructions” while retaining the ecosystem-standard
 `AGENTS.md` filename for its canonical content.
 

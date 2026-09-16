@@ -11,13 +11,13 @@ import json
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 from typing import Optional
 
-import tomllib
-
-from .mcp import MCPConfigError, collect_project_instruction_targets
+from .bundled_skills import BundledSkillRefreshError, refresh_bundled_skills
 from .compat import safe_relative_path
+from .mcp import MCPConfigError, collect_project_instruction_targets
 from .project import resolve_project_binding
 from .templating import (
     BUNDLED_SKILL_NAMES,
@@ -184,6 +184,13 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
             continue
         shutil.copytree(skill_source, bundled_skill_target)
         print(f"[CREATE DIR] {bundled_skill_target} (Bundled {skill_name} skill)")
+
+    if existing_workspace:
+        try:
+            refresh_bundled_skills(target_dir, home)
+        except BundledSkillRefreshError as exc:
+            print(f"[ERROR] {exc}", file=sys.stderr)
+            return False
 
     # 3. Git Init
     git_dir = target_dir / ".git"

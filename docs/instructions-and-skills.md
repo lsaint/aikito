@@ -4,6 +4,13 @@ Use instructions for rules an agent should follow, and skills for reusable
 workflows. If adoption did not import an instruction you need, follow
 [create an instruction from scratch](first-instruction.md).
 
+The bundled `aikito` and `durable-memory` skills are system-managed snapshots
+of the installed Aikito package. `aikito status`, `aikito doctor`, and
+`aikito show skill` report divergent snapshots; workspace initialization and
+global synchronization back up and refresh them. Do not customize these two
+directories in place. Put custom workflows in separately named skills and
+custom policy in global or project instructions.
+
 ## Edit instructions in the right scope
 
 Global instructions apply across projects; project instructions add rules for

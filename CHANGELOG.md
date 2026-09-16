@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Treat the bundled `aikito` and `durable-memory` skills as system-managed snapshots: inspection commands report divergence, while workspace initialization and global synchronization back up and refresh them from the installed package.
+
 ## [1.36.1] - 2026-09-16
 
 ### Changed
