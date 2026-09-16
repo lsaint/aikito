@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.36.0] - 2026-09-16
+
+### Added
+
+- Added preflight sync planning (`aikito sync --dry-run`) with concise progress metrics (`Changes`, `Unchanged`, `Offline`), detailed logging via `--verbose`, and non-zero exit when blocked by unmanaged targets or conflicts.
+- Added selective resource adoption and preflight previews in `aikito adopt` with `--dry-run`, `--verbose`, and repeatable `--skip RESOURCE` flags (`instructions`, `mcp/<name>`, `subagent/<name>`).
+- Added an `Adoption` diagnostics section in `aikito doctor` that flags conflicting or invalid existing agent configurations with actionable remediation commands.
+- Enhanced `aikito init workspace` with contextual next-step recommendations and clean `[CONNECTED]` status reporting when attaching to existing workspaces.
+- Redesigned documentation homepage with custom layout, refined copy, self-hosted fonts, responsive header alignment, and OS-aware installation instructions.
+
+### Changed
+
+- Full workspace sync (`aikito sync`) now evaluates a preflight sync plan before mutating filesystem state, aborting safely if conflicts are detected.
+
 ## [1.35.0] - 2026-09-14
 
 ### Added
@@ -661,7 +675,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.35.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.36.0...HEAD
+[1.36.0]: https://github.com/lsaint/aikito/compare/v1.35.0...v1.36.0
 [1.35.0]: https://github.com/lsaint/aikito/compare/v1.34.0...v1.35.0
 [1.34.0]: https://github.com/lsaint/aikito/compare/v1.33.0...v1.34.0
 [1.33.0]: https://github.com/lsaint/aikito/compare/v1.32.0...v1.33.0
