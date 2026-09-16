@@ -20,6 +20,8 @@
   --aikito-table-heading-bg: #eeeeeb;
   --aikito-radius: 12px;
   --aikito-header-height: 3.7rem;
+  --aikito-link: #35628e;
+  --aikito-link-hover: #1e446c;
 
   --md-default-fg-color: var(--aikito-text);
   --md-default-fg-color--light: var(--aikito-muted);
@@ -28,7 +30,7 @@
   --md-primary-fg-color: #242424;
   --md-primary-bg-color: #ffffff;
   --md-accent-fg-color: #242424;
-  --md-typeset-a-color: #292927;
+  --md-typeset-a-color: var(--aikito-link);
   --md-code-bg-color: #ecece8;
   --md-code-fg-color: #282826;
 }
@@ -36,7 +38,7 @@
 [data-md-color-scheme="default"] {
   --md-accent-fg-color: #242424;
   --md-accent-fg-color--transparent: rgb(36 36 36 / 8%);
-  --md-typeset-a-color: #292927;
+  --md-typeset-a-color: var(--aikito-link);
 }
 
 [data-md-color-scheme="slate"] {
@@ -53,6 +55,8 @@
   --aikito-table-key: #ececea;
   --aikito-table-bg: #1c1c1b;
   --aikito-table-heading-bg: #222220;
+  --aikito-link: #8eaed0;
+  --aikito-link-hover: #b2cfee;
 
   --md-default-fg-color: var(--aikito-text);
   --md-default-fg-color--light: var(--aikito-muted);
@@ -62,7 +66,7 @@
   --md-primary-bg-color: #f2f2ef;
   --md-accent-fg-color: #f2f2ef;
   --md-accent-fg-color--transparent: rgb(242 242 239 / 8%);
-  --md-typeset-a-color: #eeeeeb;
+  --md-typeset-a-color: var(--aikito-link);
   --md-code-bg-color: #232321;
   --md-code-fg-color: #e7e7e3;
 }
@@ -366,14 +370,14 @@ body {
 /* ---------- Links ---------- */
 
 .md-typeset a {
-  color: var(--aikito-text);
+  color: var(--aikito-link);
   font-weight: 570;
   text-decoration: none;
   transition: color 110ms ease;
 }
 
 .md-typeset a:hover {
-  color: var(--aikito-text);
+  color: var(--aikito-link-hover);
   text-decoration: none;
 }
 
@@ -480,9 +484,14 @@ body {
 }
 
 .md-typeset table:not([class]) td:first-child a {
-  color: inherit;
+  color: var(--aikito-link);
   font-weight: inherit;
   text-decoration: none;
+  transition: color 110ms ease;
+}
+
+.md-typeset table:not([class]) td:first-child a:hover {
+  color: var(--aikito-link-hover);
 }
 
 .md-typeset table:not([class]) tbody tr:hover {
