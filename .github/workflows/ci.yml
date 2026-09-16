@@ -682,8 +682,8 @@ jobs:
 
       - name: aikito adopt (preflight and default apply)
         run: |
-          mkdir -p ~/.codex/agents
-          cat << 'EOF' > ~/.codex/agents/ci-adopt.md
+          mkdir -p ~/.claude/agents
+          cat << 'EOF' > ~/.claude/agents/ci-adopt.md
           ---
           name: ci-adopt
           description: CI adoption smoke test
@@ -779,9 +779,9 @@ jobs:
           $connectOutput | Write-Output
           $connectOutput | Select-String "\[CONNECTED\]"
           $connectOutput | Select-String "aikito doctor"
-          $codexAgents = Join-Path $HOME ".codex\agents"
-          New-Item -ItemType Directory -Force -Path $codexAgents | Out-Null
-          $adoptSource = Join-Path $codexAgents "ci-adopt.md"
+          $claudeAgents = Join-Path $HOME ".claude\agents"
+          New-Item -ItemType Directory -Force -Path $claudeAgents | Out-Null
+          $adoptSource = Join-Path $claudeAgents "ci-adopt.md"
           @("---", "name: ci-adopt", "description: CI adoption smoke test", "---", "Review adoption behavior.") | Set-Content $adoptSource
           python -m aikito adopt --dry-run --verbose --skip subagent/ci-adopt
           $adoptedSubagent = Join-Path $wsDir "subagents\ci-adopt.md"
