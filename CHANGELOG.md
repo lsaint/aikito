@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.36.1] - 2026-09-16
+
+### Changed
+
+- Streamlined the bundled `aikito` guidance skill by extracting detailed workflows into dedicated reference documents (`references/adoption.md`, `references/installation.md`, and `references/projects.md`).
+- Extended workspace template bundling and integrity verification to package and deploy skill references alongside core skill definitions.
+- Refocused documentation onboarding on existing agent setups with refined styling and navigation.
+
 ## [1.36.0] - 2026-09-16
 
 ### Added
@@ -675,7 +683,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.36.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.36.1...HEAD
+[1.36.1]: https://github.com/lsaint/aikito/compare/v1.36.0...v1.36.1
 [1.36.0]: https://github.com/lsaint/aikito/compare/v1.35.0...v1.36.0
 [1.35.0]: https://github.com/lsaint/aikito/compare/v1.34.0...v1.35.0
 [1.34.0]: https://github.com/lsaint/aikito/compare/v1.33.0...v1.34.0
