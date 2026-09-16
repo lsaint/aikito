@@ -26,6 +26,11 @@ def _resolve_templates_dir() -> Path:
 
 
 BUNDLED_SKILL_NAMES = ("aikito", "durable-memory")
+BUNDLED_SKILL_REFERENCE_FILES = (
+    "skills/aikito/references/adoption.md",
+    "skills/aikito/references/installation.md",
+    "skills/aikito/references/projects.md",
+)
 
 # Workspace-level destinations and their source assets under templates/.
 # agents/_header.toml marks agents.toml for per-Agent assembly during rendering.
@@ -132,6 +137,7 @@ def verify_templates() -> list[str]:
         *(template_name for _dest, template_name in PROJECT_TEMPLATE_FILES),
         *(f"agents/{name}.toml" for name in AGENT_INSTALL_MARKERS),
         *(f"skills/{name}/SKILL.md" for name in BUNDLED_SKILL_NAMES),
+        *BUNDLED_SKILL_REFERENCE_FILES,
     ]
     return [
         f"Workspace template not found: {templates_dir / name}"

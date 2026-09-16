@@ -150,6 +150,12 @@ jobs:
           test -f ${{ runner.temp }}/installed-workspace/config.toml
           test -f ${{ runner.temp }}/installed-workspace/skills/aikito/SKILL.md
           test -f \
+            ${{ runner.temp }}/installed-workspace/skills/aikito/references/adoption.md
+          test -f \
+            ${{ runner.temp }}/installed-workspace/skills/aikito/references/installation.md
+          test -f \
+            ${{ runner.temp }}/installed-workspace/skills/aikito/references/projects.md
+          test -f \
             ${{ runner.temp }}/installed-workspace/skills/durable-memory/SKILL.md
 
       - name: Build wheel and verify package contents
@@ -208,6 +214,12 @@ jobs:
           ${{ runner.temp }}/isolated-venv/bin/aikito init workspace ${{ runner.temp }}/wheel-ws
           test -f ${{ runner.temp }}/wheel-ws/agents.toml
           test -f ${{ runner.temp }}/wheel-ws/skills/aikito/SKILL.md
+          test -f \
+            ${{ runner.temp }}/wheel-ws/skills/aikito/references/adoption.md
+          test -f \
+            ${{ runner.temp }}/wheel-ws/skills/aikito/references/installation.md
+          test -f \
+            ${{ runner.temp }}/wheel-ws/skills/aikito/references/projects.md
           test -f ${{ runner.temp }}/wheel-ws/skills/durable-memory/SKILL.md
           mkdir -p ${{ runner.temp }}/wheel-project
           mkdir -p ${{ runner.temp }}/wheel-project-second
@@ -775,6 +787,12 @@ jobs:
           $initOutput = python -m aikito init workspace "$wsDir"
           $initOutput | Write-Output
           $initOutput | Select-String "Run 'aikito sync'"
+          $adoptionReference = Join-Path $wsDir "skills\aikito\references\adoption.md"
+          $installationReference = Join-Path $wsDir "skills\aikito\references\installation.md"
+          $projectsReference = Join-Path $wsDir "skills\aikito\references\projects.md"
+          if (-not (Test-Path $adoptionReference)) { throw "Adoption skill reference missing" }
+          if (-not (Test-Path $installationReference)) { throw "Installation skill reference missing" }
+          if (-not (Test-Path $projectsReference)) { throw "Projects skill reference missing" }
           $connectOutput = python -m aikito init workspace "$wsDir"
           $connectOutput | Write-Output
           $connectOutput | Select-String "\[CONNECTED\]"

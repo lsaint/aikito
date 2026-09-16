@@ -54,6 +54,16 @@ class AikitoInitTest(unittest.TestCase):
             self.assertTrue(
                 (self.target_path / "skills" / skill_name / "SKILL.md").is_file()
             )
+        for reference_name in ("adoption.md", "installation.md", "projects.md"):
+            self.assertTrue(
+                (
+                    self.target_path
+                    / "skills"
+                    / "aikito"
+                    / "references"
+                    / reference_name
+                ).is_file()
+            )
 
         with (self.target_path / "skills.toml").open("rb") as skills_file:
             self.assertEqual(
