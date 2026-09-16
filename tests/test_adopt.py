@@ -237,6 +237,24 @@ class AikitoAdoptTest(unittest.TestCase):
         self.assertFalse((self.target_path / "global" / "AGENTS.md").exists())
         self.assertFalse((self.fake_home / ".aikito" / "backups").exists())
 
+    def test_adopt_malformed_agent_registry_blocks_all_writes(self) -> None:
+        (self.target_path / "agents.toml").write_text(
+            "[agents.codex\n", encoding="utf-8"
+        )
+        claude_dir = self.fake_home / ".claude"
+        claude_dir.mkdir(parents=True)
+        (claude_dir / "claude_desktop_config.json").write_text(
+            json.dumps({"mcpServers": {"example": {"command": "example"}}}),
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+
+        self.assertEqual(len(plan.errors), 1)
+        self.assertEqual(plan.errors[0].resource, "agents")
+        self.assertFalse(execute_adoption(plan, dry_run=False, verbose=False))
+        self.assertFalse((self.target_path / "mcps").exists())
+
     def test_adopt_skip_invalid_mcp_applies_remaining_resources(self) -> None:
         codex_dir = self.fake_home / ".codex"
         codex_dir.mkdir(parents=True)
@@ -273,6 +291,9 @@ class AikitoAdoptTest(unittest.TestCase):
         self.assertTrue((self.target_path / "mcps" / "example.toml").is_file())
 
     def test_adopt_mcp_canonicalizes_underscore_to_existing_hyphen_server(self) -> None:
+        (self.target_path / "agents.toml").write_text(
+            load_agents_template(), encoding="utf-8"
+        )
         mcps_dir = self.target_path / "mcps"
         mcps_dir.mkdir(parents=True)
         (mcps_dir / "atlassian-rovo.toml").write_text(
@@ -300,6 +321,9 @@ class AikitoAdoptTest(unittest.TestCase):
         self.assertTrue((mcps_dir / "atlassian-rovo.toml").exists())
 
     def test_adopt_mcp_unifies_hyphen_and_underscore_across_agents(self) -> None:
+        (self.target_path / "agents.toml").write_text(
+            load_agents_template(), encoding="utf-8"
+        )
         claude_dir = self.fake_home / ".claude"
         claude_dir.mkdir(parents=True)
         (claude_dir / "claude_desktop_config.json").write_text(
@@ -328,6 +352,162 @@ class AikitoAdoptTest(unittest.TestCase):
         mcps_dir = self.target_path / "mcps"
         self.assertTrue((mcps_dir / "atlassian-rovo.toml").exists())
         self.assertFalse((mcps_dir / "atlassian_rovo.toml").exists())
+
+    def test_adopt_mcp_keeps_verbatim_hyphen_and_underscore_names_distinct(
+        self,
+    ) -> None:
+        (self.target_path / "agents.toml").write_text(
+            load_agents_template(), encoding="utf-8"
+        )
+        (self.fake_home / ".claude.json").write_text(
+            json.dumps({"mcpServers": {"example-server": {"command": "first"}}}),
+            encoding="utf-8",
+        )
+        claude_dir = self.fake_home / ".claude"
+        claude_dir.mkdir(parents=True)
+        (claude_dir / "claude_desktop_config.json").write_text(
+            json.dumps({"mcpServers": {"example_server": {"command": "second"}}}),
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+
+        self.assertEqual(
+            {server.server_name for server in plan.mcp_servers},
+            {"example-server", "example_server"},
+        )
+        self.assertEqual(plan.errors, ())
+
+    def test_adopt_mcp_blocks_different_configs_after_name_mapping(self) -> None:
+        (self.target_path / "agents.toml").write_text(
+            load_agents_template(), encoding="utf-8"
+        )
+        claude_dir = self.fake_home / ".claude"
+        claude_dir.mkdir(parents=True)
+        (claude_dir / "claude_desktop_config.json").write_text(
+            json.dumps({"mcpServers": {"company-api": {"url": "https://claude.test"}}}),
+            encoding="utf-8",
+        )
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "config.toml").write_text(
+            '[mcp_servers.company_api]\nurl = "https://codex.test"\n',
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+
+        self.assertEqual(len(plan.errors), 1)
+        self.assertEqual(plan.errors[0].code, "adopt.mcp_conflict")
+        self.assertFalse(execute_adoption(plan, dry_run=False, verbose=False))
+        self.assertFalse((self.target_path / "mcps").exists())
+
+    def test_adopt_mcp_skips_agent_builtin_servers(self) -> None:
+        (self.target_path / "agents.toml").write_text(
+            """
+[agents.codex]
+display_name = "Codex"
+[agents.codex.mcp]
+config_path = ".codex/config.toml"
+config_format = "toml"
+builtin_mcps = ["openaiDeveloperDocs"]
+""".lstrip(),
+            encoding="utf-8",
+        )
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+        (codex_dir / "config.toml").write_text(
+            '[mcp_servers.openaiDeveloperDocs]\nurl = "https://developers.openai.com/mcp"\n',
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        self.assertEqual(len(plan.mcp_servers), 0)
+        self.assertEqual(plan.builtin_mcps, (("openaiDeveloperDocs", "codex"),))
+
+        summary = summarize_adopt_plan(plan)
+        self.assertEqual(summary.mcp_imports, 0)
+
+        self.assertTrue(execute_adoption(plan, dry_run=False, verbose=False))
+        self.assertFalse(
+            (self.target_path / "mcps" / "openaiDeveloperDocs.toml").exists()
+        )
+
+    def test_adopt_mcp_reports_builtin_skip_when_plan_has_no_changes(self) -> None:
+        (self.target_path / "agents.toml").write_text(
+            """
+[agents.codex]
+display_name = "Codex"
+[agents.codex.mcp]
+config_path = ".codex/config.toml"
+config_format = "toml"
+builtin_mcps = ["openaiDeveloperDocs"]
+""".lstrip(),
+            encoding="utf-8",
+        )
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "config.toml").write_text(
+            '[mcp_servers.openaiDeveloperDocs]\nurl = "https://developers.openai.com/mcp"\n',
+            encoding="utf-8",
+        )
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            self.assertTrue(
+                execute_adoption(
+                    build_adopt_plan(self.target_path, self.fake_home),
+                    dry_run=True,
+                    verbose=True,
+                )
+            )
+
+        self.assertIn(
+            "[SKIP MCP] Server 'openaiDeveloperDocs' is built-in to codex",
+            output.getvalue(),
+        )
+
+    def test_adopt_mcp_keeps_builtin_server_when_shared_with_another_agent(
+        self,
+    ) -> None:
+        (self.target_path / "agents.toml").write_text(
+            """
+[agents.codex]
+display_name = "Codex"
+[agents.codex.mcp]
+config_path = ".codex/config.toml"
+config_format = "toml"
+builtin_mcps = ["sharedServer"]
+[agents.claude-code]
+display_name = "Claude Code"
+[agents.claude-code.mcp]
+config_path = ".claude.json"
+config_format = "claude_json"
+""".lstrip(),
+            encoding="utf-8",
+        )
+        claude_dir = self.fake_home / ".claude"
+        claude_dir.mkdir(parents=True)
+        (claude_dir / "claude_desktop_config.json").write_text(
+            json.dumps(
+                {"mcpServers": {"sharedServer": {"url": "https://example.com"}}}
+            ),
+            encoding="utf-8",
+        )
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+        (codex_dir / "config.toml").write_text(
+            '[mcp_servers.sharedServer]\nurl = "https://example.com"\n',
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        self.assertEqual(len(plan.mcp_servers), 1)
+        self.assertEqual(plan.mcp_servers[0].server_name, "sharedServer")
+        self.assertEqual(sorted(plan.mcp_servers[0].agents), ["claude-code", "codex"])
+        self.assertEqual(len(plan.builtin_mcps), 0)
 
     def test_adopt_rejects_unknown_skip_target(self) -> None:
         plan = build_adopt_plan(self.target_path, self.fake_home)

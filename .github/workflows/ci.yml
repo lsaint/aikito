@@ -743,6 +743,16 @@ jobs:
           test -f ${{ runner.temp }}/aikito-ws/subagents/ci-adopt.md
           grep -F "[subagents.ci-adopt]" \
             ${{ runner.temp }}/aikito-ws/subagents.toml
+          mkdir -p ~/.codex
+          cat << 'EOF' > ~/.codex/config.toml
+          [mcp_servers.openaiDeveloperDocs]
+          url = "https://developers.openai.com/mcp"
+          EOF
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito adopt --dry-run --verbose \
+            | tee ${{ runner.temp }}/adopt-builtin.out
+          grep -F "[SKIP MCP] Server 'openaiDeveloperDocs' is built-in to codex" ${{ runner.temp }}/adopt-builtin.out
+          test ! -f ${{ runner.temp }}/aikito-ws/mcps/openaiDeveloperDocs.toml
 
       - name: aikito completion scripts and dynamic candidates
         run: |
@@ -811,7 +821,9 @@ jobs:
         run: |
           $wsDir = Join-Path $env:RUNNER_TEMP "aikito-ws"
           $piDir = Join-Path $HOME ".pi\agent"
+          $codexDir = Join-Path $HOME ".codex"
           New-Item -ItemType Directory -Force -Path $piDir | Out-Null
+          New-Item -ItemType Directory -Force -Path $codexDir | Out-Null
           $env:AIKITO_DIR = $wsDir
           $initOutput = python -m aikito init workspace "$wsDir"
           $initOutput | Write-Output
@@ -836,6 +848,14 @@ jobs:
           python -m aikito doctor --no-color | Select-String "Adoption"
           python -m aikito adopt
           if (-not (Test-Path $adoptedSubagent)) { throw "Default adopt did not write subagent" }
+          $codexConfig = Join-Path $codexDir "config.toml"
+          @('[mcp_servers.openaiDeveloperDocs]', 'url = "https://developers.openai.com/mcp"') | Set-Content $codexConfig
+          $builtinOutput = python -m aikito adopt --dry-run --verbose | Out-String
+          if ($builtinOutput -notmatch "\[SKIP MCP\] Server 'openaiDeveloperDocs' is built-in to codex") {
+            throw "Adopt did not report the Codex built-in MCP server"
+          }
+          $builtinTarget = Join-Path $wsDir "mcps\openaiDeveloperDocs.toml"
+          if (Test-Path $builtinTarget) { throw "Adopt imported the Codex built-in MCP server" }
           $syncPlan = python -m aikito sync --dry-run
           $syncPlan | Write-Output
           $syncPlan | Select-String "Sync plan"

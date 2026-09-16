@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from .diagnostics import Finding, FindingAction
+from .mcp import AgentDefinition, MCPConfigError, load_agents
 from .render import render_finding_lines
 from .subagent import has_aikito_marker
 from .templating import (
@@ -133,6 +134,7 @@ class AdoptPlan:
     subagents: List[SubagentAdoption]
     errors: tuple[Finding, ...] = ()
     skipped: tuple[str, ...] = ()
+    builtin_mcps: tuple[Tuple[str, str], ...] = ()
 
     @property
     def has_conflicts(self) -> bool:
@@ -217,6 +219,32 @@ def _record_scan_error(
                 fix_hint=f"Repair or remove the invalid source: {source}",
             )
         )
+
+
+def _record_mcp_conflict(
+    errors: list[Finding] | None,
+    server: MCPServerAdoption,
+    incoming_agent: str,
+    incoming_source: Path,
+) -> None:
+    message = (
+        f"MCP server '{server.server_name}' has different configurations in "
+        f"{server.source_agent} and {incoming_agent}"
+    )
+    if errors is None:
+        print(f"[WARN] {message}", file=sys.stderr)
+        return
+    errors.append(
+        Finding(
+            status="FAIL",
+            code="adopt.mcp_conflict",
+            resource=f"mcp/{server.server_name}",
+            source=f"{server.source_file}, {incoming_source}",
+            message=f"MCP server '{server.server_name}' cannot be merged",
+            reason=message,
+            fix_hint="Align the Agent configurations or rename one MCP server",
+        )
+    )
 
 
 def scan_instructions(
@@ -315,9 +343,31 @@ def _sanitize_mcp_headers(headers: Dict[str, Any], server_name: str) -> Dict[str
 
 
 def scan_mcp_servers(
-    aikito_dir: Path, home: Path, *, errors: list[Finding] | None = None
+    aikito_dir: Path,
+    home: Path,
+    *,
+    errors: list[Finding] | None = None,
+    builtin_mcps: list[Tuple[str, str]] | None = None,
 ) -> List[MCPServerAdoption]:
     adopted_servers: Dict[str, MCPServerAdoption] = {}
+
+    agent_definitions: dict[str, AgentDefinition] = {}
+    agent_builtin_mcps: Dict[str, set[str]] = {}
+    agents_path = aikito_dir / "agents.toml"
+    if agents_path.is_file():
+        try:
+            agent_definitions = load_agents(aikito_dir, home)
+        except MCPConfigError as exc:
+            _record_scan_error(
+                errors,
+                str(exc),
+                source=agents_path,
+                resource="agents",
+            )
+        else:
+            for ag_name, ag_def in agent_definitions.items():
+                if ag_def.mcp_builtin_servers:
+                    agent_builtin_mcps[ag_name] = set(ag_def.mcp_builtin_servers)
 
     existing_mcps: set[str] = set()
     mcps_dir = aikito_dir / "mcps"
@@ -334,24 +384,36 @@ def scan_mcp_servers(
         except Exception:
             pass
 
-    def _resolve_canonical_name(name: str) -> str:
-        # 1. Exact match in existing workspace servers
+    def _target_name(agent: str, canonical_name: str) -> str:
+        definition = agent_definitions.get(agent)
+        if definition and definition.mcp_name_style == "underscore":
+            return canonical_name.replace("-", "_")
+        return canonical_name
+
+    def _resolve_canonical_name(name: str, agent: str) -> str:
         if name in existing_mcps:
             return name
-        # 2. Normalized match in existing workspace servers (e.g. atlassian_rovo -> atlassian-rovo)
-        for canon in existing_mcps:
-            if canon.replace("-", "_") == name.replace("-", "_"):
+        for canon in sorted(existing_mcps):
+            if _target_name(agent, canon) == name:
                 return canon
 
-        # 3. Exact match in already scanned adopted servers
         if name in adopted_servers:
             return name
-        # 4. Normalized match in already scanned adopted servers
         for canon in adopted_servers:
-            if canon.replace("-", "_") == name.replace("-", "_"):
+            if _target_name(agent, canon) == name:
                 return canon
 
         return name
+
+    def _canonical_config(config: Dict[str, Any]) -> Dict[str, Any]:
+        canonical = {
+            key: config[key]
+            for key in ("command", "url", "args", "env", "transport", "headers")
+            if key in config and config[key] is not None
+        }
+        if "url" in canonical and "transport" not in canonical:
+            canonical["transport"] = "remote"
+        return canonical
 
     def _register_server(
         raw_name: str,
@@ -359,28 +421,20 @@ def scan_mcp_servers(
         config: Dict[str, Any],
         source_file: Path,
     ) -> None:
-        canon_name = _resolve_canonical_name(raw_name)
+        canon_name = _resolve_canonical_name(raw_name, agent)
+        canonical_config = _canonical_config(config)
         if canon_name in adopted_servers:
-            # Upgrade key from snake_case to kebab-case if incoming raw_name has dashes
-            if (
-                "-" in raw_name
-                and "_" in canon_name
-                and raw_name.replace("-", "_") == canon_name
-                and canon_name not in existing_mcps
-            ):
-                item = adopted_servers.pop(canon_name)
-                item.server_name = raw_name
-                if agent not in item.agents:
-                    item.agents.append(agent)
-                adopted_servers[raw_name] = item
-            else:
-                if agent not in adopted_servers[canon_name].agents:
-                    adopted_servers[canon_name].agents.append(agent)
+            server = adopted_servers[canon_name]
+            if server.config_data != canonical_config:
+                _record_mcp_conflict(errors, server, agent, source_file)
+                return
+            if agent not in server.agents:
+                server.agents.append(agent)
         else:
             adopted_servers[canon_name] = MCPServerAdoption(
                 server_name=canon_name,
                 agents=[agent],
-                config_data=config,
+                config_data=canonical_config,
                 source_agent=agent,
                 source_file=source_file,
             )
@@ -529,7 +583,20 @@ def scan_mcp_servers(
                 resource="mcp",
             )
 
-    return list(adopted_servers.values())
+    result_servers: List[MCPServerAdoption] = []
+    for srv in adopted_servers.values():
+        is_builtin = all(
+            _target_name(ag, srv.server_name) in agent_builtin_mcps.get(ag, set())
+            for ag in srv.agents
+        )
+        if is_builtin:
+            if builtin_mcps is not None:
+                for ag in srv.agents:
+                    builtin_mcps.append((srv.server_name, ag))
+            continue
+        result_servers.append(srv)
+
+    return result_servers
 
 
 def _parse_markdown_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
@@ -667,8 +734,11 @@ def scan_subagents(
 
 def build_adopt_plan(aikito_dir: Path, home: Path) -> AdoptPlan:
     errors: list[Finding] = []
+    builtin_mcps: list[Tuple[str, str]] = []
     instructions = scan_instructions(aikito_dir, home, errors=errors)
-    mcp_servers = scan_mcp_servers(aikito_dir, home, errors=errors)
+    mcp_servers = scan_mcp_servers(
+        aikito_dir, home, errors=errors, builtin_mcps=builtin_mcps
+    )
     subagents = scan_subagents(aikito_dir, home, errors=errors)
 
     return AdoptPlan(
@@ -678,6 +748,7 @@ def build_adopt_plan(aikito_dir: Path, home: Path) -> AdoptPlan:
         mcp_servers=mcp_servers,
         subagents=subagents,
         errors=tuple(errors),
+        builtin_mcps=tuple(builtin_mcps),
     )
 
 
@@ -851,6 +922,10 @@ def execute_adoption(
     _print_adopt_summary(summary, plan.skipped)
 
     if summary.total_changes == 0 and not plan.has_conflicts and not summary.errors:
+        if verbose and plan.builtin_mcps:
+            print("\n--- MCP Servers Adoption ---")
+            for server_name, agent_name in plan.builtin_mcps:
+                print(f"[SKIP MCP] Server '{server_name}' is built-in to {agent_name}")
         print("\n[OK] No adoptable Agent configuration found. No files were modified.")
         return True
 
@@ -901,11 +976,14 @@ def execute_adoption(
                     print(f"[WRITE FILE] Updated {inst.target_path}")
 
     # 2. MCP Servers Adoption
-    if plan.mcp_servers:
+    if plan.mcp_servers or plan.builtin_mcps:
         if verbose:
             print("\n--- MCP Servers Adoption ---")
+        if verbose and plan.builtin_mcps:
+            for s_name, ag_name in plan.builtin_mcps:
+                print(f"[SKIP MCP] Server '{s_name}' is built-in to {ag_name}")
         mcps_dir = plan.aikito_dir / "mcps"
-        if not dry_run:
+        if not dry_run and plan.mcp_servers:
             mcps_dir.mkdir(parents=True, exist_ok=True)
 
         for srv in plan.mcp_servers:

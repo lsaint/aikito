@@ -161,6 +161,7 @@ class AgentDefinition:
     mcp_reason: str
     mcp_live_command: tuple[str, ...]
     mcp_auth_command: tuple[str, ...]
+    mcp_builtin_servers: tuple[str, ...] = ()
 
     @property
     def supports_mcp(self) -> bool:
@@ -281,6 +282,7 @@ def load_agents(aikito_dir: Path, home: Path) -> dict[str, AgentDefinition]:
             mcp_reason = ""
             mcp_live_command: tuple[str, ...] = ()
             mcp_auth_command: tuple[str, ...] = ()
+            mcp_builtin_servers: tuple[str, ...] = ()
         else:
             if not isinstance(mcp, dict):
                 raise MCPConfigError(f"Agent '{name}' mcp section must be a table")
@@ -292,6 +294,14 @@ def load_agents(aikito_dir: Path, home: Path) -> dict[str, AgentDefinition]:
             mcp_reason = str(mcp.get("reason", ""))
             mcp_live_command = tuple(mcp.get("live_command", ()) or ())
             mcp_auth_command = tuple(mcp.get("auth_command", ()) or ())
+            builtin_raw = mcp.get("builtin_mcps", [])
+            if not isinstance(builtin_raw, list) or not all(
+                isinstance(server, str) and server for server in builtin_raw
+            ):
+                raise MCPConfigError(
+                    f"Agent '{name}' mcp.builtin_mcps must be a list of strings"
+                )
+            mcp_builtin_servers = tuple(builtin_raw)
 
         definitions[name] = AgentDefinition(
             name=name,
@@ -305,6 +315,7 @@ def load_agents(aikito_dir: Path, home: Path) -> dict[str, AgentDefinition]:
             mcp_reason=mcp_reason,
             mcp_live_command=mcp_live_command,
             mcp_auth_command=mcp_auth_command,
+            mcp_builtin_servers=mcp_builtin_servers,
         )
 
     return definitions

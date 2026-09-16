@@ -104,3 +104,19 @@ to commit. Review [Safety model](safety.md) before publishing the workspace.
 
 Unrelated Agent configuration is preserved. Aikito reports unmanaged
 collisions instead of silently overwriting them.
+
+## Built-in Agent Servers
+
+Certain Agent runtimes bundle or recommend proprietary MCP servers (such as `openaiDeveloperDocs` in Codex). To prevent `aikito adopt` from adopting these Agent-native defaults into workspace-managed configurations, list them under the Agent's MCP table in `agents.toml`:
+
+```toml
+[agents.codex.mcp]
+config_path = ".codex/config.toml"
+config_format = "toml"
+builtin_mcps = ["openaiDeveloperDocs"]
+```
+
+When `aikito adopt` scans local Agent configurations, any server listed in `builtin_mcps` that is not shared by other Agents is automatically skipped.
+Hyphen-to-underscore name matching is applied only to Agents whose registry entry
+uses `name_style = "underscore"`. If matching names resolve to different MCP
+configurations, adoption stops and reports a conflict instead of choosing one.

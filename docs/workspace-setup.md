@@ -39,6 +39,8 @@ but leaves the original Agent configuration unchanged. If sources disagree or a
 resource is invalid, the entire operation stops and reports the source, reason,
 and available action. Repair resources you want to keep; use the displayed
 resource-level `--skip` only when you intentionally do not want to adopt one.
+Agent-native default servers configured in `agents.toml` under `builtin_mcps`
+(such as `openaiDeveloperDocs` for Codex) are automatically excluded from adoption.
 
 Existing skill directories are not imported automatically. After this onboarding
 flow, review them separately, use `aikito add skill` to create a canonical

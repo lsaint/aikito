@@ -670,6 +670,42 @@ class AgentRegistryTest(unittest.TestCase):
 
         self.assertEqual(load_agents(self.aikito_dir, self.home), {})
 
+    def test_load_agents_parses_builtin_mcps(self) -> None:
+        (self.aikito_dir / "agents.toml").write_text(
+            """
+[agents.codex]
+display_name = "Codex"
+[agents.codex.mcp]
+config_path = ".codex/config.toml"
+config_format = "toml"
+builtin_mcps = ["openaiDeveloperDocs", "other"]
+""".lstrip(),
+            encoding="utf-8",
+        )
+        agents = load_agents(self.aikito_dir, self.home)
+        self.assertEqual(
+            agents["codex"].mcp_builtin_servers,
+            ("openaiDeveloperDocs", "other"),
+        )
+
+    def test_load_agents_rejects_invalid_builtin_mcps(self) -> None:
+        (self.aikito_dir / "agents.toml").write_text(
+            """
+[agents.codex]
+display_name = "Codex"
+[agents.codex.mcp]
+config_path = ".codex/config.toml"
+config_format = "toml"
+builtin_mcps = [1]
+""".lstrip(),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(
+            MCPConfigError, "mcp.builtin_mcps must be a list of strings"
+        ):
+            load_agents(self.aikito_dir, self.home)
+
     def test_specs_synthesized_from_registry_and_servers(self) -> None:
         self.write_servers(
             """
