@@ -95,5 +95,26 @@ Confirm the selected skill has no missing-resource or conflict finding and its
 content matches your workflow. Global selections live in `skills.toml`; inspect
 its generated comments before editing and use global synchronization.
 
+## Unregister or remove a skill
+
+To unregister a skill from one or more projects while keeping its canonical directory in `<workspace>/skills/`:
+
+```bash
+aikito rm skill review-checklist --project example-b --sync
+```
+
+To remove a skill globally (unregisters from `skills.toml` and deletes `<workspace>/skills/<name>`):
+
+```bash
+aikito rm skill review-checklist --sync
+```
+
+If the skill is still registered in any project, global removal is blocked by default to prevent dangling references. To unregister it from all referencing projects and delete it globally in one command, use `--force`:
+
+```bash
+aikito rm skill review-checklist --force --sync
+```
+
 For Git-tracked skill snapshots, see
 [project skill sync modes](architecture.md#project-skill-sync-modes).
+

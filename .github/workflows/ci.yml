@@ -91,6 +91,9 @@ jobs:
           python3 -m aikito add skill --help
           python3 -m aikito add subagent --help
           python3 -m aikito add mcp --help
+          python3 -m aikito rm --help
+          python3 -m aikito rm skill --help
+          python3 -m aikito remove skill --help
           python3 -m aikito adopt --help
           python3 -m aikito status --help
           python3 -m aikito sync --help
@@ -414,6 +417,17 @@ jobs:
           grep -q "# Updated CI Skill" ${{ runner.temp }}/aikito-ws/skills/imported-ci-skill/SKILL.md
           test ! -e ${{ runner.temp }}/aikito-ws/skills/imported-ci-skill/obsolete.txt
           test -f ${{ runner.temp }}/aikito-ws/skills/imported-ci-skill/added.txt
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm skill imported-ci-skill --project example --sync
+          test -f ${{ runner.temp }}/aikito-ws/skills/imported-ci-skill/SKILL.md
+          test ! -e ${{ runner.temp }}/example-project/.agents/skills/imported-ci-skill
+          ! grep -q "imported-ci-skill" ${{ runner.temp }}/aikito-ws/projects/example/agent.toml
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm skill imported-ci-skill
+          test ! -e ${{ runner.temp }}/aikito-ws/skills/imported-ci-skill
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm skill ci-skill
+          test ! -e ${{ runner.temp }}/aikito-ws/skills/ci-skill
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito add subagent ci-subagent \
             --description "CI test subagent" \
@@ -940,6 +954,17 @@ jobs:
           }
           if (-not (Test-Path (Join-Path $canonicalSkill "added.txt"))) {
             throw "New source file is missing after the Windows snapshot refresh"
+          }
+          python -m aikito rm skill win-imported-skill --project example --sync
+          if (-not (Test-Path (Join-Path $canonicalSkill "SKILL.md"))) {
+            throw "Canonical skill was deleted when only unregistering from project on Windows"
+          }
+          if (Test-Path (Join-Path $projectDir ".agents\skills\win-imported-skill")) {
+            throw "Project skill runtime was not cleaned up after unregistering on Windows"
+          }
+          python -m aikito rm skill win-imported-skill
+          if (Test-Path $canonicalSkill) {
+            throw "Canonical skill directory was not deleted after global removal on Windows"
           }
           $globalNote = Join-Path $wsDir "memory\notes\windows-memory.md"
           @("# Windows Memory") | Set-Content $globalNote

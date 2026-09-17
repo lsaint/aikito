@@ -84,8 +84,9 @@ Use `aikito <command> --help` for exact arguments.
 
 - Global instructions and skills: `aikito add skill` (supports `--from <path>` to
   import, `--from <path> --force` to refresh an imported snapshot, and
-  `--project <A,B>` / `--sync` to distribute), `aikito show skill`, and `aikito
-  sync global`.
+  `--project <A,B>` / `--sync` to distribute), `aikito rm skill` (supports
+  unregistering via `--project <A,B>` and global deletion via `--force`),
+  `aikito show skill`, and `aikito sync global`.
 - Projects: `aikito init project`, `aikito show project`,
   `aikito sync project`, `aikito status`, and `aikito diff`.
 - MCP servers: `aikito add mcp`, `aikito show mcp`, `aikito sync mcp`, and

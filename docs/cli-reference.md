@@ -49,6 +49,7 @@ version.
 | `aikito show skill [target]` | Print a skill's SKILL.md file, or list all skills if target is omitted |
 | `aikito rename memory <target> <new-name>` | Rename a memory note and refactor inbound wikilinks |
 | `aikito rm memory <target>` | Remove a memory note and scan for inbound wikilinks |
+| `aikito rm skill <name> [--project <projects>] [--force] [--sync]` | Remove a skill globally or unregister it from specific project(s) |
 | `aikito edit memory <target>` | Open a memory note in the configured editor |
 | `aikito maintain memory [global\|<project>\|.] [--agent <name>]` | Launch an Agent to review one complete memory scope and propose maintenance before making changes |
 | `aikito edit instructions <global|project|.>` | Open canonical instructions in `$VISUAL` or `$EDITOR` |

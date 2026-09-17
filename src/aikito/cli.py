@@ -18,6 +18,7 @@ from typing import Any, List, Optional
 
 from . import __version__
 from .add import add_mcp, add_skill, add_subagent
+from .remove import remove_skill
 from .adopt import (
     apply_adopt_skips,
     build_adopt_plan,
@@ -1440,6 +1441,24 @@ def cmd_rm_memory(args: argparse.Namespace) -> None:
         print("  - No inbound references found.")
 
 
+def cmd_rm_skill(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    project_arg = getattr(args, "project", None)
+    projects = None
+    if project_arg:
+        projects = [p.strip() for p in project_arg.split(",") if p.strip()]
+    success = remove_skill(
+        aikito_dir=aikito_dir,
+        home=Path.home(),
+        name=args.name,
+        projects=projects,
+        force=getattr(args, "force", False),
+        sync=getattr(args, "sync", False),
+    )
+    if not success:
+        sys.exit(1)
+
+
 def cmd_adopt(args: argparse.Namespace) -> None:
     target = Path(args.target) if args.target else get_aikito_dir()
     home = Path.home()
@@ -2236,6 +2255,32 @@ def build_parser() -> argparse.ArgumentParser:
             help=f"{'Remove' if cmd_name == 'remove' else 'Delete'} a managed canonical resource",
         )
         rm_subparsers = p_rm.add_subparsers(dest=f"{cmd_name}_target", required=True)
+        p_rm_skill = rm_subparsers.add_parser(
+            "skill",
+            aliases=["skills"],
+            help="Remove a skill globally or unregister it from specific project(s)",
+        )
+        p_rm_skill.add_argument(
+            "name",
+            help="Name of the skill to remove or unregister",
+        )
+        p_rm_skill.add_argument(
+            "--project",
+            default=None,
+            help="Unregister skill from specific project(s) instead of globally (comma-separated)",
+        )
+        p_rm_skill.add_argument(
+            "--sync",
+            action="store_true",
+            help="Automatically synchronize affected project(s) or global runtime after removing",
+        )
+        p_rm_skill.add_argument(
+            "--force",
+            action="store_true",
+            help="Force global removal even if referenced by projects (unregisters from all referencing projects)",
+        )
+        p_rm_skill.set_defaults(func=cmd_rm_skill)
+
         p_rm_memory = rm_subparsers.add_parser(
             "memory",
             help="Remove a memory note and check for inbound wikilinks",

@@ -155,7 +155,7 @@ $script:AikitoCompleterBlock = {{
                 Invoke-Candidates 'inbox-completions'
                 break
             }}
-            '^(show|edit) skills?$' {{
+            '^(show|edit|rm|remove) skills?$' {{
                 Invoke-Candidates 'skills'
                 break
             }}
