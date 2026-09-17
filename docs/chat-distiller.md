@@ -1,4 +1,4 @@
-# Capture Browser Conversations with [Chat Distiller](https://github.com/lsaint/chat-distiller)
+# Capture Browser Conversations with Chat Distiller
 
 [Chat Distiller](https://github.com/lsaint/chat-distiller) is Aikito's optional
 browser companion. It distills a supported browser AI conversation into concise
