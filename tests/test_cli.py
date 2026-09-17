@@ -2684,6 +2684,26 @@ class TestDoctorFixCli(unittest.TestCase):
 
 
 class TestCliGlobalExceptionHandler(unittest.TestCase):
+    def test_successful_command_passes_workspace_to_update_notifier(self) -> None:
+        workspace = Path("/test/workspace")
+        fake_parser = MagicMock()
+        fake_args = MagicMock(command="status", debug=False)
+        fake_parser.parse_args.return_value = fake_args
+
+        with (
+            patch.object(AIKITO_CLI, "build_parser", return_value=fake_parser),
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=workspace),
+            patch.object(AIKITO_CLI, "check_and_notify_update") as mock_check,
+        ):
+            AIKITO_CLI.main()
+
+        fake_args.func.assert_called_once_with(fake_args)
+        mock_check.assert_called_once_with(
+            aikito_dir=workspace,
+            command="status",
+            args=fake_args,
+        )
+
     def test_status_missing_workspace_reports_clean_error_without_traceback(
         self,
     ) -> None:

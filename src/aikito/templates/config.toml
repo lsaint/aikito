@@ -7,3 +7,7 @@ stale_days = 30
 [inbox]
 # Staging directory for incoming distilled notes.
 path = "inbox"
+
+[update]
+# Enable or disable automatic background update checks and CLI upgrade notifications.
+check = true

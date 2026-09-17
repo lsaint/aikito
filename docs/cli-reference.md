@@ -57,7 +57,7 @@ version.
 | `aikito doctor [--fix]` | Run deep workspace diagnostics and repair supported configuration issues |
 | `aikito completion zsh\|bash\|fish\|powershell` | Print a shell completion script |
 | `aikito completion candidates projects\|skills\|subagents\|mcps\|memories\|memory-completions\|inbox\|inbox-completions\|paths [prefix]` | List dynamic completion candidates |
-| `aikito version` | Print the CLI version |
+| `aikito version [-c\|--check] [--force] [--json]` | Print the CLI version and check for available updates |
 
 ## Discovery
 
@@ -219,6 +219,50 @@ The inbox directory defaults to `<workspace>/inbox` and can be customized in `co
 ```toml
 [inbox]
 path = "inbox"
+```
+
+## Workspace Configuration
+
+Global workspace behavior is governed by `<workspace>/config.toml`:
+
+```toml
+# <workspace>/config.toml
+
+[memory]
+# Days after which an untouched durable memory note is flagged as stale (default: 30)
+stale_days = 30
+
+[inbox]
+# Staging directory for incoming distilled notes (default: "inbox")
+path = "inbox"
+
+[update]
+# Enable or disable automatic background update checks and CLI notifications (default: true)
+check = true
+```
+
+### Update Notifications and Checks
+
+Aikito performs lightweight, non-blocking version checks against PyPI and GitHub releases using a 24-hour local cache.
+
+To disable automatic upgrade notifications:
+- In `<workspace>/config.toml`: set `[update] check = false`
+- In the shell environment: set `export AIKITO_NO_UPDATE_NOTIFIER=1` or `NO_UPDATE_NOTIFIER=1`
+
+To inspect version and update status manually:
+
+```bash
+# Print current version (plus cached update notice on stderr if available)
+aikito version
+
+# Check for updates against remote source (reuses cache if checked within 24h)
+aikito version --check
+
+# Bypass cache and force an immediate remote check
+aikito version --check --force
+
+# Machine-readable output in JSON format
+aikito version --json
 ```
 
 ## Projects
