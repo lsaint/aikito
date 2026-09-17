@@ -426,8 +426,10 @@ jobs:
             python3 -m aikito rm skill imported-ci-skill
           test ! -e ${{ runner.temp }}/aikito-ws/skills/imported-ci-skill
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 -m aikito rm skill ci-skill
-          test ! -e ${{ runner.temp }}/aikito-ws/skills/ci-skill
+            python3 -m aikito add skill rm-test-skill
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm skill rm-test-skill
+          test ! -e ${{ runner.temp }}/aikito-ws/skills/rm-test-skill
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito add subagent ci-subagent \
             --description "CI test subagent" \

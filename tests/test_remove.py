@@ -92,13 +92,13 @@ class TestAikitoRemoveFromProjects(unittest.TestCase):
         self.ws = self.root / "workspace"
         init_workspace(self.ws, self.home)
 
-        self.proj1_dir = self.root / "proj1"
+        self.proj1_dir = self.home / "proj1"
         self.proj1_dir.mkdir()
-        init_project(self.ws, self.proj1_dir, "proj1")
+        init_project(self.ws, self.proj1_dir, "proj1", home=self.home)
 
-        self.proj2_dir = self.root / "proj2"
+        self.proj2_dir = self.home / "proj2"
         self.proj2_dir.mkdir()
-        init_project(self.ws, self.proj2_dir, "proj2")
+        init_project(self.ws, self.proj2_dir, "proj2", home=self.home)
 
         # Add a skill to both projects
         add_skill(
@@ -354,9 +354,9 @@ class TestAikitoRemoveGlobally(unittest.TestCase):
     def test_remove_skill_blocked_by_project_references_without_force(
         self,
     ) -> None:
-        proj_dir = self.root / "my-project"
+        proj_dir = self.home / "my-project"
         proj_dir.mkdir()
-        init_project(self.ws, proj_dir, "my-project")
+        init_project(self.ws, proj_dir, "my-project", home=self.home)
 
         add_skill(
             aikito_dir=self.ws,
@@ -386,13 +386,13 @@ class TestAikitoRemoveGlobally(unittest.TestCase):
         self.assertTrue((self.ws / "skills" / "proj-bound-skill").is_dir())
 
     def test_remove_skill_with_force_cascades_unregistration(self) -> None:
-        proj_dir1 = self.root / "proj1"
+        proj_dir1 = self.home / "proj1"
         proj_dir1.mkdir()
-        init_project(self.ws, proj_dir1, "proj1")
+        init_project(self.ws, proj_dir1, "proj1", home=self.home)
 
-        proj_dir2 = self.root / "proj2"
+        proj_dir2 = self.home / "proj2"
         proj_dir2.mkdir()
-        init_project(self.ws, proj_dir2, "proj2")
+        init_project(self.ws, proj_dir2, "proj2", home=self.home)
 
         add_skill(
             aikito_dir=self.ws,
@@ -458,9 +458,9 @@ class TestAikitoRemoveGlobally(unittest.TestCase):
         self.assertEqual(skills_toml.read_text(encoding="utf-8"), original_skills_toml)
 
     def test_global_removal_sync_project_failure_returns_false(self) -> None:
-        proj_dir = self.root / "proj1"
+        proj_dir = self.home / "proj1"
         proj_dir.mkdir()
-        init_project(self.ws, proj_dir, "proj1")
+        init_project(self.ws, proj_dir, "proj1", home=self.home)
 
         add_skill(
             aikito_dir=self.ws,
