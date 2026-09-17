@@ -868,8 +868,10 @@ jobs:
           $wsDir = Join-Path $env:RUNNER_TEMP "aikito-ws"
           $piDir = Join-Path $HOME ".pi\agent"
           $codexDir = Join-Path $HOME ".codex"
+          $claudeDir = Join-Path $HOME ".claude"
           New-Item -ItemType Directory -Force -Path $piDir | Out-Null
           New-Item -ItemType Directory -Force -Path $codexDir | Out-Null
+          New-Item -ItemType Directory -Force -Path $claudeDir | Out-Null
           $env:AIKITO_DIR = $wsDir
           $initOutput = python -m aikito init workspace "$wsDir"
           $initOutput | Write-Output
@@ -886,7 +888,7 @@ jobs:
           $connectOutput | Write-Output
           $connectOutput | Select-String "\[CONNECTED\]"
           $connectOutput | Select-String "aikito doctor"
-          $claudeAgents = Join-Path $HOME ".claude\agents"
+          $claudeAgents = Join-Path $claudeDir "agents"
           New-Item -ItemType Directory -Force -Path $claudeAgents | Out-Null
           $adoptSource = Join-Path $claudeAgents "ci-adopt.md"
           @("---", "name: ci-adopt", "description: CI adoption smoke test", "---", "Review adoption behavior.") | Set-Content $adoptSource
@@ -917,7 +919,8 @@ jobs:
           $statusError = Join-Path $env:RUNNER_TEMP "bundled-skill-notice.err"
           python -m aikito status 2> $statusError | Out-Null
           if (-not (Select-String -Path $statusError -Pattern "Bundled skill snapshot differs")) {
-            throw "Status did not report divergent bundled skills"
+            $errContent = Get-Content $statusError -Raw
+            throw "Status did not report divergent bundled skills: $errContent"
           }
           $refreshOutput = python -m aikito sync global | Out-String
           if ($refreshOutput -notmatch "\[REFRESH\] Bundled skill 'aikito'") {

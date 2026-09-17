@@ -12,6 +12,7 @@ from typing import Any
 
 from .link import SymlinkVerdict, classify_symlink, symlink_verdict_to_status
 from .mcp import (
+    MCPConfigError,
     evaluate_spec_status,
     load_agent_specs,
     load_agents,
@@ -32,7 +33,7 @@ from .render import (
     StatusReportData,
     SubagentRow,
 )
-from .subagent import build_plan
+from .subagent import SubagentConfigError, build_plan
 
 
 @dataclass(frozen=True)
@@ -91,7 +92,10 @@ def collect_mcp_details(
     agent_target: str | None = None,
 ) -> list[MCPDetailRow]:
     agents = load_agents(aikito_dir, home)
-    specs = load_agent_specs(aikito_dir, home)
+    try:
+        specs = load_agent_specs(aikito_dir, home)
+    except MCPConfigError:
+        specs = []
     server_names = sorted({spec.server for spec in specs if spec.enabled})
     server_name = (
         _resolve_name(server_target, server_names, "MCP server")
@@ -208,7 +212,10 @@ def collect_subagent_details(
 
     agent_configs, all_agent_names = load_all_agents(aikito_dir, home)
     subagent_defs = load_subagent_definitions(aikito_dir, allow_empty=True)
-    plan_items, _ = build_plan(aikito_dir, home, allow_empty=True)
+    try:
+        plan_items, _ = build_plan(aikito_dir, home, allow_empty=True)
+    except SubagentConfigError:
+        plan_items = []
 
     subagent_names = sorted(subagent_defs.keys())
     subagent_name = (
@@ -326,9 +333,20 @@ def collect_agent_status_rows(
     global_skills = _get_skills_list(aikito_dir)
     total_global_skills = len(global_skills)
 
+    agent_issues = 0
+
     # Pre-fetch MCP specs and Subagent plan items
-    mcp_specs = load_agent_specs(aikito_dir, home)
-    subagent_plan, subagent_configs = build_plan(aikito_dir, home, allow_empty=True)
+    try:
+        mcp_specs = load_agent_specs(aikito_dir, home)
+    except MCPConfigError:
+        mcp_specs = []
+        agent_issues += 1
+
+    try:
+        subagent_plan, subagent_configs = build_plan(aikito_dir, home, allow_empty=True)
+    except SubagentConfigError:
+        subagent_plan, subagent_configs = [], {}
+        agent_issues += 1
 
     # Unique enabled MCP servers
     enabled_mcp_servers = set(spec.server for spec in mcp_specs if spec.enabled)
@@ -341,7 +359,6 @@ def collect_agent_status_rows(
     total_subagents_count = len(active_subagents)
 
     rows: list[AgentStatusRow] = []
-    agent_issues = 0
 
     for name, definition in agents_dict.items():
         # 1. Instructions Status
@@ -599,7 +616,10 @@ def collect_mcp_matrix(
     aikito_dir: Path, home: Path, live: bool = False
 ) -> tuple[list[MCPServerRow], list[str]]:
     agents_dict = load_agents(aikito_dir, home)
-    specs = load_agent_specs(aikito_dir, home)
+    try:
+        specs = load_agent_specs(aikito_dir, home)
+    except MCPConfigError:
+        specs = []
     agent_names = [a.display_name for a in agents_dict.values()]
     agent_key_to_display = {k: v.display_name for k, v in agents_dict.items()}
 
@@ -654,7 +674,10 @@ def collect_mcp_matrix(
 def collect_subagents_matrix(
     aikito_dir: Path, home: Path
 ) -> tuple[list[SubagentRow], list[OrphanSubagentFile], list[str]]:
-    plan_items, _ = build_plan(aikito_dir=aikito_dir, home=home, allow_empty=True)
+    try:
+        plan_items, _ = build_plan(aikito_dir=aikito_dir, home=home, allow_empty=True)
+    except SubagentConfigError:
+        plan_items = []
     agents_dict = load_agents(aikito_dir, home)
     agent_names = [a.display_name for a in agents_dict.values()]
 

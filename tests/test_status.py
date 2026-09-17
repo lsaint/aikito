@@ -1062,6 +1062,32 @@ instruction_path = ".codex/AGENTS.md"
             self.assertIn("–", rendered)
             self.assertNotIn("Legend:", rendered)
 
+    def test_collect_agent_status_rows_with_subagent_config_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            aikito_dir = Path(tmpdir) / "workspace"
+            home = Path(tmpdir) / "home"
+            init_workspace(aikito_dir, home)
+
+            subagent_dir = aikito_dir / "subagents"
+            subagent_dir.mkdir(parents=True, exist_ok=True)
+            (subagent_dir / "bad-agent.md").write_text(
+                "Prompt body",
+                encoding="utf-8",
+            )
+            (aikito_dir / "subagents.toml").write_text(
+                '[subagents.bad-agent]\ndescription = "Test"\nagents = ["nonexistent-agent"]\n',
+                encoding="utf-8",
+            )
+
+            # Must not raise SubagentConfigError; must count as an agent issue
+            rows, agent_issues, total_subagents, total_mcp = collect_agent_status_rows(
+                aikito_dir, home
+            )
+            self.assertGreaterEqual(agent_issues, 1)
+
+            report = get_status_report_data(aikito_dir, home)
+            self.assertGreaterEqual(report.issues_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
