@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.39.0] - 2026-09-17
+
+### Added
+
+- Supported importing external skill directories or markdown files via `aikito add skill [name] --from <path>`, with automatic name and description inference from YAML frontmatter.
+- Supported distributing skills across multiple projects using comma-separated project names (`--project p1,p2`) and optional immediate synchronization (`--sync`).
+- Supported synchronizing multiple projects in a single invocation via comma-separated project names in `aikito sync project`.
+
+### Fixed
+
+- Robustly parsed markdown YAML frontmatter across BOM markers, multi-line values, and horizontal rule separators in skill and agent documentation.
+
 ## [1.38.0] - 2026-09-17
 
 ### Added
@@ -700,7 +712,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.38.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.39.0...HEAD
+[1.39.0]: https://github.com/lsaint/aikito/compare/v1.38.0...v1.39.0
 [1.38.0]: https://github.com/lsaint/aikito/compare/v1.37.0...v1.38.0
 [1.37.0]: https://github.com/lsaint/aikito/compare/v1.36.1...v1.37.0
 [1.36.1]: https://github.com/lsaint/aikito/compare/v1.36.0...v1.36.1
