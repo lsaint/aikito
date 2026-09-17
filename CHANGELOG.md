@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.41.0] - 2026-09-17
+
+### Added
+
+- Added `aikito rm skill [name]` command to remove skill definitions and unregister them from workspace configuration or specific projects (`--project p1,p2`).
+- Supported updating and refreshing existing imported skills from external directories or markdown sources using `aikito add skill --from <path> --force`.
+- Protected bundled system skills (`aikito`, `durable-memory`) from accidental deletion or overwriting.
+- Added shell completion support for `aikito rm skill` across Bash, Zsh, Fish, and PowerShell.
+
+### Changed
+
+- Aligned CLI output messaging, error hints, and terminology with product standards across `add`, `remove`, `status`, and project runtime commands.
+
 ## [1.40.0] - 2026-09-17
 
 ### Added
@@ -720,7 +733,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.40.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.41.0...HEAD
+[1.41.0]: https://github.com/lsaint/aikito/compare/v1.40.0...v1.41.0
 [1.40.0]: https://github.com/lsaint/aikito/compare/v1.39.0...v1.40.0
 [1.39.0]: https://github.com/lsaint/aikito/compare/v1.38.0...v1.39.0
 [1.38.0]: https://github.com/lsaint/aikito/compare/v1.37.0...v1.38.0
