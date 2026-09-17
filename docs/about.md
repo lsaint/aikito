@@ -32,3 +32,7 @@ directories, and configuration identifiers use lowercase `aikito`.
 Ethan St Lee also writes about AI, software engineering, reading, and durable
 knowledge practices on WeChat. Search for the official account `不是很南` to
 follow it.
+
+## Support
+
+If you find Aikito useful, you can [support its development](https://lsaint.github.io/donation/?utm_source=github&utm_medium=readme&utm_campaign=aikito).
