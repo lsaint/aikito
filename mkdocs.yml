@@ -65,7 +65,6 @@ nav:
       - CLI Reference: cli-reference.md
       - Python API Reference: python-api.md
       - Safety Model: safety.md
-      - FAQ: faq.md
   - About:
       - Comparison: comparison.md
       - Why Memory Needs a Maintainer: programming-agent-memory.md

@@ -204,7 +204,7 @@ through the [Security Policy](SECURITY.md).
 - [Workspace and synchronization](docs/architecture.md): source files, scopes, and resource ownership.
 - [Connect another machine](docs/workspace-portability.md): existing workspaces and custom paths.
 - [CLI reference](docs/cli-reference.md): commands and shell completion.
-- [Comparison](docs/comparison.md) and [FAQ](docs/faq.md): design choices and common questions.
+- [Comparison](docs/comparison.md) and [About](docs/about.md): design choices and project background.
 
 [Chat Distiller](https://github.com/lsaint/chat-distiller) can turn browser AI
 conversations into Markdown notes in your Aikito Inbox. See the

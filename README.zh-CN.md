@@ -187,7 +187,7 @@ Aikito 基于普通文件与 Git，无需后台服务。
 - [工作区与同步](docs/architecture.md)：源文件、作用域和资源归属。
 - [接入另一台机器](docs/workspace-portability.md)：已有工作区与自定义路径。
 - [CLI 参考](docs/cli-reference.md)：命令与 Shell 补全。
-- [设计对比](docs/comparison.md)与[常见问题](docs/faq.md)：设计取舍与常见疑问。
+- [设计对比](docs/comparison.md)与[项目介绍](docs/about.md)：设计取舍与项目背景。
 
 配套工具 [Chat Distiller](https://github.com/lsaint/chat-distiller) 可将浏览器 AI 对话
 提炼为 Markdown，存入 Aikito Inbox。详见[捕捉与整理流程（英文）](docs/chat-distiller.md)。
