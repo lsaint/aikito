@@ -243,6 +243,7 @@ def should_check_update(
     exempt_commands = {
         "completion",
         "path",
+        "git",
     }
     if command in exempt_commands:
         return False

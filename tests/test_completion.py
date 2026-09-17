@@ -36,6 +36,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("rm", schema["commands"])
         self.assertIn("remove", schema["commands"])
         self.assertIn("maintain", schema["commands"])
+        self.assertIn("git", schema["commands"])
         self.assertIn("--version", schema["flags"])
 
         # Subcommand aliases

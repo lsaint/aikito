@@ -25,6 +25,7 @@ version.
 | --- | --- |
 | `aikito init workspace [path]` | Initialize a new workspace or connect an existing one, detect installed Agents, and remember an explicit path |
 | `aikito path workspace` | Print the resolved active workspace path |
+| `aikito git [args...]` | Run git commands directly in the active Aikito workspace |
 | `aikito init project [name] [path] [--description <text>]` | Register a code project and synchronize its `.agents/` runtime |
 | `aikito add skill [name] [--from <path>] [--force] [--project <projects>] [--sync]` | Create or import a canonical skill; use `--force` with `--from` to replace an existing imported snapshot |
 | `aikito add subagent <name>` | Create a canonical subagent skeleton and register it in `subagents.toml` |
@@ -74,6 +75,7 @@ aikito --version
 Commands differ in their effect:
 
 - `status`, `diff`, `show`, `completion`, and `adopt --dry-run` are read-only;
+- `git` forwards arbitrary Git commands and arguments directly to the active workspace;
 - `init workspace` creates or updates a recognized workspace;
 - `init project` creates an idempotent canonical project skeleton and its runtime links;
 - `add` creates a canonical resource skeleton and performs required registration;

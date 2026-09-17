@@ -10,6 +10,8 @@ import errno
 import io
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tomllib
 from contextlib import redirect_stderr, redirect_stdout
@@ -124,6 +126,7 @@ from .subagent import (
 from .compat import (
     init_console_encoding,
     require_symlink_support,
+    resolve_executable,
     safe_relative_path,
 )
 
@@ -864,6 +867,39 @@ def cmd_init(args: argparse.Namespace) -> None:
 
 def cmd_path_workspace(args: argparse.Namespace) -> None:
     print(get_aikito_dir())
+
+
+def cmd_git(args: argparse.Namespace) -> None:
+    workspace = get_aikito_dir()
+    if not workspace.exists():
+        print(
+            f"[ERROR] Workspace does not exist: {workspace}. Run 'aikito init workspace' first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if not (workspace / ".git").exists():
+        print(
+            f"[ERROR] Workspace '{workspace}' is not a Git repository. Run 'aikito init workspace' first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    git_bin = shutil.which("git")
+    if not git_bin:
+        print("[ERROR] 'git' executable not found in PATH.", file=sys.stderr)
+        sys.exit(1)
+
+    git_args = list(getattr(args, "git_args", []) or [])
+    if git_args and git_args[0] == "--":
+        git_args = git_args[1:]
+
+    command = resolve_executable([git_bin, "-C", str(workspace), *git_args])
+    try:
+        proc = subprocess.run(command)
+        if proc.returncode != 0:
+            sys.exit(proc.returncode)
+    except KeyboardInterrupt:
+        sys.exit(130)
 
 
 def cmd_init_project(args: argparse.Namespace) -> None:
@@ -1688,6 +1724,20 @@ def build_parser() -> argparse.ArgumentParser:
         "workspace", help="Print the active workspace directory"
     )
     p_path_workspace.set_defaults(func=cmd_path_workspace)
+
+    # git
+    p_git = subparsers.add_parser(
+        "git",
+        help="Run git commands directly in the active Aikito workspace",
+        description="Forward git commands and arguments directly to the active Aikito workspace.",
+    )
+    p_git.add_argument(
+        "git_args",
+        nargs=argparse.REMAINDER,
+        metavar="[args...]",
+        help="Arguments forwarded directly to git",
+    )
+    p_git.set_defaults(func=cmd_git)
 
     # init
     p_init = subparsers.add_parser("init", help="Initialize a workspace or project")

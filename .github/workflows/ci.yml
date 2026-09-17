@@ -87,6 +87,7 @@ jobs:
           python3 -m aikito init --help
           python3 -m aikito init workspace --help
           python3 -m aikito init project --help
+          python3 -m aikito git --help
           python3 -m aikito add --help
           python3 -m aikito add skill --help
           python3 -m aikito add subagent --help
@@ -131,6 +132,9 @@ jobs:
             | tee ${{ runner.temp }}/init-workspace.out
           test -f ${{ runner.temp }}/aikito-ws/config.toml
           grep -F "Run 'aikito sync'" ${{ runner.temp }}/init-workspace.out
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito git status \
+            | grep -F "On branch"
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito sync --dry-run \
             | tee ${{ runner.temp }}/sync-plan.out
@@ -831,6 +835,7 @@ jobs:
           python -m aikito version
           python -m aikito version --help
           python -m aikito version --json
+          python -m aikito git --help
           python -m aikito invalid-subcommand 2>$null
           if ($LASTEXITCODE -eq 0) { throw "aikito did not propagate non-zero exit code on invalid subcommand" }
           $global:LASTEXITCODE = 0
@@ -869,6 +874,8 @@ jobs:
           $initOutput = python -m aikito init workspace "$wsDir"
           $initOutput | Write-Output
           $initOutput | Select-String "Run 'aikito sync'"
+          $gitStatus = python -m aikito git status
+          $gitStatus | Select-String "On branch"
           $adoptionReference = Join-Path $wsDir "skills\aikito\references\adoption.md"
           $installationReference = Join-Path $wsDir "skills\aikito\references\installation.md"
           $projectsReference = Join-Path $wsDir "skills\aikito\references\projects.md"

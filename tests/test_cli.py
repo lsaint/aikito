@@ -2968,5 +2968,128 @@ class CliSubparserDescriptionTest(unittest.TestCase):
             self.assertLess(desc_pos, usage_pos)
 
 
+class CliGitCommandTest(unittest.TestCase):
+    def test_git_command_forwards_arguments_to_git(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "workspace"
+            ws.mkdir()
+            (ws / ".git").mkdir()
+
+            with (
+                patch.object(AIKITO_CLI, "get_aikito_dir", return_value=ws),
+                patch("aikito.cli.shutil.which", return_value="/usr/bin/git"),
+                patch(
+                    "aikito.cli.subprocess.run",
+                    return_value=subprocess.CompletedProcess(
+                        ["/usr/bin/git", "-C", str(ws), "status"], 0
+                    ),
+                ) as mock_run,
+            ):
+                parser = AIKITO_CLI.build_parser()
+                args = parser.parse_args(["git", "status"])
+                args.func(args)
+
+            mock_run.assert_called_once()
+            called_cmd = mock_run.call_args[0][0]
+            self.assertEqual(called_cmd, ["/usr/bin/git", "-C", str(ws), "status"])
+
+    def test_git_command_strips_leading_double_dash(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "workspace"
+            ws.mkdir()
+            (ws / ".git").mkdir()
+
+            with (
+                patch.object(AIKITO_CLI, "get_aikito_dir", return_value=ws),
+                patch("aikito.cli.shutil.which", return_value="/usr/bin/git"),
+                patch(
+                    "aikito.cli.subprocess.run",
+                    return_value=subprocess.CompletedProcess([], 0),
+                ) as mock_run,
+            ):
+                parser = AIKITO_CLI.build_parser()
+                args = parser.parse_args(["git", "--", "log", "-n", "1"])
+                args.func(args)
+
+            mock_run.assert_called_once()
+            called_cmd = mock_run.call_args[0][0]
+            self.assertEqual(
+                called_cmd, ["/usr/bin/git", "-C", str(ws), "log", "-n", "1"]
+            )
+
+    def test_git_command_propagates_nonzero_exit_code(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "workspace"
+            ws.mkdir()
+            (ws / ".git").mkdir()
+
+            with (
+                patch.object(AIKITO_CLI, "get_aikito_dir", return_value=ws),
+                patch("aikito.cli.shutil.which", return_value="/usr/bin/git"),
+                patch(
+                    "aikito.cli.subprocess.run",
+                    return_value=subprocess.CompletedProcess([], 42),
+                ),
+                self.assertRaises(SystemExit) as ctx,
+            ):
+                parser = AIKITO_CLI.build_parser()
+                args = parser.parse_args(["git", "status"])
+                args.func(args)
+
+            self.assertEqual(ctx.exception.code, 42)
+
+    def test_git_command_fails_if_workspace_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "nonexistent"
+
+            with (
+                patch.object(AIKITO_CLI, "get_aikito_dir", return_value=ws),
+                patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+                self.assertRaises(SystemExit) as ctx,
+            ):
+                parser = AIKITO_CLI.build_parser()
+                args = parser.parse_args(["git", "status"])
+                args.func(args)
+
+            self.assertEqual(ctx.exception.code, 1)
+            self.assertIn("Workspace does not exist", mock_stderr.getvalue())
+
+    def test_git_command_fails_if_workspace_not_git_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "workspace"
+            ws.mkdir()
+
+            with (
+                patch.object(AIKITO_CLI, "get_aikito_dir", return_value=ws),
+                patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+                self.assertRaises(SystemExit) as ctx,
+            ):
+                parser = AIKITO_CLI.build_parser()
+                args = parser.parse_args(["git", "status"])
+                args.func(args)
+
+            self.assertEqual(ctx.exception.code, 1)
+            self.assertIn("is not a Git repository", mock_stderr.getvalue())
+
+    def test_git_command_fails_if_git_binary_not_found(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "workspace"
+            ws.mkdir()
+            (ws / ".git").mkdir()
+
+            with (
+                patch.object(AIKITO_CLI, "get_aikito_dir", return_value=ws),
+                patch("aikito.cli.shutil.which", return_value=None),
+                patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+                self.assertRaises(SystemExit) as ctx,
+            ):
+                parser = AIKITO_CLI.build_parser()
+                args = parser.parse_args(["git", "status"])
+                args.func(args)
+
+            self.assertEqual(ctx.exception.code, 1)
+            self.assertIn("'git' executable not found", mock_stderr.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
