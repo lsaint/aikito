@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.40.0] - 2026-09-17
+
+### Added
+
+- Added CLI update checking to `aikito version` with `--check` (`-c`), `--force`, and `--json` flags to check for upstream releases and output structured version metadata.
+- Added lightweight, non-blocking background update notifications with a 24-hour local cache.
+- Supported configuring or suppressing update checks via `[update] check = false` in workspace `config.toml` or `AIKITO_NO_UPDATE_NOTIFIER` / `NO_UPDATE_NOTIFIER` environment variables.
+
 ## [1.39.0] - 2026-09-17
 
 ### Added
@@ -712,7 +720,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.39.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.40.0...HEAD
+[1.40.0]: https://github.com/lsaint/aikito/compare/v1.39.0...v1.40.0
 [1.39.0]: https://github.com/lsaint/aikito/compare/v1.38.0...v1.39.0
 [1.38.0]: https://github.com/lsaint/aikito/compare/v1.37.0...v1.38.0
 [1.37.0]: https://github.com/lsaint/aikito/compare/v1.36.1...v1.37.0
