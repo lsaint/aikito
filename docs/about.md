@@ -3,7 +3,7 @@
 ## Development Philosophy
 
 Aikito is developed with AI assistance, but it is not an AI-directed project.
-Its author, Ethan St Lee, has 20 years of experience as a software engineer,
+Its author, [Ethan St Lee](https://github.com/lsaint), has 20 years of experience as a software engineer,
 architect, and technology director.
 
 Aikito grew out of problems encountered while using coding agents in daily
