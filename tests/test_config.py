@@ -86,6 +86,17 @@ class AikitoConfigTest(unittest.TestCase):
         inbox_dir = get_inbox_path(self.root)
         self.assertEqual(inbox_dir, (self.root / "inbox").resolve())
 
+    def test_update_config_default(self) -> None:
+        cfg = load_workspace_config(self.root)
+        self.assertTrue(cfg.update.check)
+
+    def test_update_config_disabled(self) -> None:
+        config_file = self.root / "config.toml"
+        config_file.write_text("[update]\ncheck = false\n", encoding="utf-8")
+
+        cfg = load_workspace_config(self.root)
+        self.assertFalse(cfg.update.check)
+
 
 if __name__ == "__main__":
     unittest.main()

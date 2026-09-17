@@ -135,6 +135,7 @@ from .completion import (
     generate_zsh,
     get_candidates,
 )
+from .update_notifier import check_and_notify_update, cmd_version
 from .workspace import (
     persist_workspace,
     resolve_workspace,
@@ -1626,9 +1627,25 @@ def build_parser() -> argparse.ArgumentParser:
     # version
     p_version = subparsers.add_parser(
         "version",
-        help="Print Aikito CLI version",
+        help="Print Aikito CLI version and check for updates",
     )
-    p_version.set_defaults(func=lambda args: print(f"aikito {__version__}"))
+    p_version.add_argument(
+        "-c",
+        "--check",
+        action="store_true",
+        help="Check remote repository for latest available release",
+    )
+    p_version.add_argument(
+        "--force",
+        action="store_true",
+        help="Bypass cache and force check remote release",
+    )
+    p_version.add_argument(
+        "--json",
+        action="store_true",
+        help="Output version and update status in JSON format",
+    )
+    p_version.set_defaults(func=cmd_version)
 
     # path
     p_path = subparsers.add_parser(
@@ -2343,6 +2360,15 @@ def main() -> None:
             "Hint: Run with AIKITO_DEBUG=1 to see the full traceback.", file=sys.stderr
         )
         sys.exit(1)
+
+    try:
+        check_and_notify_update(
+            aikito_dir=get_aikito_dir(),
+            command=getattr(args, "command", None),
+            args=args,
+        )
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

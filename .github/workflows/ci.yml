@@ -102,6 +102,11 @@ jobs:
           python3 -m aikito completion --help
           python3 -m aikito completion candidates --help
 
+      - name: aikito version options
+        run: |
+          python3 -m aikito version --help
+          python3 -m aikito version --json
+
       # Simulate installed agents so sync/doctor exercise real logic instead of skipping.
       # Paths mirror the instruction_path / skills_path parent dirs from agents.toml template.
       - name: Create mock agent directories
@@ -799,6 +804,8 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $false
           python -m aikito --help
           python -m aikito version
+          python -m aikito version --help
+          python -m aikito version --json
           python -m aikito invalid-subcommand 2>$null
           if ($LASTEXITCODE -eq 0) { throw "aikito did not propagate non-zero exit code on invalid subcommand" }
           $global:LASTEXITCODE = 0

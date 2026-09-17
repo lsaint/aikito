@@ -26,9 +26,15 @@ class InboxConfig:
 
 
 @dataclass
+class UpdateConfig:
+    check: bool = True
+
+
+@dataclass
 class AikitoConfig:
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     inbox: InboxConfig = field(default_factory=InboxConfig)
+    update: UpdateConfig = field(default_factory=UpdateConfig)
 
 
 def get_workspace_config_path(aikito_dir: Path) -> Optional[Path]:
@@ -70,7 +76,18 @@ def load_workspace_config(aikito_dir: Path) -> AikitoConfig:
         if isinstance(path_val, str):
             inbox_config.path = path_val
 
-    return AikitoConfig(memory=memory_config, inbox=inbox_config)
+    update_config = UpdateConfig()
+    update_data = data.get("update")
+    if isinstance(update_data, dict):
+        check_val = update_data.get("check")
+        if isinstance(check_val, bool):
+            update_config.check = check_val
+
+    return AikitoConfig(
+        memory=memory_config,
+        inbox=inbox_config,
+        update=update_config,
+    )
 
 
 def get_inbox_path(aikito_dir: Path) -> Path:
