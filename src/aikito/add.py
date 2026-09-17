@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .compat import safe_relative_path
+from .templating import BUNDLED_SKILL_NAMES
 
 
 NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
@@ -378,6 +379,115 @@ def _update_markdown_frontmatter(content: str, updates: Dict[str, str]) -> str:
     return f"{bom}---\n---\n\n{body.lstrip()}"
 
 
+class _SkillImportTransaction:
+    """Stage a complete Skill snapshot and swap it into place with rollback."""
+
+    def __init__(
+        self,
+        source_path: Path,
+        source_is_dir: bool,
+        target_dir: Path,
+        name: str,
+        description: Optional[str],
+        default_description: str,
+    ) -> None:
+        self.source_path = source_path
+        self.source_is_dir = source_is_dir
+        self.target_dir = target_dir
+        self.name = name
+        self.description = description
+        self.default_description = default_description
+        self.had_target = target_dir.exists()
+        self.temp_root: Optional[Path] = None
+        self.staged_dir: Optional[Path] = None
+        self.backup_dir: Optional[Path] = None
+        self.applied = False
+
+    def prepare(self) -> None:
+        self.target_dir.parent.mkdir(parents=True, exist_ok=True)
+        self.temp_root = Path(
+            tempfile.mkdtemp(prefix=f".{self.name}-import-", dir=self.target_dir.parent)
+        )
+        self.staged_dir = self.temp_root / "staged"
+        self.backup_dir = self.temp_root / "original"
+
+        try:
+            if self.source_is_dir:
+                ignored_files = shutil.ignore_patterns(
+                    ".git", "__pycache__", "*.pyc", ".DS_Store"
+                )
+
+                def ignore_import_artifacts(path: str, names: List[str]) -> set[str]:
+                    ignored = set(ignored_files(path, names))
+                    if (
+                        self.temp_root is not None
+                        and Path(path) == self.temp_root.parent
+                        and self.temp_root.name in names
+                    ):
+                        ignored.add(self.temp_root.name)
+                    return ignored
+
+                shutil.copytree(
+                    self.source_path,
+                    self.staged_dir,
+                    ignore=ignore_import_artifacts,
+                )
+            else:
+                self.staged_dir.mkdir(parents=True)
+                shutil.copy2(self.source_path, self.staged_dir / "SKILL.md")
+
+            skill_file = self.staged_dir / "SKILL.md"
+            copied_text = skill_file.read_text(encoding="utf-8")
+            copied_meta, _ = _parse_markdown_frontmatter(copied_text)
+            updates: Dict[str, str] = {}
+            if copied_meta.get("name") != self.name:
+                updates["name"] = self.name
+            if self.description is not None and self.description.strip():
+                if copied_meta.get("description") != self.description.strip():
+                    updates["description"] = self.description.strip()
+            elif "description" not in copied_meta:
+                updates["description"] = self.default_description
+
+            if updates:
+                _atomic_write_text(
+                    skill_file,
+                    _update_markdown_frontmatter(copied_text, updates),
+                )
+        except Exception:
+            self.discard()
+            raise
+
+    def apply(self) -> None:
+        if self.staged_dir is None or self.backup_dir is None:
+            raise RuntimeError("Skill import transaction was not prepared")
+
+        try:
+            if self.had_target:
+                self.target_dir.replace(self.backup_dir)
+            self.staged_dir.replace(self.target_dir)
+            self.applied = True
+        except Exception:
+            if self.had_target and self.backup_dir.exists():
+                self.backup_dir.replace(self.target_dir)
+            raise
+
+    def rollback(self) -> None:
+        if self.applied:
+            if self.target_dir.exists():
+                shutil.rmtree(self.target_dir, ignore_errors=True)
+            if self.had_target and self.backup_dir and self.backup_dir.exists():
+                self.backup_dir.replace(self.target_dir)
+            self.applied = False
+        self.discard()
+
+    def discard(self) -> None:
+        if self.temp_root is not None:
+            shutil.rmtree(self.temp_root, ignore_errors=True)
+
+    def commit(self) -> None:
+        self.discard()
+
+
 def add_skill(
     aikito_dir: Path,
     home: Path,
@@ -387,6 +497,7 @@ def add_skill(
     projects: Optional[List[str]] = None,
     from_source: Optional[Union[str, Path]] = None,
     sync: bool = False,
+    force: bool = False,
 ) -> bool:
     """
     Create canonical Skill skeleton or import from external source, and register it in skills.toml or project agent.toml files.
@@ -397,6 +508,10 @@ def add_skill(
     ws_error = _check_workspace_initialized(aikito_dir)
     if ws_error:
         print(f"[ERROR] {ws_error}", file=sys.stderr)
+        return False
+
+    if force and from_source is None:
+        print("[ERROR] --force requires --from when adding a skill.", file=sys.stderr)
         return False
 
     target_projects: List[str] = []
@@ -511,18 +626,36 @@ def add_skill(
             )
             return False
         is_existing_canonical = True
+        if from_source is not None and not force:
+            print(
+                f"[ERROR] Skill '{name_clean}' already exists at {_display_path(skill_dir, home)}",
+                file=sys.stderr,
+            )
+            return False
+        if not target_projects and not (from_source is not None and force):
+            print(
+                f"[ERROR] Skill '{name_clean}' already exists at {_display_path(skill_dir, home)}",
+                file=sys.stderr,
+            )
+            return False
+
+    if name_clean in BUNDLED_SKILL_NAMES:
         if from_source is not None:
             print(
-                f"[ERROR] Skill '{name_clean}' already exists at {_display_path(skill_dir, home)}",
+                f"[ERROR] Cannot overwrite bundled system skill '{name_clean}'.",
                 file=sys.stderr,
             )
             return False
-        if not target_projects:
+        if not is_existing_canonical:
             print(
-                f"[ERROR] Skill '{name_clean}' already exists at {_display_path(skill_dir, home)}",
+                f"[ERROR] Cannot create custom skill with reserved bundled system skill name '{name_clean}'.",
                 file=sys.stderr,
             )
             return False
+        if target_projects:
+            print(
+                f"[INFO] '{name_clean}' is a built-in skill and already active globally."
+            )
 
     desc_val = (description or f"Description for {name_clean} skill.").strip()
     title_val = _titleize(name_clean)
@@ -544,7 +677,8 @@ def add_skill(
                 print(f"[ERROR] Failed to parse {agent_toml}: {exc}", file=sys.stderr)
                 return False
 
-        if not pending_projects:
+        updating_import = is_existing_canonical and from_source is not None and force
+        if is_existing_canonical and not pending_projects and not updating_import:
             if len(target_projects) == 1:
                 print(
                     f"[ERROR] Skill '{name_clean}' already exists and is already registered in project '{target_projects[0]}'",
@@ -591,43 +725,30 @@ def add_skill(
                 )
                 return False
 
+        import_transaction: Optional[_SkillImportTransaction] = None
+        if source_path is not None:
+            import_transaction = _SkillImportTransaction(
+                source_path=source_path,
+                source_is_dir=source_is_dir,
+                target_dir=skill_dir,
+                name=name_clean,
+                description=description,
+                default_description=desc_val,
+            )
+            try:
+                import_transaction.prepare()
+            except Exception as exc:
+                print(f"[ERROR] Failed to prepare skill import: {exc}", file=sys.stderr)
+                return False
+
         # Phase 2: Execute writes with transactional rollback
         created_skill_dir = not is_existing_canonical
-        written_project_files: List[Tuple[Path, str]] = []
 
         try:
-            if not is_existing_canonical:
-                if source_path is not None:
-                    if source_is_dir:
-                        shutil.copytree(
-                            source_path,
-                            skill_dir,
-                            ignore=shutil.ignore_patterns(
-                                ".git", "__pycache__", "*.pyc", ".DS_Store"
-                            ),
-                        )
-                    else:
-                        skill_dir.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(source_path, skill_file)
-
-                    copied_text = skill_file.read_text(encoding="utf-8")
-                    c_meta, _ = _parse_markdown_frontmatter(copied_text)
-                    fm_updates: Dict[str, str] = {}
-                    if c_meta.get("name") != name_clean:
-                        fm_updates["name"] = name_clean
-                    if description is not None and description.strip():
-                        if c_meta.get("description") != description.strip():
-                            fm_updates["description"] = description.strip()
-                    elif "description" not in c_meta:
-                        fm_updates["description"] = desc_val
-
-                    if fm_updates:
-                        updated_content = _update_markdown_frontmatter(
-                            copied_text, fm_updates
-                        )
-                        _atomic_write_text(skill_file, updated_content)
-                else:
-                    skill_content = f"""---
+            if import_transaction is not None:
+                import_transaction.apply()
+            elif not is_existing_canonical:
+                skill_content = f"""---
 name: {name_clean}
 description: {desc_val}
 ---
@@ -638,13 +759,12 @@ description: {desc_val}
 
 Describe what this skill does and when agents should use it.
 """
-                    skill_dir.mkdir(parents=True, exist_ok=True)
-                    _atomic_write_text(skill_file, skill_content)
+                skill_dir.mkdir(parents=True, exist_ok=True)
+                _atomic_write_text(skill_file, skill_content)
 
             # Write project configs atomically
             for agent_toml, original_text, new_content, proj in planned_project_updates:
                 _atomic_write_text(agent_toml, new_content, encoding="utf-8")
-                written_project_files.append((agent_toml, original_text))
                 print(
                     f"[UPDATE FILE] {_display_path(agent_toml, home)} (registered skill for project '{proj}')"
                 )
@@ -659,8 +779,9 @@ Describe what this skill does and when agents should use it.
                         f"[ERROR] Failed to rollback project config {_display_path(agent_toml, home)}: {rb_exc}",
                         file=sys.stderr,
                     )
-            # Remove newly created skill directory if it was created during this run
-            if created_skill_dir and skill_dir.exists():
+            if import_transaction is not None:
+                import_transaction.rollback()
+            elif created_skill_dir and skill_dir.exists():
                 shutil.rmtree(skill_dir, ignore_errors=True)
             print(
                 f"[ERROR] Failed to write skill or project config: {exc}",
@@ -668,7 +789,13 @@ Describe what this skill does and when agents should use it.
             )
             return False
 
-        if created_skill_dir:
+        if import_transaction is not None:
+            import_transaction.commit()
+
+        if updating_import:
+            print(f"[UPDATE DIR] {_display_path(skill_dir, home)}")
+            print(f"[UPDATE FILE] {_display_path(skill_file, home)}")
+        elif created_skill_dir:
             print(f"[CREATE DIR] {_display_path(skill_dir, home)}")
             print(f"[CREATE FILE] {_display_path(skill_file, home)}")
         else:
@@ -681,10 +808,21 @@ Describe what this skill does and when agents should use it.
                 f"[INFO] Skill '{name_clean}' was already registered in project '{proj}'."
             )
 
-        proj_names_str = ", ".join(f"'{p}'" for p in pending_projects)
-        print(
-            f"\n[SUCCESS] Added skill '{name_clean}' to project(s): {proj_names_str}."
-        )
+        if pending_projects:
+            proj_names_str = ", ".join(f"'{p}'" for p in pending_projects)
+            if updating_import:
+                print(
+                    f"\n[SUCCESS] Updated skill '{name_clean}' for project(s): {proj_names_str}."
+                )
+            else:
+                print(
+                    f"\n[SUCCESS] Added skill '{name_clean}' to project(s): {proj_names_str}."
+                )
+        else:
+            registered_projects = ", ".join(f"'{p}'" for p in target_projects)
+            print(
+                f"\n[SUCCESS] Updated skill '{name_clean}' for project(s): {registered_projects}."
+            )
         print("💡 Next steps:")
         step = 1
         if created_skill_dir and source_path is None:
@@ -692,7 +830,8 @@ Describe what this skill does and when agents should use it.
                 f"  {step}. Update instructions in {_display_path(skill_file, home)} (or run 'aikito edit skill {name_clean}')"
             )
             step += 1
-        sync_cmds = " && ".join(f"aikito sync project {p}" for p in pending_projects)
+        sync_targets = target_projects if updating_import else pending_projects
+        sync_cmds = " && ".join(f"aikito sync project {p}" for p in sync_targets)
         print(f"  {step}. Synchronize project(s): {sync_cmds}")
 
         if sync:
@@ -718,14 +857,20 @@ Describe what this skill does and when agents should use it.
             print(f"[ERROR] Failed to parse {skills_toml}: {exc}", file=sys.stderr)
             return False
 
-    if name_clean in existing_global_skills:
+    already_registered_global = name_clean in existing_global_skills
+    updating_import = is_existing_canonical and from_source is not None and force
+    if is_existing_canonical and already_registered_global and not updating_import:
         print(
             f"[ERROR] Skill '{name_clean}' is already registered in skills.toml",
             file=sys.stderr,
         )
         return False
 
-    new_global_skills = existing_global_skills + [name_clean]
+    new_global_skills = (
+        existing_global_skills
+        if already_registered_global
+        else existing_global_skills + [name_clean]
+    )
     skills_toml_content = _update_skills_in_toml(
         original_skills_toml_text, new_global_skills
     )
@@ -747,34 +892,25 @@ Describe what this skill does and when agents should use it.
         )
         return False
 
+    import_transaction: Optional[_SkillImportTransaction] = None
+    if source_path is not None:
+        import_transaction = _SkillImportTransaction(
+            source_path=source_path,
+            source_is_dir=source_is_dir,
+            target_dir=skill_dir,
+            name=name_clean,
+            description=description,
+            default_description=desc_val,
+        )
+        try:
+            import_transaction.prepare()
+        except Exception as exc:
+            print(f"[ERROR] Failed to prepare skill import: {exc}", file=sys.stderr)
+            return False
+
     try:
-        if source_path is not None:
-            if source_is_dir:
-                shutil.copytree(
-                    source_path,
-                    skill_dir,
-                    ignore=shutil.ignore_patterns(
-                        ".git", "__pycache__", "*.pyc", ".DS_Store"
-                    ),
-                )
-            else:
-                skill_dir.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source_path, skill_file)
-
-            copied_text = skill_file.read_text(encoding="utf-8")
-            c_meta, _ = _parse_markdown_frontmatter(copied_text)
-            fm_updates: Dict[str, str] = {}
-            if c_meta.get("name") != name_clean:
-                fm_updates["name"] = name_clean
-            if description is not None and description.strip():
-                if c_meta.get("description") != description.strip():
-                    fm_updates["description"] = description.strip()
-            elif "description" not in c_meta:
-                fm_updates["description"] = desc_val
-
-            if fm_updates:
-                updated_content = _update_markdown_frontmatter(copied_text, fm_updates)
-                _atomic_write_text(skill_file, updated_content)
+        if import_transaction is not None:
+            import_transaction.apply()
         else:
             skill_content = f"""---
 name: {name_clean}
@@ -799,14 +935,28 @@ Describe what this skill does and when agents should use it.
                 )
             except Exception:
                 pass
-        shutil.rmtree(skill_dir, ignore_errors=True)
+        if import_transaction is not None:
+            import_transaction.rollback()
+        else:
+            shutil.rmtree(skill_dir, ignore_errors=True)
         print(f"[ERROR] Failed to write global skill: {exc}", file=sys.stderr)
         return False
 
-    print(f"[CREATE DIR] {_display_path(skill_dir, home)}")
-    print(f"[CREATE FILE] {_display_path(skill_file, home)}")
-    print(f"[UPDATE FILE] {_display_path(skills_toml, home)} (registered global skill)")
-    print(f"\n[SUCCESS] Added global skill '{name_clean}'.")
+    if import_transaction is not None:
+        import_transaction.commit()
+
+    if updating_import:
+        print(f"[UPDATE DIR] {_display_path(skill_dir, home)}")
+        print(f"[UPDATE FILE] {_display_path(skill_file, home)}")
+    else:
+        print(f"[CREATE DIR] {_display_path(skill_dir, home)}")
+        print(f"[CREATE FILE] {_display_path(skill_file, home)}")
+    if not already_registered_global:
+        print(
+            f"[UPDATE FILE] {_display_path(skills_toml, home)} (registered global skill)"
+        )
+    action = "Updated" if updating_import else "Added"
+    print(f"\n[SUCCESS] {action} global skill '{name_clean}'.")
     print("💡 Next steps:")
     step = 1
     if source_path is None:

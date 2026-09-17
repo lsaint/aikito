@@ -2271,6 +2271,34 @@ url = "http://custom.example.com"
             "Added skill 'cli-imported-skill' to project(s)", mock_stdout.getvalue()
         )
 
+    def test_add_skill_cli_force_updates_imported_skill(self) -> None:
+        ext_skill_dir = self.home / "cli-updated-skill"
+        ext_skill_dir.mkdir()
+        source_file = ext_skill_dir / "SKILL.md"
+        source_file.write_text(
+            "---\nname: cli-updated-skill\ndescription: Initial.\n---\n\n# Initial\n",
+            encoding="utf-8",
+        )
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["add", "skill", "--from", str(ext_skill_dir)]
+            )
+            args.func(args)
+            source_file.write_text(
+                "---\nname: cli-updated-skill\ndescription: Updated.\n---\n\n# Updated\n",
+                encoding="utf-8",
+            )
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["add", "skill", "--from", str(ext_skill_dir), "--force"]
+            )
+            args.func(args)
+
+        canonical_file = self.aikito_dir / "skills" / "cli-updated-skill" / "SKILL.md"
+        self.assertIn("# Updated", canonical_file.read_text(encoding="utf-8"))
+
     def test_add_subagent_cli(self) -> None:
         with (
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),

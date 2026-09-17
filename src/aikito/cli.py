@@ -888,6 +888,7 @@ def cmd_add_skill(args: argparse.Namespace) -> None:
         projects=projects,
         from_source=getattr(args, "from_source", None),
         sync=getattr(args, "sync", False),
+        force=getattr(args, "force", False),
     )
     if not success:
         sys.exit(1)
@@ -1738,6 +1739,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--sync",
         action="store_true",
         help="Automatically synchronize affected project(s) or global runtime after adding",
+    )
+    p_add_skill.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace an existing canonical skill with the complete --from snapshot",
     )
     p_add_skill.set_defaults(func=cmd_add_skill)
 

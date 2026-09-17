@@ -1,5 +1,6 @@
 import io
 import os
+import shutil
 import stat
 import tempfile
 import tomllib
@@ -94,7 +95,7 @@ class TestAikitoAddSkill(unittest.TestCase):
         self.assertIn("2. Synchronize to agents: aikito sync global", out)
 
         # Check skills.toml
-        skills_toml = self.aikito_dir / "skills.toml"
+        skills_toml = (self.aikito_dir / "skills.toml").resolve()
         with skills_toml.open("rb") as f:
             data = tomllib.load(f)
         self.assertIn("code-formatter", data.get("skills", []))
@@ -365,6 +366,42 @@ class TestAikitoAddSkill(unittest.TestCase):
             data = tomllib.load(f)
         self.assertIn("reuse-skill", data.get("skills", []))
 
+    def test_add_skill_force_updates_already_registered_project_skill(self) -> None:
+        project_dir = self.home / "project-a"
+        project_dir.mkdir()
+        init_project(self.aikito_dir, project_dir, "project-a")
+        source_dir = self.home / "project-skill-source"
+        source_dir.mkdir()
+        source_file = source_dir / "SKILL.md"
+        source_file.write_text(
+            "---\nname: project-skill\ndescription: Initial.\n---\n\n# Initial\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(
+            add_skill(
+                self.aikito_dir,
+                self.home,
+                from_source=source_dir,
+                project_name="project-a",
+            )
+        )
+        source_file.write_text(
+            "---\nname: project-skill\ndescription: Updated.\n---\n\n# Updated\n",
+            encoding="utf-8",
+        )
+
+        success = add_skill(
+            self.aikito_dir,
+            self.home,
+            from_source=source_dir,
+            project_name="project-a",
+            force=True,
+        )
+
+        self.assertTrue(success)
+        canonical_file = self.aikito_dir / "skills" / "project-skill" / "SKILL.md"
+        self.assertIn("# Updated", canonical_file.read_text(encoding="utf-8"))
+
     def test_add_skill_from_external_directory(self) -> None:
         proj_a = self.home / "project-a"
         proj_b = self.home / "project-b"
@@ -489,6 +526,226 @@ class TestAikitoAddSkill(unittest.TestCase):
             success = add_skill(self.aikito_dir, self.home, from_source=ext_dir)
         self.assertFalse(success)
         self.assertIn("already exists", stderr_buf.getvalue())
+
+    def test_add_skill_force_requires_source(self) -> None:
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_skill(
+                self.aikito_dir,
+                self.home,
+                name="forced-skill",
+                force=True,
+            )
+
+        self.assertFalse(success)
+        self.assertIn("--force requires --from", stderr_buf.getvalue())
+
+    def test_add_skill_force_replaces_complete_imported_snapshot(self) -> None:
+        ext_dir = self.home / "updated-ext"
+        ext_dir.mkdir()
+        source_file = ext_dir / "SKILL.md"
+        source_file.write_text(
+            "---\nname: updated-skill\ndescription: Initial.\n---\n\n# Initial\n",
+            encoding="utf-8",
+        )
+        (ext_dir / "removed.txt").write_text("old", encoding="utf-8")
+        self.assertTrue(add_skill(self.aikito_dir, self.home, from_source=ext_dir))
+
+        source_file.write_text(
+            "---\nname: updated-skill\ndescription: Updated.\n---\n\n# Updated\n",
+            encoding="utf-8",
+        )
+        (ext_dir / "removed.txt").unlink()
+        (ext_dir / "added.txt").write_text("new", encoding="utf-8")
+
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_skill(
+                self.aikito_dir,
+                self.home,
+                from_source=ext_dir,
+                force=True,
+            )
+
+        self.assertTrue(success)
+        canonical_dir = self.aikito_dir / "skills" / "updated-skill"
+        self.assertIn("# Updated", (canonical_dir / "SKILL.md").read_text())
+        self.assertFalse((canonical_dir / "removed.txt").exists())
+        self.assertEqual((canonical_dir / "added.txt").read_text(), "new")
+        self.assertIn(
+            "[SUCCESS] Updated global skill 'updated-skill'.", stdout_buf.getvalue()
+        )
+
+        with (self.aikito_dir / "skills.toml").open("rb") as handle:
+            registered = tomllib.load(handle).get("skills", [])
+        self.assertEqual(registered.count("updated-skill"), 1)
+
+    def test_add_skill_cannot_overwrite_bundled_skills(self) -> None:
+        ext_dir = self.home / "bundled-overwrite-ext"
+        ext_dir.mkdir()
+        (ext_dir / "SKILL.md").write_text(
+            "---\nname: aikito\ndescription: Fake aikito.\n---\n\n# Fake Aikito\n",
+            encoding="utf-8",
+        )
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_skill(
+                self.aikito_dir,
+                self.home,
+                name="aikito",
+                from_source=ext_dir,
+                force=True,
+            )
+        self.assertFalse(success)
+        self.assertIn(
+            "Cannot overwrite bundled system skill 'aikito'",
+            stderr_buf.getvalue(),
+        )
+
+        # Check durable-memory too
+        stderr_buf2 = io.StringIO()
+        with redirect_stderr(stderr_buf2):
+            success2 = add_skill(
+                self.aikito_dir,
+                self.home,
+                name="durable-memory",
+                from_source=ext_dir,
+                force=True,
+            )
+        self.assertFalse(success2)
+        self.assertIn(
+            "Cannot overwrite bundled system skill 'durable-memory'",
+            stderr_buf2.getvalue(),
+        )
+
+    def test_add_skill_cannot_create_reserved_bundled_name(self) -> None:
+        aikito_skill_dir = self.aikito_dir / "skills" / "aikito"
+        if aikito_skill_dir.exists():
+            shutil.rmtree(aikito_skill_dir)
+
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_skill(
+                self.aikito_dir,
+                self.home,
+                name="aikito",
+                description="Custom aikito",
+            )
+        self.assertFalse(success)
+        self.assertIn(
+            "Cannot create custom skill with reserved bundled system skill name 'aikito'",
+            stderr_buf.getvalue(),
+        )
+
+    def test_add_bundled_skill_to_project_shows_info_notice(self) -> None:
+        proj_dir = self.home / "bundled-notice-proj"
+        proj_dir.mkdir()
+        init_project(self.aikito_dir, proj_dir, "bundled-notice-proj")
+
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_skill(
+                self.aikito_dir,
+                self.home,
+                name="durable-memory",
+                project_name="bundled-notice-proj",
+            )
+        self.assertTrue(success)
+        self.assertIn(
+            "[INFO] 'durable-memory' is a built-in skill and already active globally.",
+            stdout_buf.getvalue(),
+        )
+        agent_toml = self.aikito_dir / "projects" / "bundled-notice-proj" / "agent.toml"
+        self.assertIn('"durable-memory"', agent_toml.read_text(encoding="utf-8"))
+
+    def test_add_skill_rebuilds_dangling_global_registration(self) -> None:
+        skills_toml = self.aikito_dir / "skills.toml"
+        skills_toml.write_text(
+            'skills = [\n    "dangling-skill"\n]\n', encoding="utf-8"
+        )
+        canonical_dir = self.aikito_dir / "skills" / "dangling-skill"
+        self.assertFalse(canonical_dir.exists())
+
+        ext_dir = self.home / "dangling-source"
+        ext_dir.mkdir()
+        (ext_dir / "SKILL.md").write_text(
+            "---\nname: dangling-skill\ndescription: Rebuilt.\n---\n\n# Rebuilt\n",
+            encoding="utf-8",
+        )
+        success = add_skill(
+            self.aikito_dir,
+            self.home,
+            name="dangling-skill",
+            from_source=ext_dir,
+            force=True,
+        )
+        self.assertTrue(success)
+        self.assertTrue(canonical_dir.is_dir())
+        self.assertIn(
+            "# Rebuilt", (canonical_dir / "SKILL.md").read_text(encoding="utf-8")
+        )
+
+    def test_add_skill_rebuilds_dangling_project_registration(self) -> None:
+        proj_dir = self.home / "dangling-proj"
+        proj_dir.mkdir()
+        init_project(self.aikito_dir, proj_dir, "dangling-proj")
+
+        agent_toml = self.aikito_dir / "projects" / "dangling-proj" / "agent.toml"
+        agent_toml.write_text(
+            'name = "dangling-proj"\nskills = ["dangling-proj-skill"]\n',
+            encoding="utf-8",
+        )
+        canonical_dir = self.aikito_dir / "skills" / "dangling-proj-skill"
+        self.assertFalse(canonical_dir.exists())
+
+        success = add_skill(
+            self.aikito_dir,
+            self.home,
+            name="dangling-proj-skill",
+            project_name="dangling-proj",
+        )
+        self.assertTrue(success)
+        self.assertTrue(canonical_dir.is_dir())
+        self.assertTrue((canonical_dir / "SKILL.md").is_file())
+
+    def test_add_skill_force_restores_previous_snapshot_on_failure(self) -> None:
+        ext_dir = self.home / "rollback-ext"
+        ext_dir.mkdir()
+        source_file = ext_dir / "SKILL.md"
+        source_file.write_text(
+            "---\nname: rollback-skill\ndescription: Initial.\n---\n\n# Initial\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(add_skill(self.aikito_dir, self.home, from_source=ext_dir))
+        canonical_file = self.aikito_dir / "skills" / "rollback-skill" / "SKILL.md"
+        original_content = canonical_file.read_text(encoding="utf-8")
+
+        source_file.write_text(
+            "---\nname: rollback-skill\ndescription: Updated.\n---\n\n# Updated\n",
+            encoding="utf-8",
+        )
+        real_atomic_write = aikito.add._atomic_write_text
+
+        def fail_registry_write(path_obj: Path, content: str, *args, **kwargs):
+            if path_obj.name == "skills.toml":
+                raise OSError("Simulated registry write failure")
+            return real_atomic_write(path_obj, content, *args, **kwargs)
+
+        stderr_buf = io.StringIO()
+        with (
+            patch("aikito.add._atomic_write_text", side_effect=fail_registry_write),
+            redirect_stderr(stderr_buf),
+        ):
+            success = add_skill(
+                self.aikito_dir,
+                self.home,
+                from_source=ext_dir,
+                force=True,
+            )
+
+        self.assertFalse(success)
+        self.assertIn("Simulated registry write failure", stderr_buf.getvalue())
+        self.assertEqual(canonical_file.read_text(encoding="utf-8"), original_content)
 
     def test_add_skill_frontmatter_preserves_other_fields(self) -> None:
         ext_dir = self.home / "complex-ext"

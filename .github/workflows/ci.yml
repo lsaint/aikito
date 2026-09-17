@@ -401,10 +401,19 @@ jobs:
           test -f ${{ runner.temp }}/aikito-ws/skills/ci-skill/SKILL.md
           mkdir -p ${{ runner.temp }}/external-skill
           printf -- "---\nname: imported-ci-skill\ndescription: External imported skill\n---\n\n# Imported CI Skill\n" > ${{ runner.temp }}/external-skill/SKILL.md
+          printf "obsolete\n" > ${{ runner.temp }}/external-skill/obsolete.txt
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito add skill --from ${{ runner.temp }}/external-skill --project example --sync
           test -f ${{ runner.temp }}/aikito-ws/skills/imported-ci-skill/SKILL.md
           test -L ${{ runner.temp }}/example-project/.agents/skills/imported-ci-skill
+          printf -- "---\nname: imported-ci-skill\ndescription: Updated external skill\n---\n\n# Updated CI Skill\n" > ${{ runner.temp }}/external-skill/SKILL.md
+          rm ${{ runner.temp }}/external-skill/obsolete.txt
+          printf "added\n" > ${{ runner.temp }}/external-skill/added.txt
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito add skill --from ${{ runner.temp }}/external-skill --project example --force --sync
+          grep -q "# Updated CI Skill" ${{ runner.temp }}/aikito-ws/skills/imported-ci-skill/SKILL.md
+          test ! -e ${{ runner.temp }}/aikito-ws/skills/imported-ci-skill/obsolete.txt
+          test -f ${{ runner.temp }}/aikito-ws/skills/imported-ci-skill/added.txt
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito add subagent ci-subagent \
             --description "CI test subagent" \
@@ -910,12 +919,27 @@ jobs:
           $extSkillDir = Join-Path $env:RUNNER_TEMP "external-windows-skill"
           New-Item -ItemType Directory -Force -Path $extSkillDir | Out-Null
           @("---", "name: win-imported-skill", "description: Windows imported skill", "---", "", "# Windows Skill") | Set-Content (Join-Path $extSkillDir "SKILL.md")
+          "obsolete" | Set-Content (Join-Path $extSkillDir "obsolete.txt")
           python -m aikito add skill --from "$extSkillDir" --project example --sync
           if (-not (Test-Path (Join-Path $wsDir "skills\win-imported-skill\SKILL.md"))) {
             throw "Imported canonical skill file is missing on Windows"
           }
           if (-not (Test-Path (Join-Path $projectDir ".agents\skills\win-imported-skill"))) {
             throw "Synchronized project skill link is missing on Windows"
+          }
+          @("---", "name: win-imported-skill", "description: Updated Windows skill", "---", "", "# Updated Windows Skill") | Set-Content (Join-Path $extSkillDir "SKILL.md")
+          Remove-Item (Join-Path $extSkillDir "obsolete.txt")
+          "added" | Set-Content (Join-Path $extSkillDir "added.txt")
+          python -m aikito add skill --from "$extSkillDir" --project example --force --sync
+          $canonicalSkill = Join-Path $wsDir "skills\win-imported-skill"
+          if (-not (Select-String -Path (Join-Path $canonicalSkill "SKILL.md") -Pattern "# Updated Windows Skill" -Quiet)) {
+            throw "Imported canonical skill was not refreshed on Windows"
+          }
+          if (Test-Path (Join-Path $canonicalSkill "obsolete.txt")) {
+            throw "Removed source file survived the Windows snapshot refresh"
+          }
+          if (-not (Test-Path (Join-Path $canonicalSkill "added.txt"))) {
+            throw "New source file is missing after the Windows snapshot refresh"
           }
           $globalNote = Join-Path $wsDir "memory\notes\windows-memory.md"
           @("# Windows Memory") | Set-Content $globalNote

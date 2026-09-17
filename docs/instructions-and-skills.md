@@ -52,6 +52,22 @@ aikito add skill review-checklist --from /path/to/existing-skill --project examp
 
 The skill source is imported into `<workspace>/skills/review-checklist/`; its project selection is registered in each specified project's `agent.toml`.
 
+To refresh that canonical snapshot after the external directory changes, repeat
+the import with `--force`:
+
+```bash
+aikito add skill review-checklist --from /path/to/existing-skill --force \
+  --project example-a,example-b --sync
+```
+
+The replacement is a complete snapshot: files removed from the external source
+are removed from the canonical skill too. Repeat the original registration
+options; existing global and project registrations are preserved, while any new
+requested projects are added. `--force` is accepted only with `--from`, so it
+cannot overwrite a canonical skill unless a replacement snapshot is supplied
+explicitly. Aikito does not yet track external-source provenance, so review
+local canonical changes before replacing them.
+
 ## Select an existing skill
 
 To attach a canonical skill that already exists in `<workspace>/skills/` to additional projects, run `add skill` with the target projects:
