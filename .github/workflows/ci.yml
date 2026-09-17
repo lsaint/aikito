@@ -733,10 +733,13 @@ jobs:
           EOF
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito adopt --dry-run --verbose \
-            --skip subagent/ci-adopt \
             | tee ${{ runner.temp }}/adopt-preview.out
           grep -F "Safe to apply" ${{ runner.temp }}/adopt-preview.out
-          grep -F "[SKIP] subagent/ci-adopt" ${{ runner.temp }}/adopt-preview.out
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito adopt --dry-run --verbose \
+            --skip subagent/ci-adopt \
+            | tee ${{ runner.temp }}/adopt-skip.out
+          grep -F "[SKIP] subagent/ci-adopt" ${{ runner.temp }}/adopt-skip.out
           test ! -f ${{ runner.temp }}/aikito-ws/subagents/ci-adopt.md
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito adopt
