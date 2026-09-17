@@ -64,6 +64,8 @@ If the scope is unclear, simply ask:
 > Turn this workflow into an Aikito skill. Decide whether it should be global or
 > project-specific and explain your choice.
 
+See [Add and manage skills](skills.md) for skill creation, import, and sync.
+
 ## Configure an MCP Server
 
 Use this when multiple supported Agents should share an MCP definition:
