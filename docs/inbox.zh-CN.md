@@ -4,7 +4,7 @@
 
 `inbox/` 是 Aikito 工作区中用于暂存待处理 Markdown 笔记的目录。
 
-其中的内容可能来自 Chat Distiller、其他工具或人工记录。它们尚未经过验证、分类或长期保存决策，因此 Agent 不应将其视为已经成立的项目约束或 durable memory。
+其中的内容可能来自 [Chat Distiller](https://github.com/lsaint/chat-distiller)、其他工具或人工记录。它们尚未经过验证、分类或长期保存决策，因此 Agent 不应将其视为已经成立的项目约束或 durable memory。
 
 ## Inbox 与 Memory 的区别
 
@@ -138,7 +138,7 @@ projects/<project-name>/memory/notes/
 
 它只是 Inbox 的一种输入来源，并不是使用 Inbox 的必要条件。Inbox 也可以接收人工笔记或其他工具生成的 Markdown。
 
-Chat Distiller 的具体流程参见 [Capture browser conversations](chat-distiller.md)。
+[Chat Distiller](https://github.com/lsaint/chat-distiller) 的具体流程参见 [Capture browser conversations](chat-distiller.md)。
 
 ## 信任与隐私边界
 
