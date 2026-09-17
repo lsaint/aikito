@@ -787,7 +787,6 @@ def cmd_status(args: argparse.Namespace) -> None:
     aikito_dir, workspace_source = resolve_workspace_with_source(Path.home())
     home = Path.home()
     use_unicode, use_color = resolve_color_flags(args)
-    print_bundled_skill_notice(aikito_dir)
 
     # Top-level Dashboard report
     report_data = get_status_report_data(aikito_dir, home)
@@ -799,6 +798,7 @@ def cmd_status(args: argparse.Namespace) -> None:
         workspace_source=workspace_source,
     )
     print(rendered)
+    print_bundled_skill_notice(aikito_dir)
 
 
 def cmd_web(args: argparse.Namespace) -> None:
@@ -1007,15 +1007,14 @@ def cmd_show_skill(args: argparse.Namespace) -> None:
     target = getattr(args, "target", None)
 
     if not target:
-        print_bundled_skill_notice(aikito_dir)
         use_unicode, use_color = resolve_color_flags(args)
         skill_rows = collect_skills_rows(aikito_dir=aikito_dir)
         table_str = render_skills_table(skill_rows, use_unicode, use_color)
         print(table_str)
+        print_bundled_skill_notice(aikito_dir)
         return
 
     skill_file = resolve_skill_target_for_command(aikito_dir, target, operation="show")
-    print_bundled_skill_notice(aikito_dir, names=(skill_file.parent.name,))
 
     try:
         print(skill_file.read_text(encoding="utf-8"), end="")
@@ -1025,6 +1024,8 @@ def cmd_show_skill(args: argparse.Namespace) -> None:
             file=sys.stderr,
         )
         sys.exit(1)
+
+    print_bundled_skill_notice(aikito_dir, names=(skill_file.parent.name,))
 
 
 def cmd_show_instructions(args: argparse.Namespace) -> None:
@@ -1531,7 +1532,6 @@ def cmd_adopt(args: argparse.Namespace) -> None:
 def cmd_doctor(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
     home = Path.home()
-    print_bundled_skill_notice(aikito_dir)
 
     use_unicode, use_color = resolve_color_flags(args)
 
@@ -1601,6 +1601,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         print(json.dumps(_report_to_dict(report), ensure_ascii=False, indent=2))
     else:
         print(render_doctor_report(report, is_tty=use_unicode, no_color=not use_color))
+        print_bundled_skill_notice(aikito_dir)
 
     if report.fail_count > 0:
         sys.exit(1)

@@ -3091,5 +3091,111 @@ class CliGitCommandTest(unittest.TestCase):
             self.assertIn("'git' executable not found", mock_stderr.getvalue())
 
 
+class CliNoticePlacementTest(unittest.TestCase):
+    def test_status_calls_notice_after_rendering(self) -> None:
+        call_order = []
+
+        def mock_render(*args, **kwargs):
+            call_order.append("render")
+            return "Status Report"
+
+        def mock_notice(*args, **kwargs):
+            call_order.append("notice")
+            return ()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "workspace"
+            ws.mkdir()
+            with (
+                patch.object(
+                    AIKITO_CLI,
+                    "resolve_workspace_with_source",
+                    return_value=(ws, "default"),
+                ),
+                patch.object(
+                    AIKITO_CLI, "get_status_report_data", return_value=MagicMock()
+                ),
+                patch.object(
+                    AIKITO_CLI, "render_status_report", side_effect=mock_render
+                ),
+                patch.object(
+                    AIKITO_CLI, "print_bundled_skill_notice", side_effect=mock_notice
+                ),
+                patch("sys.stdout", new_callable=io.StringIO),
+            ):
+                parser = AIKITO_CLI.build_parser()
+                args = parser.parse_args(["status"])
+                args.func(args)
+
+        self.assertEqual(call_order, ["render", "notice"])
+
+    def test_doctor_calls_notice_after_rendering(self) -> None:
+        call_order = []
+
+        mock_report = MagicMock()
+        mock_report.fail_count = 0
+
+        def mock_render(*args, **kwargs):
+            call_order.append("render")
+            return "Doctor Report"
+
+        def mock_notice(*args, **kwargs):
+            call_order.append("notice")
+            return ()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "workspace"
+            ws.mkdir()
+            with (
+                patch.object(AIKITO_CLI, "get_aikito_dir", return_value=ws),
+                patch.object(AIKITO_CLI, "run_doctor", return_value=mock_report),
+                patch.object(
+                    AIKITO_CLI, "render_doctor_report", side_effect=mock_render
+                ),
+                patch.object(
+                    AIKITO_CLI, "print_bundled_skill_notice", side_effect=mock_notice
+                ),
+                patch("sys.stdout", new_callable=io.StringIO),
+            ):
+                parser = AIKITO_CLI.build_parser()
+                args = parser.parse_args(["doctor"])
+                args.func(args)
+
+        self.assertEqual(call_order, ["render", "notice"])
+
+    def test_show_skill_calls_notice_after_printing(self) -> None:
+        call_order = []
+
+        def mock_notice(*args, **kwargs):
+            call_order.append("notice")
+            return ()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "workspace"
+            skill_dir = ws / "skills" / "my-skill"
+            skill_dir.mkdir(parents=True)
+            skill_file = skill_dir / "SKILL.md"
+            skill_file.write_text("Skill Content\n", encoding="utf-8")
+
+            with (
+                patch.object(AIKITO_CLI, "get_aikito_dir", return_value=ws),
+                patch.object(
+                    AIKITO_CLI,
+                    "resolve_skill_target_for_command",
+                    return_value=skill_file,
+                ),
+                patch.object(
+                    AIKITO_CLI, "print_bundled_skill_notice", side_effect=mock_notice
+                ),
+                patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            ):
+                parser = AIKITO_CLI.build_parser()
+                args = parser.parse_args(["show", "skill", "my-skill"])
+                args.func(args)
+
+            self.assertIn("Skill Content", mock_stdout.getvalue())
+            self.assertEqual(call_order, ["notice"])
+
+
 if __name__ == "__main__":
     unittest.main()

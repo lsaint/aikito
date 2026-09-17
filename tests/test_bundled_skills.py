@@ -51,6 +51,7 @@ class BundledSkillRefreshTest(unittest.TestCase):
         )
 
         self.assertEqual(outdated, ("aikito",))
+        self.assertTrue(output.getvalue().startswith("\n[NOTICE]"))
         self.assertIn("aikito", output.getvalue())
         self.assertNotIn("durable-memory", output.getvalue())
 

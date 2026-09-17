@@ -76,7 +76,7 @@ def print_bundled_skill_notice(
     if outdated:
         rendered = ", ".join(outdated)
         print(
-            f"[NOTICE] Bundled skill snapshot differs from the installed Aikito "
+            f"\n[NOTICE] Bundled skill snapshot differs from the installed Aikito "
             f"package: {rendered}. Run 'aikito sync global' to refresh it.",
             file=output,
         )
