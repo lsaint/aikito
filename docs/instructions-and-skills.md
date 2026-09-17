@@ -31,7 +31,7 @@ These edit `global/AGENTS.md` and `projects/example/AGENTS.md` in the workspace.
 Use `aikito sync global` or `aikito sync project example` to establish or repair
 connections, previewing with `--dry-run` first.
 
-## Create a project skill
+## Create or import a project skill
 
 > Create an Aikito skill named review-checklist for project example's review
 > workflow. Inspect existing skills first, write the workflow, synchronize it,
@@ -44,14 +44,23 @@ aikito add skill review-checklist --project example
 aikito edit skill review-checklist
 ```
 
-Replace the skeleton with your workflow before synchronizing. The skill source
-lives under `<workspace>/skills/review-checklist/`; its project selection is
-registered in `projects/example/agent.toml`.
+To import an existing external skill directory or file into Aikito and attach it to one or more projects in a single step:
+
+```bash
+aikito add skill review-checklist --from /path/to/existing-skill --project example-a,example-b --sync
+```
+
+The skill source is imported into `<workspace>/skills/review-checklist/`; its project selection is registered in each specified project's `agent.toml`.
 
 ## Select an existing skill
 
-Ensure the skill exists in `<workspace>/skills/`. Add its name to the existing
-`skills` array in `projects/example/agent.toml`, preserving selections you need:
+To attach a canonical skill that already exists in `<workspace>/skills/` to additional projects, run `add skill` with the target projects:
+
+```bash
+aikito add skill review-checklist --project example-b --sync
+```
+
+Alternatively, you can manually add its name to the `skills` array in `projects/example/agent.toml`:
 
 ```toml
 skills = ["durable-memory", "review-checklist"]

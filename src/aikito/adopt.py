@@ -600,16 +600,29 @@ def scan_mcp_servers(
 
 
 def _parse_markdown_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
-    content = content.strip()
-    if not content.startswith("---"):
-        return {}, content
+    raw = content.lstrip("\ufeff").strip()
+    lines = raw.splitlines(keepends=True)
+    if not lines:
+        return {}, content.strip()
 
-    parts = content.split("---", 2)
-    if len(parts) < 3:
-        return {}, content
+    first_line = lines[0].rstrip("\r\n")
+    if first_line.rstrip() != "---" or first_line.startswith((" ", "\t")):
+        return {}, content.strip()
 
-    frontmatter_raw = parts[1].strip()
-    body = parts[2].strip()
+    closing_idx = None
+    for idx in range(1, len(lines)):
+        line_stripped = lines[idx].rstrip("\r\n")
+        if line_stripped.rstrip() == "---" and not line_stripped.startswith(
+            (" ", "\t")
+        ):
+            closing_idx = idx
+            break
+
+    if closing_idx is None:
+        return {}, content.strip()
+
+    frontmatter_raw = "".join(lines[1:closing_idx]).strip()
+    body = "".join(lines[closing_idx + 1 :]).strip()
 
     meta: Dict[str, Any] = {}
     for line in frontmatter_raw.splitlines():

@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from aikito import cli as AIKITO_CLI
+from aikito.init import init_project
 from aikito.status import MCPRuntimeRow
 from aikito.sync import sync_project_instruction
 
@@ -2229,6 +2230,45 @@ url = "http://custom.example.com"
         )
         self.assertIn(
             "[SUCCESS] Added global skill 'cli-skill'.", mock_stdout.getvalue()
+        )
+
+    def test_add_skill_cli_from_and_multi_project(self) -> None:
+        proj_a = self.home / "project-a"
+        proj_b = self.home / "project-b"
+        proj_a.mkdir(parents=True)
+        proj_b.mkdir(parents=True)
+        init_project(self.aikito_dir, proj_a, "project-a")
+        init_project(self.aikito_dir, proj_b, "project-b")
+
+        ext_skill_dir = self.home / "cli-ext-skill"
+        ext_skill_dir.mkdir()
+        (ext_skill_dir / "SKILL.md").write_text(
+            "---\nname: cli-imported-skill\ndescription: CLI imported skill.\n---\n\n# CLI Imported\n",
+            encoding="utf-8",
+        )
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                [
+                    "add",
+                    "skill",
+                    "--from",
+                    str(ext_skill_dir),
+                    "--project",
+                    "project-a, project-b",
+                ]
+            )
+            args.func(args)
+
+        self.assertTrue(
+            (self.aikito_dir / "skills" / "cli-imported-skill" / "SKILL.md").is_file()
+        )
+        self.assertIn(
+            "Added skill 'cli-imported-skill' to project(s)", mock_stdout.getvalue()
         )
 
     def test_add_subagent_cli(self) -> None:

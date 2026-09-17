@@ -366,12 +366,15 @@ def cmd_global_sync(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-def cmd_project_sync(args: argparse.Namespace) -> None:
+def sync_project_by_name(
+    aikito_dir: Path,
+    home: Path,
+    project_name: str,
+    project_path: Optional[str] = None,
+    dry_run: bool = False,
+    force: bool = False,
+) -> bool:
     require_symlink_support()
-    project_name = args.project_name
-    aikito_dir = get_aikito_dir()
-    home = Path.home()
-
     agent_toml_path = aikito_dir / "projects" / project_name / "agent.toml"
     data: dict = {}
     if agent_toml_path.exists():
@@ -380,31 +383,29 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
             for err in toml_conflicts:
                 print(f"[ERROR] {err}", file=sys.stderr)
             print("[ERROR] Project synchronization aborted.", file=sys.stderr)
-            sys.exit(1)
+            return False
         try:
             with open(agent_toml_path, "rb") as f:
                 data = tomllib.load(f)
         except (OSError, tomllib.TOMLDecodeError) as exc:
             print(f"[ERROR] Failed to read {agent_toml_path}: {exc}", file=sys.stderr)
-            sys.exit(1)
+            return False
 
     binding = resolve_project_binding(data, home)
-    dry_run = getattr(args, "dry_run", False)
-    force = getattr(args, "force", False)
 
-    if args.project_path:
-        target_path = Path(args.project_path).expanduser().resolve()
+    if project_path:
+        target_path = Path(project_path).expanduser().resolve()
         if not target_path.exists():
             print(
                 f"[ERROR] Project path does not exist: {target_path}", file=sys.stderr
             )
-            sys.exit(1)
+            return False
         if not target_path.is_dir():
             print(
                 f"[ERROR] Project path is not a directory: {target_path}",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return False
 
         errors = collect_project_prepare_errors(
             aikito_dir, project_name, target_path, data, home, force=force
@@ -413,7 +414,7 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
             for err in errors:
                 print(f"[ERROR] {err}", file=sys.stderr)
             print("[ERROR] Project synchronization aborted.", file=sys.stderr)
-            sys.exit(1)
+            return False
 
         if not dry_run:
             try:
@@ -428,14 +429,14 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
                     f"Please manually add '{target_path}' to {agent_toml_path}.",
                     file=sys.stderr,
                 )
-                sys.exit(1)
+                return False
 
         sync_project_path(
             aikito_dir, project_name, target_path, data, home, dry_run=dry_run
         )
         result = "sync preview completed" if dry_run else "synced successfully"
         print(f"[SUCCESS] Project '{project_name}' {result} at {target_path}.")
-        return
+        return True
 
     if not binding.entries:
         print(
@@ -443,7 +444,7 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
             f"Usage: aikito sync project {project_name} <project_path>",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return False
 
     if not binding.active_entries:
         offline_list = "\n".join(
@@ -457,12 +458,41 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
             f"  aikito sync project {project_name} <project_path>",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return False
 
     if not _sync_project_active_entries(
         aikito_dir, project_name, binding, data, home, dry_run=dry_run, force=force
     ):
+        return False
+
+    return True
+
+
+def cmd_project_sync(args: argparse.Namespace) -> None:
+    dry_run = getattr(args, "dry_run", False)
+    force = getattr(args, "force", False)
+    aikito_dir = get_aikito_dir()
+    home = Path.home()
+
+    raw_names = args.project_name
+    project_names = [p.strip() for p in raw_names.split(",") if p.strip()]
+    if len(project_names) > 1 and args.project_path:
+        print(
+            "[ERROR] Cannot specify explicit project_path when syncing multiple projects.",
+            file=sys.stderr,
+        )
         sys.exit(1)
+
+    for p in project_names:
+        if not sync_project_by_name(
+            aikito_dir,
+            home,
+            p,
+            project_path=args.project_path if len(project_names) == 1 else None,
+            dry_run=dry_run,
+            force=force,
+        ):
+            sys.exit(1)
 
 
 def _sync_project_active_entries(
@@ -845,12 +875,18 @@ def cmd_init_project(args: argparse.Namespace) -> None:
 
 def cmd_add_skill(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
+    project_arg = getattr(args, "project", None)
+    projects = None
+    if project_arg:
+        projects = [p.strip() for p in project_arg.split(",") if p.strip()]
     success = add_skill(
         aikito_dir=aikito_dir,
         home=Path.home(),
         name=args.name,
         description=getattr(args, "description", None),
-        project_name=getattr(args, "project", None),
+        projects=projects,
+        from_source=getattr(args, "from_source", None),
+        sync=getattr(args, "sync", False),
     )
     if not success:
         sys.exit(1)
@@ -1657,9 +1693,20 @@ def build_parser() -> argparse.ArgumentParser:
     # add skill
     p_add_skill = add_subparsers.add_parser(
         "skill",
-        help="Add a new canonical skill skeleton and register it",
+        help="Add a new canonical skill skeleton or import from external source, and register it",
     )
-    p_add_skill.add_argument("name", help="Name of the skill in kebab-case")
+    p_add_skill.add_argument(
+        "name",
+        nargs="?",
+        default=None,
+        help="Name of the skill in kebab-case (inferred from --from if omitted)",
+    )
+    p_add_skill.add_argument(
+        "--from",
+        dest="from_source",
+        default=None,
+        help="Path to an external skill directory or markdown file to import",
+    )
     p_add_skill.add_argument(
         "--description",
         default=None,
@@ -1668,7 +1715,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_add_skill.add_argument(
         "--project",
         default=None,
-        help="Register skill under a specific project instead of globally",
+        help="Register skill under specific project(s) instead of globally (comma-separated for multiple projects)",
+    )
+    p_add_skill.add_argument(
+        "--sync",
+        action="store_true",
+        help="Automatically synchronize affected project(s) or global runtime after adding",
     )
     p_add_skill.set_defaults(func=cmd_add_skill)
 

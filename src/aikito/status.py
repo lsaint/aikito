@@ -773,14 +773,19 @@ def _parse_skill_description(skill_dir: Path) -> str:
         return "-"
     try:
         content = skill_md.read_text(encoding="utf-8", errors="ignore")
-        if content.startswith("---"):
-            parts = content.split("---", 2)
-            if len(parts) >= 3:
-                frontmatter = parts[1]
-                for line in frontmatter.splitlines():
-                    if line.startswith("description:"):
-                        desc = line.split("description:", 1)[1].strip()
-                        return desc
+        lines = content.lstrip("\ufeff").splitlines()
+        if (
+            lines
+            and lines[0].rstrip() == "---"
+            and not lines[0].startswith((" ", "\t"))
+        ):
+            for line in lines[1:]:
+                line_stripped = line.rstrip()
+                if line_stripped == "---" and not line.startswith((" ", "\t")):
+                    break
+                if line.strip().startswith("description:"):
+                    desc = line.strip().split("description:", 1)[1].strip().strip("\"'")
+                    return desc
     except Exception:
         pass
     return "-"

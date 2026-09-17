@@ -26,7 +26,7 @@ version.
 | `aikito init workspace [path]` | Initialize a new workspace or connect an existing one, detect installed Agents, and remember an explicit path |
 | `aikito path workspace` | Print the resolved active workspace path |
 | `aikito init project [name] [path] [--description <text>]` | Register a code project and synchronize its `.agents/` runtime |
-| `aikito add skill <name>` | Create a canonical skill skeleton and register it in `skills.toml` or project config |
+| `aikito add skill [name] [--from <path>] [--project <projects>] [--sync]` | Create a canonical skill skeleton or import from external source, and register it in `skills.toml` or project configs |
 | `aikito add subagent <name>` | Create a canonical subagent skeleton and register it in `subagents.toml` |
 | `aikito add mcp <name>` | Create a canonical MCP server configuration in `mcps/<name>.toml` |
 | `aikito adopt [path] [--dry-run] [--verbose] [--skip <resource>]` | Preflight existing local configuration, then import it only when the complete plan is safe |

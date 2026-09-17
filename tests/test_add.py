@@ -1,11 +1,23 @@
 import io
+import os
+import stat
 import tempfile
 import tomllib
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
-from aikito.add import add_mcp, add_skill, add_subagent, validate_resource_name
+import aikito.add
+from aikito.add import (
+    _atomic_write_text,
+    _parse_markdown_frontmatter,
+    add_mcp,
+    add_skill,
+    add_subagent,
+    validate_resource_name,
+)
+from aikito.compat import is_windows
 from aikito.init import init_project, init_workspace
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -266,6 +278,559 @@ class TestAikitoAddSkill(unittest.TestCase):
             )
         self.assertFalse(success)
         self.assertIn("not found", stderr_buf.getvalue())
+
+    def test_add_skill_multi_project(self) -> None:
+        proj_a = self.home / "project-a"
+        proj_b = self.home / "project-b"
+        proj_a.mkdir(parents=True)
+        proj_b.mkdir(parents=True)
+        init_project(self.aikito_dir, proj_a, "project-a")
+        init_project(self.aikito_dir, proj_b, "project-b")
+
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_skill(
+                self.aikito_dir,
+                self.home,
+                name="multi-skill",
+                projects=["project-a", "project-b"],
+            )
+        self.assertTrue(success)
+
+        # Both projects should have the skill registered
+        for proj in ("project-a", "project-b"):
+            toml_path = self.aikito_dir / "projects" / proj / "agent.toml"
+            with toml_path.open("rb") as f:
+                data = tomllib.load(f)
+            self.assertIn("multi-skill", data.get("skills", []))
+
+        skill_file = self.aikito_dir / "skills" / "multi-skill" / "SKILL.md"
+        self.assertTrue(skill_file.is_file())
+
+    def test_add_skill_multi_project_comma_string(self) -> None:
+        proj_a = self.home / "project-a"
+        proj_b = self.home / "project-b"
+        proj_a.mkdir(parents=True)
+        proj_b.mkdir(parents=True)
+        init_project(self.aikito_dir, proj_a, "project-a")
+        init_project(self.aikito_dir, proj_b, "project-b")
+
+        success = add_skill(
+            self.aikito_dir,
+            self.home,
+            name="comma-skill",
+            project_name="project-a, project-b",
+        )
+        self.assertTrue(success)
+
+        for proj in ("project-a", "project-b"):
+            toml_path = self.aikito_dir / "projects" / proj / "agent.toml"
+            with toml_path.open("rb") as f:
+                data = tomllib.load(f)
+            self.assertIn("comma-skill", data.get("skills", []))
+
+    def test_add_skill_existing_canonical_registered_to_new_project(self) -> None:
+        proj_a = self.home / "project-a"
+        proj_b = self.home / "project-b"
+        proj_a.mkdir(parents=True)
+        proj_b.mkdir(parents=True)
+        init_project(self.aikito_dir, proj_a, "project-a")
+        init_project(self.aikito_dir, proj_b, "project-b")
+
+        # Step 1: Add skill to project A
+        success = add_skill(
+            self.aikito_dir,
+            self.home,
+            name="reuse-skill",
+            project_name="project-a",
+        )
+        self.assertTrue(success)
+
+        # Step 2: Register existing skill to project B
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success_b = add_skill(
+                self.aikito_dir,
+                self.home,
+                name="reuse-skill",
+                project_name="project-b",
+            )
+        self.assertTrue(success_b)
+        self.assertIn(
+            "Using existing canonical skill 'reuse-skill'", stdout_buf.getvalue()
+        )
+
+        toml_b = self.aikito_dir / "projects" / "project-b" / "agent.toml"
+        with toml_b.open("rb") as f:
+            data = tomllib.load(f)
+        self.assertIn("reuse-skill", data.get("skills", []))
+
+    def test_add_skill_from_external_directory(self) -> None:
+        proj_a = self.home / "project-a"
+        proj_b = self.home / "project-b"
+        proj_a.mkdir(parents=True)
+        proj_b.mkdir(parents=True)
+        init_project(self.aikito_dir, proj_a, "project-a")
+        init_project(self.aikito_dir, proj_b, "project-b")
+
+        # Create external skill directory
+        ext_dir = self.home / "ext-skill"
+        ext_dir.mkdir()
+        (ext_dir / "references").mkdir()
+        (ext_dir / "references" / "ref.md").write_text(
+            "reference guide", encoding="utf-8"
+        )
+        (ext_dir / "SKILL.md").write_text(
+            "---\nname: imported-skill\ndescription: An imported external skill.\n---\n\n# Imported Skill\n",
+            encoding="utf-8",
+        )
+
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_skill(
+                self.aikito_dir,
+                self.home,
+                projects=["project-a", "project-b"],
+                from_source=ext_dir,
+            )
+        self.assertTrue(success)
+
+        # Verify canonical skill created
+        skill_dir = self.aikito_dir / "skills" / "imported-skill"
+        self.assertTrue(skill_dir.is_dir())
+        self.assertTrue((skill_dir / "SKILL.md").is_file())
+        self.assertTrue((skill_dir / "references" / "ref.md").is_file())
+        self.assertEqual(
+            (skill_dir / "references" / "ref.md").read_text(encoding="utf-8"),
+            "reference guide",
+        )
+
+        # Verify projects registered
+        for proj in ("project-a", "project-b"):
+            toml_path = self.aikito_dir / "projects" / proj / "agent.toml"
+            with toml_path.open("rb") as f:
+                data = tomllib.load(f)
+            self.assertIn("imported-skill", data.get("skills", []))
+
+    def test_add_skill_from_external_markdown_file(self) -> None:
+        ext_file = self.home / "single-file-skill.md"
+        ext_file.write_text(
+            "---\nname: single-skill\ndescription: A single file skill.\n---\n\n# Single Skill\n",
+            encoding="utf-8",
+        )
+
+        success = add_skill(
+            self.aikito_dir,
+            self.home,
+            from_source=ext_file,
+        )
+        self.assertTrue(success)
+
+        skill_file = self.aikito_dir / "skills" / "single-skill" / "SKILL.md"
+        self.assertTrue(skill_file.is_file())
+        self.assertIn("name: single-skill", skill_file.read_text(encoding="utf-8"))
+
+        skills_toml = self.aikito_dir / "skills.toml"
+        with skills_toml.open("rb") as f:
+            data = tomllib.load(f)
+        self.assertIn("single-skill", data.get("skills", []))
+
+    def test_add_skill_from_missing_source_fails(self) -> None:
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_skill(
+                self.aikito_dir,
+                self.home,
+                name="some-skill",
+                from_source=self.home / "nonexistent-skill-dir",
+            )
+        self.assertFalse(success)
+        self.assertIn("Source path does not exist", stderr_buf.getvalue())
+
+    def test_add_skill_from_directory_without_skill_md_fails(self) -> None:
+        empty_dir = self.home / "no-skill-md"
+        empty_dir.mkdir()
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_skill(
+                self.aikito_dir,
+                self.home,
+                name="some-skill",
+                from_source=empty_dir,
+            )
+        self.assertFalse(success)
+        self.assertIn("does not contain a SKILL.md file", stderr_buf.getvalue())
+
+    def test_add_skill_from_non_md_file_fails(self) -> None:
+        txt_file = self.home / "skill.txt"
+        txt_file.write_text("not a markdown file", encoding="utf-8")
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_skill(
+                self.aikito_dir,
+                self.home,
+                name="some-skill",
+                from_source=txt_file,
+            )
+        self.assertFalse(success)
+        self.assertIn("must be a markdown (.md) file", stderr_buf.getvalue())
+
+    def test_add_skill_from_source_duplicate_rejected(self) -> None:
+        ext_dir = self.home / "dup-ext"
+        ext_dir.mkdir()
+        (ext_dir / "SKILL.md").write_text(
+            "---\nname: dup-canonical\ndescription: Duplicate canonical.\n---\n",
+            encoding="utf-8",
+        )
+        add_skill(self.aikito_dir, self.home, from_source=ext_dir)
+
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_skill(self.aikito_dir, self.home, from_source=ext_dir)
+        self.assertFalse(success)
+        self.assertIn("already exists", stderr_buf.getvalue())
+
+    def test_add_skill_frontmatter_preserves_other_fields(self) -> None:
+        ext_dir = self.home / "complex-ext"
+        ext_dir.mkdir()
+        complex_skill_content = """---
+name: original-name
+description: original description
+license: MIT
+compatibility: [claude, codex]
+metadata:
+  version: 2.1
+  author: aikito-team
+allowed-tools:
+  - bash
+  - git
+---
+
+# Complex Skill
+
+Body content here.
+"""
+        (ext_dir / "SKILL.md").write_text(complex_skill_content, encoding="utf-8")
+
+        success = add_skill(
+            self.aikito_dir,
+            self.home,
+            name="renamed-skill",
+            description="Updated description: with colon",
+            from_source=ext_dir,
+        )
+        self.assertTrue(success)
+
+        result_file = self.aikito_dir / "skills" / "renamed-skill" / "SKILL.md"
+        self.assertTrue(result_file.is_file())
+        content = result_file.read_text(encoding="utf-8")
+
+        # Check updated fields
+        self.assertIn("name: renamed-skill", content)
+        self.assertIn('description: "Updated description: with colon"', content)
+        # Check preserved fields
+        self.assertIn("license: MIT", content)
+        self.assertIn("compatibility: [claude, codex]", content)
+        self.assertIn("version: 2.1", content)
+        self.assertIn("author: aikito-team", content)
+        self.assertIn("allowed-tools:", content)
+        self.assertIn("- bash", content)
+        self.assertIn("- git", content)
+        # Check body preserved
+        self.assertIn("# Complex Skill", content)
+        self.assertIn("Body content here.", content)
+
+    def test_add_skill_reuse_requires_valid_skill_md(self) -> None:
+        proj = self.home / "my-proj"
+        proj.mkdir()
+        init_project(self.aikito_dir, proj, "my-proj")
+
+        # Case 1: skill dir exists but is empty (no SKILL.md)
+        invalid_skill_dir = self.aikito_dir / "skills" / "broken-skill"
+        invalid_skill_dir.mkdir(parents=True)
+
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_skill(
+                self.aikito_dir,
+                self.home,
+                name="broken-skill",
+                project_name="my-proj",
+            )
+        self.assertFalse(success)
+        self.assertIn(
+            "not a valid skill directory (missing SKILL.md)", stderr_buf.getvalue()
+        )
+
+        agent_toml = self.aikito_dir / "projects" / "my-proj" / "agent.toml"
+        with agent_toml.open("rb") as f:
+            data = tomllib.load(f)
+        self.assertNotIn("broken-skill", data.get("skills", []))
+
+        # Case 2: skill path is a regular file, not a directory
+        regular_file = self.aikito_dir / "skills" / "file-skill"
+        regular_file.write_text("just a file", encoding="utf-8")
+
+        stderr_buf2 = io.StringIO()
+        with redirect_stderr(stderr_buf2):
+            success2 = add_skill(
+                self.aikito_dir,
+                self.home,
+                name="file-skill",
+                project_name="my-proj",
+            )
+        self.assertFalse(success2)
+        self.assertIn("not a valid skill directory", stderr_buf2.getvalue())
+
+    def test_add_skill_multi_project_failure_rolls_back_cleanly(self) -> None:
+        proj_a = self.home / "project-a"
+        proj_b = self.home / "project-b"
+        proj_a.mkdir()
+        proj_b.mkdir()
+        init_project(self.aikito_dir, proj_a, "project-a")
+        init_project(self.aikito_dir, proj_b, "project-b")
+
+        toml_a = self.aikito_dir / "projects" / "project-a" / "agent.toml"
+        toml_b = self.aikito_dir / "projects" / "project-b" / "agent.toml"
+
+        orig_toml_a = toml_a.read_text(encoding="utf-8")
+        orig_toml_b = toml_b.read_text(encoding="utf-8")
+
+        # Simulate failure when writing to project-b's agent.toml,
+        # verifying that even if project-b was partially corrupted during failure,
+        # all projects in the plan are fully rolled back to original text and canonical skill is cleaned up.
+        real_atomic_write = aikito.add._atomic_write_text
+
+        def mock_atomic_write(path_obj: Path, content: str, *args, **kwargs):
+            if path_obj.resolve() == toml_b.resolve() and "atomic-skill" in content:
+                path_obj.write_text("skills = [\n", encoding="utf-8")
+                raise OSError("Simulated disk error writing project-b agent.toml")
+            return real_atomic_write(path_obj, content, *args, **kwargs)
+
+        stderr_buf = io.StringIO()
+        with patch("aikito.add._atomic_write_text", side_effect=mock_atomic_write):
+            with redirect_stderr(stderr_buf):
+                success = add_skill(
+                    self.aikito_dir,
+                    self.home,
+                    name="atomic-skill",
+                    projects=["project-a", "project-b"],
+                )
+
+        self.assertFalse(success)
+        self.assertIn("Simulated disk error", stderr_buf.getvalue())
+
+        # Project A must be rolled back to its exact original text
+        self.assertEqual(toml_a.read_text(encoding="utf-8"), orig_toml_a)
+        # Project B must be cleanly restored to its exact original text (not left corrupted as 'skills = [\n')
+        self.assertEqual(toml_b.read_text(encoding="utf-8"), orig_toml_b)
+
+        # Canonical skill directory must not exist
+        skill_dir = self.aikito_dir / "skills" / "atomic-skill"
+        self.assertFalse(skill_dir.exists())
+
+    def test_add_skill_frontmatter_delimiter_with_dashes_in_values(self) -> None:
+        ext_dir = self.home / "dashes-ext"
+        ext_dir.mkdir()
+        skill_content = """---
+name: old-skill
+description: Use --- as a separator
+license: MIT
+compatibility: [claude, codex]
+---
+
+# Old Skill Title
+
+Some body content here with --- as horizontal rule.
+"""
+        (ext_dir / "SKILL.md").write_text(skill_content, encoding="utf-8")
+
+        success = add_skill(
+            self.aikito_dir,
+            self.home,
+            name="new-skill",
+            description="Use --- as separator in new desc",
+            from_source=ext_dir,
+        )
+        self.assertTrue(success)
+
+        result_file = self.aikito_dir / "skills" / "new-skill" / "SKILL.md"
+        self.assertTrue(result_file.is_file())
+        content = result_file.read_text(encoding="utf-8")
+
+        self.assertIn("name: new-skill", content)
+        self.assertIn("description: Use --- as separator in new desc", content)
+        self.assertIn("license: MIT", content)
+        self.assertIn("compatibility: [claude, codex]", content)
+        self.assertIn("# Old Skill Title", content)
+        self.assertIn("Some body content here with --- as horizontal rule.", content)
+
+        # Ensure license and compatibility did not leak into body
+        meta, body = _parse_markdown_frontmatter(content)
+        self.assertEqual(meta.get("name"), "new-skill")
+        self.assertEqual(meta.get("description"), "Use --- as separator in new desc")
+        self.assertEqual(meta.get("license"), "MIT")
+        self.assertNotIn("license:", body)
+        self.assertNotIn("compatibility:", body)
+
+    def test_add_skill_frontmatter_preserves_description_with_dashes_when_renaming(
+        self,
+    ) -> None:
+        ext_dir = self.home / "keep-desc-ext"
+        ext_dir.mkdir()
+        skill_content = """---
+name: old-skill
+description: Use --- as a separator
+license: MIT
+---
+
+# Old Skill Title
+
+Body content.
+"""
+        (ext_dir / "SKILL.md").write_text(skill_content, encoding="utf-8")
+
+        success = add_skill(
+            self.aikito_dir,
+            self.home,
+            name="renamed-skill",
+            from_source=ext_dir,
+        )
+        self.assertTrue(success)
+
+        result_file = self.aikito_dir / "skills" / "renamed-skill" / "SKILL.md"
+        content = result_file.read_text(encoding="utf-8")
+        meta, body = _parse_markdown_frontmatter(content)
+        self.assertEqual(meta.get("name"), "renamed-skill")
+        self.assertEqual(meta.get("description"), "Use --- as a separator")
+        self.assertEqual(meta.get("license"), "MIT")
+        self.assertNotIn("license:", body)
+
+    def test_atomic_write_text_preserves_target_on_write_failure(self) -> None:
+        target = self.home / "atomic_target.txt"
+        target.write_text("initial content", encoding="utf-8")
+
+        real_named_temp = tempfile.NamedTemporaryFile
+
+        def broken_temp(*args, **kwargs):
+            tf = real_named_temp(*args, **kwargs)
+            orig_write = tf.write
+
+            def failing_write(data):
+                orig_write(data[:5])
+                raise IOError("Interrupted disk write")
+
+            tf.write = failing_write
+            return tf
+
+        with patch("tempfile.NamedTemporaryFile", side_effect=broken_temp):
+            with self.assertRaises(IOError):
+                _atomic_write_text(target, "new shiny content")
+
+        # Target file must retain initial content completely untouched
+        self.assertEqual(target.read_text(encoding="utf-8"), "initial content")
+
+    def test_add_skill_failure_during_skill_write_removes_created_dir_and_allows_retry(
+        self,
+    ) -> None:
+        proj = self.home / "retry-proj"
+        proj.mkdir()
+        init_project(self.aikito_dir, proj, "retry-proj")
+
+        skill_dir = self.aikito_dir / "skills" / "leaked-skill"
+        skill_file = skill_dir / "SKILL.md"
+
+        real_atomic_write = aikito.add._atomic_write_text
+
+        def mock_atomic_write(path_obj: Path, content: str, *args, **kwargs):
+            if path_obj.resolve() == skill_file.resolve():
+                raise OSError("Simulated disk error writing SKILL.md")
+            return real_atomic_write(path_obj, content, *args, **kwargs)
+
+        # 1. First attempt fails during skill file write
+        stderr_buf = io.StringIO()
+        with patch("aikito.add._atomic_write_text", side_effect=mock_atomic_write):
+            with redirect_stderr(stderr_buf):
+                success = add_skill(
+                    self.aikito_dir,
+                    self.home,
+                    name="leaked-skill",
+                    project_name="retry-proj",
+                )
+
+        self.assertFalse(success)
+        self.assertIn("Simulated disk error", stderr_buf.getvalue())
+        # The empty skill_dir must NOT be left on disk
+        self.assertFalse(skill_dir.exists())
+
+        # 2. Subsequent attempt succeeds and creates valid skill
+        success2 = add_skill(
+            self.aikito_dir,
+            self.home,
+            name="leaked-skill",
+            project_name="retry-proj",
+        )
+        self.assertTrue(success2)
+        self.assertTrue(skill_dir.is_dir())
+        self.assertTrue(skill_file.is_file())
+
+    def test_atomic_write_text_preserves_file_permissions(self) -> None:
+        target = self.home / "perm_target.txt"
+        target.write_text("initial content", encoding="utf-8")
+
+        if not is_windows():
+            target.chmod(0o644)
+            self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o644)
+
+        _atomic_write_text(target, "updated content")
+        self.assertEqual(target.read_text(encoding="utf-8"), "updated content")
+
+        if not is_windows():
+            self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o644)
+        else:
+            self.assertTrue(os.access(target, os.R_OK | os.W_OK))
+
+        # Test with agent.toml update in add_skill
+        proj = self.home / "perm-proj"
+        proj.mkdir()
+        init_project(self.aikito_dir, proj, "perm-proj")
+        agent_toml = self.aikito_dir / "projects" / "perm-proj" / "agent.toml"
+
+        if not is_windows():
+            agent_toml.chmod(0o644)
+
+        success = add_skill(
+            self.aikito_dir,
+            self.home,
+            name="perm-skill",
+            project_name="perm-proj",
+        )
+        self.assertTrue(success)
+        self.assertIn("perm-skill", agent_toml.read_text(encoding="utf-8"))
+
+        if not is_windows():
+            self.assertEqual(stat.S_IMODE(agent_toml.stat().st_mode), 0o644)
+        else:
+            self.assertTrue(os.access(agent_toml, os.R_OK | os.W_OK))
+
+    def test_atomic_write_text_respects_umask_on_new_files(self) -> None:
+        target = self.home / "new_atomic_file.txt"
+        self.assertFalse(target.exists())
+
+        if not is_windows():
+            current_umask = os.umask(0)
+            os.umask(current_umask)
+            expected_mode = 0o666 & ~current_umask
+
+            _atomic_write_text(target, "new file content")
+            self.assertTrue(target.exists())
+            self.assertEqual(stat.S_IMODE(target.stat().st_mode), expected_mode)
+            self.assertEqual(target.read_text(encoding="utf-8"), "new file content")
+        else:
+            _atomic_write_text(target, "new file content")
+            self.assertTrue(target.exists())
+            self.assertEqual(target.read_text(encoding="utf-8"), "new file content")
+            self.assertTrue(os.access(target, os.R_OK | os.W_OK))
 
 
 class TestAikitoAddSubagent(unittest.TestCase):
