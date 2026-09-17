@@ -118,5 +118,7 @@ builtin_mcps = ["openaiDeveloperDocs"]
 
 When `aikito adopt` scans local Agent configurations, any server listed in `builtin_mcps` that is not shared by other Agents is automatically skipped.
 Hyphen-to-underscore name matching is applied only to Agents whose registry entry
-uses `name_style = "underscore"`. If matching names resolve to different MCP
-configurations, adoption stops and reports a conflict instead of choosing one.
+uses `name_style = "underscore"`. Matching names with the same URL are treated
+as the same MCP server; Agent-specific headers, environment variables, and other
+runtime fields do not cause adoption conflicts. Different URLs still block
+adoption instead of silently choosing one.

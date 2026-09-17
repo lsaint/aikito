@@ -221,14 +221,14 @@ def _record_scan_error(
         )
 
 
-def _record_mcp_conflict(
+def _record_mcp_url_conflict(
     errors: list[Finding] | None,
     server: MCPServerAdoption,
     incoming_agent: str,
     incoming_source: Path,
 ) -> None:
     message = (
-        f"MCP server '{server.server_name}' has different configurations in "
+        f"MCP server '{server.server_name}' has different URLs in "
         f"{server.source_agent} and {incoming_agent}"
     )
     if errors is None:
@@ -425,8 +425,8 @@ def scan_mcp_servers(
         canonical_config = _canonical_config(config)
         if canon_name in adopted_servers:
             server = adopted_servers[canon_name]
-            if server.config_data != canonical_config:
-                _record_mcp_conflict(errors, server, agent, source_file)
+            if server.config_data.get("url") != canonical_config.get("url"):
+                _record_mcp_url_conflict(errors, server, agent, source_file)
                 return
             if agent not in server.agents:
                 server.agents.append(agent)

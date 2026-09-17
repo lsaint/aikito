@@ -378,7 +378,7 @@ class AikitoAdoptTest(unittest.TestCase):
         )
         self.assertEqual(plan.errors, ())
 
-    def test_adopt_mcp_blocks_different_configs_after_name_mapping(self) -> None:
+    def test_adopt_mcp_blocks_different_urls_after_name_mapping(self) -> None:
         (self.target_path / "agents.toml").write_text(
             load_agents_template(), encoding="utf-8"
         )
@@ -401,6 +401,46 @@ class AikitoAdoptTest(unittest.TestCase):
         self.assertEqual(plan.errors[0].code, "adopt.mcp_conflict")
         self.assertFalse(execute_adoption(plan, dry_run=False, verbose=False))
         self.assertFalse((self.target_path / "mcps").exists())
+
+    def test_adopt_mcp_ignores_agent_specific_fields_when_urls_match(self) -> None:
+        (self.target_path / "agents.toml").write_text(
+            load_agents_template(), encoding="utf-8"
+        )
+        claude_dir = self.fake_home / ".claude"
+        claude_dir.mkdir(parents=True)
+        (claude_dir / "claude_desktop_config.json").write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "atlassian-rovo": {
+                            "type": "http",
+                            "url": "https://mcp.atlassian.com/v2/mcp",
+                            "headers": {
+                                "Authorization": "${ATLASSIAN_MCP_AUTHORIZATION}"
+                            },
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "config.toml").write_text(
+            """
+[mcp_servers.atlassian_rovo]
+url = "https://mcp.atlassian.com/v2/mcp"
+env_http_headers = { Authorization = "ATLASSIAN_MCP_AUTHORIZATION" }
+""".lstrip(),
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+
+        self.assertEqual(plan.errors, ())
+        self.assertEqual(len(plan.mcp_servers), 1)
+        self.assertEqual(plan.mcp_servers[0].server_name, "atlassian-rovo")
+        self.assertEqual(sorted(plan.mcp_servers[0].agents), ["claude-code", "codex"])
 
     def test_adopt_mcp_skips_agent_builtin_servers(self) -> None:
         (self.target_path / "agents.toml").write_text(
