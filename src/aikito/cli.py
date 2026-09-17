@@ -190,7 +190,7 @@ def sync_global_resources(
     global_instruction_source = aikito_dir / "global" / "AGENTS.md"
 
     if not skills_toml_path.exists():
-        print(f"[ERROR] Config file not found: {skills_toml_path}", file=sys.stderr)
+        print("[ERROR] Global skills configuration not found.", file=sys.stderr)
         return False
 
     toml_conflicts = collect_resource_conflicts([skills_toml_path], home)
@@ -204,12 +204,18 @@ def sync_global_resources(
         with open(skills_toml_path, "rb") as f:
             data = tomllib.load(f)
     except (OSError, tomllib.TOMLDecodeError) as exc:
-        print(f"[ERROR] Failed to read {skills_toml_path}: {exc}", file=sys.stderr)
+        print(
+            f"[ERROR] Failed to read global skills configuration: {exc}",
+            file=sys.stderr,
+        )
         return False
 
     skills = data.get("skills", [])
     if not isinstance(skills, list):
-        print("[ERROR] 'skills' in skills.toml must be a list.", file=sys.stderr)
+        print(
+            "[ERROR] Global skills configuration is malformed (expected a list of skill names).",
+            file=sys.stderr,
+        )
         return False
 
     outdated_bundled = set(outdated_bundled_skills(aikito_dir))
@@ -390,7 +396,10 @@ def sync_project_by_name(
             with open(agent_toml_path, "rb") as f:
                 data = tomllib.load(f)
         except (OSError, tomllib.TOMLDecodeError) as exc:
-            print(f"[ERROR] Failed to read {agent_toml_path}: {exc}", file=sys.stderr)
+            print(
+                f"[ERROR] Failed to read configuration for project '{project_name}': {exc}",
+                file=sys.stderr,
+            )
             return False
 
     binding = resolve_project_binding(data, home)
@@ -424,11 +433,13 @@ def sync_project_by_name(
                     agent_toml_path, safe_relative_path(target_path, home), home
                 )
                 if appended:
-                    print(f"[INFO] Added new candidate path to {agent_toml_path}")
+                    print(
+                        f"[INFO] Registered codebase path for project '{project_name}'."
+                    )
             except Exception as exc:
                 print(
-                    f"[ERROR] Failed to save candidate path to {agent_toml_path}: {exc}\n"
-                    f"Please manually add '{target_path}' to {agent_toml_path}.",
+                    f"[ERROR] Failed to save codebase path for project '{project_name}': {exc}\n"
+                    f"Please configure the codebase path for project '{project_name}'.",
                     file=sys.stderr,
                 )
                 return False
@@ -442,7 +453,7 @@ def sync_project_by_name(
 
     if not binding.entries:
         print(
-            f"[ERROR] Project path not provided and no saved path found in {agent_toml_path}.\n"
+            f"[ERROR] Project path not provided and no saved path found for project '{project_name}'.\n"
             f"Usage: aikito sync project {project_name} <project_path>",
             file=sys.stderr,
         )
@@ -667,7 +678,8 @@ def _run_workspace_sync(aikito_dir: Path, home: Path, *, dry_run: bool) -> bool:
                     data = tomllib.load(f)
             except (OSError, tomllib.TOMLDecodeError) as exc:
                 print(
-                    f"[ERROR] Failed to read {agent_toml_path}: {exc}", file=sys.stderr
+                    f"[ERROR] Failed to read configuration for project '{project_name}': {exc}",
+                    file=sys.stderr,
                 )
                 overall_success = False
                 continue
@@ -1960,7 +1972,7 @@ def build_parser() -> argparse.ArgumentParser:
         "project_path",
         nargs="?",
         default=None,
-        help="Path to the actual codebase directory (optional if already specified in agent.toml)",
+        help="Path to the actual codebase directory (optional if already configured for the project)",
     )
     p_sync_project.add_argument(
         "--dry-run",

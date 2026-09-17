@@ -532,10 +532,7 @@ def add_skill(
         proj_dir = aikito_dir / "projects" / proj
         agent_toml = proj_dir / "agent.toml"
         if not agent_toml.is_file():
-            print(
-                f"[ERROR] Project '{proj}' not found at {_display_path(agent_toml, home)}",
-                file=sys.stderr,
-            )
+            print(f"[ERROR] Project '{proj}' not found.", file=sys.stderr)
             return False
 
     source_path: Optional[Path] = None
@@ -674,7 +671,10 @@ def add_skill(
                 else:
                     pending_projects.append(proj)
             except Exception as exc:
-                print(f"[ERROR] Failed to parse {agent_toml}: {exc}", file=sys.stderr)
+                print(
+                    f"[ERROR] Failed to read configuration for project '{proj}': {exc}",
+                    file=sys.stderr,
+                )
                 return False
 
         updating_import = is_existing_canonical and from_source is not None and force
@@ -701,11 +701,11 @@ def add_skill(
                 existing_skills = proj_data.get("skills", [])
                 if not isinstance(existing_skills, list):
                     existing_skills = []
-                new_skills = [str(s) for s in existing_skills] + [name_clean]
+                new_skills = list(dict.fromkeys(list(existing_skills) + [name_clean]))
                 new_agent_toml_content = _update_skills_in_toml(
                     original_text, new_skills
                 )
-
+                # Pre-validate TOML syntax before touching disk
                 new_proj_data = tomllib.loads(new_agent_toml_content)
                 for k, v in proj_data.items():
                     if k != "skills" and new_proj_data.get(k) != v:
@@ -713,14 +713,13 @@ def add_skill(
                             f"Semantic integrity check failed for key '{k}'"
                         )
                 if new_proj_data.get("skills") != new_skills:
-                    raise ValueError("Semantic integrity check failed for skills list")
-
+                    raise ValueError(f"Semantic check failed for project '{proj}'")
                 planned_project_updates.append(
                     (agent_toml, original_text, new_agent_toml_content, proj)
                 )
             except Exception as exc:
                 print(
-                    f"[ERROR] Failed to plan update for project '{proj}' config: {exc}",
+                    f"[ERROR] Failed to update configuration for project '{proj}': {exc}",
                     file=sys.stderr,
                 )
                 return False
@@ -776,7 +775,7 @@ Describe what this skill does and when agents should use it.
                     _atomic_write_text(agent_toml, original_text, encoding="utf-8")
                 except Exception as rb_exc:
                     print(
-                        f"[ERROR] Failed to rollback project config {_display_path(agent_toml, home)}: {rb_exc}",
+                        f"[ERROR] Failed to rollback configuration for project '{proj}': {rb_exc}",
                         file=sys.stderr,
                     )
             if import_transaction is not None:
@@ -784,7 +783,7 @@ Describe what this skill does and when agents should use it.
             elif created_skill_dir and skill_dir.exists():
                 shutil.rmtree(skill_dir, ignore_errors=True)
             print(
-                f"[ERROR] Failed to write skill or project config: {exc}",
+                f"[ERROR] Failed to write skill or project configuration: {exc}",
                 file=sys.stderr,
             )
             return False
@@ -854,14 +853,17 @@ Describe what this skill does and when agents should use it.
             if isinstance(raw_skills, list):
                 existing_global_skills = [str(s) for s in raw_skills]
         except Exception as exc:
-            print(f"[ERROR] Failed to parse {skills_toml}: {exc}", file=sys.stderr)
+            print(
+                f"[ERROR] Failed to read global skills configuration: {exc}",
+                file=sys.stderr,
+            )
             return False
 
     already_registered_global = name_clean in existing_global_skills
     updating_import = is_existing_canonical and from_source is not None and force
     if is_existing_canonical and already_registered_global and not updating_import:
         print(
-            f"[ERROR] Skill '{name_clean}' is already registered in skills.toml",
+            f"[ERROR] Skill '{name_clean}' is already registered globally.",
             file=sys.stderr,
         )
         return False
@@ -880,14 +882,14 @@ Describe what this skill does and when agents should use it.
         new_global_data = tomllib.loads(skills_toml_content)
     except Exception as exc:
         print(
-            f"[ERROR] Generated skills.toml is invalid TOML: {exc}",
+            f"[ERROR] Failed to update global skills configuration: {exc}",
             file=sys.stderr,
         )
         return False
 
     if new_global_data.get("skills") != new_global_skills:
         print(
-            "[ERROR] Semantic integrity check failed for skills.toml",
+            "[ERROR] Failed to verify global skills configuration.",
             file=sys.stderr,
         )
         return False
@@ -1006,7 +1008,7 @@ def add_subagent(
 
     if not subagents_toml.is_file():
         print(
-            f"[ERROR] subagents.toml not found at {_display_path(subagents_toml, home)}",
+            f"[ERROR] Subagents configuration not found at {_display_path(subagents_toml, home)}",
             file=sys.stderr,
         )
         return False
@@ -1015,13 +1017,16 @@ def add_subagent(
         with subagents_toml.open("rb") as f:
             data = tomllib.load(f)
     except Exception as exc:
-        print(f"[ERROR] Failed to parse {subagents_toml}: {exc}", file=sys.stderr)
+        print(
+            f"[ERROR] Failed to read subagents configuration: {exc}",
+            file=sys.stderr,
+        )
         return False
 
     existing_subagents = data.get("subagents", {})
     if isinstance(existing_subagents, dict) and name_clean in existing_subagents:
         print(
-            f"[ERROR] Subagent '{name_clean}' is already registered in subagents.toml",
+            f"[ERROR] Subagent '{name_clean}' is already registered.",
             file=sys.stderr,
         )
         return False
@@ -1060,7 +1065,8 @@ agents = {agents_json}
         tomllib.loads(new_toml_content)
     except Exception as exc:
         print(
-            f"[ERROR] Generated subagents.toml is invalid TOML: {exc}", file=sys.stderr
+            f"[ERROR] Failed to update subagents configuration: {exc}",
+            file=sys.stderr,
         )
         return False
 
@@ -1177,7 +1183,10 @@ agents = {agents_json}
     try:
         tomllib.loads(mcp_content)
     except Exception as exc:
-        print(f"[ERROR] Generated MCP config is invalid TOML: {exc}", file=sys.stderr)
+        print(
+            f"[ERROR] Failed to generate MCP configuration: {exc}",
+            file=sys.stderr,
+        )
         return False
 
     try:

@@ -31,10 +31,7 @@ def _remove_skill_from_projects(
     for proj in target_projects:
         agent_toml = aikito_dir / "projects" / proj / "agent.toml"
         if not agent_toml.is_file():
-            print(
-                f"[ERROR] Project '{proj}' not found at {_display_path(agent_toml, home)}",
-                file=sys.stderr,
-            )
+            print(f"[ERROR] Project '{proj}' not found.", file=sys.stderr)
             return False
 
     # 2. Plan updates
@@ -72,7 +69,7 @@ def _remove_skill_from_projects(
                 not_registered_projects.append(proj)
         except Exception as exc:
             print(
-                f"[ERROR] Failed to plan update for project '{proj}' config: {exc}",
+                f"[ERROR] Failed to update configuration for project '{proj}': {exc}",
                 file=sys.stderr,
             )
             return False
@@ -108,10 +105,10 @@ def _remove_skill_from_projects(
                 _atomic_write_text(agent_toml, original_text, encoding="utf-8")
             except Exception as rb_exc:
                 print(
-                    f"[ERROR] Failed to rollback project config {_display_path(agent_toml, home)}: {rb_exc}",
+                    f"[ERROR] Failed to rollback configuration for project '{proj}': {rb_exc}",
                     file=sys.stderr,
                 )
-        print(f"[ERROR] Failed to update project config: {exc}", file=sys.stderr)
+        print(f"[ERROR] Failed to update project configuration: {exc}", file=sys.stderr)
         return False
 
     proj_names_str = ", ".join(f"'{p}'" for p in registered_projects)
@@ -161,7 +158,10 @@ def _remove_skill_globally(
                 if chk.get("skills") != new_g_skills:
                     raise ValueError("Semantic check failed for skills.toml")
         except Exception as exc:
-            print(f"[ERROR] Failed to read {skills_toml}: {exc}", file=sys.stderr)
+            print(
+                f"[ERROR] Failed to read global skills configuration: {exc}",
+                file=sys.stderr,
+            )
             return False
 
     if not has_canonical_dir and not skills_toml_has_skill:
@@ -207,7 +207,7 @@ def _remove_skill_globally(
                             )
                     except Exception as exc:
                         print(
-                            f"[WARN] Failed to inspect {agent_toml}: {exc}",
+                            f"[WARN] Failed to inspect configuration for project '{proj_folder.name}': {exc}",
                             file=sys.stderr,
                         )
 

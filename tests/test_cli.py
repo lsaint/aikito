@@ -2942,7 +2942,7 @@ class ProjectSyncCliTest(unittest.TestCase):
 
         self.assertEqual(ctx.exception.code, 1)
         err = mock_stderr.getvalue()
-        self.assertIn("Failed to save candidate path", err)
+        self.assertIn("Failed to save codebase path", err)
         self.assertFalse((p3 / ".agents").exists())
 
 

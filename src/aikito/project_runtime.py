@@ -500,10 +500,7 @@ def sync_project_path(
 
     project_instructions = aikito_dir / "projects" / project_name / "AGENTS.md"
     if not project_instructions.exists():
-        print(
-            f"[INFO] No AGENTS.md found for project '{project_name}' at "
-            f"{project_instructions}"
-        )
+        print(f"[INFO] No instructions found for project '{project_name}'.")
         return
 
     all_instruction_targets = collect_project_instruction_targets(

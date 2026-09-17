@@ -295,7 +295,10 @@ def _get_skills_list(aikito_dir: Path) -> list[str]:
         if isinstance(skills, list):
             return [str(s) for s in skills]
     except (tomllib.TOMLDecodeError, OSError) as exc:
-        print(f"[WARN] Failed to read {skills_toml_path}: {exc}", file=sys.stderr)
+        print(
+            f"[WARN] Failed to read global skills configuration: {exc}",
+            file=sys.stderr,
+        )
     return []
 
 
@@ -521,7 +524,7 @@ def collect_memory_status_rows(
                         binding = resolve_project_binding(toml_data, Path.home())
                     except (tomllib.TOMLDecodeError, OSError) as exc:
                         print(
-                            f"[WARN] Failed to read {agent_toml}: {exc}",
+                            f"[WARN] Failed to read configuration for project '{proj_folder.name}': {exc}",
                             file=sys.stderr,
                         )
                         binding = None
@@ -811,7 +814,7 @@ def collect_skills_rows(aikito_dir: Path) -> list[SkillRow]:
                                 )
                     except (tomllib.TOMLDecodeError, OSError) as exc:
                         print(
-                            f"[WARN] Failed to read {agent_toml}: {exc}",
+                            f"[WARN] Failed to read configuration for project '{proj_folder.name}': {exc}",
                             file=sys.stderr,
                         )
 
