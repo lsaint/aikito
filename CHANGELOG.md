@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.38.0] - 2026-09-17
+
+### Added
+
+- Supported `builtin_mcps` in agent MCP configurations, allowing `aikito adopt` to safely skip agent-bundled MCP servers unless shared across multiple agents.
+
+### Fixed
+
+- Canonicalized hyphen and underscore naming variants for MCP servers during `aikito adopt` to prevent duplicate or conflicting configurations across agents.
+- Compared MCP server configurations by target URL in `aikito adopt` to accurately detect existing server definitions and avoid redundant imports.
+
 ## [1.37.0] - 2026-09-16
 
 ### Changed
@@ -689,7 +700,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.37.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.38.0...HEAD
+[1.38.0]: https://github.com/lsaint/aikito/compare/v1.37.0...v1.38.0
 [1.37.0]: https://github.com/lsaint/aikito/compare/v1.36.1...v1.37.0
 [1.36.1]: https://github.com/lsaint/aikito/compare/v1.36.0...v1.36.1
 [1.36.0]: https://github.com/lsaint/aikito/compare/v1.35.0...v1.36.0
