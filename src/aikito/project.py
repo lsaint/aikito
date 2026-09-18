@@ -2,6 +2,7 @@
 
 import difflib
 import json
+import os
 import re
 import tomllib
 from dataclasses import dataclass
@@ -448,11 +449,40 @@ def _directories_match(canonical: Path, runtime: Path) -> tuple[bool, str | None
         return False, str(exc)
 
 
+def _resolve_symlink_target(path: Path) -> Path:
+    try:
+        raw = os.readlink(path)
+        target = path.parent / raw if not os.path.isabs(raw) else Path(raw)
+    except OSError:
+        target = path
+
+    # For broken symlinks or non-existent targets, resolve the nearest existing ancestor
+    # so short names (e.g. RUNNER~1 on Windows) and intermediate symlinks are expanded.
+    parts: list[str] = []
+    curr = target
+    while not curr.exists() and curr != curr.parent:
+        parts.append(curr.name)
+        curr = curr.parent
+    try:
+        resolved_curr = curr.resolve()
+    except OSError:
+        resolved_curr = curr
+    for part in reversed(parts):
+        resolved_curr = resolved_curr / part
+    return resolved_curr
+
+
 def _symlink_points_within(path: Path, roots: tuple[Path, ...]) -> bool:
     if not path.is_symlink():
         return False
-    target = path.resolve(strict=False)
-    return any(target.is_relative_to(root.resolve()) for root in roots)
+    target = _resolve_symlink_target(path)
+    for root in roots:
+        try:
+            if target.is_relative_to(root.resolve()):
+                return True
+        except (ValueError, OSError):
+            continue
+    return False
 
 
 def plan_runtime_cleanup(

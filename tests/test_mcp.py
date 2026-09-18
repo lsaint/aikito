@@ -1814,7 +1814,7 @@ class AgentDetectionTest(unittest.TestCase):
             stream=stream, animate=True, use_color=True, interval=0.05
         ) as indicator:
             indicator.add("codex")
-            time.sleep(0.18)
+            time.sleep(0.35)
 
         output = stream.getvalue()
         self.assertIn("\033[2mcodex loading .\033[0m", output)
