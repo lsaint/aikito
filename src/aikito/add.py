@@ -3,6 +3,7 @@ Resource addition module for Aikito.
 Provides lightweight canonical skeleton creation and registration for skills, subagents, and MCP servers.
 """
 
+from dataclasses import dataclass, field
 import json
 import os
 import re
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .compat import safe_relative_path
+from .subagent import KNOWN_PLATFORM_FIELDS
 from .templating import BUNDLED_SKILL_NAMES
 
 
@@ -256,6 +258,40 @@ def _split_markdown_frontmatter(
     return bom, frontmatter_raw, body
 
 
+def _parse_yaml_value(val_str: str) -> Any:
+    val_str = val_str.strip()
+    if not val_str:
+        return ""
+    if val_str.startswith("[") and val_str.endswith("]"):
+        try:
+            return json.loads(val_str)
+        except Exception:
+            inner = val_str[1:-1].strip()
+            if not inner:
+                return []
+            return [_parse_yaml_value(item.strip()) for item in inner.split(",")]
+    if val_str.startswith("{") and val_str.endswith("}"):
+        try:
+            return json.loads(val_str)
+        except Exception:
+            inner = val_str[1:-1].strip()
+            if not inner:
+                return {}
+            res: Dict[str, Any] = {}
+            for pair in inner.split(","):
+                if ":" in pair:
+                    pk, pv = pair.split(":", 1)
+                    res[pk.strip().strip("\"'")] = _parse_yaml_value(pv.strip())
+            return res
+    if val_str.lower() == "true":
+        return True
+    if val_str.lower() == "false":
+        return False
+    if val_str.lower() in ("null", "~"):
+        return None
+    return val_str.strip("\"'")
+
+
 def _parse_markdown_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
     split_res = _split_markdown_frontmatter(content)
     if not split_res:
@@ -266,24 +302,71 @@ def _parse_markdown_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
     _, frontmatter_raw, body = split_res
 
     meta: Dict[str, Any] = {}
-    for line in frontmatter_raw.splitlines():
-        line = line.strip()
-        if ":" in line and not line.startswith("#"):
+    lines = frontmatter_raw.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            i += 1
+            continue
+
+        if not line.startswith((" ", "\t")) and ":" in line:
             k, v = line.split(":", 1)
             key = k.strip()
             val_str = v.strip()
-            if val_str.startswith("[") and val_str.endswith("]"):
-                try:
-                    parsed_val = json.loads(val_str)
-                except json.JSONDecodeError:
-                    parsed_val = val_str
-            elif val_str.lower() == "true":
-                parsed_val = True
-            elif val_str.lower() == "false":
-                parsed_val = False
+
+            is_block_scalar = val_str in ("|", ">", "|-", ">-", "|+", ">+")
+            is_folded = val_str.startswith(">")
+
+            if val_str and not is_block_scalar:
+                meta[key] = _parse_yaml_value(val_str)
+                i += 1
             else:
-                parsed_val = val_str.strip("\"'")
-            meta[key] = parsed_val
+                i += 1
+                child_lines: List[str] = []
+                while i < len(lines):
+                    next_line = lines[i]
+                    if next_line.strip() == "":
+                        child_lines.append(next_line)
+                        i += 1
+                        continue
+                    if next_line.startswith((" ", "\t")):
+                        child_lines.append(next_line)
+                        i += 1
+                    else:
+                        break
+
+                non_empty = [
+                    c
+                    for c in child_lines
+                    if c.strip() and not c.strip().startswith("#")
+                ]
+                if is_block_scalar:
+                    if is_folded:
+                        meta[key] = " ".join(c.strip() for c in non_empty)
+                    else:
+                        meta[key] = "\n".join(c.strip() for c in non_empty)
+                elif not non_empty:
+                    meta[key] = ""
+                elif key in KNOWN_PLATFORM_FIELDS and any(":" in c for c in non_empty):
+                    sub_dict: Dict[str, Any] = {}
+                    for c in non_empty:
+                        if ":" in c:
+                            sub_k, sub_v = c.split(":", 1)
+                            sub_dict[sub_k.strip()] = _parse_yaml_value(sub_v)
+                    meta[key] = sub_dict
+                elif any(c.strip().startswith("- ") for c in non_empty):
+                    items: List[Any] = []
+                    for c in non_empty:
+                        s = c.strip()
+                        if s.startswith("- "):
+                            items.append(_parse_yaml_value(s[2:]))
+                    meta[key] = items
+                else:
+                    meta[key] = " ".join(c.strip() for c in non_empty)
+        else:
+            i += 1
 
     return meta, body.strip()
 
@@ -978,16 +1061,267 @@ Describe what this skill does and when agents should use it.
     return True
 
 
+def _format_toml_key(key: str) -> str:
+    is_bare = all(c.isalnum() or c in ("_", "-") for c in key) if key else False
+    if is_bare:
+        return key
+    return json.dumps(key, ensure_ascii=False)
+
+
+def _format_toml_value(val: Any) -> str:
+    if isinstance(val, str):
+        return json.dumps(val, ensure_ascii=False)
+    elif isinstance(val, bool):
+        return "true" if val else "false"
+    elif isinstance(val, (int, float)):
+        return str(val)
+    elif isinstance(val, list):
+        items = [_format_toml_value(x) for x in val]
+        return f"[{', '.join(items)}]"
+    elif isinstance(val, dict):
+        pairs = []
+        for k in sorted(val.keys()):
+            k_repr = _format_toml_key(str(k))
+            v_repr = _format_toml_value(val[k])
+            pairs.append(f"{k_repr} = {v_repr}")
+        return f"{{ {', '.join(pairs)} }}"
+    else:
+        return json.dumps(str(val), ensure_ascii=False)
+
+
+def _remove_subagent_from_toml(text: str, name: str) -> str:
+    pattern = re.compile(
+        rf"(?m)^[ \t]*\[subagents\.(?:{re.escape(name)}|{re.escape(json.dumps(name))})\][ \t]*(?:#.*)?$"
+    )
+    match = pattern.search(text)
+    if match is None:
+        return text
+
+    header_pattern = re.compile(r"(?m)^[ \t]*\[([^\]]+)\][ \t]*(?:#.*)?$")
+    end = len(text)
+    for next_match in header_pattern.finditer(text, match.end()):
+        hdr = next_match.group(1).strip()
+        prefix = f"subagents.{name}."
+        prefix_quoted = f'subagents."{name}".'
+        if (
+            hdr == f"subagents.{name}"
+            or hdr.startswith(prefix)
+            or hdr == f'subagents."{name}"'
+            or hdr.startswith(prefix_quoted)
+        ):
+            continue
+        end = next_match.start()
+        break
+
+    new_text = text[: match.start()] + text[end:]
+    cleaned = re.sub(r"\n{3,}", "\n\n", new_text)
+    try:
+        chk = tomllib.loads(cleaned)
+        if "subagents" not in chk:
+            cleaned = (cleaned.rstrip() + "\n\n[subagents]\n").lstrip("\n")
+    except Exception:
+        pass
+    return cleaned
+
+
+@dataclass
+class ImportedSubagent:
+    name: Optional[str] = None
+    description: Optional[str] = None
+    instructions: str = ""
+    target_agents: Optional[List[str]] = None
+    explicit_platform_configs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    top_level_options: Dict[str, Any] = field(default_factory=dict)
+    source_path: Optional[Path] = None
+
+
+def _resolve_subagent_source(
+    from_source: Union[str, Path],
+    name: Optional[str],
+    description: Optional[str],
+    home: Path,
+) -> ImportedSubagent:
+    """
+    Resolve and parse an external subagent source (file or directory).
+    Extracts instructions, metadata, target agents, and platform configurations.
+    """
+    from .subagent import KNOWN_PLATFORM_FIELDS, validate_platform_opts
+
+    source_path = Path(from_source).expanduser().resolve()
+    if not source_path.exists():
+        raise ValueError(f"Source path does not exist: {from_source}")
+
+    if source_path.is_file():
+        if not source_path.name.endswith(".md"):
+            raise ValueError(
+                f"Source file '{_display_path(source_path, home)}' must be a markdown (.md) file."
+            )
+        source_md_file = source_path
+    elif source_path.is_dir():
+        candidates: List[Path] = []
+        if name and name.strip():
+            candidates.append(source_path / f"{name.strip()}.md")
+        candidates.extend(
+            [
+                source_path / "instructions.md",
+                source_path / "prompt.md",
+                source_path / "subagent.md",
+                source_path / f"{source_path.name}.md",
+            ]
+        )
+        source_md_file = None
+        for cand in candidates:
+            if cand.is_file():
+                source_md_file = cand
+                break
+        if source_md_file is None:
+            md_files = sorted(
+                [
+                    f
+                    for f in source_path.iterdir()
+                    if f.is_file() and f.name.endswith(".md")
+                ]
+            )
+            if len(md_files) == 1:
+                source_md_file = md_files[0]
+            elif len(md_files) > 1:
+                raise ValueError(
+                    f"Multiple markdown files found in '{_display_path(source_path, home)}'. Please specify the file directly with --from."
+                )
+            else:
+                raise ValueError(
+                    f"Source directory '{_display_path(source_path, home)}' does not contain a subagent markdown file."
+                )
+    else:
+        raise ValueError(f"Source path is not a file or directory: {from_source}")
+
+    try:
+        raw_content = source_md_file.read_text(encoding="utf-8")
+        source_meta, source_body = _parse_markdown_frontmatter(raw_content)
+    except Exception as exc:
+        raise ValueError(
+            f"Failed to read source file '{_display_path(source_md_file, home)}': {exc}"
+        ) from exc
+
+    subagent_instructions = source_body.strip()
+    if not subagent_instructions:
+        raise ValueError(
+            f"Source file '{_display_path(source_md_file, home)}' does not contain any instructions."
+        )
+    subagent_instructions += "\n"
+
+    # Name inference
+    inferred_name = None
+    if name and name.strip():
+        inferred_name = name.strip()
+    elif source_meta.get("name"):
+        inferred_name = str(source_meta["name"]).strip()
+    else:
+        if source_path.is_dir():
+            inferred_name = source_path.name
+        elif source_md_file.name.endswith(".agent.md"):
+            inferred_name = source_md_file.name[: -len(".agent.md")]
+        elif source_md_file.stem.lower() in (
+            "instructions",
+            "prompt",
+            "subagent",
+            "agent",
+        ):
+            inferred_name = source_md_file.parent.name
+        else:
+            inferred_name = source_md_file.stem
+
+    # Description inference
+    inferred_desc = None
+    if description and description.strip():
+        inferred_desc = description.strip()
+    elif source_meta.get("description"):
+        inferred_desc = str(source_meta["description"]).strip()
+
+    # Agents inference
+    source_agents = None
+    if isinstance(source_meta.get("agents"), list) and source_meta["agents"]:
+        source_agents = [
+            str(a).strip() for a in source_meta["agents"] if str(a).strip()
+        ]
+
+    # Explicit platform tables in frontmatter (e.g. claude-code: { ... })
+    explicit_platform_configs: Dict[str, Dict[str, Any]] = {}
+    for plat in KNOWN_PLATFORM_FIELDS:
+        if plat in source_meta and isinstance(source_meta[plat], dict):
+            validated = validate_platform_opts(
+                plat, inferred_name or "subagent", source_meta[plat]
+            )
+            explicit_platform_configs[plat] = validated
+
+    # Top-level platform options (e.g. tools, model, user-invocable, etc.)
+    top_level_opts: Dict[str, Any] = {}
+    all_known_platform_fields = set().union(*KNOWN_PLATFORM_FIELDS.values()) - {
+        "name",
+        "description",
+    }
+    for k, v in source_meta.items():
+        if k in ("name", "description", "agents") or k in KNOWN_PLATFORM_FIELDS:
+            continue
+        if k in all_known_platform_fields:
+            top_level_opts[k] = v
+
+    return ImportedSubagent(
+        name=inferred_name,
+        description=inferred_desc,
+        instructions=subagent_instructions,
+        target_agents=source_agents,
+        explicit_platform_configs=explicit_platform_configs,
+        top_level_options=top_level_opts,
+        source_path=source_md_file,
+    )
+
+
+def _render_subagent_block(
+    name: str,
+    description: str,
+    agents: List[str],
+    platform_configs: Dict[str, Dict[str, Any]],
+) -> str:
+    """Render a clean TOML subagents block including platform sub-tables."""
+    safe_key = _format_toml_key(name)
+    header = f"[subagents.{safe_key}]"
+    sub_lines = [
+        f"\n{header}",
+        f"description = {_format_toml_value(description)}",
+        f"agents = {_format_toml_value(agents)}",
+    ]
+    for agent_name, options in sorted(platform_configs.items()):
+        if options:
+            sub_lines.append(f"\n[{header[1:-1]}.{_format_toml_key(agent_name)}]")
+            for key, value in sorted(options.items()):
+                sub_lines.append(
+                    f"{_format_toml_key(key)} = {_format_toml_value(value)}"
+                )
+
+    return "\n".join(sub_lines) + "\n"
+
+
 def add_subagent(
     aikito_dir: Path,
     home: Path,
-    name: str,
+    name: Optional[str] = None,
     description: Optional[str] = None,
     agents: Optional[List[str]] = None,
+    from_source: Optional[Union[str, Path]] = None,
+    sync: bool = False,
+    force: bool = False,
 ) -> bool:
     """
-    Create canonical Subagent instructions (subagents/<name>.md) and register it in subagents.toml.
+    Create canonical Subagent instructions (subagents/<name>.md) or import from external source,
+    and register it in subagents.toml.
     """
+    from .subagent import (
+        SubagentConfigError,
+        sync_subagent_configs,
+        validate_platform_opts,
+    )
+
     aikito_dir = aikito_dir.expanduser().resolve()
     home = home.expanduser().resolve()
 
@@ -996,11 +1330,51 @@ def add_subagent(
         print(f"[ERROR] {ws_error}", file=sys.stderr)
         return False
 
-    name_clean = name.strip()
+    if force and from_source is None:
+        print(
+            "[ERROR] --force requires --from when adding a subagent.",
+            file=sys.stderr,
+        )
+        return False
+
+    imported: Optional[ImportedSubagent] = None
+    if from_source is not None:
+        try:
+            imported = _resolve_subagent_source(
+                from_source=from_source,
+                name=name,
+                description=description,
+                home=home,
+            )
+        except (ValueError, SubagentConfigError) as exc:
+            print(f"[ERROR] {exc}", file=sys.stderr)
+            return False
+
+        name_to_use = imported.name
+        subagent_instructions = imported.instructions
+    else:
+        name_to_use = name
+        subagent_instructions = ""
+
+    if not name_to_use or not name_to_use.strip():
+        print(
+            "[ERROR] Subagent name is required. Please specify a name or provide a source via --from.",
+            file=sys.stderr,
+        )
+        return False
+
+    name_clean = name_to_use.strip()
     name_error = validate_resource_name(name_clean, "subagent")
     if name_error:
         print(f"[ERROR] {name_error}", file=sys.stderr)
         return False
+
+    if from_source is None:
+        title_val = _titleize(name_clean)
+        subagent_instructions = f"""# {title_val}
+
+Add developer instructions for the {name_clean} subagent here.
+"""
 
     subagents_dir = aikito_dir / "subagents"
     subagent_file = subagents_dir / f"{name_clean}.md"
@@ -1014,8 +1388,8 @@ def add_subagent(
         return False
 
     try:
-        with subagents_toml.open("rb") as f:
-            data = tomllib.load(f)
+        existing_toml_content = subagents_toml.read_text(encoding="utf-8")
+        toml_data = tomllib.loads(existing_toml_content)
     except Exception as exc:
         print(
             f"[ERROR] Failed to read subagents configuration: {exc}",
@@ -1023,42 +1397,101 @@ def add_subagent(
         )
         return False
 
-    existing_subagents = data.get("subagents", {})
-    if isinstance(existing_subagents, dict) and name_clean in existing_subagents:
-        print(
-            f"[ERROR] Subagent '{name_clean}' is already registered.",
-            file=sys.stderr,
-        )
-        return False
-
-    if subagent_file.exists():
-        print(
-            f"[ERROR] Subagent instructions file already exists at {_display_path(subagent_file, home)}",
-            file=sys.stderr,
-        )
-        return False
-
-    target_agents = (
-        agents if agents is not None and len(agents) > 0 else DEFAULT_SUBAGENT_AGENTS
+    existing_subagents = toml_data.get("subagents", {})
+    is_already_registered = (
+        isinstance(existing_subagents, dict) and name_clean in existing_subagents
     )
-    desc_val = (description or f"Subagent {name_clean}.").strip()
-    title_val = _titleize(name_clean)
+    file_already_exists = subagent_file.exists()
 
-    subagent_instructions = f"""# {title_val}
+    if (is_already_registered or file_already_exists) and not force:
+        if is_already_registered:
+            print(
+                f"[ERROR] Subagent '{name_clean}' is already registered.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"[ERROR] Subagent instructions file already exists at {_display_path(subagent_file, home)}",
+                file=sys.stderr,
+            )
+        return False
 
-Add developer instructions for the {name_clean} subagent here.
-"""
+    old_info: Dict[str, Any] = {}
+    if is_already_registered and isinstance(existing_subagents.get(name_clean), dict):
+        old_info = existing_subagents[name_clean]
 
-    # Format new subagent block for subagents.toml
-    agents_json = json.dumps(target_agents, ensure_ascii=False)
-    subagent_block = f"""
-[subagents.{name_clean}]
-description = {json.dumps(desc_val, ensure_ascii=False)}
-agents = {agents_json}
-"""
+    # Resolve target_agents
+    if agents is not None and len(agents) > 0:
+        target_agents = agents
+    elif imported and imported.target_agents:
+        target_agents = imported.target_agents
+    elif (
+        is_already_registered
+        and isinstance(old_info.get("agents"), list)
+        and old_info.get("agents")
+    ):
+        target_agents = list(old_info["agents"])
+    else:
+        target_agents = DEFAULT_SUBAGENT_AGENTS
 
-    existing_toml_content = subagents_toml.read_text(encoding="utf-8")
-    new_toml_content = existing_toml_content.rstrip() + "\n" + subagent_block
+    # Resolve description
+    if description is not None and description.strip():
+        desc_val = description.strip()
+    elif imported and imported.description:
+        desc_val = imported.description
+    elif is_already_registered and old_info.get("description"):
+        desc_val = str(old_info["description"]).strip()
+    else:
+        desc_val = f"Subagent {name_clean}."
+
+    # Seed platform configurations with existing registered ones if present
+    platform_configs: Dict[str, Dict[str, Any]] = {}
+    if is_already_registered:
+        for k, v in old_info.items():
+            if k not in ("description", "agents") and isinstance(v, dict):
+                platform_configs[k] = dict(v)
+
+    if imported is not None:
+        for plat, opts in imported.explicit_platform_configs.items():
+            if plat not in platform_configs:
+                platform_configs[plat] = {}
+            platform_configs[plat].update(opts)
+
+        if imported.top_level_options:
+            if len(target_agents) == 1:
+                single_plat = target_agents[0]
+                try:
+                    validated = validate_platform_opts(
+                        single_plat, name_clean, imported.top_level_options
+                    )
+                    if single_plat not in platform_configs:
+                        platform_configs[single_plat] = {}
+                    platform_configs[single_plat].update(validated)
+                except SubagentConfigError as exc:
+                    print(f"[ERROR] {exc}", file=sys.stderr)
+                    return False
+            else:
+                ambiguous_keys = ", ".join(
+                    f"'{k}'" for k in sorted(imported.top_level_options.keys())
+                )
+                print(
+                    f"[ERROR] Source frontmatter specifies top-level {ambiguous_keys} but multiple target agents are specified ({', '.join(target_agents)}). Use explicit platform tables in frontmatter or specify a single agent with --agents.",
+                    file=sys.stderr,
+                )
+                return False
+
+    if is_already_registered:
+        base_toml = _remove_subagent_from_toml(existing_toml_content, name_clean)
+    else:
+        base_toml = existing_toml_content
+
+    subagent_block = _render_subagent_block(
+        name=name_clean,
+        description=desc_val,
+        agents=target_agents,
+        platform_configs=platform_configs,
+    )
+    new_toml_content = base_toml.rstrip() + "\n" + subagent_block
 
     # Validate resulting TOML syntax
     try:
@@ -1070,13 +1503,38 @@ agents = {agents_json}
         )
         return False
 
+    backup_dir = None
+    staged_backup = None
+    if file_already_exists:
+        try:
+            backup_dir = Path(
+                tempfile.mkdtemp(
+                    prefix=f".{name_clean}.add_backup.",
+                    dir=subagents_dir,
+                )
+            )
+            staged_backup = backup_dir / subagent_file.name
+            shutil.copy2(subagent_file, staged_backup)
+        except Exception as exc:
+            if backup_dir:
+                shutil.rmtree(backup_dir, ignore_errors=True)
+            print(
+                f"[ERROR] Failed to backup existing subagent file: {exc}",
+                file=sys.stderr,
+            )
+            return False
+
     try:
         subagents_dir.mkdir(parents=True, exist_ok=True)
         _atomic_write_text(subagent_file, subagent_instructions, encoding="utf-8")
         _atomic_write_text(subagents_toml, new_toml_content, encoding="utf-8")
     except Exception as exc:
-        if subagent_file.exists():
+        if staged_backup and staged_backup.exists():
+            staged_backup.replace(subagent_file)
+        elif subagent_file.exists() and not file_already_exists:
             subagent_file.unlink(missing_ok=True)
+        if backup_dir:
+            shutil.rmtree(backup_dir, ignore_errors=True)
         if existing_toml_content:
             try:
                 _atomic_write_text(
@@ -1087,16 +1545,46 @@ agents = {agents_json}
         print(f"[ERROR] Failed to write subagent: {exc}", file=sys.stderr)
         return False
 
-    print(f"[CREATE FILE] {_display_path(subagent_file, home)}")
-    print(
-        f"[UPDATE FILE] {_display_path(subagents_toml, home)} (registered subagent '{name_clean}')"
-    )
-    print(f"\n[SUCCESS] Added subagent '{name_clean}'.")
-    print("💡 Next steps:")
-    print(
-        f"  1. Update instructions in {_display_path(subagent_file, home)} (or run 'aikito edit subagent {name_clean}')"
-    )
-    print("  2. Synchronize to agents: aikito sync subagents")
+    if backup_dir:
+        shutil.rmtree(backup_dir, ignore_errors=True)
+
+    if is_already_registered or file_already_exists:
+        print(f"[UPDATE FILE] {_display_path(subagent_file, home)}")
+        print(
+            f"[UPDATE FILE] {_display_path(subagents_toml, home)} (updated subagent '{name_clean}')"
+        )
+        print(f"\n[SUCCESS] Updated subagent '{name_clean}'.")
+    else:
+        print(f"[CREATE FILE] {_display_path(subagent_file, home)}")
+        print(
+            f"[UPDATE FILE] {_display_path(subagents_toml, home)} (registered subagent '{name_clean}')"
+        )
+        print(f"\n[SUCCESS] Added subagent '{name_clean}'.")
+
+    if sync:
+        print(
+            f"\n[SYNC] Synchronizing subagent '{name_clean}' to target agent platforms..."
+        )
+        try:
+            sync_ok = sync_subagent_configs(
+                aikito_dir=aikito_dir,
+                home=home,
+            )
+            if not sync_ok:
+                return False
+        except SubagentConfigError as exc:
+            print(f"[ERROR] {exc}", file=sys.stderr)
+            return False
+    else:
+        print("💡 Next steps:")
+        if from_source is None:
+            print(
+                f"  1. Update instructions in {_display_path(subagent_file, home)} (or run 'aikito edit subagent {name_clean}')"
+            )
+            print("  2. Synchronize to agents: aikito sync subagents")
+        else:
+            print("  1. Synchronize to agents: aikito sync subagents")
+
     return True
 
 

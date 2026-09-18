@@ -9,8 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Enhanced `aikito add subagent` to support external ingestion with `--from <path>`, automatic frontmatter parsing (name, description, platform options), `--sync` for immediate agent runtime deployment, and `--force` for transactional snapshot overwrites.
 - Added `aikito rm subagent <name> [--sync]` command to safely remove canonical subagents, unregister them from workspace configuration, and optionally prune rendered definitions across configured Agent runtimes.
-- Added `aikito rm mcp <name> [--sync]` command to safely remove canonical MCP server configurations (`mcps/<name>.toml`) and optionally unregister the server from target Agent configurations.
+- Added `aikito rm mcp <name> [--sync] [--force]` command to safely remove canonical MCP server configurations (`mcps/<name>.toml`) and optionally unregister the server from target Agent configurations with fingerprint conflict protection.
 - Added shell completion support for `aikito rm subagent` and `aikito rm mcp` across Bash, Zsh, Fish, and PowerShell.
 
 ## [1.41.0] - 2026-09-17

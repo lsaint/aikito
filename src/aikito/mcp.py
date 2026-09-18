@@ -2355,10 +2355,12 @@ def sync_remove_mcp_from_agents(
     specs: list[AgentSpec],
     home: Path,
     output: Callable[[str], None] = print,
+    force: bool = False,
 ) -> bool:
     state = _load_state(home)
     entries = state["entries"]
     success = True
+    conflicted_state_keys: set[str] = set()
 
     for spec in specs:
         if not spec.enabled:
@@ -2372,6 +2374,23 @@ def sync_remove_mcp_from_agents(
         current = _read_entry(spec, text)
         if current is None:
             entries.pop(spec.state_key, None)
+            continue
+
+        previous = entries.get(spec.state_key, {})
+        managed_fingerprint = previous.get("fingerprint")
+        current_fingerprint = _fingerprint(current) if current is not None else None
+
+        safe_to_remove = force or (
+            managed_fingerprint is not None
+            and current_fingerprint == managed_fingerprint
+        )
+        if not safe_to_remove:
+            output(
+                f"[CONFLICT] {spec.agent}/{spec.server}: existing config was not "
+                "last written by aikito; review it or rerun with --force"
+            )
+            success = False
+            conflicted_state_keys.add(spec.state_key)
             continue
 
         backup = (
@@ -2389,8 +2408,14 @@ def sync_remove_mcp_from_agents(
             output(f"[BACKUP] {backup}")
 
     for spec in specs:
+        if spec.state_key in conflicted_state_keys:
+            continue
         server_key_suffix = f":{spec.server}"
-        to_del = [k for k in entries if k.endswith(server_key_suffix)]
+        to_del = [
+            k
+            for k in entries
+            if k.endswith(server_key_suffix) and k not in conflicted_state_keys
+        ]
         for k in to_del:
             entries.pop(k, None)
 

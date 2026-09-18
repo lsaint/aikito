@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .add import _parse_markdown_frontmatter
 from .diagnostics import Finding, FindingAction
 from .mcp import AgentDefinition, MCPConfigError, load_agents
 from .render import render_finding_lines
@@ -597,54 +598,6 @@ def scan_mcp_servers(
         result_servers.append(srv)
 
     return result_servers
-
-
-def _parse_markdown_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
-    raw = content.lstrip("\ufeff").strip()
-    lines = raw.splitlines(keepends=True)
-    if not lines:
-        return {}, content.strip()
-
-    first_line = lines[0].rstrip("\r\n")
-    if first_line.rstrip() != "---" or first_line.startswith((" ", "\t")):
-        return {}, content.strip()
-
-    closing_idx = None
-    for idx in range(1, len(lines)):
-        line_stripped = lines[idx].rstrip("\r\n")
-        if line_stripped.rstrip() == "---" and not line_stripped.startswith(
-            (" ", "\t")
-        ):
-            closing_idx = idx
-            break
-
-    if closing_idx is None:
-        return {}, content.strip()
-
-    frontmatter_raw = "".join(lines[1:closing_idx]).strip()
-    body = "".join(lines[closing_idx + 1 :]).strip()
-
-    meta: Dict[str, Any] = {}
-    for line in frontmatter_raw.splitlines():
-        line = line.strip()
-        if ":" in line and not line.startswith("#"):
-            k, v = line.split(":", 1)
-            key = k.strip()
-            val_str = v.strip()
-            if val_str.startswith("[") and val_str.endswith("]"):
-                try:
-                    parsed_val = json.loads(val_str)
-                except json.JSONDecodeError:
-                    parsed_val = val_str
-            elif val_str.lower() == "true":
-                parsed_val = True
-            elif val_str.lower() == "false":
-                parsed_val = False
-            else:
-                parsed_val = val_str.strip("\"'")
-            meta[key] = parsed_val
-
-    return meta, body
 
 
 def scan_subagents(

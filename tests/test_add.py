@@ -1090,6 +1090,118 @@ Body content.
             self.assertTrue(os.access(target, os.R_OK | os.W_OK))
 
 
+class TestParseMarkdownFrontmatter(unittest.TestCase):
+    def test_parse_literal_block_scalar(self) -> None:
+        content = """---
+name: my-agent
+description: |
+  Line one of description.
+  Line two of description.
+---
+# Instructions
+"""
+        meta, body = _parse_markdown_frontmatter(content)
+        self.assertEqual(meta.get("name"), "my-agent")
+        self.assertEqual(
+            meta.get("description"),
+            "Line one of description.\nLine two of description.",
+        )
+        self.assertIsInstance(meta.get("description"), str)
+        self.assertIn("# Instructions", body)
+
+    def test_parse_folded_block_scalar(self) -> None:
+        content = """---
+name: my-agent
+description: >
+  Line one of description.
+  Line two of description.
+---
+# Instructions
+"""
+        meta, body = _parse_markdown_frontmatter(content)
+        self.assertEqual(meta.get("name"), "my-agent")
+        self.assertEqual(
+            meta.get("description"),
+            "Line one of description. Line two of description.",
+        )
+        self.assertIsInstance(meta.get("description"), str)
+
+    def test_parse_unmarked_multiline_text(self) -> None:
+        content = """---
+name: my-agent
+description:
+  This is a multiline description without
+  an explicit block scalar indicator.
+---
+# Instructions
+"""
+        meta, body = _parse_markdown_frontmatter(content)
+        self.assertEqual(meta.get("name"), "my-agent")
+        self.assertEqual(
+            meta.get("description"),
+            "This is a multiline description without an explicit block scalar indicator.",
+        )
+        self.assertIsInstance(meta.get("description"), str)
+        self.assertNotIsInstance(meta.get("description"), dict)
+
+    def test_parse_empty_scalar_returns_empty_string(self) -> None:
+        content = """---
+name: my-agent
+description:
+---
+# Instructions
+"""
+        meta, body = _parse_markdown_frontmatter(content)
+        self.assertEqual(meta.get("name"), "my-agent")
+        self.assertEqual(meta.get("description"), "")
+        self.assertIsInstance(meta.get("description"), str)
+
+    def test_parse_no_implicit_number_conversion(self) -> None:
+        content = """---
+name: 2024
+model: 4.5
+version: 1
+user-invocable: false
+---
+# Instructions
+"""
+        meta, body = _parse_markdown_frontmatter(content)
+        self.assertEqual(meta.get("name"), "2024")
+        self.assertIsInstance(meta.get("name"), str)
+        self.assertEqual(meta.get("model"), "4.5")
+        self.assertIsInstance(meta.get("model"), str)
+        self.assertEqual(meta.get("version"), "1")
+        self.assertIsInstance(meta.get("version"), str)
+        self.assertIs(meta.get("user-invocable"), False)
+
+    def test_parse_nested_platform_table(self) -> None:
+        content = """---
+name: multi-helper
+codex:
+  model: gpt-4o
+claude-code:
+  model: claude-3-5-sonnet
+---
+# Instructions
+"""
+        meta, body = _parse_markdown_frontmatter(content)
+        self.assertEqual(meta.get("name"), "multi-helper")
+        self.assertEqual(meta.get("codex"), {"model": "gpt-4o"})
+        self.assertEqual(meta.get("claude-code"), {"model": "claude-3-5-sonnet"})
+
+    def test_parse_indented_list(self) -> None:
+        content = """---
+name: multi-helper
+agents:
+  - codex
+  - claude-code
+---
+# Instructions
+"""
+        meta, body = _parse_markdown_frontmatter(content)
+        self.assertEqual(meta.get("agents"), ["codex", "claude-code"])
+
+
 class TestAikitoAddSubagent(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp_dir = tempfile.TemporaryDirectory()
@@ -1157,6 +1269,427 @@ class TestAikitoAddSubagent(unittest.TestCase):
             success = add_subagent(self.aikito_dir, self.home, name="verifier-agent")
         self.assertFalse(success)
         self.assertIn("already registered", stderr_buf.getvalue())
+
+    def test_add_subagent_from_file_with_frontmatter(self) -> None:
+        src = self.home / "reviewer.md"
+        src.write_text(
+            "---\n"
+            "name: code-reviewer\n"
+            "description: Automated code review specialist\n"
+            'agents: ["codex", "claude-code"]\n'
+            "---\n"
+            "# Code Reviewer\n\n"
+            "Please review diffs carefully.\n",
+            encoding="utf-8",
+        )
+
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_subagent(
+                self.aikito_dir,
+                self.home,
+                from_source=src,
+            )
+        self.assertTrue(success)
+
+        subagent_file = self.aikito_dir / "subagents" / "code-reviewer.md"
+        self.assertTrue(subagent_file.is_file())
+        content = subagent_file.read_text(encoding="utf-8")
+        self.assertNotIn("name: code-reviewer", content)
+        self.assertIn("# Code Reviewer", content)
+        self.assertIn("Please review diffs carefully.", content)
+
+        subagents_toml = self.aikito_dir / "subagents.toml"
+        data = tomllib.loads(subagents_toml.read_text(encoding="utf-8"))
+        self.assertIn("code-reviewer", data["subagents"])
+        self.assertEqual(
+            data["subagents"]["code-reviewer"]["description"],
+            "Automated code review specialist",
+        )
+        self.assertEqual(
+            data["subagents"]["code-reviewer"]["agents"],
+            ["codex", "claude-code"],
+        )
+
+    def test_add_subagent_from_file_without_frontmatter_infers_name(self) -> None:
+        src = self.home / "security-guard.md"
+        src.write_text(
+            "# Security Guard\n\nScan code for vulnerabilities.\n",
+            encoding="utf-8",
+        )
+
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_subagent(
+                self.aikito_dir,
+                self.home,
+                from_source=src,
+            )
+        self.assertTrue(success)
+
+        subagent_file = self.aikito_dir / "subagents" / "security-guard.md"
+        self.assertTrue(subagent_file.is_file())
+        data = tomllib.loads(
+            (self.aikito_dir / "subagents.toml").read_text(encoding="utf-8")
+        )
+        self.assertIn("security-guard", data["subagents"])
+        self.assertEqual(
+            data["subagents"]["security-guard"]["description"],
+            "Subagent security-guard.",
+        )
+
+    def test_add_subagent_from_copilot_agent_file(self) -> None:
+        src = self.home / "auditor.agent.md"
+        src.write_text(
+            "---\n"
+            "name: auditor\n"
+            "description: Copilot auditor agent\n"
+            'tools: ["read", "search"]\n'
+            "user-invocable: false\n"
+            "---\n"
+            "Audit all files for compliance.\n",
+            encoding="utf-8",
+        )
+
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_subagent(
+                self.aikito_dir,
+                self.home,
+                from_source=src,
+                agents=["github-copilot"],
+            )
+        self.assertTrue(success)
+
+        data = tomllib.loads(
+            (self.aikito_dir / "subagents.toml").read_text(encoding="utf-8")
+        )
+        self.assertIn("auditor", data["subagents"])
+        auditor_sec = data["subagents"]["auditor"]
+        self.assertEqual(auditor_sec["agents"], ["github-copilot"])
+        self.assertIn("github-copilot", auditor_sec)
+        self.assertEqual(auditor_sec["github-copilot"]["tools"], ["read", "search"])
+        self.assertFalse(auditor_sec["github-copilot"]["user-invocable"])
+
+    def test_add_subagent_from_directory(self) -> None:
+        src_dir = self.home / "my-helper"
+        src_dir.mkdir()
+        (src_dir / "instructions.md").write_text(
+            "# Helper\n\nHelp user solve tasks.\n",
+            encoding="utf-8",
+        )
+
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_subagent(
+                self.aikito_dir,
+                self.home,
+                from_source=src_dir,
+            )
+        self.assertTrue(success)
+        self.assertTrue((self.aikito_dir / "subagents" / "my-helper.md").is_file())
+
+    def test_add_subagent_validations(self) -> None:
+        # Missing name without --from
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_subagent(self.aikito_dir, self.home, name=None)
+        self.assertFalse(success)
+        self.assertIn("Subagent name is required", stderr_buf.getvalue())
+
+        # --force without --from
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_subagent(
+                self.aikito_dir, self.home, name="test-subagent", force=True
+            )
+        self.assertFalse(success)
+        self.assertIn("--force requires --from", stderr_buf.getvalue())
+
+        # Empty instructions file
+        empty_src = self.home / "empty.md"
+        empty_src.write_text("", encoding="utf-8")
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_subagent(
+                self.aikito_dir, self.home, name="empty-subagent", from_source=empty_src
+            )
+        self.assertFalse(success)
+        self.assertIn("does not contain any instructions", stderr_buf.getvalue())
+
+    def test_add_subagent_force_overwrites_existing(self) -> None:
+        # Create initial subagent
+        add_subagent(
+            self.aikito_dir,
+            self.home,
+            name="refactorer",
+            description="Initial description",
+        )
+
+        new_src = self.home / "refactorer-v2.md"
+        new_src.write_text(
+            "---\n"
+            "description: Upgraded refactorer persona\n"
+            "---\n"
+            "# Refactorer V2\n\nPerform aggressive semantic refactoring.\n",
+            encoding="utf-8",
+        )
+
+        # Without force -> rejected
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            rejected = add_subagent(
+                self.aikito_dir,
+                self.home,
+                name="refactorer",
+                from_source=new_src,
+                force=False,
+            )
+        self.assertFalse(rejected)
+        self.assertIn("already registered", stderr_buf.getvalue())
+
+        # With force -> overwritten
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_subagent(
+                self.aikito_dir,
+                self.home,
+                name="refactorer",
+                from_source=new_src,
+                force=True,
+            )
+        self.assertTrue(success)
+
+        content = (self.aikito_dir / "subagents" / "refactorer.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Refactorer V2", content)
+        data = tomllib.loads(
+            (self.aikito_dir / "subagents.toml").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            data["subagents"]["refactorer"]["description"],
+            "Upgraded refactorer persona",
+        )
+
+    def test_add_subagent_with_sync(self) -> None:
+        claude_agents_dir = self.home / ".claude" / "agents"
+        claude_agents_dir.mkdir(parents=True)
+
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_subagent(
+                self.aikito_dir,
+                self.home,
+                name="live-agent",
+                description="Live synced subagent",
+                agents=["claude-code"],
+                sync=True,
+            )
+        self.assertTrue(success)
+
+        # Check that runtime file was rendered
+        claude_target = claude_agents_dir / "live-agent.md"
+        self.assertTrue(claude_target.is_file())
+        claude_text = claude_target.read_text(encoding="utf-8")
+        self.assertIn("generated by aikito from subagents/live-agent.md", claude_text)
+        self.assertIn("Live synced subagent", claude_text)
+
+    def test_add_subagent_force_preserves_existing_agents_and_description(self) -> None:
+        # Create initial subagent with custom agents and description
+        add_subagent(
+            self.aikito_dir,
+            self.home,
+            name="specialist",
+            description="Specialized reviewer",
+            agents=["claude-code"],
+        )
+
+        # New source has NO frontmatter, only new body instructions
+        new_src = self.home / "new-specialist.md"
+        new_src.write_text(
+            "# Specialist Instructions\n\nOnly review Python code.\n",
+            encoding="utf-8",
+        )
+
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_subagent(
+                self.aikito_dir,
+                self.home,
+                name="specialist",
+                from_source=new_src,
+                force=True,
+            )
+        self.assertTrue(success)
+
+        # Check subagents.toml: agents and description must NOT be reset to defaults
+        data = tomllib.loads(
+            (self.aikito_dir / "subagents.toml").read_text(encoding="utf-8")
+        )
+        spec = data["subagents"]["specialist"]
+        self.assertEqual(spec["agents"], ["claude-code"])
+        self.assertEqual(spec["description"], "Specialized reviewer")
+
+        # Instructions file must be updated
+        instructions = (self.aikito_dir / "subagents" / "specialist.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Only review Python code.", instructions)
+
+    def test_add_subagent_sync_blocks_on_unmanaged_agent_conflict(self) -> None:
+        claude_agents_dir = self.home / ".claude" / "agents"
+        claude_agents_dir.mkdir(parents=True)
+        unmanaged_file = claude_agents_dir / "conflict-sub.md"
+        unmanaged_file.write_text(
+            "# Handcrafted subagent without marker\n", encoding="utf-8"
+        )
+
+        prompt_file = self.home / "conflict-sub.md"
+        prompt_file.write_text("# Aikito prompt\n", encoding="utf-8")
+
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_subagent(
+                self.aikito_dir,
+                self.home,
+                name="conflict-sub",
+                agents=["claude-code"],
+                from_source=prompt_file,
+                force=True,
+                sync=True,
+            )
+        self.assertFalse(success)
+        self.assertIn("[CONFLICT]", stdout_buf.getvalue())
+        # Unmanaged file was NOT overwritten
+        self.assertEqual(
+            unmanaged_file.read_text(encoding="utf-8"),
+            "# Handcrafted subagent without marker\n",
+        )
+
+    def test_add_subagent_top_level_platform_options_ambiguous_error(self) -> None:
+        src = self.home / "ambiguous.md"
+        src.write_text(
+            "---\n"
+            "name: ambiguous-agent\n"
+            'tools: ["read_file"]\n'
+            "model: gpt-4o\n"
+            "---\n"
+            "# Ambiguous\n",
+            encoding="utf-8",
+        )
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_subagent(
+                self.aikito_dir,
+                self.home,
+                from_source=src,
+            )
+        self.assertFalse(success)
+        err_msg = stderr_buf.getvalue()
+        self.assertIn("[ERROR]", err_msg)
+        self.assertIn("multiple target agents are specified", err_msg)
+        self.assertIn("--agents", err_msg)
+
+    def test_add_subagent_top_level_model_passthrough_single_agent(self) -> None:
+        src = self.home / "single-agent.md"
+        src.write_text(
+            "---\nname: claude-reviewer\nmodel: claude-3-7-sonnet\n---\n# Reviewer\n",
+            encoding="utf-8",
+        )
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_subagent(
+                self.aikito_dir,
+                self.home,
+                from_source=src,
+                agents=["claude-code"],
+            )
+        self.assertTrue(success)
+        data = tomllib.loads(
+            (self.aikito_dir / "subagents.toml").read_text(encoding="utf-8")
+        )
+        self.assertIn("claude-reviewer", data["subagents"])
+        sec = data["subagents"]["claude-reviewer"]
+        self.assertEqual(sec["agents"], ["claude-code"])
+        self.assertIn("claude-code", sec)
+        self.assertEqual(sec["claude-code"]["model"], "claude-3-7-sonnet")
+
+    def test_add_subagent_top_level_tools_unsupported_on_agent_fails(self) -> None:
+        src = self.home / "unsupported-tools.md"
+        src.write_text(
+            '---\nname: claude-tools\ntools: ["read_file"]\n---\n# Claude Tools\n',
+            encoding="utf-8",
+        )
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_subagent(
+                self.aikito_dir,
+                self.home,
+                from_source=src,
+                agents=["claude-code"],
+            )
+        self.assertFalse(success)
+        err_msg = stderr_buf.getvalue()
+        self.assertIn("[ERROR]", err_msg)
+        self.assertIn(
+            "contains unknown field 'tools' for platform 'claude-code'", err_msg
+        )
+
+    def test_add_subagent_explicit_platform_tables_multiple_agents(self) -> None:
+        src = self.home / "multi-platform.md"
+        src.write_text(
+            "---\n"
+            "name: multi-helper\n"
+            'agents: ["codex", "claude-code"]\n'
+            "codex:\n"
+            "  model: gpt-4o\n"
+            "claude-code:\n"
+            "  model: claude-3-5-sonnet\n"
+            "---\n"
+            "# Multi Helper\n",
+            encoding="utf-8",
+        )
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_subagent(
+                self.aikito_dir,
+                self.home,
+                from_source=src,
+            )
+        self.assertTrue(success)
+        data = tomllib.loads(
+            (self.aikito_dir / "subagents.toml").read_text(encoding="utf-8")
+        )
+        sec = data["subagents"]["multi-helper"]
+        self.assertEqual(sec["agents"], ["codex", "claude-code"])
+        self.assertEqual(sec["codex"]["model"], "gpt-4o")
+        self.assertEqual(sec["claude-code"]["model"], "claude-3-5-sonnet")
+
+    def test_add_subagent_explicit_platform_table_invalid_option_fails(self) -> None:
+        src = self.home / "invalid-platform-opt.md"
+        src.write_text(
+            "---\n"
+            "name: bad-opt-agent\n"
+            "codex:\n"
+            "  unsupported_field: 123\n"
+            "---\n"
+            "# Bad Opt\n",
+            encoding="utf-8",
+        )
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_subagent(
+                self.aikito_dir,
+                self.home,
+                from_source=src,
+            )
+        self.assertFalse(success)
+        err_msg = stderr_buf.getvalue()
+        self.assertIn("[ERROR]", err_msg)
+        self.assertIn(
+            "contains unknown field 'unsupported_field' for platform 'codex'", err_msg
+        )
 
 
 class TestAikitoAddMCP(unittest.TestCase):

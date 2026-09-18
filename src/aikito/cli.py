@@ -954,6 +954,9 @@ def cmd_add_subagent(args: argparse.Namespace) -> None:
         name=args.name,
         description=getattr(args, "description", None),
         agents=agents_list,
+        from_source=getattr(args, "from_source", None),
+        sync=getattr(args, "sync", False),
+        force=getattr(args, "force", False),
     )
     if not success:
         sys.exit(1)
@@ -1527,6 +1530,7 @@ def cmd_rm_mcp(args: argparse.Namespace) -> None:
         home=Path.home(),
         name=args.name,
         sync=getattr(args, "sync", False),
+        force=getattr(args, "force", False),
     )
     if not success:
         sys.exit(1)
@@ -1856,18 +1860,40 @@ def build_parser() -> argparse.ArgumentParser:
     # add subagent
     p_add_subagent = add_subparsers.add_parser(
         "subagent",
-        help="Add a new canonical subagent skeleton and register it",
+        aliases=["subagents"],
+        help="Add a new canonical subagent skeleton or import from external source, and register it",
     )
-    p_add_subagent.add_argument("name", help="Name of the subagent in kebab-case")
+    p_add_subagent.add_argument(
+        "name",
+        nargs="?",
+        default=None,
+        help="Name of the subagent in kebab-case (inferred from --from if omitted)",
+    )
+    p_add_subagent.add_argument(
+        "--from",
+        dest="from_source",
+        default=None,
+        help="Path to an external markdown prompt file or directory to import",
+    )
     p_add_subagent.add_argument(
         "--description",
         default=None,
-        help="Description for the subagent",
+        help="Description for the subagent (inferred from --from if omitted)",
     )
     p_add_subagent.add_argument(
         "--agents",
         default=None,
         help="Comma-separated list of target agent platforms (default: all configured)",
+    )
+    p_add_subagent.add_argument(
+        "--sync",
+        action="store_true",
+        help="Immediately synchronize the subagent to configured agent runtimes",
+    )
+    p_add_subagent.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace an existing subagent definition with the --from source",
     )
     p_add_subagent.set_defaults(func=cmd_add_subagent)
 
@@ -2397,6 +2423,11 @@ def build_parser() -> argparse.ArgumentParser:
             "--sync",
             action="store_true",
             help="Automatically synchronize and remove MCP server from target agent platforms after removing",
+        )
+        p_rm_mcp.add_argument(
+            "--force",
+            action="store_true",
+            help="Force removal from target agents even if config was modified outside aikito",
         )
         p_rm_mcp.set_defaults(func=cmd_rm_mcp)
 

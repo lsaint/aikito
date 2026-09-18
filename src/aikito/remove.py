@@ -3,7 +3,6 @@ Resource removal and unregistration module for Aikito.
 Provides safe removal of skills, subagents, and MCP configurations from projects and workspace.
 """
 
-import re
 import shutil
 import sys
 import tempfile
@@ -15,6 +14,7 @@ from .add import (
     _atomic_write_text,
     _check_workspace_initialized,
     _display_path,
+    _remove_subagent_from_toml,
     _update_skills_in_toml,
     validate_resource_name,
 )
@@ -385,27 +385,6 @@ def remove_skill(
     )
 
 
-def _remove_subagent_from_toml(text: str, name: str) -> str:
-    header = f"[subagents.{name}]"
-    pattern = re.compile(rf"(?m)^[ \t]*{re.escape(header)}[ \t]*(?:#.*)?$")
-    match = pattern.search(text)
-    if match is None:
-        return text
-    next_header = re.search(
-        r"(?m)^[ \t]*\[[^\]]+\][ \t]*(?:#.*)?$", text[match.end() :]
-    )
-    end = len(text) if next_header is None else match.end() + next_header.start()
-    new_text = text[: match.start()] + text[end:]
-    cleaned = re.sub(r"\n{3,}", "\n\n", new_text)
-    try:
-        chk = tomllib.loads(cleaned)
-        if "subagents" not in chk:
-            cleaned = (cleaned.rstrip() + "\n\n[subagents]\n").lstrip("\n")
-    except Exception:
-        pass
-    return cleaned
-
-
 def remove_subagent(
     aikito_dir: Path,
     home: Path,
@@ -541,6 +520,7 @@ def remove_mcp(
     home: Path,
     name: str,
     sync: bool = False,
+    force: bool = False,
 ) -> bool:
     """
     Remove a canonical MCP server configuration from workspace.
@@ -613,6 +593,7 @@ def remove_mcp(
             sync_ok = sync_remove_mcp_from_agents(
                 specs=specs_to_remove,
                 home=home,
+                force=force,
             )
             if not sync_ok:
                 staged_backup.replace(mcp_file)

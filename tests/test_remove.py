@@ -833,6 +833,65 @@ class TestAikitoRemoveMCPLifecycle(unittest.TestCase):
         state = _load_state(self.home)
         self.assertFalse(any(k.endswith(":synced-mcp") for k in state["entries"]))
 
+    def test_remove_mcp_conflict_blocks_sync_and_preserves_canonical(self) -> None:
+        import json
+
+        claude_dir = self.home / ".claude"
+        claude_dir.mkdir(parents=True)
+        claude_config = self.home / ".claude.json"
+        # User manually added an unmanaged MCP entry
+        claude_config.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "unmanaged-mcp": {"type": "http", "url": "https://custom.com"}
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        add_mcp(
+            aikito_dir=self.ws,
+            home=self.home,
+            name="unmanaged-mcp",
+            transport="remote",
+            url="https://mcp.example.com",
+            agents=["claude-code"],
+        )
+
+        out = io.StringIO()
+        with redirect_stdout(out):
+            success = remove_mcp(
+                aikito_dir=self.ws,
+                home=self.home,
+                name="unmanaged-mcp",
+                sync=True,
+                force=False,
+            )
+        self.assertFalse(success)
+        self.assertIn("[CONFLICT]", out.getvalue())
+        # Canonical file must be preserved
+        self.assertTrue((self.ws / "mcps" / "unmanaged-mcp.toml").is_file())
+        # Agent config must NOT be touched
+        claude_data = json.loads(claude_config.read_text(encoding="utf-8"))
+        self.assertIn("unmanaged-mcp", claude_data["mcpServers"])
+
+        # With force=True, removal succeeds
+        out2 = io.StringIO()
+        with redirect_stdout(out2):
+            success2 = remove_mcp(
+                aikito_dir=self.ws,
+                home=self.home,
+                name="unmanaged-mcp",
+                sync=True,
+                force=True,
+            )
+        self.assertTrue(success2)
+        self.assertFalse((self.ws / "mcps" / "unmanaged-mcp.toml").exists())
+        claude_data2 = json.loads(claude_config.read_text(encoding="utf-8"))
+        self.assertNotIn("unmanaged-mcp", claude_data2.get("mcpServers", {}))
+
 
 class TestAikitoRemoveCLI(unittest.TestCase):
     def setUp(self) -> None:
@@ -885,16 +944,18 @@ class TestAikitoRemoveCLI(unittest.TestCase):
         self.assertFalse(args_remove_sub.sync)
 
         # Check 'rm mcp'
-        args_rm_mcp = parser.parse_args(["rm", "mcp", "test-mcp", "--sync"])
+        args_rm_mcp = parser.parse_args(["rm", "mcp", "test-mcp", "--sync", "--force"])
         self.assertEqual(args_rm_mcp.rm_target, "mcp")
         self.assertEqual(args_rm_mcp.name, "test-mcp")
         self.assertTrue(args_rm_mcp.sync)
+        self.assertTrue(args_rm_mcp.force)
 
         # Check 'remove mcps' alias
         args_remove_mcp = parser.parse_args(["remove", "mcps", "test-mcp"])
         self.assertEqual(args_remove_mcp.remove_target, "mcps")
         self.assertEqual(args_remove_mcp.name, "test-mcp")
         self.assertFalse(args_remove_mcp.sync)
+        self.assertFalse(args_remove_mcp.force)
 
 
 if __name__ == "__main__":

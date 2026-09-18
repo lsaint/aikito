@@ -51,6 +51,25 @@ not participate in subagent synchronization.
   `~/.pi/agent/agents/<name>.md`. Pi-specific configuration supports `model` and
   `tools`; without the extension, Pi remains skipped and Aikito writes nothing.
 
+## Add or Import Subagents
+
+Create a new canonical subagent skeleton:
+
+```bash
+aikito add subagent reviewer --description "Performs automated code reviews"
+```
+
+Import from an existing markdown prompt or Copilot agent file:
+
+```bash
+aikito add subagent --from ./prompts/reviewer.md --sync
+aikito add subagent --from .github/agents/reviewer.agent.md --force
+```
+
+- `--from <path>`: Points to a local markdown prompt file (e.g. `.md`, `.agent.md`) or directory containing instructions. Name and description are inferred from frontmatter or file stem when omitted.
+- `--sync`: Immediately renders and synchronizes the subagent into configured agent runtimes.
+- `--force`: Atomically replaces an existing subagent definition in `subagents/<name>.md` and updates `subagents.toml` with the imported snapshot.
+
 To unregister and remove a subagent from the workspace, run `aikito rm subagent <name>`.
 Add `--sync` to immediately prune the rendered subagent definition from all
 configured Agent runtimes:

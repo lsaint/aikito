@@ -493,20 +493,49 @@ jobs:
             python3 -m aikito show instructions global | \
             grep -q "durable-memory"
 
-      - name: aikito rm subagent and mcp lifecycle
+      - name: aikito subagent and mcp lifecycle parity
         run: |
+          mkdir -p ${{ runner.temp }}/ext-prompts
+          cat << 'EOF' > ${{ runner.temp }}/ext-prompts/ci-reviewer.md
+          ---
+          name: ci-reviewer
+          description: CI reviewer prompt
+          agents: ["claude-code"]
+          ---
+          # CI Reviewer
+
+          Review instructions.
+          EOF
+
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 -m aikito add subagent smoke-subagent \
-            --description "Smoke subagent" \
-            --agents "claude-code"
-          test -f ${{ runner.temp }}/aikito-ws/subagents/smoke-subagent.md
+            python3 -m aikito add subagent \
+            --from ${{ runner.temp }}/ext-prompts/ci-reviewer.md \
+            --sync
+          test -f ${{ runner.temp }}/aikito-ws/subagents/ci-reviewer.md
+          test -f ~/.claude/agents/ci-reviewer.md
+          grep -q "Review instructions" ~/.claude/agents/ci-reviewer.md
+
+          # Test overwrite with --force
+          cat << 'EOF' > ${{ runner.temp }}/ext-prompts/ci-reviewer.md
+          ---
+          description: Updated CI reviewer prompt
+          ---
+          # CI Reviewer V2
+
+          Updated review instructions.
+          EOF
+
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 -m aikito sync subagents
-          test -f ~/.claude/agents/smoke-subagent.md
+            python3 -m aikito add subagent ci-reviewer \
+            --from ${{ runner.temp }}/ext-prompts/ci-reviewer.md \
+            --force \
+            --sync
+          grep -q "Updated review instructions" ~/.claude/agents/ci-reviewer.md
+
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 -m aikito rm subagent smoke-subagent --sync
-          test ! -e ${{ runner.temp }}/aikito-ws/subagents/smoke-subagent.md
-          test ! -e ~/.claude/agents/smoke-subagent.md
+            python3 -m aikito rm subagent ci-reviewer --sync
+          test ! -e ${{ runner.temp }}/aikito-ws/subagents/ci-reviewer.md
+          test ! -e ~/.claude/agents/ci-reviewer.md
 
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito add mcp smoke-mcp --url "https://example.com/smoke"
@@ -518,6 +547,29 @@ jobs:
             python3 -m aikito rm mcp smoke-mcp --sync
           test ! -e ${{ runner.temp }}/aikito-ws/mcps/smoke-mcp.toml
           ! grep -q "smoke_mcp" ~/.codex/config.toml
+
+          # Verify conflict protection: tamper with managed agent config and assert rm mcp --sync blocks
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito add mcp conflict-mcp --url "https://example.com/conflict"
+          test -f ${{ runner.temp }}/aikito-ws/mcps/conflict-mcp.toml
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync mcp
+          grep -q "conflict_mcp" ~/.codex/config.toml
+
+          # Tamper with Codex configuration outside aikito
+          sed -i 's|https://example.com/conflict|https://example.com/tampered|g' ~/.codex/config.toml
+
+          # Assert that rm mcp --sync blocks on conflict, preserves canonical toml, and leaves config untouched
+          ! AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm mcp conflict-mcp --sync
+          test -f ${{ runner.temp }}/aikito-ws/mcps/conflict-mcp.toml
+          grep -q "tampered" ~/.codex/config.toml
+
+          # Assert that rm mcp --sync --force forces removal through the conflict
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm mcp conflict-mcp --sync --force
+          test ! -e ${{ runner.temp }}/aikito-ws/mcps/conflict-mcp.toml
+          ! grep -q "conflict_mcp" ~/.codex/config.toml
 
       - name: aikito status
         run: |
@@ -1010,16 +1062,26 @@ jobs:
           if (Test-Path $canonicalSkill) {
             throw "Canonical skill directory was not deleted after global removal on Windows"
           }
-          python -m aikito add subagent win-subagent --description "Win Subagent" --agents "claude-code"
-          $winSubFile = Join-Path $wsDir "subagents\win-subagent.md"
-          if (-not (Test-Path $winSubFile)) { throw "Win subagent markdown missing" }
-          python -m aikito rm subagent win-subagent
-          if (Test-Path $winSubFile) { throw "Win subagent markdown was not deleted after rm" }
+          $extPrompt = Join-Path $env:TEMP "win-reviewer.md"
+          @("---", "name: win-reviewer", "description: Win Reviewer", 'agents: ["claude-code"]', "---", "# Win Reviewer", "Prompt content") | Set-Content $extPrompt
+          python -m aikito add subagent --from $extPrompt
+          $winSubFile = Join-Path $wsDir "subagents\win-reviewer.md"
+          if (-not (Test-Path $winSubFile)) { throw "Win reviewer markdown missing" }
+          @("---", "description: Win Reviewer Updated", "---", "# Win Reviewer", "Updated prompt content") | Set-Content $extPrompt
+          python -m aikito add subagent win-reviewer --from $extPrompt --force
+          python -m aikito rm subagent win-reviewer
+          if (Test-Path $winSubFile) { throw "Win reviewer markdown was not deleted after rm" }
           python -m aikito add mcp win-mcp --url "https://example.com/mcp"
           $winMcpFile = Join-Path $wsDir "mcps\win-mcp.toml"
           if (-not (Test-Path $winMcpFile)) { throw "Win MCP toml missing" }
           python -m aikito rm mcp win-mcp
           if (Test-Path $winMcpFile) { throw "Win MCP toml was not deleted after rm" }
+          # Test rm mcp with --force flag
+          python -m aikito add mcp win-force-mcp --url "https://example.com/force"
+          $winForceMcpFile = Join-Path $wsDir "mcps\win-force-mcp.toml"
+          if (-not (Test-Path $winForceMcpFile)) { throw "Win force MCP toml missing" }
+          python -m aikito rm mcp win-force-mcp --force
+          if (Test-Path $winForceMcpFile) { throw "Win force MCP toml was not deleted after rm --force" }
           $globalNote = Join-Path $wsDir "memory\notes\windows-memory.md"
           @("# Windows Memory") | Set-Content $globalNote
           $projectNote = Join-Path $wsDir "projects\example\memory\notes\windows-project-memory.md"

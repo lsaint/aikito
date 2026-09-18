@@ -2323,6 +2323,76 @@ url = "http://custom.example.com"
             "[SUCCESS] Added subagent 'cli-subagent'.", mock_stdout.getvalue()
         )
 
+    def test_add_subagent_cli_with_from_sync_and_force(self) -> None:
+        codex_agents_dir = self.home / ".codex" / "agents"
+        codex_agents_dir.mkdir(parents=True)
+
+        prompt_file = self.home / "cli-imported.md"
+        prompt_file.write_text(
+            "---\n"
+            "name: cli-imported\n"
+            "description: CLI imported subagent\n"
+            'agents: ["codex"]\n'
+            "---\n"
+            "# Imported Agent\n\nPrompt instructions here.\n",
+            encoding="utf-8",
+        )
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                [
+                    "add",
+                    "subagent",
+                    "--from",
+                    str(prompt_file),
+                    "--sync",
+                ]
+            )
+            args.func(args)
+
+        self.assertTrue((self.aikito_dir / "subagents" / "cli-imported.md").is_file())
+        self.assertTrue((codex_agents_dir / "cli-imported.toml").is_file())
+        self.assertIn(
+            "[SUCCESS] Added subagent 'cli-imported'.", mock_stdout.getvalue()
+        )
+
+        # Test overwrite with --force
+        prompt_file.write_text(
+            "---\n"
+            "description: Updated CLI imported subagent\n"
+            "---\n"
+            "# Updated Imported Agent\n\nUpdated instructions.\n",
+            encoding="utf-8",
+        )
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout2,
+        ):
+            args2 = AIKITO_CLI.build_parser().parse_args(
+                [
+                    "add",
+                    "subagents",
+                    "cli-imported",
+                    "--from",
+                    str(prompt_file),
+                    "--force",
+                ]
+            )
+            args2.func(args2)
+
+        self.assertIn(
+            "[SUCCESS] Updated subagent 'cli-imported'.", mock_stdout2.getvalue()
+        )
+        content = (self.aikito_dir / "subagents" / "cli-imported.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Updated instructions.", content)
+
     def test_add_mcp_cli(self) -> None:
         with (
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),

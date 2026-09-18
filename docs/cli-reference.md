@@ -28,7 +28,7 @@ version.
 | `aikito git [args...]` | Run git commands directly in the active Aikito workspace |
 | `aikito init project [name] [path] [--description <text>]` | Register a code project and synchronize its `.agents/` runtime |
 | `aikito add skill [name] [--from <path>] [--force] [--project <projects>] [--sync]` | Create or import a canonical skill; use `--force` with `--from` to replace an existing imported snapshot |
-| `aikito add subagent <name>` | Create a canonical subagent skeleton and register it in `subagents.toml` |
+| `aikito add subagent [name] [--from <path>] [--description <desc>] [--agents <list>] [--sync] [--force]` | Create a canonical subagent skeleton or import from external markdown source; use `--force` with `--from` to replace |
 | `aikito add mcp <name>` | Create a canonical MCP server configuration in `mcps/<name>.toml` |
 | `aikito adopt [path] [--dry-run] [--verbose] [--skip <resource>]` | Preflight existing local configuration, then import it only when the complete plan is safe |
 | `aikito status` | Show the synchronization dashboard |
@@ -52,7 +52,7 @@ version.
 | `aikito rm memory <target>` | Remove a memory note and scan for inbound wikilinks |
 | `aikito rm skill <name> [--project <projects>] [--force] [--sync]` | Remove a skill globally or unregister it from specific project(s) |
 | `aikito rm subagent <name> [--sync]` | Remove a subagent and unregister it from workspace |
-| `aikito rm mcp <name> [--sync]` | Remove a canonical MCP server configuration from workspace |
+| `aikito rm mcp <name> [--sync] [--force]` | Remove a canonical MCP server configuration from workspace |
 | `aikito edit memory <target>` | Open a memory note in the configured editor |
 | `aikito maintain memory [global\|<project>\|.] [--agent <name>]` | Launch an Agent to review one complete memory scope and propose maintenance before making changes |
 | `aikito edit instructions <global|project|.>` | Open canonical instructions in `$VISUAL` or `$EDITOR` |
