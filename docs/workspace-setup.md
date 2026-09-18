@@ -30,7 +30,7 @@ For a cloned workspace on another machine, follow
 Adopt the configuration those Agents already use:
 
 ```bash
-aikito adopt
+aikito adopt  # use --dry-run to preview, --verbose for full paths
 ```
 
 Adoption validates every detected resource before creating a backup or writing.

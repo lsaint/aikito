@@ -51,7 +51,7 @@ uv tool install aikito
 
 ```bash
 aikito init workspace ~/aikito
-aikito adopt
+aikito adopt  # use --dry-run to preview, --verbose for full paths
 aikito sync
 aikito status
 ```
@@ -138,7 +138,7 @@ Aikito 遵循 Local-first 原则与透明设计：
 - **自主掌控 Secrets**：工作区是本地 Git 仓库，推送到远端前请审查敏感信息。
 
 深入了解安全与边界设计：
-- [安全模型与备份机制（英文）](docs/safety.md)
+- [安全模型与备份机制（英文）](docs/safety.md#adoption)
 - [设计边界与方案对比（英文）](docs/comparison.md)
 
 ## 文档导航

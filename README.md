@@ -52,7 +52,7 @@ Bring your existing Agent setup under Aikito in 30 seconds:
 
 ```bash
 aikito init workspace ~/aikito
-aikito adopt
+aikito adopt  # use --dry-run to preview, --verbose for full paths
 aikito sync
 aikito status
 ```
@@ -149,7 +149,7 @@ Aikito is local-first and predictable by design:
 - **You govern secrets**: workspace is a local Git repository; review secrets before pushing.
 
 Detailed safety and boundary references:
-- [Safety model & backups](docs/safety.md)
+- [Safety model & backups](docs/safety.md#adoption)
 - [Design boundaries & comparisons](docs/comparison.md)
 
 ## Documentation
