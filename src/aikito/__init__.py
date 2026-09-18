@@ -12,7 +12,7 @@ from .project_runtime import (
     UnsupportedProjectAgentError,
 )
 
-__version__ = "1.42.0"
+__version__ = "1.43.0"
 
 __all__ = [
     "AmbiguousProjectPathError",

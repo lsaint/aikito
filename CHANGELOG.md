@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.43.0] - 2026-09-18
+
+### Added
+
+- Supported external MCP server configuration ingestion via `aikito add mcp [name] --from <path>`, with automatic format detection across JSON, TOML, and YAML formats.
+- Added `--sync` flag to `aikito add mcp` for immediate runtime agent configuration deployment upon server creation.
+- Added `--force` flag to `aikito add mcp` to safely overwrite and update existing canonical MCP server definitions.
+- Enabled Mermaid diagram rendering support in documentation.
+
+### Changed
+
+- Hardened `aikito add mcp` transactional safety with atomic state promotion, automatic rollback on write or state failure, and empty file preservation.
+- Sequentially chained configuration updates when adding multiple MCP servers to shared agent configurations to prevent overwrite conflicts.
+- Refined URL credential and sensitive attribute detection to avoid false positives on non-credential fields while strictly sanitizing credentials and suppressing sensitive file backups.
+- Excluded agent JSON configs (`agy_json`, `claude_json`) from whole-file backups to prevent leaking credentials.
+- Standardized global memory scope naming to `Global` in status output and documentation.
+
 ## [1.42.0] - 2026-09-18
 
 ### Added
@@ -742,7 +759,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.42.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.43.0...HEAD
+[1.43.0]: https://github.com/lsaint/aikito/compare/v1.42.0...v1.43.0
 [1.42.0]: https://github.com/lsaint/aikito/compare/v1.41.0...v1.42.0
 [1.41.0]: https://github.com/lsaint/aikito/compare/v1.40.0...v1.41.0
 [1.40.0]: https://github.com/lsaint/aikito/compare/v1.39.0...v1.40.0
