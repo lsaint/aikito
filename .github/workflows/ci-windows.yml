@@ -1,0 +1,386 @@
+name: Windows CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install test dependencies
+        run: python -m pip install pytest
+
+      - name: Run unit tests
+        run: python -m pytest
+
+  windows-smoke-test:
+    runs-on: windows-latest
+    env:
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify Windows CLI Help and Version
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          python -m aikito --help
+          python -m aikito version
+          python -m aikito version --help
+          python -m aikito version --json
+          python -m aikito git --help
+          python -m aikito rm subagent --help
+          python -m aikito rm mcp --help
+          python -m aikito invalid-subcommand 2>$null
+          if ($LASTEXITCODE -eq 0) { throw "aikito did not propagate non-zero exit code on invalid subcommand" }
+          $global:LASTEXITCODE = 0
+
+      - name: Install and verify Windows console script entrypoint
+        shell: pwsh
+        env:
+          PYTHONPATH: ""
+        run: |
+          $winVenv = Join-Path $env:RUNNER_TEMP "win-venv"
+          python -m venv $winVenv
+          $venvPip = Join-Path $winVenv "Scripts\pip.exe"
+          $venvAikito = Join-Path $winVenv "Scripts\aikito.exe"
+          & $venvPip install .
+          & $venvAikito --help
+          & $venvAikito version
+
+      - name: Test PowerShell Completion Generator and Loading
+        shell: pwsh
+        run: |
+          $compScript = python -m aikito completion powershell
+          Invoke-Expression ($compScript | Out-String)
+          python -m aikito completion candidates projects
+          python -m aikito completion candidates skills
+          python -m aikito completion candidates memories
+
+      - name: Test Workspace Init, Global Sync and Doctor on Windows
+        shell: pwsh
+        run: |
+          $wsDir = Join-Path $env:RUNNER_TEMP "aikito-ws"
+          $piDir = Join-Path $HOME ".pi\agent"
+          $codexDir = Join-Path $HOME ".codex"
+          $claudeDir = Join-Path $HOME ".claude"
+          New-Item -ItemType Directory -Force -Path $piDir | Out-Null
+          New-Item -ItemType Directory -Force -Path $codexDir | Out-Null
+          New-Item -ItemType Directory -Force -Path $claudeDir | Out-Null
+          $env:AIKITO_DIR = $wsDir
+          $initOutput = python -m aikito init workspace "$wsDir"
+          $initOutput | Write-Output
+          $initOutput | Select-String "Run 'aikito sync'"
+          $gitStatus = python -m aikito git status
+          $gitStatus | Select-String "On branch"
+          $adoptionReference = Join-Path $wsDir "skills\aikito\references\adoption.md"
+          $installationReference = Join-Path $wsDir "skills\aikito\references\installation.md"
+          $projectsReference = Join-Path $wsDir "skills\aikito\references\projects.md"
+          if (-not (Test-Path $adoptionReference)) { throw "Adoption skill reference missing" }
+          if (-not (Test-Path $installationReference)) { throw "Installation skill reference missing" }
+          if (-not (Test-Path $projectsReference)) { throw "Projects skill reference missing" }
+          $connectOutput = python -m aikito init workspace "$wsDir"
+          $connectOutput | Write-Output
+          $connectOutput | Select-String "\[CONNECTED\]"
+          $connectOutput | Select-String "aikito doctor"
+          $claudeAgents = Join-Path $claudeDir "agents"
+          New-Item -ItemType Directory -Force -Path $claudeAgents | Out-Null
+          $adoptSource = Join-Path $claudeAgents "ci-adopt.md"
+          @("---", "name: ci-adopt", "description: CI adoption smoke test", "---", "Review adoption behavior.") | Set-Content $adoptSource
+          python -m aikito adopt --dry-run --verbose --skip subagent/ci-adopt
+          $adoptedSubagent = Join-Path $wsDir "subagents\ci-adopt.md"
+          if (Test-Path $adoptedSubagent) { throw "Dry-run wrote adopted subagent" }
+          python -m aikito doctor --no-color | Select-String "Adoption"
+          python -m aikito adopt
+          if (-not (Test-Path $adoptedSubagent)) { throw "Default adopt did not write subagent" }
+          $codexConfig = Join-Path $codexDir "config.toml"
+          @('[mcp_servers.openaiDeveloperDocs]', 'url = "https://developers.openai.com/mcp"') | Set-Content $codexConfig
+          $builtinOutput = python -m aikito adopt --dry-run --verbose | Out-String
+          if ($builtinOutput -notmatch "\[SKIP MCP\] Server 'openaiDeveloperDocs' is built-in to codex") {
+            throw "Adopt did not report the Codex built-in MCP server"
+          }
+          $builtinTarget = Join-Path $wsDir "mcps\openaiDeveloperDocs.toml"
+          if (Test-Path $builtinTarget) { throw "Adopt imported the Codex built-in MCP server" }
+          $syncPlan = python -m aikito sync --dry-run
+          $syncPlan | Write-Output
+          $syncPlan | Select-String "Sync plan"
+          $syncPlan | Select-String "Safe to apply"
+          python -m aikito sync --dry-run --verbose | Select-String "Details"
+          python -m aikito sync global
+          $aikitoSkill = Join-Path $wsDir "skills\aikito\SKILL.md"
+          $memorySkill = Join-Path $wsDir "skills\durable-memory\SKILL.md"
+          "customized aikito" | Set-Content $aikitoSkill
+          "customized memory" | Set-Content $memorySkill
+          $statusError = Join-Path $env:RUNNER_TEMP "bundled-skill-notice.err"
+          python -m aikito status 2> $statusError | Out-Null
+          if (-not (Select-String -Path $statusError -Pattern "Bundled skill snapshot differs")) {
+            $errContent = Get-Content $statusError -Raw
+            throw "Status did not report divergent bundled skills: $errContent"
+          }
+          $refreshOutput = python -m aikito sync global | Out-String
+          if ($refreshOutput -notmatch "\[REFRESH\] Bundled skill 'aikito'") {
+            throw "Aikito skill was not refreshed"
+          }
+          if ($refreshOutput -notmatch "\[REFRESH\] Bundled skill 'durable-memory'") {
+            throw "Durable memory skill was not refreshed"
+          }
+          if ((Get-Content $aikitoSkill -Raw) -ne (Get-Content "src\aikito\templates\skills\aikito\SKILL.md" -Raw)) {
+            throw "Aikito skill does not match the installed template"
+          }
+          if ((Get-Content $memorySkill -Raw) -ne (Get-Content "src\aikito\templates\skills\durable-memory\SKILL.md" -Raw)) {
+            throw "Durable memory skill does not match the installed template"
+          }
+          $backupRoot = Join-Path $HOME ".aikito\backups"
+          if (-not (Get-ChildItem $backupRoot -Recurse -Filter "SKILL.md" | Where-Object { $_.FullName -match "bundled-skills_" })) {
+            throw "Bundled skill backup was not created"
+          }
+          $projectDir = Join-Path $env:RUNNER_TEMP "example-project"
+          New-Item -ItemType Directory -Force -Path $projectDir | Out-Null
+          python -m aikito init project example "$projectDir"
+          $extSkillDir = Join-Path $env:RUNNER_TEMP "external-windows-skill"
+          New-Item -ItemType Directory -Force -Path $extSkillDir | Out-Null
+          @("---", "name: win-imported-skill", "description: Windows imported skill", "---", "", "# Windows Skill") | Set-Content (Join-Path $extSkillDir "SKILL.md")
+          "obsolete" | Set-Content (Join-Path $extSkillDir "obsolete.txt")
+          python -m aikito add skill --from "$extSkillDir" --project example --sync
+          if (-not (Test-Path (Join-Path $wsDir "skills\win-imported-skill\SKILL.md"))) {
+            throw "Imported canonical skill file is missing on Windows"
+          }
+          if (-not (Test-Path (Join-Path $projectDir ".agents\skills\win-imported-skill"))) {
+            throw "Synchronized project skill link is missing on Windows"
+          }
+          @("---", "name: win-imported-skill", "description: Updated Windows skill", "---", "", "# Updated Windows Skill") | Set-Content (Join-Path $extSkillDir "SKILL.md")
+          Remove-Item (Join-Path $extSkillDir "obsolete.txt")
+          "added" | Set-Content (Join-Path $extSkillDir "added.txt")
+          python -m aikito add skill --from "$extSkillDir" --project example --force --sync
+          $canonicalSkill = Join-Path $wsDir "skills\win-imported-skill"
+          if (-not (Select-String -Path (Join-Path $canonicalSkill "SKILL.md") -Pattern "# Updated Windows Skill" -Quiet)) {
+            throw "Imported canonical skill was not refreshed on Windows"
+          }
+          if (Test-Path (Join-Path $canonicalSkill "obsolete.txt")) {
+            throw "Removed source file survived the Windows snapshot refresh"
+          }
+          if (-not (Test-Path (Join-Path $canonicalSkill "added.txt"))) {
+            throw "New source file is missing after the Windows snapshot refresh"
+          }
+          python -m aikito rm skill win-imported-skill --project example --sync
+          if (-not (Test-Path (Join-Path $canonicalSkill "SKILL.md"))) {
+            throw "Canonical skill was deleted when only unregistering from project on Windows"
+          }
+          if (Test-Path (Join-Path $projectDir ".agents\skills\win-imported-skill")) {
+            throw "Project skill runtime was not cleaned up after unregistering on Windows"
+          }
+          python -m aikito rm skill win-imported-skill
+          if (Test-Path $canonicalSkill) {
+            throw "Canonical skill directory was not deleted after global removal on Windows"
+          }
+          $extPrompt = Join-Path $env:TEMP "win-reviewer.md"
+          @("---", "name: win-reviewer", "description: Win Reviewer", 'agents: ["claude-code"]', "---", "# Win Reviewer", "Prompt content") | Set-Content $extPrompt
+          python -m aikito add subagent --from $extPrompt
+          $winSubFile = Join-Path $wsDir "subagents\win-reviewer.md"
+          if (-not (Test-Path $winSubFile)) { throw "Win reviewer markdown missing" }
+          @("---", "description: Win Reviewer Updated", "---", "# Win Reviewer", "Updated prompt content") | Set-Content $extPrompt
+          python -m aikito add subagent win-reviewer --from $extPrompt --force
+          python -m aikito rm subagent win-reviewer
+          if (Test-Path $winSubFile) { throw "Win reviewer markdown was not deleted after rm" }
+          python -m aikito add mcp win-mcp --url "https://example.com/mcp"
+          $winMcpFile = Join-Path $wsDir "mcps\win-mcp.toml"
+          if (-not (Test-Path $winMcpFile)) { throw "Win MCP toml missing" }
+          python -m aikito rm mcp win-mcp
+          if (Test-Path $winMcpFile) { throw "Win MCP toml was not deleted after rm" }
+          # Test rm mcp with --force flag
+          python -m aikito add mcp win-force-mcp --url "https://example.com/force"
+          $winForceMcpFile = Join-Path $wsDir "mcps\win-force-mcp.toml"
+          if (-not (Test-Path $winForceMcpFile)) { throw "Win force MCP toml missing" }
+          python -m aikito rm mcp win-force-mcp --force
+          if (Test-Path $winForceMcpFile) { throw "Win force MCP toml was not deleted after rm --force" }
+          # Test add mcp with --from and --force
+          $extMcpJson = Join-Path $wsDir "ext-mcp.json"
+          @('{"url": "https://example.com/win-imported"}') | Set-Content $extMcpJson
+          python -m aikito add mcp win-imported --from $extMcpJson
+          $winImportedFile = Join-Path $wsDir "mcps\win-imported.toml"
+          if (-not (Test-Path $winImportedFile)) { throw "Win imported MCP toml missing" }
+          @('{"url": "https://example.com/win-imported-v2"}') | Set-Content $extMcpJson
+          python -m aikito add mcp win-imported --from $extMcpJson --force
+          python -m aikito rm mcp win-imported
+          if (Test-Path $winImportedFile) { throw "Win imported MCP toml was not deleted after rm" }
+          $globalNote = Join-Path $wsDir "memory\notes\windows-memory.md"
+          @("# Windows Memory") | Set-Content $globalNote
+          $projectNote = Join-Path $wsDir "projects\example\memory\notes\windows-project-memory.md"
+          @("# Windows Project Memory") | Set-Content $projectNote
+          $globalIndex = Join-Path $wsDir "memory\index.md"
+          @("# Legacy Index", "- [[windows-memory|Windows Memory]]") | Set-Content $globalIndex
+          $projectIndex = Join-Path $wsDir "projects\example\memory\index.md"
+          @("# Legacy Project Index", "- [[windows-project-memory|Windows Project Memory]]") | Set-Content $projectIndex
+          python -m aikito show memory windows-memory | Select-String "Windows Memory"
+          python -m aikito show memory windows-project-memory --project example | Select-String "Windows Project Memory"
+          $env:EDITOR = 'python -c "import sys"'
+          python -m aikito edit memory global/index
+          if ($LASTEXITCODE -eq 0) {
+            throw "Editing a legacy memory index unexpectedly succeeded"
+          }
+          if (Test-Path (Join-Path $wsDir "index.md")) {
+            throw "Editing a memory index created a fake workspace index"
+          }
+          $malformedNote = Join-Path $wsDir "memory\notes\windows-malformed.md"
+          @("# Windows Malformed Memory") | Set-Content $malformedNote
+          $syncError = Join-Path $env:RUNNER_TEMP "windows-memory-sync.err"
+          python -m aikito sync global 2> $syncError
+          if ($LASTEXITCODE -ne 0) {
+            throw "Global sync failed because of malformed memory"
+          }
+          if ((Get-Item $syncError).Length -ne 0) {
+            throw "Global sync emitted an unexpected memory warning"
+          }
+          if (Select-String -Path $malformedNote -Pattern "category:") {
+            throw "Global sync unexpectedly modified canonical memory"
+          }
+          python -m aikito rm memory windows-malformed
+          if (Test-Path $malformedNote) {
+            throw "Malformed target memory note was not removed"
+          }
+          python -c "from aikito import Project; prepared = Project.load('example').prepare(agent='pi'); assert prepared.name == 'example'"
+          if (-not (Test-Path (Join-Path $projectDir ".agents\memory\notes"))) {
+            throw "Prepared project memory link is missing"
+          }
+          if (Test-Path (Join-Path $projectDir ".agents\memory\index.md")) {
+            throw "Legacy project memory index was synchronized"
+          }
+          $secondProjectDir = Join-Path $env:RUNNER_TEMP "example-project-second"
+          New-Item -ItemType Directory -Force -Path $secondProjectDir | Out-Null
+          $env:AIKITO_TEST_PROJECT_PATH = $secondProjectDir
+          python -c "import os; from pathlib import Path; from aikito import Project; prepared = Project.load('example').prepare(agent='pi', path=os.environ['AIKITO_TEST_PROJECT_PATH']); assert prepared.cwd == Path(os.environ['AIKITO_TEST_PROJECT_PATH']).resolve()"
+          if (-not (Test-Path (Join-Path $secondProjectDir ".agents\memory\notes"))) {
+            throw "Prepared explicit project path memory link is missing"
+          }
+          $thirdProjectDir = Join-Path $env:RUNNER_TEMP "example-project-third"
+          New-Item -ItemType Directory -Force -Path $thirdProjectDir | Out-Null
+          $env:AIKITO_TEST_PROJECT_PATH = $thirdProjectDir
+          python -c "import os; from pathlib import Path; from aikito import Project; updated = Project.load('example').add_path(os.environ['AIKITO_TEST_PROJECT_PATH']); assert Path(os.environ['AIKITO_TEST_PROJECT_PATH']).resolve() in updated.paths"
+          $nestedNotes = Join-Path $wsDir "memory\notes\nested"
+          New-Item -ItemType Directory -Force -Path $nestedNotes | Out-Null
+          @("# Hidden nested note") | Set-Content (Join-Path $nestedNotes "hidden.md")
+          $doctorOutput = python -m aikito doctor --no-color | Out-String
+          if ($doctorOutput -notmatch "memory notes subdirectory 'nested/' is not scanned") {
+            throw "Doctor did not report the nested memory note directory"
+          }
+          Remove-Item -Recurse $nestedNotes
+          python -m aikito status
+          python -m aikito show memory --project example
+          # Verify show project Fix: and doctor sync hints on missing runtime notes
+          $runtimeNotes = Join-Path $projectDir ".agents\memory\notes"
+          Remove-Item $runtimeNotes
+          $showProjOutput = python -m aikito show project example | Out-String
+          if ($showProjOutput -notmatch "Fix:.*aikito sync project example") {
+            throw "show project did not display expected Fix hint"
+          }
+          $doctorProjOutput = python -m aikito doctor --no-color | Out-String
+          if ($doctorProjOutput -notmatch "aikito sync project example") {
+            throw "doctor did not display expected aikito sync project hint"
+          }
+          python -m aikito sync project example | Out-Null
+          if (-not (Test-Path $runtimeNotes)) {
+            throw "runtime notes link was not restored by sync"
+          }
+          # Verify conflict marker detection in memory notes (Scenario 1: MD only)
+          $conflictNote = Join-Path $wsDir "memory\notes\ci-conflict.md"
+          @("# Conflicted Note", "<<<<<<< HEAD", "version A", "=======", "version B", ">>>>>>> branch") | Set-Content $conflictNote
+          $conflictOutput = python -m aikito doctor --no-color | Out-String
+          if ($conflictOutput -notmatch "Git conflict marker detected") {
+            throw "Doctor did not report Git conflict markers in memory note"
+          }
+          # doctor --fix must NOT modify the conflicted file
+          $conflictBefore = Get-Content $conflictNote -Raw
+          python -m aikito doctor --fix --no-color | Out-Null
+          $conflictAfter = Get-Content $conflictNote -Raw
+          if ($conflictBefore -ne $conflictAfter) {
+            throw "doctor --fix modified conflicted memory note"
+          }
+          Remove-Item $conflictNote
+
+          # Scenario 2: TOML conflict only (no conflicted note)
+          $skillsToml = Join-Path $wsDir "skills.toml"
+          $skillsBefore = Get-Content $skillsToml -Raw
+          @("<<<<<<< HEAD", 'skills = ["a"]', "=======", 'skills = ["b"]', ">>>>>>> branch") | Set-Content $skillsToml
+          $tomlConflictOutput = python -m aikito doctor --no-color | Out-String
+          if ($tomlConflictOutput -notmatch "skills.toml") {
+            throw "Doctor did not mention skills.toml for TOML conflict"
+          }
+          if ($tomlConflictOutput -notmatch "Git conflict marker detected") {
+            throw "Doctor did not report Git conflict markers in skills.toml"
+          }
+          if ($tomlConflictOutput -match "TOML parse error") {
+            throw "Doctor reported duplicate TOML parse error for conflicted TOML"
+          }
+          # doctor --fix must NOT modify the conflicted TOML file
+          $tomlBefore = Get-Content $skillsToml -Raw
+          python -m aikito doctor --fix --no-color | Out-Null
+          $tomlAfter = Get-Content $skillsToml -Raw
+          if ($tomlBefore -ne $tomlAfter) {
+            throw "doctor --fix modified conflicted TOML file"
+          }
+          # Restore clean skills.toml
+          Set-Content $skillsToml $skillsBefore
+
+          # Verify sync and prepare conflict pre-check on Windows
+          $exampleAgents = Join-Path $wsDir "projects\example\AGENTS.md"
+          $origAgents = Get-Content $exampleAgents -Raw
+          @("# Conflicted instructions", "<<<<<<< HEAD", "rule A", "=======", "rule B", ">>>>>>> branch") | Set-Content $exampleAgents
+
+          # Project.prepare() must fail with ProjectPrepareConflictError
+          $exampleProjDir = Join-Path $env:RUNNER_TEMP "example-project"
+          $env:AIKITO_SMOKE_PROJ_PATH = $exampleProjDir
+          python -c "
+          import os
+          from aikito import Project, ProjectPrepareConflictError
+          try:
+              Project.load('example').prepare(agent='pi', path=os.environ['AIKITO_SMOKE_PROJ_PATH'])
+              raise AssertionError('prepare() did not raise ProjectPrepareConflictError')
+          except ProjectPrepareConflictError as exc:
+              assert 'Git conflict marker detected' in str(exc)
+          "
+
+          # CLI sync project must fail and report conflict
+          $projSyncOutput = python -m aikito sync project example 2>&1 | Out-String
+          if ($projSyncOutput -notmatch "Git conflict marker detected") {
+            throw "Expected sync project to report Git conflict marker detected"
+          }
+
+          # Unrelated global sync must succeed despite project conflict
+          python -m aikito sync global
+
+          # Restore clean project instructions
+          Set-Content $exampleAgents $origAgents
+
+      - name: Verify Graceful Failure When Symlinks Unavailable
+        shell: pwsh
+        run: |
+          $noSymWs = Join-Path $env:RUNNER_TEMP "aikito-no-symlink-ws"
+          $env:AIKITO_DIR = $noSymWs
+          $env:AIKITO_FORCE_NO_SYMLINK = "1"
+          $output = python -m aikito init workspace "$noSymWs" 2>&1
+          if ($LASTEXITCODE -eq 0) { throw "Expected init workspace to fail without symlink support" }
+          if (-not ($output | Out-String | Select-String "Developer Mode")) {
+            throw "Expected Developer Mode guidance in failure output"
+          }
+          $global:LASTEXITCODE = 0
+          $env:AIKITO_FORCE_NO_SYMLINK = ""
