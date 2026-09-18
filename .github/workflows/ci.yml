@@ -1070,6 +1070,11 @@ jobs:
           test -L "$PROJ_LINK/.agents/skills/wrong-link-skill"
           test -f "$EXT_DIR/sentinel.txt"
           rm "$PROJ_LINK/.agents/skills/wrong-link-skill"
+          python3 -c "
+          from pathlib import Path
+          p = Path('$WS/projects/demo-link/agent.toml')
+          p.write_text(p.read_text().replace(', \"wrong-link-skill\"', ''))
+          "
 
           # External regular directory:
           # Deselected external directory with sentinel file must be preserved
