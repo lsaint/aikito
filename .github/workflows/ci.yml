@@ -1007,7 +1007,7 @@ jobs:
           PROJ_LINK=${{ runner.temp }}/macos-proj-link
 
           # 1. Managed broken link: canonical deleted while skill deselected
-          AIKITO_DIR=$WS python3 -m aikito add skill temp-broken-skill --description "Temp broken"
+          mkdir -p "$WS/skills/temp-broken-skill"
           printf "temp\n" > "$WS/skills/temp-broken-skill/SKILL.md"
           python3 -c "
           from pathlib import Path
@@ -1055,7 +1055,8 @@ jobs:
           printf "sentinel external data\n" > "$EXT_DIR/sentinel.txt"
 
           # Wrong target symlink: selected skill points to external resource
-          AIKITO_DIR=$WS python3 -m aikito add skill wrong-link-skill --description "Wrong link skill"
+          mkdir -p "$WS/skills/wrong-link-skill"
+          printf "canonical wrong link\n" > "$WS/skills/wrong-link-skill/SKILL.md"
           ln -s "$EXT_DIR" "$PROJ_LINK/.agents/skills/wrong-link-skill"
           python3 -c "
           from pathlib import Path
@@ -1070,6 +1071,7 @@ jobs:
           test -L "$PROJ_LINK/.agents/skills/wrong-link-skill"
           test -f "$EXT_DIR/sentinel.txt"
           rm "$PROJ_LINK/.agents/skills/wrong-link-skill"
+          rm -rf "$WS/skills/wrong-link-skill"
           python3 -c "
           from pathlib import Path
           p = Path('$WS/projects/demo-link/agent.toml')
@@ -1090,7 +1092,7 @@ jobs:
           p = Path('$WS/projects/demo-link/agent.toml')
           p.write_text(p.read_text().replace('skills = [\"test-link-skill\"]', 'skills = [\"test-link-skill\", \"local-custom-dir\"]'))
           "
-          AIKITO_DIR=$WS python3 -m aikito add skill local-custom-dir --description "Local custom skill"
+          mkdir -p "$WS/skills/local-custom-dir"
           printf "workspace different content\n" > "$WS/skills/local-custom-dir/SKILL.md"
           if AIKITO_DIR=$WS python3 -m aikito sync project demo-link 2>${{ runner.temp }}/ext-dir.err; then
             echo "Expected sync project to fail on external directory conflict"
@@ -1105,6 +1107,7 @@ jobs:
           p.write_text(p.read_text().replace(', \"local-custom-dir\"', ''))
           "
           rm -rf "$PROJ_LINK/.agents/skills/local-custom-dir"
+          rm -rf "$WS/skills/local-custom-dir"
 
       - name: macOS CLI smoke - Deselection Semantics (Link Cleaned, Copy Preserved)
         run: |
