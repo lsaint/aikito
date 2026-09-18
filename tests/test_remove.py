@@ -10,6 +10,7 @@ from aikito import cli as AIKITO_CLI
 from aikito.add import add_mcp, add_skill, add_subagent
 from aikito.init import init_project, init_workspace
 from aikito.remove import remove_mcp, remove_skill, remove_subagent
+from aikito.templating import load_agents_template
 
 
 class TestAikitoRemoveValidation(unittest.TestCase):
@@ -542,6 +543,7 @@ class TestAikitoRemoveSubagentLifecycle(unittest.TestCase):
         self.home.mkdir()
         self.ws = self.root / "workspace"
         init_workspace(self.ws, self.home)
+        (self.ws / "agents.toml").write_text(load_agents_template(), encoding="utf-8")
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -740,6 +742,7 @@ class TestAikitoRemoveMCPLifecycle(unittest.TestCase):
         self.home.mkdir()
         self.ws = self.root / "workspace"
         init_workspace(self.ws, self.home)
+        (self.ws / "agents.toml").write_text(load_agents_template(), encoding="utf-8")
 
     def tearDown(self) -> None:
         self.tmp.cleanup()

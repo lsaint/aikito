@@ -20,6 +20,7 @@ from aikito.add import (
 )
 from aikito.compat import is_windows
 from aikito.init import init_project, init_workspace
+from aikito.templating import load_agents_template
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -1208,6 +1209,9 @@ class TestAikitoAddSubagent(unittest.TestCase):
         self.home = Path(self.tmp_dir.name)
         self.aikito_dir = self.home / "aikito"
         init_workspace(self.aikito_dir, self.home)
+        (self.aikito_dir / "agents.toml").write_text(
+            load_agents_template(), encoding="utf-8"
+        )
 
     def tearDown(self) -> None:
         self.tmp_dir.cleanup()
@@ -1698,6 +1702,9 @@ class TestAikitoAddMCP(unittest.TestCase):
         self.home = Path(self.tmp_dir.name)
         self.aikito_dir = self.home / "aikito"
         init_workspace(self.aikito_dir, self.home)
+        (self.aikito_dir / "agents.toml").write_text(
+            load_agents_template(), encoding="utf-8"
+        )
 
     def tearDown(self) -> None:
         self.tmp_dir.cleanup()
