@@ -916,10 +916,14 @@ jobs:
     runs-on: macos-latest
     env:
       PYTHONPATH: src
-      HOME: ${{ runner.temp }}/macos-home
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set isolated HOME
+        run: |
+          mkdir -p "${{ runner.temp }}/macos-home"
+          echo "HOME=${{ runner.temp }}/macos-home" >> "$GITHUB_ENV"
 
       - name: Set up Python
         uses: actions/setup-python@v5
