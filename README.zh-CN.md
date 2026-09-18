@@ -14,9 +14,9 @@
 
 <p align="center">
   <a href="https://github.com/lsaint/aikito/releases"><img src="https://img.shields.io/github/v/release/lsaint/aikito" alt="Release"></a>
-  <a href="https://github.com/lsaint/aikito/actions/workflows/ci-ubuntu.yml"><img src="https://github.com/lsaint/aikito/actions/workflows/ci-ubuntu.yml/badge.svg" alt="Ubuntu CI"></a>
-  <a href="https://github.com/lsaint/aikito/actions/workflows/ci-macos.yml"><img src="https://github.com/lsaint/aikito/actions/workflows/ci-macos.yml/badge.svg" alt="macOS CI"></a>
-  <a href="https://github.com/lsaint/aikito/actions/workflows/ci-windows.yml"><img src="https://github.com/lsaint/aikito/actions/workflows/ci-windows.yml/badge.svg" alt="Windows CI"></a>
+  <a href="https://github.com/lsaint/aikito/actions/workflows/ci-macos.yml"><img src="https://img.shields.io/github/actions/workflow/status/lsaint/aikito/ci-macos.yml?logo=apple&label=&logoColor=white" alt="macOS CI"></a>
+  <a href="https://github.com/lsaint/aikito/actions/workflows/ci-ubuntu.yml"><img src="https://img.shields.io/github/actions/workflow/status/lsaint/aikito/ci-ubuntu.yml?logo=linux&label=" alt="Linux CI"></a>
+  <a href="https://github.com/lsaint/aikito/actions/workflows/ci-windows.yml"><img src="https://img.shields.io/github/actions/workflow/status/lsaint/aikito/ci-windows.yml?logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0wIDMuNDQ5TDkuNzUgMi4xdjkuNDUxSDBtMTAuOTQ5LTkuNjAyTDI0IDB2MTEuNEgxMC45NDlNMCAxMi42aDkuNzV2OS40NTFMMCAyMC42OTlNMTAuOTQ5IDEyLjZIMjRWMjRsLTEyLjkwMi0xLjc5OSIvPjwvc3ZnPg==&label=" alt="Windows CI"></a>
   <a href="https://github.com/lsaint/aikito/blob/main/LICENSE"><img src="https://img.shields.io/github/license/lsaint/aikito" alt="License"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.12%20%7C%203.13%20%7C%203.14-blue.svg" alt="Python 3.12 | 3.13 | 3.14"></a>
   <img src="https://img.shields.io/badge/dependencies-stdlib%20only-brightgreen.svg" alt="Dependencies: stdlib only">
