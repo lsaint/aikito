@@ -970,11 +970,14 @@ def cmd_add_mcp(args: argparse.Namespace) -> None:
     success = add_mcp(
         aikito_dir=aikito_dir,
         home=Path.home(),
-        name=args.name,
+        name=getattr(args, "name", None),
         transport=getattr(args, "transport", None),
         command=getattr(args, "command", None),
         url=getattr(args, "url", None),
         agents=agents_list,
+        from_source=getattr(args, "from_source", None),
+        sync=getattr(args, "sync", False),
+        force=getattr(args, "force", False),
     )
     if not success:
         sys.exit(1)
@@ -1900,9 +1903,20 @@ def build_parser() -> argparse.ArgumentParser:
     # add mcp
     p_add_mcp = add_subparsers.add_parser(
         "mcp",
-        help="Add a new canonical MCP server configuration",
+        help="Add a new canonical MCP server configuration or import from external source",
     )
-    p_add_mcp.add_argument("name", help="Name of the MCP server in kebab-case")
+    p_add_mcp.add_argument(
+        "name",
+        nargs="?",
+        default=None,
+        help="Name of the MCP server in kebab-case (inferred from --from if omitted)",
+    )
+    p_add_mcp.add_argument(
+        "--from",
+        dest="from_source",
+        default=None,
+        help="Path to an external configuration file (.json, .toml) or remote URL to import",
+    )
     p_add_mcp.add_argument(
         "--transport",
         choices=["stdio", "remote"],
@@ -1923,6 +1937,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--agents",
         default=None,
         help="Comma-separated list of target agent platforms (default: all configured)",
+    )
+    p_add_mcp.add_argument(
+        "--sync",
+        action="store_true",
+        help="Immediately synchronize the MCP server to configured agent runtimes",
+    )
+    p_add_mcp.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace an existing MCP server configuration with the imported configuration",
     )
     p_add_mcp.set_defaults(func=cmd_add_mcp)
 

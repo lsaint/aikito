@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import shutil
 import stat
@@ -1831,6 +1832,180 @@ class TestAikitoAddMCP(unittest.TestCase):
         self.assertIn(
             "--url is required when --transport is 'remote'", stderr_buf.getvalue()
         )
+
+    def test_add_mcp_from_remote_url(self) -> None:
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_mcp(
+                self.aikito_dir,
+                self.home,
+                from_source="https://example.com/v1/my-api",
+            )
+        self.assertTrue(success)
+        mcp_file = self.aikito_dir / "mcps" / "my-api.toml"
+        self.assertTrue(mcp_file.is_file())
+        with mcp_file.open("rb") as f:
+            data = tomllib.load(f)
+        self.assertEqual(data["transport"], "remote")
+        self.assertEqual(data["url"], "https://example.com/v1/my-api")
+        self.assertEqual(
+            data["agents"],
+            ["codex", "claude-code", "opencode", "agy", "github-copilot"],
+        )
+
+    def test_add_mcp_from_json_file(self) -> None:
+        cfg = self.home / "weather.json"
+        cfg.write_text(
+            json.dumps(
+                {
+                    "url": "https://weather.example.com/mcp",
+                    "headers": {"Authorization": "Bearer key123"},
+                }
+            ),
+            encoding="utf-8",
+        )
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_mcp(
+                self.aikito_dir,
+                self.home,
+                from_source=cfg,
+            )
+        self.assertTrue(success)
+        mcp_file = self.aikito_dir / "mcps" / "weather.toml"
+        self.assertTrue(mcp_file.is_file())
+        with mcp_file.open("rb") as f:
+            data = tomllib.load(f)
+        self.assertEqual(data["transport"], "remote")
+        self.assertEqual(data["url"], "https://weather.example.com/mcp")
+        self.assertEqual(data["headers"]["Authorization"], "Bearer key123")
+
+    def test_add_mcp_from_multiserver_json_with_name(self) -> None:
+        cfg = self.home / "claude_desktop.json"
+        cfg.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "github_tool": {"url": "https://api.github.com/mcp"},
+                        "local_stdio": {"command": "npx"},
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_mcp(
+                self.aikito_dir,
+                self.home,
+                name="github-tool",
+                from_source=cfg,
+                agents=["claude-code", "codex"],
+            )
+        self.assertTrue(success)
+        mcp_file = self.aikito_dir / "mcps" / "github-tool.toml"
+        self.assertTrue(mcp_file.is_file())
+        with mcp_file.open("rb") as f:
+            data = tomllib.load(f)
+        self.assertEqual(data["transport"], "remote")
+        self.assertEqual(data["url"], "https://api.github.com/mcp")
+        self.assertEqual(data["agents"], ["claude-code", "codex"])
+
+    def test_add_mcp_from_multiserver_ambiguous_error(self) -> None:
+        cfg = self.home / "multi.json"
+        cfg.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "server_a": {"url": "https://a.com"},
+                        "server_b": {"url": "https://b.com"},
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_mcp(
+                self.aikito_dir,
+                self.home,
+                from_source=cfg,
+            )
+        self.assertFalse(success)
+        self.assertIn("multiple MCP servers", stderr_buf.getvalue())
+
+    def test_add_mcp_rejects_stdio_import(self) -> None:
+        cfg = self.home / "stdio_only.json"
+        cfg.write_text(
+            json.dumps({"command": "npx", "args": ["-y", "pkg"]}),
+            encoding="utf-8",
+        )
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_mcp(
+                self.aikito_dir,
+                self.home,
+                name="stdio-only",
+                from_source=cfg,
+            )
+        self.assertFalse(success)
+        self.assertIn(
+            "supports synchronizing remote MCP servers", stderr_buf.getvalue()
+        )
+
+    def test_add_mcp_force_overwrite(self) -> None:
+        add_mcp(
+            self.aikito_dir,
+            self.home,
+            name="overwrite-me",
+            url="https://old.example.com",
+        )
+        # Without force
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_mcp(
+                self.aikito_dir,
+                self.home,
+                name="overwrite-me",
+                url="https://new.example.com",
+                force=False,
+            )
+        self.assertFalse(success)
+        self.assertIn("already exists", stderr_buf.getvalue())
+
+        # With force
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_mcp(
+                self.aikito_dir,
+                self.home,
+                name="overwrite-me",
+                url="https://new.example.com",
+                force=True,
+            )
+        self.assertTrue(success)
+        mcp_file = self.aikito_dir / "mcps" / "overwrite-me.toml"
+        with mcp_file.open("rb") as f:
+            data = tomllib.load(f)
+        self.assertEqual(data["url"], "https://new.example.com")
+        self.assertIn("[UPDATE FILE]", stdout_buf.getvalue())
+
+    def test_add_mcp_with_sync(self) -> None:
+        with patch("aikito.mcp.sync_mcp_configs", return_value=True) as mock_sync:
+            stdout_buf = io.StringIO()
+            with redirect_stdout(stdout_buf):
+                success = add_mcp(
+                    self.aikito_dir,
+                    self.home,
+                    name="sync-remote",
+                    url="https://sync.example.com",
+                    sync=True,
+                )
+            self.assertTrue(success)
+            self.assertTrue(mock_sync.called)
+            self.assertIn(
+                "[SYNC] Synchronizing MCP server 'sync-remote'", stdout_buf.getvalue()
+            )
 
 
 if __name__ == "__main__":

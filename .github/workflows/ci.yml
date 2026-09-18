@@ -548,6 +548,20 @@ jobs:
           test ! -e ${{ runner.temp }}/aikito-ws/mcps/smoke-mcp.toml
           ! grep -q "smoke_mcp" ~/.codex/config.toml
 
+          # Verify add mcp with --from, --sync, and --force
+          echo '{"url": "https://example.com/from-json"}' > ${{ runner.temp }}/ext-mcp.json
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito add mcp imported-mcp --from ${{ runner.temp }}/ext-mcp.json --sync
+          test -f ${{ runner.temp }}/aikito-ws/mcps/imported-mcp.toml
+          grep -q "imported_mcp" ~/.codex/config.toml
+          echo '{"url": "https://example.com/from-json-v2"}' > ${{ runner.temp }}/ext-mcp.json
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito add mcp imported-mcp --from ${{ runner.temp }}/ext-mcp.json --force --sync
+          grep -q "https://example.com/from-json-v2" ${{ runner.temp }}/aikito-ws/mcps/imported-mcp.toml
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm mcp imported-mcp --sync
+          test ! -e ${{ runner.temp }}/aikito-ws/mcps/imported-mcp.toml
+
           # Verify conflict protection: tamper with managed agent config and assert rm mcp --sync blocks
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito add mcp conflict-mcp --url "https://example.com/conflict"
@@ -1082,6 +1096,16 @@ jobs:
           if (-not (Test-Path $winForceMcpFile)) { throw "Win force MCP toml missing" }
           python -m aikito rm mcp win-force-mcp --force
           if (Test-Path $winForceMcpFile) { throw "Win force MCP toml was not deleted after rm --force" }
+          # Test add mcp with --from and --force
+          $extMcpJson = Join-Path $wsDir "ext-mcp.json"
+          @('{"url": "https://example.com/win-imported"}') | Set-Content $extMcpJson
+          python -m aikito add mcp win-imported --from $extMcpJson
+          $winImportedFile = Join-Path $wsDir "mcps\win-imported.toml"
+          if (-not (Test-Path $winImportedFile)) { throw "Win imported MCP toml missing" }
+          @('{"url": "https://example.com/win-imported-v2"}') | Set-Content $extMcpJson
+          python -m aikito add mcp win-imported --from $extMcpJson --force
+          python -m aikito rm mcp win-imported
+          if (Test-Path $winImportedFile) { throw "Win imported MCP toml was not deleted after rm" }
           $globalNote = Join-Path $wsDir "memory\notes\windows-memory.md"
           @("# Windows Memory") | Set-Content $globalNote
           $projectNote = Join-Path $wsDir "projects\example\memory\notes\windows-project-memory.md"

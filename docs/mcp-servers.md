@@ -90,6 +90,34 @@ secret tokens, and password fields in managed entries are redacted, while enviro
 variable references remain visible for diagnostics. Unmanaged entries are listed
 by name and status without printing their content.
 
+## Add or Import MCP Servers
+
+Create a new canonical MCP server configuration with a remote URL:
+
+```bash
+aikito add mcp github-mcp --url https://api.githubcopilot.com/mcp
+```
+
+Import from an external configuration file or remote endpoint:
+
+```bash
+# Import from a remote URL directly (infers name from URL path)
+aikito add mcp --from https://example.com/v1/mcp --sync
+
+# Import from a single JSON or TOML server definition
+aikito add mcp weather --from ./weather.json --sync
+
+# Import from multi-server Agent configuration (e.g. Claude Desktop)
+aikito add mcp github --from ~/.config/Claude/claude_desktop_config.json --sync
+
+# Atomically replace an existing configuration
+aikito add mcp weather --from ./weather-v2.json --force --sync
+```
+
+- `--from <source>`: Path to a local `.json` / `.toml` configuration file or remote HTTP/HTTPS URL. Server name is inferred from the filename or key when omitted.
+- `--sync`: Immediately synchronizes the added MCP server into configured Agent runtimes.
+- `--force`: Atomically replaces an existing MCP server definition in `mcps/<name>.toml`.
+
 ## Authentication
 
 Authenticate a configured server for a specific Agent with:

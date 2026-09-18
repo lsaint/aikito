@@ -29,7 +29,7 @@ version.
 | `aikito init project [name] [path] [--description <text>]` | Register a code project and synchronize its `.agents/` runtime |
 | `aikito add skill [name] [--from <path>] [--force] [--project <projects>] [--sync]` | Create or import a canonical skill; use `--force` with `--from` to replace an existing imported snapshot |
 | `aikito add subagent [name] [--from <path>] [--description <desc>] [--agents <list>] [--sync] [--force]` | Create a canonical subagent skeleton or import from external markdown source; use `--force` with `--from` to replace |
-| `aikito add mcp <name>` | Create a canonical MCP server configuration in `mcps/<name>.toml` |
+| `aikito add mcp [name] [--from <source>] [--url <url>] [--agents <list>] [--sync] [--force]` | Create a canonical MCP server configuration or import from an external file (.json, .toml) or remote URL |
 | `aikito adopt [path] [--dry-run] [--verbose] [--skip <resource>]` | Preflight existing local configuration, then import it only when the complete plan is safe |
 | `aikito status` | Show the synchronization dashboard |
 | `aikito diff` | Show unified diffs for drifted MCP, subagent, and copied project skill resources |

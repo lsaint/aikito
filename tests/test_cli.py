@@ -2415,6 +2415,62 @@ url = "http://custom.example.com"
         self.assertTrue((self.aikito_dir / "mcps" / "cli-mcp.toml").is_file())
         self.assertIn("[SUCCESS] Added MCP server 'cli-mcp'.", mock_stdout.getvalue())
 
+    def test_add_mcp_cli_from_url_and_sync(self) -> None:
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch("aikito.mcp.sync_mcp_configs", return_value=True) as mock_sync,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                [
+                    "add",
+                    "mcp",
+                    "cli-remote",
+                    "--from",
+                    "https://example.com/remote-mcp",
+                    "--sync",
+                ]
+            )
+            args.func(args)
+
+        self.assertTrue((self.aikito_dir / "mcps" / "cli-remote.toml").is_file())
+        self.assertIn(
+            "[SUCCESS] Added MCP server 'cli-remote'.", mock_stdout.getvalue()
+        )
+        self.assertTrue(mock_sync.called)
+
+    def test_add_mcp_cli_from_json_and_force(self) -> None:
+        cfg = self.home / "cli-server.json"
+        cfg.write_text('{"url": "https://init.example.com"}', encoding="utf-8")
+        (self.aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
+        (self.aikito_dir / "mcps" / "cli-server.toml").write_text(
+            'transport = "remote"\nurl = "https://old.example.com"\nagents = ["codex"]\n',
+            encoding="utf-8",
+        )
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                [
+                    "add",
+                    "mcp",
+                    "--from",
+                    str(cfg),
+                    "--force",
+                ]
+            )
+            args.func(args)
+
+        content = (self.aikito_dir / "mcps" / "cli-server.toml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("https://init.example.com", content)
+        self.assertIn("[UPDATE FILE]", mock_stdout.getvalue())
+
 
 class TestMemoryRenameAndRemove(unittest.TestCase):
     def setUp(self) -> None:

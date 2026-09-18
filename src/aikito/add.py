@@ -14,6 +14,7 @@ import tempfile
 import tomllib
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
+from urllib.parse import urlsplit
 
 from .compat import safe_relative_path
 from .subagent import KNOWN_PLATFORM_FIELDS
@@ -1588,17 +1589,234 @@ Add developer instructions for the {name_clean} subagent here.
     return True
 
 
+@dataclass
+class ImportedMCP:
+    name: Optional[str] = None
+    transport: str = "remote"
+    url: Optional[str] = None
+    headers: Optional[Dict[str, str]] = None
+    agents: Optional[List[str]] = None
+    source_path: Optional[str] = None
+
+
+def _resolve_mcp_source(
+    from_source: Union[str, Path],
+    name: Optional[str],
+    home: Path,
+) -> ImportedMCP:
+    """
+    Resolve and parse an external MCP source (file or remote URL).
+    Currently supports importing remote MCP configurations.
+    """
+    from .mcp import _parse_jsonc
+
+    # Check if from_source is a remote URL
+    if isinstance(from_source, str) and (
+        from_source.startswith("http://") or from_source.startswith("https://")
+    ):
+        parsed = urlsplit(from_source)
+        if not parsed.netloc:
+            raise ValueError(f"Invalid remote MCP URL: {from_source}")
+
+        inferred_name = None
+        if name and name.strip():
+            inferred_name = name.strip()
+        else:
+            path_parts = [p for p in parsed.path.split("/") if p]
+            if path_parts:
+                candidate = path_parts[-1]
+                if candidate.endswith(".git"):
+                    candidate = candidate[:-4]
+                candidate = candidate.replace("_", "-").lower()
+                if validate_resource_name(candidate, "mcp") is None:
+                    inferred_name = candidate
+
+        return ImportedMCP(
+            name=inferred_name,
+            transport="remote",
+            url=from_source,
+            source_path=from_source,
+        )
+
+    # Otherwise treated as a local file path
+    source_path = Path(from_source).expanduser().resolve()
+    if not source_path.exists():
+        raise ValueError(f"Source file does not exist: {from_source}")
+    if not source_path.is_file():
+        raise ValueError(
+            f"Source path must be a JSON or TOML file: {_display_path(source_path, home)}"
+        )
+
+    ext = source_path.suffix.lower()
+    if ext not in (".json", ".jsonc", ".toml"):
+        raise ValueError(
+            f"Unsupported file format '{source_path.name}'. Expected .json, .jsonc, or .toml"
+        )
+
+    content = source_path.read_text(encoding="utf-8")
+    server_cfg: Dict[str, Any] = {}
+    inferred_name: Optional[str] = None
+
+    if ext == ".toml":
+        try:
+            doc = tomllib.loads(content)
+        except Exception as exc:
+            raise ValueError(
+                f"Failed to parse TOML from '{_display_path(source_path, home)}': {exc}"
+            ) from exc
+
+        servers_dict = doc.get("servers") or doc.get("mcp_servers")
+        if isinstance(servers_dict, dict):
+            if name and name.strip():
+                target_key = name.strip()
+                matched = None
+                for k in servers_dict:
+                    if (
+                        k == target_key
+                        or k.replace("_", "-") == target_key
+                        or k.replace("-", "_") == target_key
+                    ):
+                        matched = k
+                        break
+                if not matched:
+                    raise ValueError(
+                        f"Server '{target_key}' not found in '{_display_path(source_path, home)}'."
+                    )
+                server_cfg = servers_dict[matched]
+                inferred_name = target_key
+            else:
+                if len(servers_dict) == 1:
+                    key = next(iter(servers_dict.keys()))
+                    server_cfg = servers_dict[key]
+                    inferred_name = key.replace("_", "-").lower()
+                elif len(servers_dict) > 1:
+                    available = ", ".join(sorted(servers_dict.keys()))
+                    raise ValueError(
+                        f"Source file contains multiple MCP servers ({available}). Please specify which server to import via 'name'."
+                    )
+                else:
+                    raise ValueError(
+                        f"No MCP servers found in '{_display_path(source_path, home)}'."
+                    )
+        else:
+            server_cfg = doc
+            inferred_name = name.strip() if name and name.strip() else source_path.stem
+    else:
+        # JSON or JSONC
+        try:
+            doc = json.loads(content)
+        except Exception:
+            try:
+                doc = _parse_jsonc(content)
+            except Exception as exc:
+                raise ValueError(
+                    f"Failed to parse JSON from '{_display_path(source_path, home)}': {exc}"
+                ) from exc
+
+        if not isinstance(doc, dict):
+            raise ValueError(
+                f"JSON content in '{_display_path(source_path, home)}' must be an object."
+            )
+
+        servers_dict = (
+            doc.get("mcpServers") or doc.get("mcp_servers") or doc.get("servers")
+        )
+        if isinstance(servers_dict, dict):
+            if name and name.strip():
+                target_key = name.strip()
+                matched = None
+                for k in servers_dict:
+                    if (
+                        k == target_key
+                        or k.replace("_", "-") == target_key
+                        or k.replace("-", "_") == target_key
+                    ):
+                        matched = k
+                        break
+                if not matched:
+                    raise ValueError(
+                        f"Server '{target_key}' not found in '{_display_path(source_path, home)}'."
+                    )
+                server_cfg = servers_dict[matched]
+                inferred_name = target_key
+            else:
+                if len(servers_dict) == 1:
+                    key = next(iter(servers_dict.keys()))
+                    server_cfg = servers_dict[key]
+                    inferred_name = key.replace("_", "-").lower()
+                elif len(servers_dict) > 1:
+                    available = ", ".join(sorted(servers_dict.keys()))
+                    raise ValueError(
+                        f"Source file contains multiple MCP servers ({available}). Please specify which server to import via 'name'."
+                    )
+                else:
+                    raise ValueError(
+                        f"No MCP servers found in '{_display_path(source_path, home)}'."
+                    )
+        else:
+            server_cfg = doc
+            inferred_name = name.strip() if name and name.strip() else source_path.stem
+
+    if not isinstance(server_cfg, dict):
+        raise ValueError(
+            f"MCP server configuration in '{_display_path(source_path, home)}' must be a dictionary/table."
+        )
+
+    # Extract fields
+    url = server_cfg.get("url") or server_cfg.get("serverUrl")
+    command = server_cfg.get("command")
+
+    if not url:
+        if command:
+            raise ValueError(
+                f"Aikito currently supports synchronizing remote MCP servers. Stdio server '{inferred_name or name}' without a URL cannot be imported as a remote MCP."
+            )
+        raise ValueError(
+            f"No remote URL found for MCP server in '{_display_path(source_path, home)}'."
+        )
+
+    if not isinstance(url, str) or not (
+        url.startswith("http://") or url.startswith("https://")
+    ):
+        raise ValueError(
+            f"Invalid remote MCP URL '{url}': must begin with http:// or https://"
+        )
+
+    headers_val = server_cfg.get("headers")
+    headers: Optional[Dict[str, str]] = None
+    if isinstance(headers_val, dict):
+        headers = {str(k): str(v) for k, v in headers_val.items()}
+
+    agents_val = server_cfg.get("agents")
+    agents: Optional[List[str]] = None
+    if isinstance(agents_val, list) and agents_val:
+        agents = [str(a).strip() for a in agents_val if str(a).strip()]
+
+    return ImportedMCP(
+        name=inferred_name,
+        transport="remote",
+        url=url,
+        headers=headers,
+        agents=agents,
+        source_path=str(source_path),
+    )
+
+
 def add_mcp(
     aikito_dir: Path,
     home: Path,
-    name: str,
+    name: Optional[str] = None,
     transport: Optional[str] = None,
     command: Optional[str] = None,
     url: Optional[str] = None,
     agents: Optional[List[str]] = None,
+    headers: Optional[Dict[str, str]] = None,
+    from_source: Optional[Union[str, Path]] = None,
+    sync: bool = False,
+    force: bool = False,
 ) -> bool:
     """
-    Create canonical MCP configuration (mcps/<name>.toml) with minimal valid schema.
+    Create canonical MCP configuration (mcps/<name>.toml) or import from external source.
     """
     aikito_dir = aikito_dir.expanduser().resolve()
     home = home.expanduser().resolve()
@@ -1606,6 +1824,41 @@ def add_mcp(
     ws_error = _check_workspace_initialized(aikito_dir)
     if ws_error:
         print(f"[ERROR] {ws_error}", file=sys.stderr)
+        return False
+
+    if force and from_source is None and url is None and command is None:
+        print(
+            "[ERROR] --force requires --from or server configuration arguments when updating an MCP server.",
+            file=sys.stderr,
+        )
+        return False
+
+    imported: Optional[ImportedMCP] = None
+    if from_source is not None:
+        try:
+            imported = _resolve_mcp_source(
+                from_source=from_source, name=name, home=home
+            )
+        except ValueError as exc:
+            print(f"[ERROR] {exc}", file=sys.stderr)
+            return False
+
+        if not name and imported.name:
+            name = imported.name
+        if not url and imported.url:
+            url = imported.url
+        if not transport and imported.transport:
+            transport = imported.transport
+        if not headers and imported.headers:
+            headers = imported.headers
+        if agents is None and imported.agents:
+            agents = imported.agents
+
+    if not name or not name.strip():
+        print(
+            "[ERROR] MCP server name is required. Please specify a name or provide a source via --from.",
+            file=sys.stderr,
+        )
         return False
 
     name_clean = name.strip()
@@ -1621,7 +1874,8 @@ def add_mcp(
 
     if transport == "stdio" and url:
         print(
-            "[ERROR] Cannot specify --url when --transport is 'stdio'.", file=sys.stderr
+            "[ERROR] Cannot specify --url when --transport is 'stdio'.",
+            file=sys.stderr,
         )
         return False
 
@@ -1634,16 +1888,18 @@ def add_mcp(
 
     if transport == "remote" and not url:
         print(
-            "[ERROR] --url is required when --transport is 'remote'.", file=sys.stderr
+            "[ERROR] --url is required when --transport is 'remote'.",
+            file=sys.stderr,
         )
         return False
 
     mcps_dir = aikito_dir / "mcps"
     mcp_file = mcps_dir / f"{name_clean}.toml"
 
-    if mcp_file.exists():
+    file_already_exists = mcp_file.exists()
+    if file_already_exists and not force:
         print(
-            f"[ERROR] MCP server config already exists at {_display_path(mcp_file, home)}",
+            f"[ERROR] MCP server config already exists at {_display_path(mcp_file, home)}. Use --force to overwrite.",
             file=sys.stderr,
         )
         return False
@@ -1656,10 +1912,18 @@ def add_mcp(
     agents_json = json.dumps(target_agents, ensure_ascii=False)
 
     if is_remote:
-        mcp_content = f"""transport = "remote"
-url = {json.dumps(url, ensure_ascii=False)}
-agents = {agents_json}
-"""
+        lines = [
+            'transport = "remote"',
+            f"url = {json.dumps(url, ensure_ascii=False)}",
+            f"agents = {agents_json}",
+        ]
+        if headers:
+            headers_parts = [
+                f"{_format_toml_key(k)} = {_format_toml_value(v)}"
+                for k, v in sorted(headers.items())
+            ]
+            lines.append(f"headers = {{ {', '.join(headers_parts)} }}")
+        mcp_content = "\n".join(lines) + "\n"
     else:
         cmd_val = command if command else "npx"
         mcp_content = f"""command = {json.dumps(cmd_val, ensure_ascii=False)}
@@ -1677,20 +1941,71 @@ agents = {agents_json}
         )
         return False
 
+    backup_dir = None
+    staged_backup = None
+    if file_already_exists:
+        try:
+            backup_dir = Path(
+                tempfile.mkdtemp(
+                    prefix=f".{name_clean}.add_backup.",
+                    dir=mcps_dir,
+                )
+            )
+            staged_backup = backup_dir / mcp_file.name
+            shutil.copy2(mcp_file, staged_backup)
+        except Exception as exc:
+            if backup_dir:
+                shutil.rmtree(backup_dir, ignore_errors=True)
+            print(
+                f"[ERROR] Failed to backup existing MCP config file: {exc}",
+                file=sys.stderr,
+            )
+            return False
+
     try:
         mcps_dir.mkdir(parents=True, exist_ok=True)
         _atomic_write_text(mcp_file, mcp_content, encoding="utf-8")
     except Exception as exc:
-        if mcp_file.exists():
+        if staged_backup and staged_backup.exists():
+            staged_backup.replace(mcp_file)
+        elif mcp_file.exists() and not file_already_exists:
             mcp_file.unlink(missing_ok=True)
+        if backup_dir:
+            shutil.rmtree(backup_dir, ignore_errors=True)
         print(f"[ERROR] Failed to write MCP config: {exc}", file=sys.stderr)
         return False
 
-    print(f"[CREATE FILE] {_display_path(mcp_file, home)}")
-    print(f"\n[SUCCESS] Added MCP server '{name_clean}'.")
-    print("💡 Next steps:")
-    print(
-        f"  1. Configure server in {_display_path(mcp_file, home)} (or run 'aikito edit mcp {name_clean}')"
-    )
-    print("  2. Synchronize to agents: aikito sync mcp")
+    if backup_dir:
+        shutil.rmtree(backup_dir, ignore_errors=True)
+
+    if file_already_exists:
+        print(f"[UPDATE FILE] {_display_path(mcp_file, home)}")
+        print(f"\n[SUCCESS] Updated MCP server '{name_clean}'.")
+    else:
+        print(f"[CREATE FILE] {_display_path(mcp_file, home)}")
+        print(f"\n[SUCCESS] Added MCP server '{name_clean}'.")
+
+    if sync:
+        print(
+            f"\n[SYNC] Synchronizing MCP server '{name_clean}' to target agent platforms..."
+        )
+        try:
+            from .mcp import MCPConfigError, sync_mcp_configs
+
+            sync_ok = sync_mcp_configs(
+                aikito_dir=aikito_dir,
+                home=home,
+                force=force,
+            )
+            if not sync_ok:
+                return False
+        except MCPConfigError as exc:
+            print(f"[ERROR] {exc}", file=sys.stderr)
+            return False
+    else:
+        print("💡 Next steps:")
+        print(
+            f"  1. Configure server in {_display_path(mcp_file, home)} (or run 'aikito edit mcp {name_clean}')"
+        )
+        print("  2. Synchronize to agents: aikito sync mcp")
     return True
