@@ -128,6 +128,9 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("edit\\ inbox", zsh)
         self.assertIn("rm\\ inbox", zsh)
         self.assertIn("rm\\ skill", zsh)
+        self.assertIn("add\\ skill", zsh)
+        self.assertIn("add\\ subagent", zsh)
+        self.assertIn("add\\ mcp", zsh)
         self.assertIn("--dry-run", zsh)
         self.assertNotIn("--apply", zsh)
         self.assertIn("--prune", zsh)
@@ -143,6 +146,9 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("edit\\ inbox", bash)
         self.assertIn("rm\\ inbox", bash)
         self.assertIn("rm\\ skill", bash)
+        self.assertIn("add\\ skill", bash)
+        self.assertIn("add\\ subagent", bash)
+        self.assertIn("add\\ mcp", bash)
         self.assertIn("--dry-run", bash)
         self.assertNotIn("--apply", bash)
         self.assertIn("--prune", bash)
@@ -158,7 +164,15 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
             "show edit rm remove; and __fish_seen_subcommand_from inbox", fish
         )
         self.assertIn(
-            "show edit rm remove; and __fish_seen_subcommand_from skill skills",
+            "show edit rm remove add; and __fish_seen_subcommand_from skill skills",
+            fish,
+        )
+        self.assertIn(
+            "show edit rm remove add; and __fish_seen_subcommand_from subagent subagents",
+            fish,
+        )
+        self.assertIn(
+            "show edit rm remove add; and __fish_seen_subcommand_from mcp mcps",
             fish,
         )
         self.assertIn("-l dry-run", fish)

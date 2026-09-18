@@ -104,19 +104,21 @@ Import from an external configuration file or remote endpoint:
 # Import from a remote URL directly (infers name from URL path)
 aikito add mcp --from https://example.com/v1/mcp --sync
 
-# Import from a single JSON or TOML server definition
+# Import from a single JSON or TOML server definition (must contain a remote URL)
 aikito add mcp weather --from ./weather.json --sync
-
-# Import from multi-server Agent configuration (e.g. Claude Desktop)
-aikito add mcp github --from ~/.config/Claude/claude_desktop_config.json --sync
 
 # Atomically replace an existing configuration
 aikito add mcp weather --from ./weather-v2.json --force --sync
 ```
 
+> **Note:** `--from` only supports remote MCP servers (entries that carry an HTTP/HTTPS `url`).
+> Stdio-only entries (`command` / `args` / `env` without a `url`) are not importable and will produce an error.
+> To import a server from a multi-server file such as `claude_desktop_config.json`, the target entry must expose a remote URL; pass `--name <server>` to select it.
+
 - `--from <source>`: Path to a local `.json` / `.toml` configuration file or remote HTTP/HTTPS URL. Server name is inferred from the filename or key when omitted.
-- `--sync`: Immediately synchronizes the added MCP server into configured Agent runtimes.
-- `--force`: Atomically replaces an existing MCP server definition in `mcps/<name>.toml`.
+- `--sync`: Immediately synchronizes the added MCP server into configured Agent runtimes. Aikito executes a preflight dry-run check first: if any Agent encounters a configuration conflict, no Agent runtime file is touched and the canonical file is safely rolled back. If any runtime write fails mid-sync, all already-written Agent configs are atomically restored.
+- `--force`: Atomically replaces an existing canonical definition in `mcps/<name>.toml` while preserving existing `overrides`, `authentication`, and custom `agents` tables (unless explicitly specified). This only applies to the canonical file and does not bypass downstream Agent conflict protections during `--sync`.
+- **Credential Protection**: Plaintext secrets in headers (such as `Authorization: Bearer <token>`, `X-Password`, or `Cookie`) are automatically sanitized into secure environment variable references (`${AIKITO_<SERVER>_<KEY>}`) to prevent credential leakage into Git. The CLI outputs only the variable *name* — never the secret value — along with instructions to set it at runtime. URL-embedded credentials (userinfo and sensitive query parameters such as `?token=`) are also stripped. Valid environment references (`${VAR}`, `{env:VAR}`, `!!js process.env.VAR`) are preserved intact.
 
 ## Authentication
 

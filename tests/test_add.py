@@ -1853,7 +1853,7 @@ class TestAikitoAddMCP(unittest.TestCase):
             ["codex", "claude-code", "opencode", "agy", "github-copilot"],
         )
 
-    def test_add_mcp_from_json_file(self) -> None:
+    def test_add_mcp_from_json_file_sanitizes_secret_header(self) -> None:
         cfg = self.home / "weather.json"
         cfg.write_text(
             json.dumps(
@@ -1865,7 +1865,8 @@ class TestAikitoAddMCP(unittest.TestCase):
             encoding="utf-8",
         )
         stdout_buf = io.StringIO()
-        with redirect_stdout(stdout_buf):
+        stderr_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
             success = add_mcp(
                 self.aikito_dir,
                 self.home,
@@ -1878,7 +1879,38 @@ class TestAikitoAddMCP(unittest.TestCase):
             data = tomllib.load(f)
         self.assertEqual(data["transport"], "remote")
         self.assertEqual(data["url"], "https://weather.example.com/mcp")
-        self.assertEqual(data["headers"]["Authorization"], "Bearer key123")
+        # Assert secret was sanitized to an environment variable reference
+        self.assertEqual(
+            data["headers"]["Authorization"], "${AIKITO_WEATHER_AUTHORIZATION}"
+        )
+        self.assertIn("[SECURITY]", stderr_buf.getvalue())
+
+    def test_add_mcp_preserves_env_reference_header(self) -> None:
+        cfg = self.home / "custom.json"
+        cfg.write_text(
+            json.dumps(
+                {
+                    "url": "https://custom.example.com/mcp",
+                    "headers": {"X-Custom": "safe-value", "Token": "${CUSTOM_TOKEN}"},
+                }
+            ),
+            encoding="utf-8",
+        )
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+            success = add_mcp(
+                self.aikito_dir,
+                self.home,
+                from_source=cfg,
+            )
+        self.assertTrue(success)
+        mcp_file = self.aikito_dir / "mcps" / "custom.toml"
+        with mcp_file.open("rb") as f:
+            data = tomllib.load(f)
+        self.assertEqual(data["headers"]["X-Custom"], "safe-value")
+        self.assertEqual(data["headers"]["Token"], "${CUSTOM_TOKEN}")
+        self.assertNotIn("[SECURITY]", stderr_buf.getvalue())
 
     def test_add_mcp_from_multiserver_json_with_name(self) -> None:
         cfg = self.home / "claude_desktop.json"
@@ -1953,59 +1985,515 @@ class TestAikitoAddMCP(unittest.TestCase):
             "supports synchronizing remote MCP servers", stderr_buf.getvalue()
         )
 
-    def test_add_mcp_force_overwrite(self) -> None:
-        add_mcp(
-            self.aikito_dir,
-            self.home,
-            name="overwrite-me",
-            url="https://old.example.com",
-        )
-        # Without force
-        stderr_buf = io.StringIO()
-        with redirect_stderr(stderr_buf):
-            success = add_mcp(
-                self.aikito_dir,
-                self.home,
-                name="overwrite-me",
-                url="https://new.example.com",
-                force=False,
-            )
-        self.assertFalse(success)
-        self.assertIn("already exists", stderr_buf.getvalue())
+    def test_add_mcp_force_preserves_customizations(self) -> None:
+        # Create an existing server with custom agents, authentication, and overrides
+        (self.aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
+        mcp_file = self.aikito_dir / "mcps" / "preserve-test.toml"
+        mcp_file.write_text(
+            """
+transport = "remote"
+url = "https://old.example.com"
+agents = ["codex", "claude-code"]
 
-        # With force
+[authentication]
+account_email = "user@test.org"
+token_env = "TEST_PAT"
+authorization_env = "TEST_AUTH"
+
+[overrides.opencode]
+timeout = 45000
+enabled = false
+reason = "Testing preserve"
+""".lstrip(),
+            encoding="utf-8",
+        )
+
+        # Force update with only a new URL and no agents specified
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf):
             success = add_mcp(
                 self.aikito_dir,
                 self.home,
-                name="overwrite-me",
+                name="preserve-test",
                 url="https://new.example.com",
                 force=True,
             )
         self.assertTrue(success)
-        mcp_file = self.aikito_dir / "mcps" / "overwrite-me.toml"
+
         with mcp_file.open("rb") as f:
             data = tomllib.load(f)
+        # URL updated
         self.assertEqual(data["url"], "https://new.example.com")
-        self.assertIn("[UPDATE FILE]", stdout_buf.getvalue())
+        # Custom agents preserved
+        self.assertEqual(data["agents"], ["codex", "claude-code"])
+        # Authentication block preserved
+        self.assertIn("authentication", data)
+        self.assertEqual(data["authentication"]["account_email"], "user@test.org")
+        self.assertEqual(data["authentication"]["token_env"], "TEST_PAT")
+        # Overrides block preserved
+        self.assertIn("overrides", data)
+        self.assertEqual(data["overrides"]["opencode"]["timeout"], 45000)
+        self.assertFalse(data["overrides"]["opencode"]["enabled"])
+        self.assertEqual(data["overrides"]["opencode"]["reason"], "Testing preserve")
 
-    def test_add_mcp_with_sync(self) -> None:
+    def test_add_mcp_sync_failure_reverts_file(self) -> None:
+        # 1. New file creation: sync failure unlinks newly created file
+        with patch("aikito.mcp.sync_mcp_configs", return_value=False):
+            stderr_buf = io.StringIO()
+            with redirect_stderr(stderr_buf):
+                success = add_mcp(
+                    self.aikito_dir,
+                    self.home,
+                    name="fail-sync-new",
+                    url="https://fail.example.com",
+                    sync=True,
+                )
+            self.assertFalse(success)
+            self.assertFalse((self.aikito_dir / "mcps" / "fail-sync-new.toml").exists())
+            self.assertIn("Reverted changes", stderr_buf.getvalue())
+
+        # 2. Existing file update: sync failure restores original content
+        mcp_file = self.aikito_dir / "mcps" / "fail-sync-existing.toml"
+        mcp_file.write_text(
+            'transport = "remote"\nurl = "https://original.com"\nagents = ["codex"]\n',
+            encoding="utf-8",
+        )
+        with patch("aikito.mcp.sync_mcp_configs", return_value=False):
+            stderr_buf = io.StringIO()
+            with redirect_stderr(stderr_buf):
+                success = add_mcp(
+                    self.aikito_dir,
+                    self.home,
+                    name="fail-sync-existing",
+                    url="https://attempted-new.com",
+                    force=True,
+                    sync=True,
+                )
+            self.assertFalse(success)
+            # Assert original content was restored
+            restored_content = mcp_file.read_text(encoding="utf-8")
+            self.assertIn("https://original.com", restored_content)
+            self.assertNotIn("https://attempted-new.com", restored_content)
+            self.assertIn("Reverted changes", stderr_buf.getvalue())
+
+    def test_add_mcp_force_does_not_pass_force_to_sync(self) -> None:
         with patch("aikito.mcp.sync_mcp_configs", return_value=True) as mock_sync:
             stdout_buf = io.StringIO()
             with redirect_stdout(stdout_buf):
                 success = add_mcp(
                     self.aikito_dir,
                     self.home,
-                    name="sync-remote",
+                    name="decoupled-force",
                     url="https://sync.example.com",
+                    force=True,
                     sync=True,
                 )
             self.assertTrue(success)
+            # Crucial check: force=False passed to sync_mcp_configs to preserve agent conflict protections
             self.assertTrue(mock_sync.called)
-            self.assertIn(
-                "[SYNC] Synchronizing MCP server 'sync-remote'", stdout_buf.getvalue()
+            self.assertFalse(mock_sync.call_args.kwargs["force"])
+            self.assertEqual(
+                mock_sync.call_args.kwargs["aikito_dir"],
+                self.aikito_dir.resolve(),
             )
+
+    def test_add_mcp_from_toml_file(self) -> None:
+        # 1. Single server in TOML under [servers.<name>]
+        toml_cfg = self.home / "codex_config.toml"
+        toml_cfg.write_text(
+            """
+[servers.linear_app]
+url = "https://linear.app/mcp"
+""".lstrip(),
+            encoding="utf-8",
+        )
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_mcp(
+                self.aikito_dir,
+                self.home,
+                from_source=toml_cfg,
+            )
+        self.assertTrue(success)
+        mcp_file = self.aikito_dir / "mcps" / "linear-app.toml"
+        self.assertTrue(mcp_file.is_file())
+        with mcp_file.open("rb") as f:
+            data = tomllib.load(f)
+        self.assertEqual(data["transport"], "remote")
+        self.assertEqual(data["url"], "https://linear.app/mcp")
+
+        # 2. Multi-server TOML with explicit name selection
+        multi_toml = self.home / "multi_config.toml"
+        multi_toml.write_text(
+            """
+[mcp_servers.figma]
+url = "https://figma.com/mcp"
+
+[mcp_servers.slack]
+url = "https://slack.com/mcp"
+""".lstrip(),
+            encoding="utf-8",
+        )
+        with redirect_stdout(stdout_buf):
+            success2 = add_mcp(
+                self.aikito_dir,
+                self.home,
+                name="figma",
+                from_source=multi_toml,
+            )
+        self.assertTrue(success2)
+        figma_file = self.aikito_dir / "mcps" / "figma.toml"
+        self.assertTrue(figma_file.is_file())
+        with figma_file.open("rb") as f:
+            data2 = tomllib.load(f)
+        self.assertEqual(data2["url"], "https://figma.com/mcp")
+
+    def test_add_mcp_from_jsonc_with_comments(self) -> None:
+        jsonc_cfg = self.home / "settings.jsonc"
+        jsonc_cfg.write_text(
+            """// Claude / VS Code settings with JSON comments
+{
+    /* MCP servers registry */
+    "mcpServers": {
+        "context7": {
+            // Remote endpoint
+            "url": "https://context7.ai/mcp"
+        }
+    }
+}
+""",
+            encoding="utf-8",
+        )
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_mcp(
+                self.aikito_dir,
+                self.home,
+                from_source=jsonc_cfg,
+            )
+        self.assertTrue(success)
+        mcp_file = self.aikito_dir / "mcps" / "context7.toml"
+        self.assertTrue(mcp_file.is_file())
+        with mcp_file.open("rb") as f:
+            data = tomllib.load(f)
+        self.assertEqual(data["transport"], "remote")
+        self.assertEqual(data["url"], "https://context7.ai/mcp")
+
+    def test_add_mcp_url_generic_path_requires_explicit_name(self) -> None:
+        for generic_url in [
+            "https://api.githubcopilot.com/mcp",
+            "https://example.com/sse",
+            "https://service.org/api/v1",
+        ]:
+            stderr_buf = io.StringIO()
+            with redirect_stderr(stderr_buf):
+                success = add_mcp(
+                    self.aikito_dir,
+                    self.home,
+                    from_source=generic_url,
+                )
+            self.assertFalse(success)
+            self.assertIn("MCP server name is required", stderr_buf.getvalue())
+
+        # With explicit name, it should succeed
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_mcp(
+                self.aikito_dir,
+                self.home,
+                name="copilot",
+                from_source="https://api.githubcopilot.com/mcp",
+            )
+        self.assertTrue(success)
+        self.assertTrue((self.aikito_dir / "mcps" / "copilot.toml").exists())
+
+    def test_add_mcp_force_without_args_rejected(self) -> None:
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_mcp(
+                self.aikito_dir,
+                self.home,
+                name="lonely-server",
+                force=True,
+            )
+        self.assertFalse(success)
+        self.assertIn(
+            "--force requires --from or server configuration arguments",
+            stderr_buf.getvalue(),
+        )
+
+    def test_add_mcp_force_with_stdio_transport_accepted(self) -> None:
+        (self.aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
+        mcp_file = self.aikito_dir / "mcps" / "local-tool.toml"
+        mcp_file.write_text(
+            'command = "old-cmd"\nargs = []\nagents = ["codex"]\n',
+            encoding="utf-8",
+        )
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_mcp(
+                self.aikito_dir,
+                self.home,
+                name="local-tool",
+                transport="stdio",
+                command="new-cmd",
+                force=True,
+            )
+        self.assertTrue(success)
+        with mcp_file.open("rb") as f:
+            data = tomllib.load(f)
+        self.assertEqual(data["command"], "new-cmd")
+
+    def test_add_mcp_when_mcps_directory_does_not_exist(self) -> None:
+        mcps_dir = self.aikito_dir / "mcps"
+        if mcps_dir.exists():
+            shutil.rmtree(mcps_dir)
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_mcp(
+                self.aikito_dir,
+                self.home,
+                name="fresh-server",
+                url="https://fresh.example.com",
+            )
+        self.assertTrue(success)
+        self.assertTrue((mcps_dir / "fresh-server.toml").is_file())
+
+    def test_add_mcp_preserves_multiple_env_reference_formats(self) -> None:
+        cfg = self.home / "env_refs.json"
+        cfg.write_text(
+            json.dumps(
+                {
+                    "url": "https://refs.example.com/mcp",
+                    "headers": {
+                        "H1": "${VAR_ONE}",
+                        "Authorization": "{env:VAR_TWO}",
+                        "H3": "!!js process.env.VAR_THREE",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+            success = add_mcp(
+                self.aikito_dir,
+                self.home,
+                name="ref-server",
+                from_source=cfg,
+            )
+        self.assertTrue(success)
+        mcp_file = self.aikito_dir / "mcps" / "ref-server.toml"
+        with mcp_file.open("rb") as f:
+            data = tomllib.load(f)
+        self.assertEqual(data["headers"]["H1"], "${VAR_ONE}")
+        self.assertEqual(data["headers"]["Authorization"], "{env:VAR_TWO}")
+        self.assertEqual(data["headers"]["H3"], "!!js process.env.VAR_THREE")
+        self.assertNotIn("[SECURITY]", stderr_buf.getvalue())
+
+    def test_add_mcp_sanitizes_password_and_cookie_headers(self) -> None:
+        cfg = self.home / "creds.json"
+        cfg.write_text(
+            json.dumps(
+                {
+                    "url": "https://creds.example.com/mcp",
+                    "headers": {
+                        "X-Password": "hunter2",
+                        "Cookie": "session=abc",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_mcp(
+                self.aikito_dir,
+                self.home,
+                name="secret-server",
+                from_source=cfg,
+            )
+        self.assertTrue(success)
+        mcp_file = self.aikito_dir / "mcps" / "secret-server.toml"
+        with mcp_file.open("rb") as f:
+            data = tomllib.load(f)
+        self.assertEqual(
+            data["headers"]["X-Password"], "${AIKITO_SECRET_SERVER_X_PASSWORD}"
+        )
+        self.assertEqual(data["headers"]["Cookie"], "${AIKITO_SECRET_SERVER_COOKIE}")
+        stderr_out = stderr_buf.getvalue()
+        # Secret values must NOT appear in stderr — only the variable name.
+        self.assertIn("AIKITO_SECRET_SERVER_X_PASSWORD", stderr_out)
+        self.assertNotIn("hunter2", stderr_out)
+        self.assertIn("AIKITO_SECRET_SERVER_COOKIE", stderr_out)
+        self.assertNotIn("session=abc", stderr_out)
+        # Hint should show placeholder format, not the actual value.
+        self.assertIn(
+            "export AIKITO_SECRET_SERVER_X_PASSWORD=<your-secret-value>", stderr_out
+        )
+
+    def test_add_mcp_force_stdio_preserves_overrides_and_args(self) -> None:
+        (self.aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
+        mcp_file = self.aikito_dir / "mcps" / "stdio-keep.toml"
+        mcp_file.write_text(
+            """
+command = "old-cmd"
+args = ["-y", "pkg"]
+agents = ["codex", "claude-code"]
+
+[overrides.codex]
+enabled = false
+reason = "Disabled for codex"
+""".lstrip(),
+            encoding="utf-8",
+        )
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf):
+            success = add_mcp(
+                self.aikito_dir,
+                self.home,
+                name="stdio-keep",
+                transport="stdio",
+                command="uvx",
+                force=True,
+            )
+        self.assertTrue(success)
+        with mcp_file.open("rb") as f:
+            data = tomllib.load(f)
+        self.assertEqual(data["command"], "uvx")
+        self.assertEqual(data["args"], ["-y", "pkg"])
+        self.assertEqual(data["agents"], ["codex", "claude-code"])
+        self.assertIn("overrides", data)
+        self.assertFalse(data["overrides"]["codex"]["enabled"])
+        self.assertEqual(data["overrides"]["codex"]["reason"], "Disabled for codex")
+
+    def test_add_mcp_sync_conflict_preflight_prevents_partial_agent_writes(
+        self,
+    ) -> None:
+        # Pre-seed an unmanaged config for claude-code that will trigger [CONFLICT]
+        claude_cfg = self.home / ".claude.json"
+        claude_cfg.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "collide-server": {
+                            "type": "http",
+                            "url": "https://other.com",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        codex_cfg = self.home / ".codex" / "config.toml"
+        codex_cfg.parent.mkdir(parents=True, exist_ok=True)
+        codex_cfg.write_text("# clean initial codex config\n", encoding="utf-8")
+
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_mcp(
+                self.aikito_dir,
+                self.home,
+                name="collide-server",
+                url="https://new-url.com",
+                agents=["codex", "claude-code"],
+                sync=True,
+            )
+        self.assertFalse(success)
+        # Canonical file must be rolled back (unlinked)
+        self.assertFalse((self.aikito_dir / "mcps" / "collide-server.toml").exists())
+        # Codex config must NOT have been modified by partial sync
+        self.assertEqual(
+            codex_cfg.read_text(encoding="utf-8"), "# clean initial codex config\n"
+        )
+        self.assertIn("preflight failed", stderr_buf.getvalue())
+
+    def test_add_mcp_from_codex_merges_http_headers_and_env_http_headers(self) -> None:
+        codex_toml = self.home / "codex_source.toml"
+        codex_toml.write_text(
+            """
+[mcp_servers.test-server]
+url = "https://example.com/mcp"
+
+[mcp_servers.test-server.http_headers]
+X-Static = "static-value"
+Authorization = "Bearer secret123"
+
+[mcp_servers.test-server.env_http_headers]
+X-Dynamic-Key = "MY_TOKEN_ENV"
+""".lstrip(),
+            encoding="utf-8",
+        )
+
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_mcp(
+                self.aikito_dir,
+                self.home,
+                from_source=codex_toml,
+            )
+        self.assertTrue(success)
+
+        mcp_file = self.aikito_dir / "mcps" / "test-server.toml"
+        self.assertTrue(mcp_file.is_file())
+        with mcp_file.open("rb") as f:
+            data = tomllib.load(f)
+
+        headers = data["headers"]
+        # Static non-sensitive header preserved
+        self.assertEqual(headers["X-Static"], "static-value")
+        # Sensitive plaintext header sanitized into AIKITO placeholder
+        self.assertEqual(
+            headers["Authorization"], "${AIKITO_TEST_SERVER_AUTHORIZATION}"
+        )
+        # Bare env-var name from env_http_headers converted directly to ${MY_TOKEN_ENV}
+        self.assertEqual(headers["X-Dynamic-Key"], "${MY_TOKEN_ENV}")
+        # Secret value not echoed in stderr
+        self.assertNotIn("secret123", stderr_buf.getvalue())
+
+    def test_add_mcp_sanitizes_complex_url_credentials(self) -> None:
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            success = add_mcp(
+                self.aikito_dir,
+                self.home,
+                name="azure-aws-mcp",
+                url="https://storage.example.com/mcp?sig=super_secret_sig&x-amz-signature=aws_sig&jwt=token_jwt&access_key=my_key&version=2026&author=john&authority=gov&authentication_mode=saml&private_mode=strict&spr=https",
+            )
+        self.assertTrue(success)
+
+        mcp_file = self.aikito_dir / "mcps" / "azure-aws-mcp.toml"
+        with mcp_file.open("rb") as f:
+            data = tomllib.load(f)
+
+        # Sensitive params stripped, legitimate params (author, authority, authentication_mode, private_mode, spr) preserved
+        sanitized_url = data["url"]
+        self.assertNotIn("sig=super_secret_sig", sanitized_url)
+        self.assertNotIn("x-amz-signature=", sanitized_url)
+        self.assertNotIn("jwt=", sanitized_url)
+        self.assertNotIn("access_key=", sanitized_url)
+        self.assertIn("version=2026", sanitized_url)
+        self.assertIn("author=john", sanitized_url)
+        self.assertIn("authority=gov", sanitized_url)
+        self.assertIn("authentication_mode=saml", sanitized_url)
+        self.assertIn("private_mode=strict", sanitized_url)
+        self.assertIn("spr=https", sanitized_url)
+
+        stderr_out = stderr_buf.getvalue()
+        # Secret values must NEVER appear in stderr
+        self.assertNotIn("super_secret_sig", stderr_out)
+        self.assertNotIn("aws_sig", stderr_out)
+        self.assertNotIn("token_jwt", stderr_out)
+        self.assertNotIn("my_key", stderr_out)
+        # Warning mentions the sensitive parameter names
+        self.assertIn("sig", stderr_out)
+        self.assertIn("x-amz-signature", stderr_out)
+        # Warning must NOT complain about legitimate parameters
+        self.assertNotIn("author", stderr_out)
+        self.assertNotIn("authority", stderr_out)
+        self.assertNotIn("private_mode", stderr_out)
+        self.assertNotIn("spr", stderr_out)
 
 
 if __name__ == "__main__":

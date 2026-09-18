@@ -1946,7 +1946,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_add_mcp.add_argument(
         "--force",
         action="store_true",
-        help="Replace an existing MCP server configuration with the imported configuration",
+        help="Replace an existing canonical MCP server configuration (does not bypass agent conflict protections)",
     )
     p_add_mcp.set_defaults(func=cmd_add_mcp)
 

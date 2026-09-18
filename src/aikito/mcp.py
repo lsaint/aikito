@@ -32,7 +32,130 @@ DEFAULT_AGENTS_CONFIG = Path("agents.toml")
 STATE_FILE = Path(".local/state/aikito/mcp-state.json")
 BACKUP_DIR = Path(".local/state/aikito/backups")
 URL_PATTERN = re.compile(r"https?://[^\s<>\"']+")
-SENSITIVE_URL_PARAMETERS = {"code", "access_token", "refresh_token", "id_token"}
+SENSITIVE_URL_PARAMETERS = frozenset(
+    {
+        # OAuth / OIDC tokens
+        "code",
+        "access_token",
+        "refresh_token",
+        "id_token",
+        # Generic secrets
+        "token",
+        "secret",
+        "client_secret",
+        "password",
+        "pass",
+        "credential",
+        "signature",
+        # API keys (various naming conventions)
+        "api_key",
+        "apikey",
+        "api-key",
+        "x-api-key",
+        "key",
+        # Authorization / bearer
+        "authorization",
+        "auth",
+        # Session / identity
+        "session",
+        "session_token",
+        "user_token",
+        "private_token",
+        # AWS pre-signed URLs
+        "x-amz-signature",
+        "x_amz_signature",
+        "x-amz-credential",
+        "x_amz_credential",
+        "x-amz-security-token",
+        "x_amz_security_token",
+        # Google Cloud signed URLs
+        "x-goog-signature",
+        "x_goog_signature",
+        "x-goog-credential",
+        "x_goog_credential",
+        # Azure SAS (ONLY sig is the secret credential; spr is protocol constraint)
+        "sig",
+        # Personal-access / app tokens
+        "pat",
+        "app_token",
+        "app-token",
+        "auth_token",
+        "auth-token",
+        # JWT / bearer literals
+        "jwt",
+        "bearer",
+    }
+)
+
+# Word segments: only matches when the normalized param name (delimited by _ or -)
+# contains one of these exact words (e.g. 'auth_token' or 'custom-secret-param').
+# This prevents false positives on words like 'author', 'authority',
+# 'authentication_mode', or 'private_mode'.
+_SENSITIVE_PARAM_SEGMENTS: frozenset[str] = frozenset(
+    {
+        "token",
+        "secret",
+        "password",
+        "passwd",
+        "credential",
+        "credentials",
+        "signature",
+        "jwt",
+        "apikey",
+    }
+)
+
+_SENSITIVE_PARAM_PREFIXES: tuple[str, ...] = (
+    "auth_",
+    "oauth_",
+)
+
+_SENSITIVE_PARAM_SUFFIXES: tuple[str, ...] = (
+    "_key",
+    "_token",
+    "_secret",
+    "_password",
+    "_pass",
+    "_sig",
+    "_signature",
+    "_credential",
+    "_credentials",
+    "_jwt",
+    "_pat",
+)
+
+
+def is_sensitive_url_parameter(param_name: str) -> bool:
+    """Return True if a URL query-parameter name represents a credential.
+
+    Uses exact naming plus controlled segment and prefix/suffix matching to avoid
+    false positives on legitimate parameters such as 'author', 'authority',
+    'authentication_mode', or 'private_mode'.
+    """
+    lowered = param_name.lower()
+    normalized = lowered.replace("-", "_").replace(".", "_")
+
+    if lowered in SENSITIVE_URL_PARAMETERS or normalized in SENSITIVE_URL_PARAMETERS:
+        return True
+
+    segments = set(normalized.split("_"))
+    if segments & _SENSITIVE_PARAM_SEGMENTS:
+        return True
+
+    if any(normalized.startswith(prefix) for prefix in _SENSITIVE_PARAM_PREFIXES):
+        return True
+
+    if any(normalized.endswith(suffix) for suffix in _SENSITIVE_PARAM_SUFFIXES):
+        return True
+
+    return False
+
+
+def _has_sensitive_parameters(url: str) -> bool:
+    parameters = {key.lower() for key in parse_qs(urlsplit(url).query)}
+    return any(is_sensitive_url_parameter(p) for p in parameters)
+
+
 LEGACY_PLACEHOLDER_TOKEN = "placeholder-token-set-environment-variable"
 BROWSER_HELPER = """#!/usr/bin/env python3
 import os
@@ -461,6 +584,9 @@ def _parse_jsonc(text: str) -> Any:
     if next_index != len(tokens):
         raise MCPConfigError("Unexpected content after JSONC document")
     return value
+
+
+parse_jsonc = _parse_jsonc
 
 
 def _object_members(
@@ -1141,6 +1267,22 @@ def _build_desired(
                 desired["env_http_headers"] = {
                     "Authorization": authentication.authorization_env
                 }
+        elif headers:
+            if agent == "grok":
+                desired["headers"] = headers
+            else:
+                static_headers: dict[str, str] = {}
+                env_headers: dict[str, str] = {}
+                for k, v in headers.items():
+                    env_ref = _environment_reference(v)
+                    if env_ref:
+                        env_headers[k] = env_ref
+                    else:
+                        static_headers[k] = v
+                if static_headers:
+                    desired["headers"] = static_headers
+                if env_headers:
+                    desired["env_http_headers"] = env_headers
         return desired, False, ""
     if config_format == "jsonc":
         desired = {
@@ -1154,6 +1296,15 @@ def _build_desired(
             desired["headers"] = {
                 "Authorization": f"{{env:{authentication.authorization_env}}}"
             }
+        elif headers:
+            jsonc_headers: dict[str, str] = {}
+            for k, v in headers.items():
+                env_ref = _environment_reference(v)
+                if env_ref:
+                    jsonc_headers[k] = f"{{env:{env_ref}}}"
+                else:
+                    jsonc_headers[k] = v
+            desired["headers"] = jsonc_headers
         return desired, False, ""
     if config_format == "agy_json":
         desired = {"serverUrl": url}
@@ -1166,13 +1317,42 @@ def _build_desired(
                 }
             else:
                 return desired, True, authentication.token_env
-        return desired, authentication is not None, ""
+            return desired, True, ""
+        elif headers:
+            resolved_headers: dict[str, str] = {}
+            missing_env = ""
+            has_secret = False
+            for k, v in headers.items():
+                env_ref = _environment_reference(v)
+                if env_ref:
+                    has_secret = True
+                    env_val = os.environ.get(env_ref)
+                    if env_val:
+                        resolved_headers[k] = env_val
+                    else:
+                        missing_env = env_ref
+                else:
+                    resolved_headers[k] = v
+            if missing_env:
+                return desired, True, missing_env
+            desired["headers"] = resolved_headers
+            return desired, has_secret, ""
+        return desired, False, ""
     if config_format == "claude_json":
         desired = {"type": "http", "url": url}
         if authentication:
             desired["headers"] = {
                 "Authorization": f"${{{authentication.authorization_env}}}"
             }
+        elif headers:
+            claude_headers: dict[str, str] = {}
+            for k, v in headers.items():
+                env_ref = _environment_reference(v)
+                if env_ref:
+                    claude_headers[k] = f"${{{env_ref}}}"
+                else:
+                    claude_headers[k] = v
+            desired["headers"] = claude_headers
         return desired, False, ""
     if config_format == "copilot_json":
         desired = {
@@ -1181,7 +1361,14 @@ def _build_desired(
             "tools": ["*"],
         }
         if headers:
-            desired["headers"] = headers
+            copilot_headers: dict[str, str] = {}
+            for k, v in headers.items():
+                env_ref = _environment_reference(v)
+                if env_ref:
+                    copilot_headers[k] = f"${{{env_ref}}}"
+                else:
+                    copilot_headers[k] = v
+            desired["headers"] = copilot_headers
         elif authentication:
             desired["headers"] = {
                 "Authorization": f"${{{authentication.authorization_env}}}"
@@ -1197,7 +1384,14 @@ def _build_desired(
             "url": url,
         }
         if headers:
-            desired["headers"] = headers
+            dsh_headers: dict[str, str] = {}
+            for k, v in headers.items():
+                env_ref = _environment_reference(v)
+                if env_ref:
+                    dsh_headers[k] = f"!!js process.env.{env_ref}"
+                else:
+                    dsh_headers[k] = v
+            desired["headers"] = dsh_headers
         elif authentication:
             desired["headers"] = {
                 "Authorization": f"!!js process.env.{authentication.authorization_env}"
@@ -1506,6 +1700,7 @@ _CREDENTIAL_HEADER_FRAGMENTS = (
     "api-key",
     "api_key",
     "apikey",
+    "cookie",
 )
 
 
@@ -1515,6 +1710,9 @@ def _environment_reference(value: str) -> str | None:
         if match:
             return match.group(1)
     return None
+
+
+environment_reference = _environment_reference
 
 
 def _authorization_label(value: str | None, source: str) -> str:
@@ -1625,6 +1823,9 @@ def _response_message(body: bytes) -> str:
 
 def _is_credential_header(name: str) -> bool:
     return any(fragment in name.lower() for fragment in _CREDENTIAL_HEADER_FRAGMENTS)
+
+
+is_credential_header = _is_credential_header
 
 
 def _redact_probe_error(text: str, headers: dict[str, str]) -> str:
@@ -2094,11 +2295,6 @@ def _urls_in_text(text: str) -> list[str]:
     return [match.rstrip(").,;]") for match in URL_PATTERN.findall(text)]
 
 
-def _has_sensitive_parameters(url: str) -> bool:
-    parameters = {key.lower() for key in parse_qs(urlsplit(url).query)}
-    return bool(parameters & SENSITIVE_URL_PARAMETERS)
-
-
 def _is_authorization_url(url: str) -> bool:
     if _has_sensitive_parameters(url):
         return False
@@ -2267,6 +2463,29 @@ def sync_mcp_configs(
     entries = state["entries"]
     success = True
 
+    # Pre-calculate file-level secret sensitivity across ALL enabled specs.
+    # If any enabled spec targeting a config_path contains a secret, the file
+    # is considered sensitive even if that spec is already synchronized and not
+    # modified in this run.
+    file_contains_secret: dict[Path, bool] = {}
+    for spec in specs:
+        if spec.enabled and spec.contains_secret:
+            file_contains_secret[spec.config_path] = True
+
+    # Phase 1: classify all specs — skip/conflict/already-ok/pending-write.
+    # Specs that share a config_path must be chained: each spec's _update_entry
+    # result becomes the input for the next spec in the same file, so that writing
+    # multiple MCPs to the same agent config is additive rather than last-write-wins.
+    #
+    # pending is keyed by config_path; each entry holds:
+    #   file_existed     – bool: whether the file existed before this run
+    #   orig_text        – original disk content (for rollback)
+    #   current_text     – running accumulated text (grows with each chained spec)
+    #   contains_secret  – bool: whether this file contains sensitive credentials
+    #   config_format    – str: agent config format
+    #   specs_meta       – list of (spec, desired_fp, prev_entry, action)
+    pending: dict[Path, dict] = {}  # config_path → per-file pending info
+
     for spec in specs:
         if not spec.enabled:
             output(f"[SKIP] {spec.agent}/{spec.server}: {spec.reason}")
@@ -2281,11 +2500,13 @@ def sync_mcp_configs(
             )
             continue
 
-        text = (
-            spec.config_path.read_text(encoding="utf-8")
-            if spec.config_path.exists()
-            else ""
-        )
+        file_existed = spec.config_path.exists()
+        # Use the accumulated in-memory text if we've already staged edits to this file.
+        if spec.config_path in pending:
+            text = pending[spec.config_path]["current_text"]
+        else:
+            text = spec.config_path.read_text(encoding="utf-8") if file_existed else ""
+
         current = _read_entry(spec, text)
         previous = entries.get(spec.state_key, {})
         managed_fingerprint = previous.get("fingerprint")
@@ -2323,30 +2544,251 @@ def sync_mcp_configs(
             output(f"[DRY-RUN] {spec.agent}/{spec.server}: would {action} entry")
             continue
 
-        # ~/.claude.json is mixed application state and can contain unmanaged
-        # private MCP data, so never duplicate the whole file into backups.
-        backup = (
-            None
-            if spec.contains_secret or spec.config_format == "claude_json"
-            else _backup_config(home, spec)
-        )
+        # Accumulate the write in memory (chaining for same-file specs).
         updated = _update_entry(spec, text)
-        _atomic_write(
-            spec.config_path, updated, secure_permissions=spec.contains_secret
-        )
-        entries[spec.state_key] = {
-            "fingerprint": desired_fingerprint,
-            "config_path": str(spec.config_path),
-            "target_name": spec.target_name,
-        }
-        output(f"[SYNC] {spec.agent}/{spec.server}: {action}d {spec.config_path}")
-        if backup:
-            output(f"[BACKUP] {backup}")
-        if spec.auth_command:
-            output(f"[AUTH] aikito auth mcp {spec.agent} {spec.server}")
+        prev_entry = entries.get(spec.state_key)
 
-    if not dry_run:
-        _save_state(home, state)
+        if spec.config_path not in pending:
+            # First spec for this config_path: record the original disk snapshot.
+            orig_text = (
+                spec.config_path.read_text(encoding="utf-8") if file_existed else ""
+            )
+            pending[spec.config_path] = {
+                "file_existed": file_existed,
+                "orig_text": orig_text,
+                "current_text": updated,
+                "contains_secret": (
+                    file_contains_secret.get(spec.config_path, False)
+                    or spec.contains_secret
+                ),
+                "config_format": spec.config_format,
+                "specs_meta": [],
+            }
+        else:
+            # Subsequent spec for the same file: advance the accumulated text
+            # and OR-merge the sensitive attribute so secure_permissions is preserved.
+            pending[spec.config_path]["current_text"] = updated
+            pending[spec.config_path]["contains_secret"] = (
+                pending[spec.config_path]["contains_secret"] or spec.contains_secret
+            )
+
+        pending[spec.config_path]["specs_meta"].append(
+            (spec, desired_fingerprint, prev_entry, action)
+        )
+
+    if not pending:
+        if not dry_run:
+            _save_state(home, state)
+        return success
+
+    # If any conflict was detected in Phase 1, abort before writing any agent file.
+    # The caller (add_mcp --sync) will roll back the canonical TOML; touching other
+    # agent configs here would leave runtime/state/canonical in an inconsistent state.
+    if not success:
+        return False
+
+    # Phase 2: transactional commit.
+    # - Prepare new state in memory and write it to a temp path first.
+    # - Take backups for all eligible pending files BEFORE modifying any runtime file.
+    #   If any backup fails, abort immediately with zero runtime modifications.
+    # - Write each pending agent config (one write per config_path).
+    # - On any failure: restore all already-written files, discard backups and temp state,
+    #   and return False.
+    # - Only rename the temp state file over the real one after all writes succeed.
+
+    # Build the new state snapshot from all pending specs_meta.
+    new_entries = dict(entries)
+    for _cfg_path, pinfo in pending.items():
+        for spec, desired_fp, _prev, _action in pinfo["specs_meta"]:
+            new_entries[spec.state_key] = {
+                "fingerprint": desired_fp,
+                "config_path": str(spec.config_path),
+                "target_name": spec.target_name,
+            }
+    new_state = dict(state, entries=new_entries)
+    state_path = home / STATE_FILE
+
+    state_tmp: Path | None = None
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            dir=state_path.parent,
+            delete=False,
+            encoding="utf-8",
+            suffix=".tmp",
+        ) as _sf:
+            _sf.write(
+                json.dumps(new_state, ensure_ascii=False, indent=2, sort_keys=True)
+                + "\n"
+            )
+            state_tmp = Path(_sf.name)
+    except Exception as exc:
+        output(f"[ERROR] Failed to prepare state file for atomic save: {exc}")
+        return False
+
+    # Phase 2a: Take backups BEFORE modifying any files on disk.
+    # Mixed application state files containing private/inline credentials (claude_json, agy_json)
+    # and files containing secrets are never backed up as a whole.
+    backups_created: list[Path] = []
+    backup_error: Exception | None = None
+
+    for cfg_path, pinfo in pending.items():
+        file_existed = pinfo["file_existed"]
+        contains_secret = pinfo["contains_secret"]
+        config_format = pinfo["config_format"]
+        specs_meta = pinfo["specs_meta"]
+
+        should_backup = (
+            file_existed
+            and not contains_secret
+            and config_format not in ("claude_json", "agy_json")
+        )
+        if not should_backup:
+            pinfo["backup"] = None
+            continue
+
+        try:
+            pinfo["backup"] = _backup_config(home, specs_meta[0][0])
+            if pinfo["backup"]:
+                backups_created.append(pinfo["backup"])
+        except Exception as exc:
+            backup_error = exc
+            first_spec = specs_meta[0][0]
+            output(
+                f"[ERROR] {first_spec.agent}/{first_spec.server}: backup failed ({exc}); "
+                "aborting before modifying runtime files"
+            )
+            break
+
+    if backup_error is not None:
+        for bk in backups_created:
+            try:
+                bk.unlink(missing_ok=True)
+            except Exception:
+                pass
+        try:
+            if state_tmp and state_tmp.exists():
+                state_tmp.unlink()
+        except Exception:
+            pass
+        return False
+
+    # Phase 2b: Atomic writes
+    # committed: list of
+    # (config_path, file_existed, orig_text, contains_secret, specs_meta, backup)
+    committed: list[tuple] = []
+    write_error: Exception | None = None
+
+    for cfg_path, pinfo in pending.items():
+        file_existed = pinfo["file_existed"]
+        orig_text = pinfo["orig_text"]
+        final_text = pinfo["current_text"]
+        contains_secret = pinfo["contains_secret"]
+        specs_meta = pinfo["specs_meta"]
+        backup = pinfo.get("backup")
+
+        try:
+            _atomic_write(cfg_path, final_text, secure_permissions=contains_secret)
+        except Exception as exc:
+            write_error = exc
+            first_spec = specs_meta[0][0]
+            output(
+                f"[ERROR] {first_spec.agent}/{first_spec.server}: write failed ({exc}); "
+                "rolling back all committed agent configs"
+            )
+            break
+        committed.append(
+            (cfg_path, file_existed, orig_text, contains_secret, specs_meta, backup)
+        )
+        first_spec = True
+        for spec, desired_fp, prev_entry, action in specs_meta:
+            output(f"[SYNC] {spec.agent}/{spec.server}: {action}d {cfg_path}")
+            if first_spec and backup:
+                output(f"[BACKUP] {backup}")
+                first_spec = False
+            if spec.auth_command:
+                output(f"[AUTH] aikito auth mcp {spec.agent} {spec.server}")
+
+    def _remove_backup(backup_path: Path) -> None:
+        try:
+            backup_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    def _rollback_committed() -> set[Path]:
+        """Restore written configs and retain backups for any failed rollback."""
+        committed_backups: set[Path] = set()
+        for rb_path, rb_existed, rb_orig, rb_secret, rb_metas, rb_backup in committed:
+            rollback_succeeded = False
+            try:
+                if rb_existed:
+                    _atomic_write(rb_path, rb_orig, secure_permissions=rb_secret)
+                elif rb_path.exists():
+                    rb_path.unlink()
+                rollback_succeeded = True
+            except Exception as rb_exc:
+                first = rb_metas[0][0]
+                recovery_hint = (
+                    f"; backup retained at {rb_backup}" if rb_backup is not None else ""
+                )
+                output(
+                    f"[WARN] {first.agent}/{first.server}: rollback failed ({rb_exc}); "
+                    f"manual inspection required{recovery_hint}"
+                )
+            if rb_backup is not None:
+                committed_backups.add(rb_backup)
+                if rollback_succeeded:
+                    _remove_backup(rb_backup)
+            for spec, _fp, rb_prev, _act in rb_metas:
+                if rb_prev is not None:
+                    entries[spec.state_key] = rb_prev
+                else:
+                    entries.pop(spec.state_key, None)
+        return committed_backups
+
+    def _cleanup_uncommitted_backups(committed_backups: set[Path]) -> None:
+        for backup_path in backups_created:
+            if backup_path not in committed_backups:
+                _remove_backup(backup_path)
+
+    if write_error is not None:
+        try:
+            if state_tmp and state_tmp.exists():
+                state_tmp.unlink()
+        except Exception:
+            pass
+        committed_backups = _rollback_committed()
+        _cleanup_uncommitted_backups(committed_backups)
+        try:
+            _save_state(home, state)
+        except Exception:
+            pass
+        return False
+
+    # All runtime writes succeeded — atomically promote the prepared state file.
+    # If this rename fails, we must roll back the runtime writes and return False
+    # so the caller does not treat this as a successful sync.
+    try:
+        os.replace(state_tmp, state_path)
+    except Exception as exc:
+        output(
+            f"[ERROR] All agent configs written but state save failed: {exc}; "
+            "rolling back runtime changes to keep state consistent"
+        )
+        try:
+            if state_tmp and state_tmp.exists():
+                state_tmp.unlink()
+        except Exception:
+            pass
+        committed_backups = _rollback_committed()
+        _cleanup_uncommitted_backups(committed_backups)
+        try:
+            _save_state(home, state)
+        except Exception:
+            pass
+        return False
+
     return success
 
 
