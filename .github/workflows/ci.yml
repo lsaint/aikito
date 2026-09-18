@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  ubuntu:
+    name: Ubuntu
+    uses: ./.github/workflows/ci-ubuntu.yml
+
+  macos:
+    name: macOS
+    uses: ./.github/workflows/ci-macos.yml
+
+  windows:
+    name: Windows
+    uses: ./.github/workflows/ci-windows.yml

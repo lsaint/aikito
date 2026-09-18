@@ -14,7 +14,7 @@
 
 <p align="center">
   <a href="https://github.com/lsaint/aikito/releases"><img src="https://img.shields.io/github/v/release/lsaint/aikito" alt="Release"></a>
-  <a href="https://github.com/lsaint/aikito/actions"><img src="https://img.shields.io/badge/CI-macOS%20%7C%20Linux%20%7C%20Windows-success" alt="CI: macOS | Linux | Windows"></a>
+  <a href="https://github.com/lsaint/aikito/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/lsaint/aikito/ci.yml?branch=main&label=%EF%A3%BF%20%F0%9F%90%A7%20%E2%8A%9E%20CI" alt="CI"></a>
   <a href="https://github.com/lsaint/aikito/blob/main/LICENSE"><img src="https://img.shields.io/github/license/lsaint/aikito" alt="License"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.12%20%7C%203.13%20%7C%203.14-blue.svg" alt="Python 3.12 | 3.13 | 3.14"></a>
   <img src="https://img.shields.io/badge/dependencies-stdlib%20only-brightgreen.svg" alt="Dependencies: stdlib only">
