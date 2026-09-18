@@ -46,14 +46,13 @@ nav:
       - 3. Synchronize and Verify: sync-existing-setup.md
       - 4. Connect a Project: project-setup.md
   - Everyday Tasks:
-      - Add or Import a Skill: skills.md
-      - Manage Instructions and Rules: instructions.md
-      - Durable Memory: durable-memory.md
-      - MCP Servers: mcp-servers.md
-      - Subagents: subagents.md
-      - Inbox: inbox.md
-      - Chat Distiller: chat-distiller.md
-      - Agent Request Examples: agent-workflow.md
+      - Manage Skills: skills.md
+      - Manage Instructions: instructions.md
+      - Use Durable Memory: durable-memory.md
+      - Manage MCP Servers: mcp-servers.md
+      - Manage Subagents: subagents.md
+      - Review Inbox Notes: inbox.md
+      - Capture Browser Conversations: chat-distiller.md
   - Maintenance & Advanced:
       - Check and Repair Synchronization: troubleshooting.md
       - Advanced Project Setup: project-configuration.md
@@ -62,6 +61,7 @@ nav:
       - Workspace and Synchronization: architecture.md
       - Memory Scope and Lifecycle: memory-workflow.md
   - Reference:
+      - Agent Request Examples: agent-workflow.md
       - CLI Reference: cli-reference.md
       - Python API Reference: python-api.md
       - Safety Model: safety.md

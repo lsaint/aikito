@@ -64,7 +64,7 @@ If the scope is unclear, simply ask:
 > Turn this workflow into an Aikito skill. Decide whether it should be global or
 > project-specific and explain your choice.
 
-See [Add and manage skills](skills.md) for skill creation, import, and sync.
+See [Manage Skills](skills.md) for skill creation, import, and sync.
 
 ## Configure an MCP Server
 
@@ -74,7 +74,7 @@ Use this when multiple supported Agents should share an MCP definition:
 > changes, then sync and verify it. Keep credentials out of the workspace and
 > ask before starting authentication.
 
-See [Synchronize MCP Servers](mcp-servers.md) for configuration formats and
+See [Manage MCP Servers](mcp-servers.md) for configuration formats and
 credential boundaries.
 
 ## Create or Update a Subagent
@@ -105,7 +105,7 @@ For context from the current task:
 > details and don't create a duplicate note.
 
 The `durable-memory` skill decides whether to write, which scope owns the
-knowledge, and how to commit it. See [Work with Memory](durable-memory.md).
+knowledge, and how to commit it. See [Use Durable Memory](durable-memory.md).
 
 ## Diagnose Drift
 

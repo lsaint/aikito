@@ -1,4 +1,4 @@
-# Capture Browser Conversations with Chat Distiller
+# Capture Browser Conversations
 
 [Chat Distiller](https://github.com/lsaint/chat-distiller) is Aikito's optional
 browser companion. It distills a supported browser AI conversation into concise
@@ -50,7 +50,7 @@ After review for long-term storage:
 
 Prefer one stable conclusion per memory note. Agents search the note files
 directly. See [Memory workflow](memory-workflow.md)
-for the full persistence criteria and [Work with memory](durable-memory.md) for
+for the full persistence criteria and [Use Durable Memory](durable-memory.md) for
 the operational commands.
 
 ## Trust Boundary

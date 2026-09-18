@@ -1,4 +1,4 @@
-# Manage Instructions and Rules
+# Manage Instructions
 
 Instructions tell coding agents how to behave, defining project standards,
 review guidelines, and team policies. Aikito keeps instructions in canonical,
@@ -89,6 +89,6 @@ The agent should identify the rule and the file path it loaded.
 
 ## Continue with everyday work
 
-Next, [add or import a skill](skills.md),
+Next, [Manage Skills](skills.md),
 [keep a decision in memory](durable-memory.md), or review
 [Workspace and synchronization](architecture.md).

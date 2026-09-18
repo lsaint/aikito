@@ -96,5 +96,5 @@ opportunistic retirement during normal work, this command explicitly asks an
 Agent to inspect the complete selected scope. It remains confirmation-gated:
 the Agent proposes changes before modifying memory.
 
-See [Work with memory](durable-memory.md) for the CLI workflow and
+See [Use Durable Memory](durable-memory.md) for the CLI workflow and
 [Safety model](safety.md) before pushing a memory repository to a remote.

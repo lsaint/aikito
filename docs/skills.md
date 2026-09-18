@@ -1,4 +1,4 @@
-# Add and Manage Skills
+# Manage Skills
 
 Skills provide reusable, multi-step workflows and capabilities for your coding
 agents. Aikito stores skills canonically in your workspace and connects them to
@@ -117,5 +117,5 @@ aikito rm skill review-checklist --force --sync
 
 For Git-tracked skill snapshots, see
 [project skill sync modes](architecture.md#project-skill-sync-modes).
-Next, [manage instructions and rules](instructions.md) or
+Next, [Manage Instructions](instructions.md) or
 [keep decisions in memory](durable-memory.md).

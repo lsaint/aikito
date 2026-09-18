@@ -49,4 +49,4 @@ If you used another directory name, substitute it for `example` in subsequent
 commands. For explicit names, multiple worktrees, or skill copy mode, see
 [Advanced project setup](project-configuration.md).
 
-Next, [add or import a skill](skills.md), [manage instructions and rules](instructions.md), or [keep a decision in memory](durable-memory.md).
+Next, [Manage Skills](skills.md), [Manage Instructions](instructions.md), or [keep a decision in memory](durable-memory.md).

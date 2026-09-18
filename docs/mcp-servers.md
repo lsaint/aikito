@@ -1,4 +1,4 @@
-# Synchronize MCP Servers
+# Manage MCP Servers
 
 Aikito stores canonical MCP definitions in `mcps/*.toml` and updates only the
 managed entries in each supported Agent's native configuration. Pi is omitted
@@ -164,4 +164,3 @@ Add `--sync` to immediately unregister and remove the server configuration from 
 ```bash
 aikito rm mcp <name> --sync
 ```
-

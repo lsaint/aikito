@@ -130,7 +130,7 @@ projects/<project-name>/memory/notes/
 
 不要直接把原始 Inbox 文件复制进 Memory。应先核实内容，再提炼为一个稳定、可以独立复用的结论。文件名使用简短、稳定的小写 kebab-case，例如 `payment-idempotency.md`；可选的 `category` frontmatter 可供自定义工具分组展示。
 
-完整的持久化判断标准参见 [Memory workflow](memory-workflow.md)，具体操作参见 [Work with memory](durable-memory.md)。
+完整的持久化判断标准参见 [Memory workflow](memory-workflow.md)，具体操作参见 [Use Durable Memory](durable-memory.md)。
 
 ## 与 Chat Distiller 的关系
 
@@ -138,7 +138,7 @@ projects/<project-name>/memory/notes/
 
 它只是 Inbox 的一种输入来源，并不是使用 Inbox 的必要条件。Inbox 也可以接收人工笔记或其他工具生成的 Markdown。
 
-[Chat Distiller](https://github.com/lsaint/chat-distiller) 的具体流程参见 [Capture browser conversations](chat-distiller.md)。
+[Chat Distiller](https://github.com/lsaint/chat-distiller) 的具体流程参见 [Capture Browser Conversations](chat-distiller.md)。
 
 ## 信任与隐私边界
 

@@ -26,10 +26,10 @@ the workspace, skip adoption when nothing is detected, then
 
 ## Find a specific operation
 
-- [Add or import a skill](skills.md).
-- [Manage instructions and rules](instructions.md).
+- [Manage Skills](skills.md).
+- [Manage Instructions](instructions.md).
 - [Keep useful decisions in memory](durable-memory.md).
-- [Synchronize MCP servers](mcp-servers.md) or [manage subagents](subagents.md).
+- [Manage MCP Servers](mcp-servers.md) or [Manage Subagents](subagents.md).
 - [Stage notes in Inbox](inbox.md) or [distill conversations](chat-distiller.md).
 - [Diagnose missing links, conflicts, or drift](troubleshooting.md).
 - [Configure multiple project paths or copied skills](project-configuration.md).
