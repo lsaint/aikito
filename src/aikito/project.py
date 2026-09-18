@@ -452,9 +452,14 @@ def _directories_match(canonical: Path, runtime: Path) -> tuple[bool, str | None
 def _resolve_symlink_target(path: Path) -> Path:
     try:
         raw = os.readlink(path)
+        if isinstance(raw, str):
+            if raw.startswith("\\\\?\\UNC\\"):
+                raw = "\\\\" + raw[8:]
+            elif raw.startswith("\\\\?\\"):
+                raw = raw[4:]
         target = path.parent / raw if not os.path.isabs(raw) else Path(raw)
     except OSError:
-        target = path
+        target = path.resolve(strict=False)
 
     # For broken symlinks or non-existent targets, resolve the nearest existing ancestor
     # so short names (e.g. RUNNER~1 on Windows) and intermediate symlinks are expanded.
@@ -476,9 +481,13 @@ def _symlink_points_within(path: Path, roots: tuple[Path, ...]) -> bool:
     if not path.is_symlink():
         return False
     target = _resolve_symlink_target(path)
+    fallback = path.resolve(strict=False)
     for root in roots:
         try:
-            if target.is_relative_to(root.resolve()):
+            resolved_root = root.resolve()
+            if target.is_relative_to(resolved_root) or fallback.is_relative_to(
+                resolved_root
+            ):
                 return True
         except (ValueError, OSError):
             continue
