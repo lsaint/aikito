@@ -89,10 +89,10 @@ Use `aikito <command> --help` for exact arguments.
   `aikito show skill`, and `aikito sync global`.
 - Projects: `aikito init project`, `aikito show project`,
   `aikito sync project`, `aikito status`, and `aikito diff`.
-- MCP servers: `aikito add mcp`, `aikito show mcp`, `aikito sync mcp`, and
-  `aikito auth mcp`.
-- Subagents: `aikito add subagent`, `aikito show subagent`, and
-  `aikito sync subagents`.
+- MCP servers: `aikito add mcp`, `aikito rm mcp` (supports `--sync`),
+  `aikito show mcp`, `aikito sync mcp`, and `aikito auth mcp`.
+- Subagents: `aikito add subagent`, `aikito rm subagent` (supports `--sync`),
+  `aikito show subagent`, and `aikito sync subagents`.
 - Memory: `aikito show|edit|rename|rm memory`; use the `durable-memory` skill to
   decide scope, content, and versioning.
 - Inbox notes: `aikito show|edit|rm inbox`.

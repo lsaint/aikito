@@ -159,11 +159,11 @@ $script:AikitoCompleterBlock = {{
                 Invoke-Candidates 'skills'
                 break
             }}
-            '^(show|edit) subagents?$' {{
+            '^(show|edit|rm|remove) subagents?$' {{
                 Invoke-Candidates 'subagents'
                 break
             }}
-            '^(show|edit) mcps?$' {{
+            '^(show|edit|rm|remove) mcps?$' {{
                 Invoke-Candidates 'mcps'
                 break
             }}

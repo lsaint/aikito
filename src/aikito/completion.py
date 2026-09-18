@@ -368,12 +368,12 @@ _aikito() {{
                         cands=(${{(f)"$(aikito completion candidates skills 2>/dev/null)"}})
                         compadd -a cands
                         ;;
-                    (show\\ subagent|show\\ subagents|edit\\ subagent|edit\\ subagents)
+                    (show\\ subagent|show\\ subagents|edit\\ subagent|edit\\ subagents|rm\\ subagent|rm\\ subagents|remove\\ subagent|remove\\ subagents)
                         local cands
                         cands=(${{(f)"$(aikito completion candidates subagents 2>/dev/null)"}})
                         compadd -a cands
                         ;;
-                    (show\\ mcp|show\\ mcps|edit\\ mcp|edit\\ mcps)
+                    (show\\ mcp|show\\ mcps|edit\\ mcp|edit\\ mcps|rm\\ mcp|rm\\ mcps|remove\\ mcp|remove\\ mcps)
                         local cands
                         cands=(${{(f)"$(aikito completion candidates mcps 2>/dev/null)"}})
                         compadd -a cands
@@ -577,13 +577,13 @@ _aikito_completion() {{
                 COMPREPLY=( $(compgen -W "$candidates" -- "$cur") )
                 return 0
                 ;;
-            show\\ subagent|show\\ subagents|edit\\ subagent|edit\\ subagents)
+            show\\ subagent|show\\ subagents|edit\\ subagent|edit\\ subagents|rm\\ subagent|rm\\ subagents|remove\\ subagent|remove\\ subagents)
                 local candidates
                 candidates=$(aikito completion candidates subagents 2>/dev/null)
                 COMPREPLY=( $(compgen -W "$candidates" -- "$cur") )
                 return 0
                 ;;
-            show\\ mcp|show\\ mcps|edit\\ mcp|edit\\ mcps)
+            show\\ mcp|show\\ mcps|edit\\ mcp|edit\\ mcps|rm\\ mcp|rm\\ mcps|remove\\ mcp|remove\\ mcps)
                 local candidates
                 candidates=$(aikito completion candidates mcps 2>/dev/null)
                 COMPREPLY=( $(compgen -W "$candidates" -- "$cur") )
@@ -708,9 +708,9 @@ def generate_fish(parser: argparse.ArgumentParser | None = None) -> str:
         "-a '(aikito completion candidates inbox-completions 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from show edit rm remove; and __fish_seen_subcommand_from skill skills' "
         "-a '(aikito completion candidates skills 2>/dev/null)'",
-        "complete -c aikito -f -n '__fish_seen_subcommand_from show edit; and __fish_seen_subcommand_from subagent subagents' "
+        "complete -c aikito -f -n '__fish_seen_subcommand_from show edit rm remove; and __fish_seen_subcommand_from subagent subagents' "
         "-a '(aikito completion candidates subagents 2>/dev/null)'",
-        "complete -c aikito -f -n '__fish_seen_subcommand_from show edit; and __fish_seen_subcommand_from mcp mcps' "
+        "complete -c aikito -f -n '__fish_seen_subcommand_from show edit rm remove; and __fish_seen_subcommand_from mcp mcps' "
         "-a '(aikito completion candidates mcps 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from show edit; and __fish_seen_subcommand_from instructions' "
         "-a 'global . (aikito completion candidates projects 2>/dev/null)'",

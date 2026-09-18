@@ -7,9 +7,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aikito import cli as AIKITO_CLI
-from aikito.add import add_skill
+from aikito.add import add_mcp, add_skill, add_subagent
 from aikito.init import init_project, init_workspace
-from aikito.remove import remove_skill
+from aikito.remove import remove_mcp, remove_skill, remove_subagent
 
 
 class TestAikitoRemoveValidation(unittest.TestCase):
@@ -480,6 +480,360 @@ class TestAikitoRemoveGlobally(unittest.TestCase):
         self.assertFalse(success)
 
 
+class TestAikitoRemoveSubagentValidation(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.home = self.root / "home"
+        self.home.mkdir()
+        self.ws = self.root / "workspace"
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_uninitialized_workspace_fails(self) -> None:
+        err = io.StringIO()
+        with redirect_stderr(err):
+            success = remove_subagent(
+                aikito_dir=self.ws,
+                home=self.home,
+                name="test-agent",
+            )
+        self.assertFalse(success)
+        self.assertIn("workspace directory not found", err.getvalue())
+
+    def test_empty_subagent_name_fails(self) -> None:
+        init_workspace(self.ws, self.home)
+        err = io.StringIO()
+        with redirect_stderr(err):
+            success = remove_subagent(
+                aikito_dir=self.ws,
+                home=self.home,
+                name="   ",
+            )
+        self.assertFalse(success)
+        self.assertIn("Subagent name cannot be empty", err.getvalue())
+
+    def test_invalid_subagent_names_rejected(self) -> None:
+        init_workspace(self.ws, self.home)
+        invalid_names = [
+            ("../agent", "Path separators and traversals are not allowed"),
+            ("/tmp/agent", "Path separators and traversals are not allowed"),
+            ("Invalid_Subagent", "Must be kebab-case"),
+            ("-leading-dash", "Must be kebab-case"),
+        ]
+        for bad_name, expected_err in invalid_names:
+            err = io.StringIO()
+            with redirect_stderr(err):
+                success = remove_subagent(
+                    aikito_dir=self.ws,
+                    home=self.home,
+                    name=bad_name,
+                )
+            self.assertFalse(success)
+            self.assertIn(expected_err, err.getvalue())
+
+
+class TestAikitoRemoveSubagentLifecycle(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.home = self.root / "home"
+        self.home.mkdir()
+        self.ws = self.root / "workspace"
+        init_workspace(self.ws, self.home)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_nonexistent_subagent_fails(self) -> None:
+        err = io.StringIO()
+        with redirect_stderr(err):
+            success = remove_subagent(
+                aikito_dir=self.ws,
+                home=self.home,
+                name="nonexistent-subagent",
+            )
+        self.assertFalse(success)
+        self.assertIn("does not exist in workspace", err.getvalue())
+
+    def test_remove_subagent_success(self) -> None:
+        add_subagent(
+            aikito_dir=self.ws,
+            home=self.home,
+            name="reviewer",
+            description="Code reviewer subagent",
+        )
+        sub_file = self.ws / "subagents" / "reviewer.md"
+        self.assertTrue(sub_file.is_file())
+
+        subagents_toml = self.ws / "subagents.toml"
+        data = tomllib.loads(subagents_toml.read_text(encoding="utf-8"))
+        self.assertIn("reviewer", data.get("subagents", {}))
+
+        out = io.StringIO()
+        with redirect_stdout(out):
+            success = remove_subagent(
+                aikito_dir=self.ws,
+                home=self.home,
+                name="reviewer",
+            )
+        self.assertTrue(success)
+        self.assertFalse(sub_file.exists())
+
+        new_data = tomllib.loads(subagents_toml.read_text(encoding="utf-8"))
+        self.assertNotIn("reviewer", new_data.get("subagents", {}))
+        self.assertIn("[DELETE FILE]", out.getvalue())
+        self.assertIn("[UPDATE FILE]", out.getvalue())
+        self.assertIn("[SUCCESS] Removed subagent 'reviewer'.", out.getvalue())
+
+    def test_remove_subagent_preserves_other_subagents(self) -> None:
+        add_subagent(
+            aikito_dir=self.ws,
+            home=self.home,
+            name="sub-alpha",
+            description="Alpha",
+        )
+        add_subagent(
+            aikito_dir=self.ws,
+            home=self.home,
+            name="sub-beta",
+            description="Beta",
+        )
+
+        success = remove_subagent(
+            aikito_dir=self.ws,
+            home=self.home,
+            name="sub-alpha",
+        )
+        self.assertTrue(success)
+
+        self.assertFalse((self.ws / "subagents" / "sub-alpha.md").exists())
+        self.assertTrue((self.ws / "subagents" / "sub-beta.md").exists())
+
+        subagents_toml = self.ws / "subagents.toml"
+        data = tomllib.loads(subagents_toml.read_text(encoding="utf-8"))
+        self.assertNotIn("sub-alpha", data.get("subagents", {}))
+        self.assertIn("sub-beta", data.get("subagents", {}))
+        self.assertEqual(data["subagents"]["sub-beta"]["description"], "Beta")
+
+    def test_remove_subagent_rollback_on_write_failure(self) -> None:
+        add_subagent(
+            aikito_dir=self.ws,
+            home=self.home,
+            name="rollback-sub",
+            description="Rollback test",
+        )
+        sub_file = self.ws / "subagents" / "rollback-sub.md"
+        self.assertTrue(sub_file.is_file())
+
+        subagents_toml = self.ws / "subagents.toml"
+        orig_toml = subagents_toml.read_text(encoding="utf-8")
+
+        def failing_write(target, content, encoding="utf-8"):
+            if target.resolve() == subagents_toml.resolve():
+                raise OSError("Simulated subagents.toml write error")
+            target.write_text(content, encoding=encoding)
+
+        err = io.StringIO()
+        with patch("aikito.remove._atomic_write_text", side_effect=failing_write):
+            with redirect_stderr(err):
+                success = remove_subagent(
+                    aikito_dir=self.ws,
+                    home=self.home,
+                    name="rollback-sub",
+                )
+        self.assertFalse(success)
+        self.assertTrue(sub_file.is_file())
+        self.assertEqual(subagents_toml.read_text(encoding="utf-8"), orig_toml)
+
+    def test_remove_subagent_with_sync_prunes_agent_runtime(self) -> None:
+        from aikito.subagent import sync_subagent_configs
+
+        claude_agents_dir = self.home / ".claude" / "agents"
+        claude_agents_dir.mkdir(parents=True)
+
+        add_subagent(
+            aikito_dir=self.ws,
+            home=self.home,
+            name="synced-sub",
+            description="Synced subagent",
+            agents=["claude-code"],
+        )
+
+        sync_subagent_configs(self.ws, self.home)
+        target_file = claude_agents_dir / "synced-sub.md"
+        self.assertTrue(target_file.is_file())
+
+        out = io.StringIO()
+        with redirect_stdout(out):
+            success = remove_subagent(
+                aikito_dir=self.ws,
+                home=self.home,
+                name="synced-sub",
+                sync=True,
+            )
+        self.assertTrue(success)
+        self.assertFalse((self.ws / "subagents" / "synced-sub.md").exists())
+        self.assertFalse(target_file.exists())
+
+
+class TestAikitoRemoveMCPValidation(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.home = self.root / "home"
+        self.home.mkdir()
+        self.ws = self.root / "workspace"
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_uninitialized_workspace_fails(self) -> None:
+        err = io.StringIO()
+        with redirect_stderr(err):
+            success = remove_mcp(
+                aikito_dir=self.ws,
+                home=self.home,
+                name="test-mcp",
+            )
+        self.assertFalse(success)
+        self.assertIn("workspace directory not found", err.getvalue())
+
+    def test_empty_mcp_name_fails(self) -> None:
+        init_workspace(self.ws, self.home)
+        err = io.StringIO()
+        with redirect_stderr(err):
+            success = remove_mcp(
+                aikito_dir=self.ws,
+                home=self.home,
+                name="   ",
+            )
+        self.assertFalse(success)
+        self.assertIn("MCP server name cannot be empty", err.getvalue())
+
+    def test_invalid_mcp_names_rejected(self) -> None:
+        init_workspace(self.ws, self.home)
+        invalid_names = [
+            ("../server", "Path separators and traversals are not allowed"),
+            ("/tmp/server", "Path separators and traversals are not allowed"),
+            ("Invalid_Server", "Must be kebab-case"),
+            ("-leading-dash", "Must be kebab-case"),
+        ]
+        for bad_name, expected_err in invalid_names:
+            err = io.StringIO()
+            with redirect_stderr(err):
+                success = remove_mcp(
+                    aikito_dir=self.ws,
+                    home=self.home,
+                    name=bad_name,
+                )
+            self.assertFalse(success)
+            self.assertIn(expected_err, err.getvalue())
+
+
+class TestAikitoRemoveMCPLifecycle(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.home = self.root / "home"
+        self.home.mkdir()
+        self.ws = self.root / "workspace"
+        init_workspace(self.ws, self.home)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_nonexistent_mcp_fails(self) -> None:
+        err = io.StringIO()
+        with redirect_stderr(err):
+            success = remove_mcp(
+                aikito_dir=self.ws,
+                home=self.home,
+                name="nonexistent-mcp",
+            )
+        self.assertFalse(success)
+        self.assertIn("does not exist in workspace", err.getvalue())
+
+    def test_remove_mcp_success(self) -> None:
+        add_mcp(
+            aikito_dir=self.ws,
+            home=self.home,
+            name="context-server",
+            transport="remote",
+            url="https://example.com/mcp",
+        )
+        mcp_file = self.ws / "mcps" / "context-server.toml"
+        self.assertTrue(mcp_file.is_file())
+
+        out = io.StringIO()
+        with redirect_stdout(out):
+            success = remove_mcp(
+                aikito_dir=self.ws,
+                home=self.home,
+                name="context-server",
+            )
+        self.assertTrue(success)
+        self.assertFalse(mcp_file.exists())
+        self.assertIn("[DELETE FILE]", out.getvalue())
+        self.assertIn("[SUCCESS] Removed MCP server 'context-server'.", out.getvalue())
+
+    def test_remove_mcp_with_sync_removes_from_agent_and_state(self) -> None:
+        import json
+        from aikito.mcp import _load_state, sync_mcp_configs
+
+        claude_dir = self.home / ".claude"
+        claude_dir.mkdir(parents=True)
+        claude_config = self.home / ".claude.json"
+        claude_config.write_text('{"mcpServers": {}}', encoding="utf-8")
+
+        codex_dir = self.home / ".codex"
+        codex_dir.mkdir(parents=True)
+        codex_config = codex_dir / "config.toml"
+        codex_config.write_text('model = "gpt-4"\n', encoding="utf-8")
+
+        add_mcp(
+            aikito_dir=self.ws,
+            home=self.home,
+            name="synced-mcp",
+            transport="remote",
+            url="https://mcp.example.com",
+            agents=["claude-code", "codex"],
+        )
+
+        sync_mcp_configs(aikito_dir=self.ws, home=self.home)
+
+        claude_data = json.loads(claude_config.read_text(encoding="utf-8"))
+        self.assertIn("synced-mcp", claude_data.get("mcpServers", {}))
+
+        codex_text = codex_config.read_text(encoding="utf-8")
+        self.assertIn("[mcp_servers.synced_mcp]", codex_text)
+
+        state = _load_state(self.home)
+        self.assertTrue(any(k.endswith(":synced-mcp") for k in state["entries"]))
+
+        out = io.StringIO()
+        with redirect_stdout(out):
+            success = remove_mcp(
+                aikito_dir=self.ws,
+                home=self.home,
+                name="synced-mcp",
+                sync=True,
+            )
+        self.assertTrue(success)
+        self.assertFalse((self.ws / "mcps" / "synced-mcp.toml").exists())
+
+        claude_data = json.loads(claude_config.read_text(encoding="utf-8"))
+        self.assertNotIn("synced-mcp", claude_data.get("mcpServers", {}))
+
+        codex_text = codex_config.read_text(encoding="utf-8")
+        self.assertNotIn("[mcp_servers.synced_mcp]", codex_text)
+        self.assertIn('model = "gpt-4"', codex_text)
+
+        state = _load_state(self.home)
+        self.assertFalse(any(k.endswith(":synced-mcp") for k in state["entries"]))
+
+
 class TestAikitoRemoveCLI(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -517,6 +871,30 @@ class TestAikitoRemoveCLI(unittest.TestCase):
         self.assertEqual(args_remove.project, "p1,p2")
         self.assertTrue(args_remove.force)
         self.assertTrue(args_remove.sync)
+
+        # Check 'rm subagent'
+        args_rm_sub = parser.parse_args(["rm", "subagent", "test-agent", "--sync"])
+        self.assertEqual(args_rm_sub.rm_target, "subagent")
+        self.assertEqual(args_rm_sub.name, "test-agent")
+        self.assertTrue(args_rm_sub.sync)
+
+        # Check 'remove subagents' alias
+        args_remove_sub = parser.parse_args(["remove", "subagents", "test-agent"])
+        self.assertEqual(args_remove_sub.remove_target, "subagents")
+        self.assertEqual(args_remove_sub.name, "test-agent")
+        self.assertFalse(args_remove_sub.sync)
+
+        # Check 'rm mcp'
+        args_rm_mcp = parser.parse_args(["rm", "mcp", "test-mcp", "--sync"])
+        self.assertEqual(args_rm_mcp.rm_target, "mcp")
+        self.assertEqual(args_rm_mcp.name, "test-mcp")
+        self.assertTrue(args_rm_mcp.sync)
+
+        # Check 'remove mcps' alias
+        args_remove_mcp = parser.parse_args(["remove", "mcps", "test-mcp"])
+        self.assertEqual(args_remove_mcp.remove_target, "mcps")
+        self.assertEqual(args_remove_mcp.name, "test-mcp")
+        self.assertFalse(args_remove_mcp.sync)
 
 
 if __name__ == "__main__":

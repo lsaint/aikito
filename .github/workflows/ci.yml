@@ -94,7 +94,11 @@ jobs:
           python3 -m aikito add mcp --help
           python3 -m aikito rm --help
           python3 -m aikito rm skill --help
+          python3 -m aikito rm subagent --help
+          python3 -m aikito rm mcp --help
           python3 -m aikito remove skill --help
+          python3 -m aikito remove subagents --help
+          python3 -m aikito remove mcps --help
           python3 -m aikito adopt --help
           python3 -m aikito status --help
           python3 -m aikito sync --help
@@ -489,6 +493,32 @@ jobs:
             python3 -m aikito show instructions global | \
             grep -q "durable-memory"
 
+      - name: aikito rm subagent and mcp lifecycle
+        run: |
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito add subagent smoke-subagent \
+            --description "Smoke subagent" \
+            --agents "claude-code"
+          test -f ${{ runner.temp }}/aikito-ws/subagents/smoke-subagent.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync subagents
+          test -f ~/.claude/agents/smoke-subagent.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm subagent smoke-subagent --sync
+          test ! -e ${{ runner.temp }}/aikito-ws/subagents/smoke-subagent.md
+          test ! -e ~/.claude/agents/smoke-subagent.md
+
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito add mcp smoke-mcp --url "https://example.com/smoke"
+          test -f ${{ runner.temp }}/aikito-ws/mcps/smoke-mcp.toml
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync mcp
+          grep -q "smoke_mcp" ~/.codex/config.toml
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm mcp smoke-mcp --sync
+          test ! -e ${{ runner.temp }}/aikito-ws/mcps/smoke-mcp.toml
+          ! grep -q "smoke_mcp" ~/.codex/config.toml
+
       - name: aikito status
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
@@ -836,6 +866,8 @@ jobs:
           python -m aikito version --help
           python -m aikito version --json
           python -m aikito git --help
+          python -m aikito rm subagent --help
+          python -m aikito rm mcp --help
           python -m aikito invalid-subcommand 2>$null
           if ($LASTEXITCODE -eq 0) { throw "aikito did not propagate non-zero exit code on invalid subcommand" }
           $global:LASTEXITCODE = 0
@@ -978,6 +1010,16 @@ jobs:
           if (Test-Path $canonicalSkill) {
             throw "Canonical skill directory was not deleted after global removal on Windows"
           }
+          python -m aikito add subagent win-subagent --description "Win Subagent" --agents "claude-code"
+          $winSubFile = Join-Path $wsDir "subagents\win-subagent.md"
+          if (-not (Test-Path $winSubFile)) { throw "Win subagent markdown missing" }
+          python -m aikito rm subagent win-subagent
+          if (Test-Path $winSubFile) { throw "Win subagent markdown was not deleted after rm" }
+          python -m aikito add mcp win-mcp --url "https://example.com/mcp"
+          $winMcpFile = Join-Path $wsDir "mcps\win-mcp.toml"
+          if (-not (Test-Path $winMcpFile)) { throw "Win MCP toml missing" }
+          python -m aikito rm mcp win-mcp
+          if (Test-Path $winMcpFile) { throw "Win MCP toml was not deleted after rm" }
           $globalNote = Join-Path $wsDir "memory\notes\windows-memory.md"
           @("# Windows Memory") | Set-Content $globalNote
           $projectNote = Join-Path $wsDir "projects\example\memory\notes\windows-project-memory.md"

@@ -122,3 +122,18 @@ uses `name_style = "underscore"`. Matching names with the same URL are treated
 as the same MCP server; Agent-specific headers, environment variables, and other
 runtime fields do not cause adoption conflicts. Different URLs still block
 adoption instead of silently choosing one.
+
+## Removing MCP Servers
+
+To remove a canonical MCP server definition from the workspace, run:
+
+```bash
+aikito rm mcp <name>
+```
+
+Add `--sync` to immediately unregister and remove the server configuration from all configured Agent runtimes:
+
+```bash
+aikito rm mcp <name> --sync
+```
+

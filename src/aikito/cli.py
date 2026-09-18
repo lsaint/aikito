@@ -20,7 +20,7 @@ from typing import Any, List, Optional
 
 from . import __version__
 from .add import add_mcp, add_skill, add_subagent
-from .remove import remove_skill
+from .remove import remove_mcp, remove_skill, remove_subagent
 from .adopt import (
     apply_adopt_skips,
     build_adopt_plan,
@@ -1508,6 +1508,30 @@ def cmd_rm_skill(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_rm_subagent(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    success = remove_subagent(
+        aikito_dir=aikito_dir,
+        home=Path.home(),
+        name=args.name,
+        sync=getattr(args, "sync", False),
+    )
+    if not success:
+        sys.exit(1)
+
+
+def cmd_rm_mcp(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    success = remove_mcp(
+        aikito_dir=aikito_dir,
+        home=Path.home(),
+        name=args.name,
+        sync=getattr(args, "sync", False),
+    )
+    if not success:
+        sys.exit(1)
+
+
 def cmd_adopt(args: argparse.Namespace) -> None:
     target = Path(args.target) if args.target else get_aikito_dir()
     home = Path.home()
@@ -2343,6 +2367,38 @@ def build_parser() -> argparse.ArgumentParser:
             help="Force global removal even if referenced by projects (unregisters from all referencing projects)",
         )
         p_rm_skill.set_defaults(func=cmd_rm_skill)
+
+        p_rm_subagent = rm_subparsers.add_parser(
+            "subagent",
+            aliases=["subagents"],
+            help="Remove a subagent and unregister it from workspace",
+        )
+        p_rm_subagent.add_argument(
+            "name",
+            help="Name of the subagent to remove",
+        )
+        p_rm_subagent.add_argument(
+            "--sync",
+            action="store_true",
+            help="Automatically synchronize and prune subagent from target agent platforms after removing",
+        )
+        p_rm_subagent.set_defaults(func=cmd_rm_subagent)
+
+        p_rm_mcp = rm_subparsers.add_parser(
+            "mcp",
+            aliases=["mcps"],
+            help="Remove a canonical MCP server configuration from workspace",
+        )
+        p_rm_mcp.add_argument(
+            "name",
+            help="Name of the MCP server configuration to remove",
+        )
+        p_rm_mcp.add_argument(
+            "--sync",
+            action="store_true",
+            help="Automatically synchronize and remove MCP server from target agent platforms after removing",
+        )
+        p_rm_mcp.set_defaults(func=cmd_rm_mcp)
 
         p_rm_memory = rm_subparsers.add_parser(
             "memory",

@@ -621,6 +621,36 @@ def update_mcp_json_server(
     return json.dumps(document, ensure_ascii=False, indent=2) + "\n"
 
 
+def remove_agy_json_server(text: str, server_name: str) -> str:
+    return remove_mcp_json_server(text, server_name, "agy_json", "agy")
+
+
+def remove_claude_json_server(text: str, server_name: str) -> str:
+    return remove_mcp_json_server(text, server_name, "claude_json", "Claude Code")
+
+
+def remove_copilot_json_server(text: str, server_name: str) -> str:
+    return remove_mcp_json_server(
+        text, server_name, "copilot_json", "GitHub Copilot CLI"
+    )
+
+
+def remove_mcp_json_server(
+    text: str,
+    server_name: str,
+    config_format: str,
+    config_name: str,
+) -> str:
+    if not text.strip():
+        return text
+    document = _load_document(config_format, text)
+    servers = document.get("mcpServers")
+    if isinstance(servers, dict) and server_name in servers:
+        del servers[server_name]
+        return json.dumps(document, ensure_ascii=False, indent=2) + "\n"
+    return text
+
+
 def update_jsonc_server(text: str, server_name: str, desired: dict[str, Any]) -> str:
     if not text.strip():
         text = "{}\n"
@@ -678,6 +708,71 @@ def update_jsonc_server(text: str, server_name: str, desired: dict[str, Any]) ->
     )
 
 
+def remove_jsonc_server(text: str, server_name: str) -> str:
+    if not text.strip():
+        return text
+    tokens = _tokenize_jsonc(text)
+    if not tokens or tokens[0].kind != "{":
+        raise MCPConfigError("OpenCode config root must be an object")
+
+    root_members, _ = _object_members(tokens, 0)
+    mcp_member = root_members.get("mcp")
+    if mcp_member is None:
+        return text
+
+    _, mcp_value_index, _ = mcp_member
+    if tokens[mcp_value_index].kind != "{":
+        raise MCPConfigError("OpenCode 'mcp' must be an object")
+    mcp_members, mcp_close = _object_members(tokens, mcp_value_index)
+    server_member = mcp_members.get(server_name)
+    if server_member is None:
+        return text
+
+    key_idx, _, val_end_idx = server_member
+
+    has_trailing_comma = (
+        val_end_idx + 1 < mcp_close and tokens[val_end_idx + 1].kind == ","
+    )
+    has_leading_comma = (
+        key_idx - 1 > mcp_value_index and tokens[key_idx - 1].kind == ","
+    )
+
+    cut_start = tokens[key_idx].start
+    line_start = text.rfind("\n", 0, cut_start)
+    if line_start != -1 and text[line_start + 1 : cut_start].strip() == "":
+        cut_start = line_start + 1
+
+    if has_trailing_comma:
+        comma_tok = tokens[val_end_idx + 1]
+        cut_end = comma_tok.end
+        if cut_end < len(text) and text[cut_end] == "\n":
+            cut_end += 1
+        elif cut_end < len(text) and text[cut_end : cut_end + 2] == "\r\n":
+            cut_end += 2
+    elif has_leading_comma:
+        comma_tok = tokens[key_idx - 1]
+        cut_start = comma_tok.start
+        cut_end = tokens[val_end_idx].end
+        if cut_end < len(text) and text[cut_end] == "\n":
+            cut_end += 1
+        elif cut_end < len(text) and text[cut_end : cut_end + 2] == "\r\n":
+            cut_end += 2
+    else:
+        cut_end = tokens[val_end_idx].end
+        if cut_end < len(text) and text[cut_end] == "\n":
+            cut_end += 1
+        elif cut_end < len(text) and text[cut_end : cut_end + 2] == "\r\n":
+            cut_end += 2
+
+    result = text[:cut_start] + text[cut_end:]
+    parsed = _parse_jsonc(result)
+    if server_name in parsed.get("mcp", {}):
+        raise MCPConfigError(
+            f"Failed to remove server '{server_name}' from OpenCode JSONC"
+        )
+    return result
+
+
 def get_toml_server(text: str, server_name: str) -> dict[str, Any] | None:
     document = _load_document("toml", text)
     server = document.get("mcp_servers", {}).get(server_name)
@@ -721,6 +816,28 @@ def update_toml_server(text: str, server_name: str, desired: dict[str, Any]) -> 
     )
     end = len(text) if next_header is None else match.end() + next_header.start()
     return text[: match.start()] + section + text[end:]
+
+
+def remove_toml_server(text: str, server_name: str) -> str:
+    header = f"[mcp_servers.{server_name}]"
+    header_pattern = re.compile(rf"(?m)^[ \t]*{re.escape(header)}[ \t]*(?:#.*)?$")
+    match = header_pattern.search(text)
+    if match is None:
+        return text
+
+    next_header = re.search(
+        r"(?m)^[ \t]*\[[^\]]+\][ \t]*(?:#.*)?$", text[match.end() :]
+    )
+    end = len(text) if next_header is None else match.end() + next_header.start()
+    new_text = text[: match.start()] + text[end:]
+    cleaned = re.sub(r"\n{3,}", "\n\n", new_text)
+    try:
+        tomllib.loads(cleaned)
+    except Exception as exc:
+        raise MCPConfigError(
+            f"Failed to verify Codex TOML after removing server '{server_name}': {exc}"
+        ) from exc
+    return cleaned
 
 
 def _split_cordis_patch_items(text: str) -> list[tuple[int, int, str]]:
@@ -893,6 +1010,28 @@ def update_dsh_cordis_server(
         "\n" if text.endswith("\n\n") else ("\n\n" if text.endswith("\n") else "\n\n")
     )
     return text.rstrip() + separator + formatted + "\n"
+
+
+def remove_dsh_cordis_server(text: str, server_name: str) -> str:
+    if not text.strip():
+        return ""
+
+    items = _split_cordis_patch_items(text)
+    for start, end, item_text in items:
+        plugin = _parse_cordis_plugin_item(item_text)
+        name = plugin.get("name", "")
+        if isinstance(name, str):
+            name = name.strip("'\"")
+        plugin_id = plugin.get("id", "")
+        cfg = plugin.get("config", {})
+        is_target = plugin_id == f"aikito-mcp-{server_name}" or (
+            name == "@deepseek-ai/dsh-mcp-client"
+            and cfg.get("serverName") == server_name
+        )
+        if is_target:
+            new_text = (text[:start] + text[end:]).strip()
+            return (new_text + "\n") if new_text else ""
+    return text
 
 
 def _fingerprint(value: dict[str, Any]) -> str:
@@ -1927,6 +2066,22 @@ def _update_entry(spec: AgentSpec, text: str) -> str:
     raise MCPConfigError(f"Unsupported config format: {spec.config_format}")
 
 
+def _remove_entry(spec: AgentSpec, text: str) -> str:
+    if spec.config_format == "toml":
+        return remove_toml_server(text, spec.target_name)
+    if spec.config_format == "jsonc":
+        return remove_jsonc_server(text, spec.target_name)
+    if spec.config_format == "agy_json":
+        return remove_agy_json_server(text, spec.target_name)
+    if spec.config_format == "claude_json":
+        return remove_claude_json_server(text, spec.target_name)
+    if spec.config_format == "copilot_json":
+        return remove_copilot_json_server(text, spec.target_name)
+    if spec.config_format == "dsh_cordis":
+        return remove_dsh_cordis_server(text, spec.target_name)
+    raise MCPConfigError(f"Unsupported config format: {spec.config_format}")
+
+
 def _agent_detected(spec: AgentSpec) -> bool:
     if spec.home is not None:
         installed = is_agent_installed(spec.agent, spec.home)
@@ -2192,4 +2347,52 @@ def sync_mcp_configs(
 
     if not dry_run:
         _save_state(home, state)
+    return success
+
+
+def sync_remove_mcp_from_agents(
+    *,
+    specs: list[AgentSpec],
+    home: Path,
+    output: Callable[[str], None] = print,
+) -> bool:
+    state = _load_state(home)
+    entries = state["entries"]
+    success = True
+
+    for spec in specs:
+        if not spec.enabled:
+            continue
+        if not _agent_detected(spec):
+            continue
+        if not spec.config_path.exists():
+            continue
+
+        text = spec.config_path.read_text(encoding="utf-8")
+        current = _read_entry(spec, text)
+        if current is None:
+            entries.pop(spec.state_key, None)
+            continue
+
+        backup = (
+            None
+            if spec.contains_secret or spec.config_format == "claude_json"
+            else _backup_config(home, spec)
+        )
+        updated = _remove_entry(spec, text)
+        _atomic_write(
+            spec.config_path, updated, secure_permissions=spec.contains_secret
+        )
+        entries.pop(spec.state_key, None)
+        output(f"[SYNC] {spec.agent}/{spec.server}: removed from {spec.config_path}")
+        if backup:
+            output(f"[BACKUP] {backup}")
+
+    for spec in specs:
+        server_key_suffix = f":{spec.server}"
+        to_del = [k for k in entries if k.endswith(server_key_suffix)]
+        for k in to_del:
+            entries.pop(k, None)
+
+    _save_state(home, state)
     return success

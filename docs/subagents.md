@@ -51,10 +51,16 @@ not participate in subagent synchronization.
   `~/.pi/agent/agents/<name>.md`. Pi-specific configuration supports `model` and
   `tools`; without the extension, Pi remains skipped and Aikito writes nothing.
 
-If a definition is removed, status may report a managed orphan. Review it
-before using the command's explicit pruning or force options. Use
-`aikito sync subagents --help` for the options supported by the installed
-version.
+To unregister and remove a subagent from the workspace, run `aikito rm subagent <name>`.
+Add `--sync` to immediately prune the rendered subagent definition from all
+configured Agent runtimes:
+
+```bash
+aikito rm subagent reviewer --sync
+```
+
+If a definition was removed without `--sync`, `aikito status` may report a managed orphan.
+Run `aikito sync subagents --prune` to clean up orphaned definitions across agents.
 
 See [Architecture](architecture.md) for Agent capability boundaries and
 [Safety model](safety.md) before forcing any target.

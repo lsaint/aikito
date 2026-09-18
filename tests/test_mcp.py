@@ -27,6 +27,7 @@ from aikito.mcp import (
     authenticate_mcp,
     describe_mcp_auth,
     evaluate_spec_status,
+    _parse_jsonc,
     get_agy_json_server,
     get_claude_json_server,
     get_copilot_json_server,
@@ -40,6 +41,10 @@ from aikito.mcp import (
     probe_mcp_tools_for_specs,
     read_all_entries,
     redact_mcp_entry,
+    remove_claude_json_server,
+    remove_dsh_cordis_server,
+    remove_jsonc_server,
+    remove_toml_server,
     sync_mcp_configs,
     update_agy_json_server,
     update_claude_json_server,
@@ -304,6 +309,86 @@ enabled = true
         entries = read_all_entries("dsh_cordis", updated)
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries["atlassian-rovo"], desired)
+
+    def test_jsonc_remove_preserves_unmanaged_content_and_comments(self) -> None:
+        source = """{
+  // Root comment
+  "theme": "dark",
+  "mcp": {
+    // Server comment
+    "serverA": {
+      "type": "remote",
+      "url": "https://a.example.com"
+    },
+    "serverB": {
+      "type": "remote",
+      "url": "https://b.example.com"
+    }
+  }
+}
+"""
+        after_a = remove_jsonc_server(source, "serverA")
+        self.assertIn("// Root comment", after_a)
+        self.assertIn("// Server comment", after_a)
+        self.assertNotIn("serverA", after_a)
+        self.assertIn("serverB", after_a)
+        self.assertEqual(
+            get_jsonc_server(after_a, "serverB")["url"], "https://b.example.com"
+        )
+
+        after_b = remove_jsonc_server(after_a, "serverB")
+        self.assertNotIn("serverB", after_b)
+        self.assertEqual(_parse_jsonc(after_b)["theme"], "dark")
+
+    def test_toml_remove_preserves_other_sections(self) -> None:
+        source = """model = "gpt"
+
+[mcp_servers.alpha]
+url = "https://alpha.example.com"
+
+[mcp_servers.beta]
+url = "https://beta.example.com"
+
+[other]
+flag = true
+"""
+        updated = remove_toml_server(source, "alpha")
+        self.assertNotIn("[mcp_servers.alpha]", updated)
+        self.assertIn("[mcp_servers.beta]", updated)
+        self.assertIn("[other]", updated)
+        self.assertEqual(
+            get_toml_server(updated, "beta")["url"], "https://beta.example.com"
+        )
+
+    def test_mcp_json_remove_server(self) -> None:
+        source = json.dumps(
+            {
+                "mcpServers": {
+                    "server1": {"command": "npx"},
+                    "server2": {"command": "uvx"},
+                }
+            }
+        )
+        updated = remove_claude_json_server(source, "server1")
+        data = json.loads(updated)
+        self.assertNotIn("server1", data["mcpServers"])
+        self.assertIn("server2", data["mcpServers"])
+
+    def test_dsh_cordis_remove_server(self) -> None:
+        source = """- id: aikito-mcp-s1
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: s1
+    url: https://s1.example.com
+- id: aikito-mcp-s2
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: s2
+    url: https://s2.example.com
+"""
+        updated = remove_dsh_cordis_server(source, "s1")
+        self.assertNotIn("aikito-mcp-s1", updated)
+        self.assertIn("aikito-mcp-s2", updated)
 
 
 class SynchronizationTest(unittest.TestCase):

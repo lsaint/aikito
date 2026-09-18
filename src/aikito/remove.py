@@ -3,12 +3,13 @@ Resource removal and unregistration module for Aikito.
 Provides safe removal of skills, subagents, and MCP configurations from projects and workspace.
 """
 
+import re
 import shutil
 import sys
 import tempfile
 import tomllib
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from .add import (
     _atomic_write_text,
@@ -382,3 +383,251 @@ def remove_skill(
         force=force,
         sync=sync,
     )
+
+
+def _remove_subagent_from_toml(text: str, name: str) -> str:
+    header = f"[subagents.{name}]"
+    pattern = re.compile(rf"(?m)^[ \t]*{re.escape(header)}[ \t]*(?:#.*)?$")
+    match = pattern.search(text)
+    if match is None:
+        return text
+    next_header = re.search(
+        r"(?m)^[ \t]*\[[^\]]+\][ \t]*(?:#.*)?$", text[match.end() :]
+    )
+    end = len(text) if next_header is None else match.end() + next_header.start()
+    new_text = text[: match.start()] + text[end:]
+    cleaned = re.sub(r"\n{3,}", "\n\n", new_text)
+    try:
+        chk = tomllib.loads(cleaned)
+        if "subagents" not in chk:
+            cleaned = (cleaned.rstrip() + "\n\n[subagents]\n").lstrip("\n")
+    except Exception:
+        pass
+    return cleaned
+
+
+def remove_subagent(
+    aikito_dir: Path,
+    home: Path,
+    name: str,
+    sync: bool = False,
+) -> bool:
+    """
+    Remove a subagent instructions file and unregister it from workspace subagents.toml.
+
+    If sync=True, also prune the subagent from target agent configurations.
+    """
+    aikito_dir = aikito_dir.expanduser().resolve()
+    home = home.expanduser().resolve()
+
+    ws_error = _check_workspace_initialized(aikito_dir)
+    if ws_error:
+        print(f"[ERROR] {ws_error}", file=sys.stderr)
+        return False
+
+    if not name or not isinstance(name, str) or not name.strip():
+        print("[ERROR] Subagent name cannot be empty.", file=sys.stderr)
+        return False
+
+    name_clean = name.strip()
+    name_error = validate_resource_name(name_clean, "subagent")
+    if name_error:
+        print(f"[ERROR] {name_error}", file=sys.stderr)
+        return False
+
+    subagents_dir = aikito_dir / "subagents"
+    subagent_file = subagents_dir / f"{name_clean}.md"
+    subagents_toml = aikito_dir / "subagents.toml"
+
+    original_toml_text = ""
+    has_subagent_in_toml = False
+    new_toml_text = ""
+
+    if subagents_toml.is_file():
+        try:
+            original_toml_text = subagents_toml.read_text(encoding="utf-8")
+            data = tomllib.loads(original_toml_text)
+            subagents_table = data.get("subagents", {})
+            if isinstance(subagents_table, dict) and name_clean in subagents_table:
+                has_subagent_in_toml = True
+                new_toml_text = _remove_subagent_from_toml(
+                    original_toml_text, name_clean
+                )
+                chk = tomllib.loads(new_toml_text)
+                chk_sub = chk.get("subagents", {})
+                if isinstance(chk_sub, dict) and name_clean in chk_sub:
+                    raise ValueError(f"Failed to remove [subagents.{name_clean}] table")
+        except Exception as exc:
+            print(
+                f"[ERROR] Failed to read subagents configuration: {exc}",
+                file=sys.stderr,
+            )
+            return False
+
+    has_subagent_file = subagent_file.is_file()
+
+    if not has_subagent_in_toml and not has_subagent_file:
+        print(
+            f"[ERROR] Subagent '{name_clean}' does not exist in workspace ({_display_path(aikito_dir, home)}).",
+            file=sys.stderr,
+        )
+        return False
+
+    # Transactional execution
+    backup_dir: Optional[Path] = None
+    staged_backup: Optional[Path] = None
+    if has_subagent_file:
+        backup_dir = Path(
+            tempfile.mkdtemp(
+                prefix=f".{name_clean}.rm_backup.",
+                dir=subagent_file.parent,
+            )
+        )
+        staged_backup = backup_dir / subagent_file.name
+        try:
+            subagent_file.replace(staged_backup)
+        except Exception as exc:
+            shutil.rmtree(backup_dir, ignore_errors=True)
+            print(
+                f"[ERROR] Failed to move subagent instructions file for removal: {exc}",
+                file=sys.stderr,
+            )
+            return False
+
+    if has_subagent_in_toml:
+        try:
+            _atomic_write_text(subagents_toml, new_toml_text, encoding="utf-8")
+        except Exception as exc:
+            if backup_dir and staged_backup and staged_backup.exists():
+                staged_backup.replace(subagent_file)
+                shutil.rmtree(backup_dir, ignore_errors=True)
+            print(
+                f"[ERROR] Failed to update subagents configuration: {exc}",
+                file=sys.stderr,
+            )
+            return False
+
+    if backup_dir:
+        shutil.rmtree(backup_dir, ignore_errors=True)
+        print(f"[DELETE FILE] {_display_path(subagent_file, home)}")
+
+    if has_subagent_in_toml:
+        print(
+            f"[UPDATE FILE] {_display_path(subagents_toml, home)} (unregistered subagent '{name_clean}')"
+        )
+
+    print(f"\n[SUCCESS] Removed subagent '{name_clean}'.")
+
+    if sync:
+        from .subagent import SubagentConfigError, sync_subagent_configs
+
+        try:
+            sync_ok = sync_subagent_configs(
+                aikito_dir=aikito_dir,
+                home=home,
+                prune=True,
+            )
+            if not sync_ok:
+                return False
+        except SubagentConfigError as exc:
+            print(f"[ERROR] {exc}", file=sys.stderr)
+            return False
+
+    return True
+
+
+def remove_mcp(
+    aikito_dir: Path,
+    home: Path,
+    name: str,
+    sync: bool = False,
+) -> bool:
+    """
+    Remove a canonical MCP server configuration from workspace.
+
+    If sync=True, also remove the server from all configured and installed
+    agent platforms and update runtime MCP state.
+    """
+    aikito_dir = aikito_dir.expanduser().resolve()
+    home = home.expanduser().resolve()
+
+    ws_error = _check_workspace_initialized(aikito_dir)
+    if ws_error:
+        print(f"[ERROR] {ws_error}", file=sys.stderr)
+        return False
+
+    if not name or not isinstance(name, str) or not name.strip():
+        print("[ERROR] MCP server name cannot be empty.", file=sys.stderr)
+        return False
+
+    name_clean = name.strip()
+    name_error = validate_resource_name(name_clean, "mcp")
+    if name_error:
+        print(f"[ERROR] {name_error}", file=sys.stderr)
+        return False
+
+    mcps_dir = aikito_dir / "mcps"
+    mcp_file = mcps_dir / f"{name_clean}.toml"
+
+    if not mcp_file.is_file():
+        print(
+            f"[ERROR] MCP server '{name_clean}' does not exist in workspace ({_display_path(aikito_dir, home)}).",
+            file=sys.stderr,
+        )
+        return False
+
+    specs_to_remove: List[Any] = []
+    if sync:
+        from .mcp import MCPConfigError, load_agent_specs, sync_remove_mcp_from_agents
+
+        try:
+            all_specs = load_agent_specs(aikito_dir, home)
+            specs_to_remove = [s for s in all_specs if s.server == name_clean]
+        except MCPConfigError as exc:
+            print(
+                f"[ERROR] Failed to inspect MCP configuration: {exc}",
+                file=sys.stderr,
+            )
+            return False
+
+    backup_dir = Path(
+        tempfile.mkdtemp(
+            prefix=f".{name_clean}.rm_backup.",
+            dir=mcp_file.parent,
+        )
+    )
+    staged_backup = backup_dir / mcp_file.name
+
+    try:
+        mcp_file.replace(staged_backup)
+    except Exception as exc:
+        shutil.rmtree(backup_dir, ignore_errors=True)
+        print(
+            f"[ERROR] Failed to remove MCP configuration file: {exc}",
+            file=sys.stderr,
+        )
+        return False
+
+    if sync and specs_to_remove:
+        try:
+            sync_ok = sync_remove_mcp_from_agents(
+                specs=specs_to_remove,
+                home=home,
+            )
+            if not sync_ok:
+                staged_backup.replace(mcp_file)
+                shutil.rmtree(backup_dir, ignore_errors=True)
+                return False
+        except Exception as exc:
+            staged_backup.replace(mcp_file)
+            shutil.rmtree(backup_dir, ignore_errors=True)
+            print(
+                f"[ERROR] Failed to synchronize MCP server removal: {exc}",
+                file=sys.stderr,
+            )
+            return False
+
+    shutil.rmtree(backup_dir, ignore_errors=True)
+    print(f"[DELETE FILE] {_display_path(mcp_file, home)}")
+    print(f"\n[SUCCESS] Removed MCP server '{name_clean}'.")
+    return True
