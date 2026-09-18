@@ -2372,6 +2372,7 @@ reason = "Disabled for codex"
         self,
     ) -> None:
         # Pre-seed an unmanaged config for claude-code that will trigger [CONFLICT]
+        (self.home / ".claude").mkdir(parents=True, exist_ok=True)
         claude_cfg = self.home / ".claude.json"
         claude_cfg.write_text(
             json.dumps(
