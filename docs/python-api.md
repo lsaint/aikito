@@ -74,9 +74,9 @@ global skills, MCP servers, or subagents.
 
 - [`UnsupportedProjectAgentError`](#unsupportedprojectagenterror) – `agent` is not configured in `agents.toml`.
 - [`ProjectPrepareConflictError`](#projectprepareconflicterror) – managed resources cannot be synchronised safely, or symlink support is unavailable.
-- [`NoAvailableProjectPathError`](#noavailableprojectpatherror) – no configured path exists on this host (when `path` is omitted).
+- [`NoAvailableProjectPathError`](#noavailableprojectpatherror) – no configured path exists on this host (when `path` is omitted), or the explicit `path` does not exist.
 - [`AmbiguousProjectPathError`](#ambiguousprojectpatherror) – multiple paths are active and no explicit `path` was supplied.
-- [`InvalidProjectConfigError`](#invalidprojectconfigerror) – `path` is invalid or does not exist.
+- [`InvalidProjectConfigError`](#invalidprojectconfigerror) – `path` is empty, not a string/Path, or exists but is not a directory.
 
 ---
 
@@ -166,7 +166,8 @@ missing files, or invalid parameter types).
 
 ### `NoAvailableProjectPathError`
 
-Raised when none of a project's configured paths exists on this host.
+Raised when none of a project's configured paths exists on this host, or when
+an explicit `path` supplied to `Project.prepare()` does not exist.
 
 ### `AmbiguousProjectPathError`
 
@@ -250,5 +251,8 @@ except ProjectPrepareConflictError as e:
 ---
 
 !!! note
-    `Project.prepare()` has no CLI wrapper. For manual project
-    synchronisation use `aikito sync project <name>`.
+    `Project.prepare()` accepts no `--force` parameter and does not reuse
+    CLI force authorization. For manual project synchronisation or force
+    overwrites use `aikito sync project <name> --force`. See
+    [Engineering Invariants](architecture/invariants.md#inv-api-05)
+    for the API invariant specification.

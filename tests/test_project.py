@@ -1,3 +1,4 @@
+import aikito
 import os
 import tempfile
 import tomllib
@@ -10,9 +11,11 @@ from aikito import (
     InvalidProjectConfigError,
     NoAvailableProjectPathError,
     Project,
+    ProjectError,
     ProjectNotFoundError,
     ProjectPrepareConflictError,
     UnsupportedProjectAgentError,
+    __version__,
 )
 from aikito.project import (
     ProjectResourceDetail,
@@ -330,6 +333,62 @@ class ProjectApiTest(unittest.TestCase):
 
         with self.assertRaises(InvalidProjectConfigError):
             project.add_path(None)  # type: ignore[arg-type]
+
+    def test_public_api_exports_and_exception_hierarchy(self) -> None:
+        expected_exports = [
+            "Project",
+            "PreparedProject",
+            "ProjectError",
+            "ProjectNotFoundError",
+            "InvalidProjectConfigError",
+            "NoAvailableProjectPathError",
+            "AmbiguousProjectPathError",
+            "UnsupportedProjectAgentError",
+            "ProjectPrepareConflictError",
+            "__version__",
+        ]
+        self.assertEqual(set(aikito.__all__), set(expected_exports))
+        self.assertIsInstance(__version__, str)
+
+        exception_classes = [
+            ProjectNotFoundError,
+            InvalidProjectConfigError,
+            NoAvailableProjectPathError,
+            AmbiguousProjectPathError,
+            UnsupportedProjectAgentError,
+            ProjectPrepareConflictError,
+        ]
+        for exc_cls in exception_classes:
+            self.assertTrue(issubclass(exc_cls, ProjectError))
+            self.assertTrue(issubclass(exc_cls, RuntimeError))
+
+    def test_prepared_project_immutability_and_dataclass_contract(self) -> None:
+        project = self.load_project()
+        prepared = project.prepare(agent="pi")
+
+        self.assertEqual(prepared.name, "demo")
+        self.assertEqual(prepared.agent, "pi")
+        self.assertEqual(prepared.cwd, self.project_path.resolve())
+        self.assertEqual(dict(prepared.env_overrides), {})
+
+        with self.assertRaises((AttributeError, TypeError)):
+            prepared.name = "mutated"  # type: ignore[misc]
+        with self.assertRaises((AttributeError, TypeError)):
+            prepared.env_overrides["KEY"] = "VAL"  # type: ignore[index]
+
+    def test_prepare_repeated_preserves_result(self) -> None:
+        project = self.load_project()
+        prep1 = project.prepare(agent="pi")
+        prep2 = project.prepare(agent="pi")
+
+        self.assertEqual(prep1.name, prep2.name)
+        self.assertEqual(prep1.agent, prep2.agent)
+        self.assertEqual(prep1.cwd, prep2.cwd)
+        self.assertEqual(dict(prep1.env_overrides), dict(prep2.env_overrides))
+        self.assertTrue((self.project_path / "AGENTS.md").is_symlink())
+        self.assertTrue(
+            (self.project_path / ".agents" / "skills" / "demo-skill").is_symlink()
+        )
 
 
 class ProjectSummaryTest(unittest.TestCase):

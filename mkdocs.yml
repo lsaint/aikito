@@ -65,6 +65,7 @@ nav:
       - CLI Reference: cli-reference.md
       - Python API Reference: python-api.md
       - Safety Model: safety.md
+      - Engineering Invariants: architecture/invariants.md
   - About:
       - Comparison: comparison.md
       - Why Memory Needs a Maintainer: programming-agent-memory.md

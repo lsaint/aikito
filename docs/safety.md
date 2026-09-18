@@ -83,13 +83,20 @@ review is useful.
 ## Conflict and Drift Protection
 
 - Unmanaged targets are reported as conflicts rather than silently replaced.
-- Deselected skills are removed only when a workspace symlink or unchanged
-  canonical copy proves they were managed by Aikito.
+- Deselected project skills are removed only when a workspace symlink proves they were
+  managed by Aikito ([INV-OWN-03](architecture/invariants.md#inv-own-03),
+  [INV-TR-14](architecture/invariants.md#3-state-transition-table)). Deselected copy skills
+  and unmanaged entries in project checkouts are preserved as project-owned ([INV-TR-17](architecture/invariants.md#3-state-transition-table)).
+  *(Note: Global synchronization maintains a legacy compatibility heuristic where deselected
+  runtime skills identical to canonical are cleaned up via `allow_matching_copies=True`;
+  see [INV-OWN-03](architecture/invariants.md#inv-own-03).)*
 - Managed-entry fingerprints expose local drift.
 - Copied project skill drift is shown by `aikito diff` and blocks project sync
-  unless the user supplies `--force` after review.
+  unless the user supplies `--force` after review ([INV-AUTH-01](architecture/invariants.md#inv-auth-01)).
 - Conflicting instruction sources require user judgment.
-- Explicit force or prune options should be scoped to a reviewed target.
+- Explicit force or prune options are strictly scoped to reviewed targets ([INV-AUTH-02](architecture/invariants.md#inv-auth-02)).
+- For formal verification rules and state transition tables, see the
+  [Engineering Invariants](architecture/invariants.md).
 
 ## Credentials
 
@@ -121,7 +128,7 @@ Project `.agents/skills/` is shared at entry level. Aikito manages only selected
 skill names, preserves other project-owned entries, and reports a conflict only
 when a selected name is already owned by the project. `.agents/memory/` remains
 exclusively managed by Aikito. Matching file contents alone never prove copy
-ownership, and synchronization never deletes unknown content.
+ownership ([INV-OWN-01](architecture/invariants.md#inv-own-01)), and synchronization never deletes unknown content.
 
 ## Recovery Practice
 

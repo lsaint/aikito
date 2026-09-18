@@ -665,6 +665,107 @@ class ProjectSyncSafetyTest(unittest.TestCase):
         self.assertTrue(runtime.is_dir())
         self.assertIn("[INFO] Preserving project-owned skill:", stdout.getvalue())
 
+    def test_deselected_managed_broken_link_is_cleaned_and_previewed(self) -> None:
+        canonical = self.workspace / "skills" / "example-skill"
+        canonical.mkdir()
+        (canonical / "SKILL.md").write_text("canonical\n", encoding="utf-8")
+        config = self.workspace / "projects" / "example" / "agent.toml"
+        config.write_text(
+            config.read_text(encoding="utf-8").replace(
+                "skills = []", 'skills = ["example-skill"]'
+            ),
+            encoding="utf-8",
+        )
+        self._run_sync()
+        runtime = self.project / ".agents" / "skills" / "example-skill"
+        self.assertTrue(runtime.is_symlink())
+
+        # Remove canonical skill to make it a broken symlink
+        shutil.rmtree(canonical)
+        self.assertTrue(runtime.is_symlink())
+        self.assertFalse(runtime.exists())
+
+        # Deselect the skill
+        config.write_text(
+            config.read_text(encoding="utf-8").replace(
+                'skills = ["example-skill"]', "skills = []"
+            ),
+            encoding="utf-8",
+        )
+
+        with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            self._run_sync("--dry-run")
+        self.assertTrue(runtime.is_symlink())
+        self.assertIn("[DRY RUN CLEANUP]", stdout.getvalue())
+
+        self._run_sync()
+        self.assertFalse(runtime.is_symlink())
+
+    def test_deselected_external_symlink_is_preserved_as_project_owned(self) -> None:
+        external_skill = self.root / "external-skill"
+        external_skill.mkdir()
+        (external_skill / "SKILL.md").write_text("external\n", encoding="utf-8")
+        runtime = self.project / ".agents" / "skills" / "external-skill"
+        runtime.parent.mkdir(parents=True, exist_ok=True)
+        runtime.symlink_to(external_skill)
+
+        with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            self._run_sync()
+        self.assertTrue(runtime.is_symlink())
+        self.assertEqual(runtime.resolve(), external_skill.resolve())
+        self.assertIn("[INFO] Preserving project-owned skill:", stdout.getvalue())
+
+    def test_selected_external_symlink_reports_conflict_and_blocks_sync(self) -> None:
+        canonical = self.workspace / "skills" / "example-skill"
+        canonical.mkdir()
+        (canonical / "SKILL.md").write_text("canonical\n", encoding="utf-8")
+        config = self.workspace / "projects" / "example" / "agent.toml"
+        config.write_text(
+            config.read_text(encoding="utf-8").replace(
+                "skills = []", 'skills = ["example-skill"]'
+            ),
+            encoding="utf-8",
+        )
+        external_dir = self.root / "external-dir"
+        external_dir.mkdir()
+        (external_dir / "SKILL.md").write_text("external\n", encoding="utf-8")
+        runtime = self.project / ".agents" / "skills" / "example-skill"
+        runtime.parent.mkdir(parents=True, exist_ok=True)
+        runtime.symlink_to(external_dir)
+
+        with self.assertRaises(SystemExit):
+            self._run_sync()
+
+        self.assertTrue(runtime.is_symlink())
+        self.assertEqual(runtime.resolve(), external_dir.resolve())
+        self.assertEqual(
+            (external_dir / "SKILL.md").read_text(encoding="utf-8"), "external\n"
+        )
+
+    def test_deselected_internal_mismatched_symlink_cleaned_by_current_scope_heuristic(
+        self,
+    ) -> None:
+        # Document INV-OWN-03 [compat-gap]: current _symlink_points_within checks only that
+        # target resolves within canonical_roots (workspace/skills), not the specific resource.
+        canonical_a = self.workspace / "skills" / "skill-a"
+        canonical_b = self.workspace / "skills" / "skill-b"
+        canonical_a.mkdir(parents=True)
+        canonical_b.mkdir(parents=True)
+        (canonical_a / "SKILL.md").write_text("a\n", encoding="utf-8")
+        (canonical_b / "SKILL.md").write_text("b\n", encoding="utf-8")
+
+        # Runtime skill-a wrongly links to skill-b
+        runtime_a = self.project / ".agents" / "skills" / "skill-a"
+        runtime_a.parent.mkdir(parents=True, exist_ok=True)
+        runtime_a.symlink_to(canonical_b)
+
+        # skill-a is deselected (skills = [])
+        self.assertTrue(runtime_a.is_symlink())
+        self._run_sync()
+
+        # Under current implementation, it is cleaned up because canonical_b is within workspace/skills
+        self.assertFalse(runtime_a.is_symlink())
+
 
 class GlobalSyncSafetyTest(unittest.TestCase):
     def setUp(self) -> None:

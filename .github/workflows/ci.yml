@@ -71,6 +71,7 @@ jobs:
           mkdocs build --strict
           test -f site/index.html
           test -f site/guide/index.html
+          test -f site/architecture/invariants/index.html
           test -f site/stylesheets/fonts.css
           test -f site/stylesheets/home.css
           test -f site/assets/fonts/inter-latin.woff2
@@ -910,6 +911,356 @@ jobs:
             python3 -m aikito completion candidates skills
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito completion candidates projects
+
+  macos-smoke-test:
+    runs-on: macos-latest
+    env:
+      PYTHONPATH: src
+      HOME: ${{ runner.temp }}/macos-home
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: python -m pip install pytest
+
+      - name: Run macOS unit tests
+        run: python -m pytest
+
+      - name: Create mock agent directories in isolated home
+        run: |
+          mkdir -p "$HOME"
+          mkdir -p \
+            "$HOME/.codex" \
+            "$HOME/.claude" \
+            "$HOME/.copilot/agents" \
+            "$HOME/.grok/rules" \
+            "$HOME/.gemini/antigravity-cli" \
+            "$HOME/.gemini/config" \
+            "$HOME/.config/opencode" \
+            "$HOME/.pi/agent"
+
+      - name: macOS CLI smoke - Link and Copy Modes
+        run: |
+          WS=${{ runner.temp }}/macos-ws
+          PROJ_LINK=${{ runner.temp }}/macos-proj-link
+          PROJ_COPY=${{ runner.temp }}/macos-proj-copy
+          mkdir -p "$PROJ_LINK" "$PROJ_COPY"
+
+          AIKITO_DIR=$WS python3 -m aikito init workspace "$WS"
+          AIKITO_DIR=$WS python3 -m aikito init project demo-link "$PROJ_LINK"
+          AIKITO_DIR=$WS python3 -m aikito init project demo-copy "$PROJ_COPY"
+
+          # Add link skill
+          AIKITO_DIR=$WS python3 -m aikito add skill test-link-skill --description "Link skill"
+          printf "canonical link content\n" > "$WS/skills/test-link-skill/SKILL.md"
+
+          # Add copy skill
+          AIKITO_DIR=$WS python3 -m aikito add skill test-copy-skill --description "Copy skill"
+          printf "canonical copy content\n" > "$WS/skills/test-copy-skill/SKILL.md"
+          printf "extra copy file\n" > "$WS/skills/test-copy-skill/extra.txt"
+
+          # Configure demo-link for link mode
+          python3 -c "
+          from pathlib import Path
+          p = Path('$WS/projects/demo-link/agent.toml')
+          p.write_text(p.read_text().replace('skills = []', 'skills = [\"test-link-skill\"]'))
+          "
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-link
+          test -L "$PROJ_LINK/.agents/skills/test-link-skill"
+          test -f "$PROJ_LINK/.agents/skills/test-link-skill/SKILL.md"
+          python3 -c "
+          import os, sys
+          from pathlib import Path
+          link = Path('$PROJ_LINK/.agents/skills/test-link-skill')
+          canonical = Path('$WS/skills/test-link-skill')
+          assert link.resolve() == canonical.resolve(), f'{link.resolve()} != {canonical.resolve()}'
+          assert (link / 'SKILL.md').read_text() == 'canonical link content\n'
+          "
+
+          # Configure demo-copy for copy mode
+          python3 -c "
+          from pathlib import Path
+          p = Path('$WS/projects/demo-copy/agent.toml')
+          content = p.read_text().replace('sync_mode = \"link\"', 'sync_mode = \"copy\"').replace('skills = []', 'skills = [\"test-copy-skill\"]')
+          p.write_text(content)
+          "
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-copy
+          test -d "$PROJ_COPY/.agents/skills/test-copy-skill"
+          test -f "$PROJ_COPY/.agents/skills/test-copy-skill/SKILL.md"
+          test -f "$PROJ_COPY/.agents/skills/test-copy-skill/extra.txt"
+          ! test -L "$PROJ_COPY/.agents/skills/test-copy-skill"
+          diff -r "$WS/skills/test-copy-skill" "$PROJ_COPY/.agents/skills/test-copy-skill"
+
+      - name: macOS CLI smoke - Broken Symlink Handling
+        run: |
+          WS=${{ runner.temp }}/macos-ws
+          PROJ_LINK=${{ runner.temp }}/macos-proj-link
+
+          # 1. Managed broken link: canonical deleted while skill deselected
+          AIKITO_DIR=$WS python3 -m aikito add skill temp-broken-skill --description "Temp broken"
+          printf "temp\n" > "$WS/skills/temp-broken-skill/SKILL.md"
+          python3 -c "
+          from pathlib import Path
+          p = Path('$WS/projects/demo-link/agent.toml')
+          p.write_text(p.read_text().replace('skills = [\"test-link-skill\"]', 'skills = [\"test-link-skill\", \"temp-broken-skill\"]'))
+          "
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-link
+          test -L "$PROJ_LINK/.agents/skills/temp-broken-skill"
+
+          # Now delete canonical source to break the link
+          rm -rf "$WS/skills/temp-broken-skill"
+          test -L "$PROJ_LINK/.agents/skills/temp-broken-skill"
+          test ! -e "$PROJ_LINK/.agents/skills/temp-broken-skill"
+
+          # Deselect temp-broken-skill
+          python3 -c "
+          from pathlib import Path
+          p = Path('$WS/projects/demo-link/agent.toml')
+          p.write_text(p.read_text().replace(', \"temp-broken-skill\"', ''))
+          "
+
+          # Dry-run preview should report cleanup without deleting
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-link --dry-run | tee ${{ runner.temp }}/broken-preview.out
+          grep -F "[DRY RUN CLEANUP]" ${{ runner.temp }}/broken-preview.out
+          test -L "$PROJ_LINK/.agents/skills/temp-broken-skill"
+
+          # Real sync cleans up managed broken link
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-link
+          test ! -L "$PROJ_LINK/.agents/skills/temp-broken-skill"
+
+          # 2. External broken link: unmanaged broken link must be preserved
+          ln -s /tmp/nonexistent-external-path-xyz "$PROJ_LINK/.agents/skills/external-broken"
+          test -L "$PROJ_LINK/.agents/skills/external-broken"
+          test ! -e "$PROJ_LINK/.agents/skills/external-broken"
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-link
+          test -L "$PROJ_LINK/.agents/skills/external-broken"
+          rm "$PROJ_LINK/.agents/skills/external-broken"
+
+      - name: macOS CLI smoke - Wrong Target Symlink and External Directories
+        run: |
+          WS=${{ runner.temp }}/macos-ws
+          PROJ_LINK=${{ runner.temp }}/macos-proj-link
+          EXT_DIR=${{ runner.temp }}/macos-external-res
+          mkdir -p "$EXT_DIR"
+          printf "sentinel external data\n" > "$EXT_DIR/sentinel.txt"
+
+          # Wrong target symlink: selected skill points to external resource
+          AIKITO_DIR=$WS python3 -m aikito add skill wrong-link-skill --description "Wrong link skill"
+          ln -s "$EXT_DIR" "$PROJ_LINK/.agents/skills/wrong-link-skill"
+          python3 -c "
+          from pathlib import Path
+          p = Path('$WS/projects/demo-link/agent.toml')
+          p.write_text(p.read_text().replace('skills = [\"test-link-skill\"]', 'skills = [\"test-link-skill\", \"wrong-link-skill\"]'))
+          "
+          # Sync must fail (non-zero exit)
+          if AIKITO_DIR=$WS python3 -m aikito sync project demo-link 2>${{ runner.temp }}/wrong-link.err; then
+            echo "Expected sync project to fail on external symlink conflict"
+            exit 1
+          fi
+          test -L "$PROJ_LINK/.agents/skills/wrong-link-skill"
+          test -f "$EXT_DIR/sentinel.txt"
+          rm "$PROJ_LINK/.agents/skills/wrong-link-skill"
+
+          # External regular directory:
+          # Deselected external directory with sentinel file must be preserved
+          mkdir -p "$PROJ_LINK/.agents/skills/local-custom-dir"
+          printf "local sentinel\n" > "$PROJ_LINK/.agents/skills/local-custom-dir/sentinel.txt"
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-link
+          test -d "$PROJ_LINK/.agents/skills/local-custom-dir"
+          test -f "$PROJ_LINK/.agents/skills/local-custom-dir/sentinel.txt"
+
+          # When selected in link mode, existing non-matching directory causes conflict
+          python3 -c "
+          from pathlib import Path
+          p = Path('$WS/projects/demo-link/agent.toml')
+          p.write_text(p.read_text().replace('skills = [\"test-link-skill\"]', 'skills = [\"test-link-skill\", \"local-custom-dir\"]'))
+          "
+          AIKITO_DIR=$WS python3 -m aikito add skill local-custom-dir --description "Local custom skill"
+          printf "workspace different content\n" > "$WS/skills/local-custom-dir/SKILL.md"
+          if AIKITO_DIR=$WS python3 -m aikito sync project demo-link 2>${{ runner.temp }}/ext-dir.err; then
+            echo "Expected sync project to fail on external directory conflict"
+            exit 1
+          fi
+          test -f "$PROJ_LINK/.agents/skills/local-custom-dir/sentinel.txt"
+
+          # Restore clean config
+          python3 -c "
+          from pathlib import Path
+          p = Path('$WS/projects/demo-link/agent.toml')
+          p.write_text(p.read_text().replace(', \"local-custom-dir\"', ''))
+          "
+          rm -rf "$PROJ_LINK/.agents/skills/local-custom-dir"
+
+      - name: macOS CLI smoke - Deselection Semantics (Link Cleaned, Copy Preserved)
+        run: |
+          WS=${{ runner.temp }}/macos-ws
+          PROJ_LINK=${{ runner.temp }}/macos-proj-link
+          PROJ_COPY=${{ runner.temp }}/macos-proj-copy
+
+          # Deselect managed link: link is removed
+          test -L "$PROJ_LINK/.agents/skills/test-link-skill"
+          python3 -c "
+          from pathlib import Path
+          p = Path('$WS/projects/demo-link/agent.toml')
+          p.write_text(p.read_text().replace('skills = [\"test-link-skill\"]', 'skills = []'))
+          "
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-link
+          test ! -L "$PROJ_LINK/.agents/skills/test-link-skill"
+
+          # Deselect unmodified copy: copy is preserved even if identical to canonical
+          test -d "$PROJ_COPY/.agents/skills/test-copy-skill"
+          python3 -c "
+          from pathlib import Path
+          p = Path('$WS/projects/demo-copy/agent.toml')
+          p.write_text(p.read_text().replace('skills = [\"test-copy-skill\"]', 'skills = []'))
+          "
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-copy
+          test -d "$PROJ_COPY/.agents/skills/test-copy-skill"
+          test -f "$PROJ_COPY/.agents/skills/test-copy-skill/SKILL.md"
+          test -f "$PROJ_COPY/.agents/skills/test-copy-skill/extra.txt"
+
+      - name: macOS CLI smoke - Repeat Sync Baseline (Phase 1 Baseline)
+        run: |
+          WS=${{ runner.temp }}/macos-ws
+          PROJ_LINK=${{ runner.temp }}/macos-proj-link
+          PROJ_COPY=${{ runner.temp }}/macos-proj-copy
+
+          # Restore skills in config
+          python3 -c "
+          from pathlib import Path
+          p_link = Path('$WS/projects/demo-link/agent.toml')
+          p_link.write_text(p_link.read_text().replace('skills = []', 'skills = [\"test-link-skill\"]'))
+          p_copy = Path('$WS/projects/demo-copy/agent.toml')
+          p_copy.write_text(p_copy.read_text().replace('skills = []', 'skills = [\"test-copy-skill\"]'))
+          "
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-link
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-copy
+
+          # Capture first sync metadata (mtime, inode, readlink) using Python standard library
+          python3 -c "
+          import os, json
+          from pathlib import Path
+
+          def capture_meta(root):
+              meta = {}
+              for p in sorted(root.rglob('*')):
+                  st = p.lstat()
+                  target = os.readlink(p) if p.is_symlink() else None
+                  meta[str(p.relative_to(root))] = {
+                      'is_symlink': p.is_symlink(),
+                      'is_dir': p.is_dir() and not p.is_symlink(),
+                      'mtime_ns': st.st_mtime_ns,
+                      'ino': st.st_ino,
+                      'link_target': target,
+                  }
+              return meta
+
+          meta_link = capture_meta(Path('$PROJ_LINK'))
+          meta_copy = capture_meta(Path('$PROJ_COPY'))
+          Path('${{ runner.temp }}/meta_before.json').write_text(json.dumps({'link': meta_link, 'copy': meta_copy}, indent=2))
+          "
+
+          # Repeat sync
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-link
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-copy
+
+          # Assert content and link semantics are valid; record differences without failing (Phase 1 baseline)
+          python3 -c "
+          import os, json
+          from pathlib import Path
+
+          before = json.loads(Path('${{ runner.temp }}/meta_before.json').read_text())
+          link_skill = Path('$PROJ_LINK/.agents/skills/test-link-skill')
+          copy_skill = Path('$PROJ_COPY/.agents/skills/test-copy-skill')
+
+          assert link_skill.is_symlink(), 'Link skill should remain symlink'
+          assert (link_skill / 'SKILL.md').read_text() == 'canonical link content\n'
+          assert copy_skill.is_dir() and not copy_skill.is_symlink(), 'Copy skill should remain directory'
+          assert (copy_skill / 'SKILL.md').read_text() == 'canonical copy content\n'
+
+          # Log differences for phase 1 baseline observation
+          st_copy = copy_skill.lstat()
+          print(f'[BASELINE OBS] Copy skill mtime_before={before[\"copy\"][\".agents/skills/test-copy-skill\"][\"mtime_ns\"]} mtime_after={st_copy.st_mtime_ns}')
+          print('[BASELINE OBS] Phase 1 repeat sync verified: contents and semantics intact; zero-write assertion planned for Phase 2')
+          "
+
+      - name: macOS CLI smoke - Dry Run Non-Mutation Guarantee
+        run: |
+          WS=${{ runner.temp }}/macos-ws
+          PROJ_LINK=${{ runner.temp }}/macos-proj-link
+          PROJ_COPY=${{ runner.temp }}/macos-proj-copy
+          EXT_DIR=${{ runner.temp }}/macos-external-res
+
+          # Take pre-snapshot across isolated home, workspace, projects, and external directory
+          python3 -c "
+          import os, json
+          from pathlib import Path
+
+          def snapshot(roots):
+              tree = {}
+              for root in roots:
+                  r = Path(root)
+                  if not r.exists():
+                      continue
+                  for p in sorted(r.rglob('*')):
+                      st = p.lstat()
+                      target = os.readlink(p) if p.is_symlink() else None
+                      content = p.read_bytes() if p.is_file() and not p.is_symlink() else None
+                      tree[str(p)] = {
+                          'is_symlink': p.is_symlink(),
+                          'is_dir': p.is_dir() and not p.is_symlink(),
+                          'is_file': p.is_file() and not p.is_symlink(),
+                          'target': target,
+                          'size': st.st_size,
+                          'content': content.hex() if content else None,
+                      }
+              return tree
+
+          snap = snapshot([os.environ['HOME'], '$WS', '$PROJ_LINK', '$PROJ_COPY', '$EXT_DIR'])
+          Path('${{ runner.temp }}/dryrun_snap_before.json').write_text(json.dumps(snap))
+          "
+
+          # Execute dry-runs
+          AIKITO_DIR=$WS python3 -m aikito sync --dry-run
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-link --dry-run
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-copy --dry-run
+
+          # Verify post-snapshot matches pre-snapshot exactly
+          python3 -c "
+          import os, json
+          from pathlib import Path
+
+          def snapshot(roots):
+              tree = {}
+              for root in roots:
+                  r = Path(root)
+                  if not r.exists():
+                      continue
+                  for p in sorted(r.rglob('*')):
+                      st = p.lstat()
+                      target = os.readlink(p) if p.is_symlink() else None
+                      content = p.read_bytes() if p.is_file() and not p.is_symlink() else None
+                      tree[str(p)] = {
+                          'is_symlink': p.is_symlink(),
+                          'is_dir': p.is_dir() and not p.is_symlink(),
+                          'is_file': p.is_file() and not p.is_symlink(),
+                          'target': target,
+                          'size': st.st_size,
+                          'content': content.hex() if content else None,
+                      }
+              return tree
+
+          before = json.loads(Path('${{ runner.temp }}/dryrun_snap_before.json').read_text())
+          after = snapshot([os.environ['HOME'], '$WS', '$PROJ_LINK', '$PROJ_COPY', '$EXT_DIR'])
+          assert before == after, 'Dry-run modified the filesystem tree!'
+          print('[SUCCESS] Dry run snapshot verified: zero mutations')
+          "
 
   windows-smoke-test:
     runs-on: windows-latest
