@@ -25,11 +25,9 @@
   <a href="README.zh-CN.md">简体中文</a> · <a href="https://lsaint.github.io/aikito/">Homepage</a> · <a href="https://lsaint.github.io/aikito/guide/">Documentation</a>
 </p>
 
-Aikito keeps coding-agent instructions, skills, MCP definitions, subagents, and
-durable memory in one Git-managed workspace, shared across agents and projects.
+Aikito gives you one place to govern the context your coding agents share.
 
-Built for developers whose Agent setup already works, but has become tedious to
-keep consistent across tools, projects, machines, and time.
+Manage instructions, skills, MCPs, subagents, and durable memory across agents, projects, and machines.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/lsaint/aikito/main/docs/assets/aikito-overview.png" alt="Aikito overview">

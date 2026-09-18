@@ -25,10 +25,9 @@
   <a href="README.md">English</a> · <a href="https://lsaint.github.io/aikito/">项目主页</a> · <a href="https://lsaint.github.io/aikito/guide/">详细文档（英文）</a>
 </p>
 
-Aikito 将 Coding Agent 的指令、Skills、MCP 配置、Subagents 和长期记忆集中在一个
-Git 管理的工作区中，供不同 Agent 与项目使用。
+Aikito 为你提供一个统一的地方，治理 Coding Agent 所共享的上下文。
 
-面向已经在使用 Agent、但厌倦了在不同工具、项目、机器和时间跨度中重复维护配置的开发者。
+跨 Agent、项目与机器，统一管理指令、Skills、MCP 配置、Subagents 和长期记忆。
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/lsaint/aikito/main/docs/assets/aikito-overview.png" alt="Aikito 概览图">
