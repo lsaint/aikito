@@ -96,7 +96,7 @@ Workspace: ~/aikito (AIKITO_DIR)
 ┌─────────────────┬────────┬───────┬───────────┐
 │ Memory Scope    │ Status │ Notes │ Updated   │
 ├─────────────────┼────────┼───────┼───────────┤
-│ Global Memory   │ ✓      │ 6     │ Sep 16    │
+│ Global          │ ✓      │ 6     │ Sep 16    │
 │ aikito          │ ✓      │ 12    │ yesterday │
 │ blog            │ ✓      │ 8     │ Sep 16    │
 │ chat-distiller  │ ✓      │ 5     │ Aug 24    │

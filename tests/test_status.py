@@ -68,7 +68,7 @@ class AikitoStatusRenderTest(unittest.TestCase):
         ]
         self.memory_rows = [
             MemoryStatusRow(
-                name="Global Memory",
+                name="Global",
                 scope="Global",
                 status="OK",
                 notes_count=6,
@@ -659,6 +659,7 @@ class AikitoStatusCollectorTest(unittest.TestCase):
         data = get_status_report_data(self.aikito_dir, self.home)
 
         global_memory = next(row for row in data.memories if row.scope == "Global")
+        self.assertEqual(global_memory.name, "Global")
         self.assertEqual(global_memory.status, "OK")
         self.assertEqual(index_file.read_text(encoding="utf-8"), "# Legacy\n")
 

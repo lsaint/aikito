@@ -507,7 +507,7 @@ def collect_memory_status_rows(
 
     rows.append(
         MemoryStatusRow(
-            name="Global Memory",
+            name="Global",
             scope="Global",
             status=global_status,
             notes_count=global_notes_count,
