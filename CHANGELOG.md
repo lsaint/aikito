@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.44.0] - 2026-09-19
+
+### Added
+
+- Implemented project skill synchronization engine supporting both symlink (`link`) and directory snapshot (`copy`) deployment modes.
+- Introduced transactional skill state management with atomic staging, generation tracking, compare-and-swap (CAS) verification, and crash recovery journals.
+- Added platform-specific path compatibility and atomic replacement primitives across macOS, Linux, and Windows.
+- Expanded CI test matrix with cross-platform smoke test assertions for project skill synchronization.
+
+### Changed
+
+- Integrated project skill synchronization into `aikito sync`, `aikito add skill`, and `aikito rm skill` workflows.
+- Formalized skill synchronization and transactional state invariants in core model architecture documentation.
+
 ## [1.43.0] - 2026-09-18
 
 ### Added
@@ -759,7 +773,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.43.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.44.0...HEAD
+[1.44.0]: https://github.com/lsaint/aikito/compare/v1.43.0...v1.44.0
 [1.43.0]: https://github.com/lsaint/aikito/compare/v1.42.0...v1.43.0
 [1.42.0]: https://github.com/lsaint/aikito/compare/v1.41.0...v1.42.0
 [1.41.0]: https://github.com/lsaint/aikito/compare/v1.40.0...v1.41.0
