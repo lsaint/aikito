@@ -470,7 +470,7 @@ class TestAikitoRemoveGlobally(unittest.TestCase):
             projects=["proj1"],
         )
 
-        with patch("aikito.cli.sync_project_by_name", return_value=False):
+        with patch("aikito.remove.sync_project", return_value=False):
             success = remove_skill(
                 aikito_dir=self.ws,
                 home=self.home,

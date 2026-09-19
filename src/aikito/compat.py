@@ -365,11 +365,16 @@ def is_reparse_point(path: Path) -> bool:
     """
     if not is_windows():
         return path.is_symlink()
+    if not path.is_symlink() and not path.exists():
+        return False
     try:
         file_attribute_reparse_point = 0x00000400
         invalid_file_attributes = 0xFFFFFFFF
         attrs = ctypes.windll.kernel32.GetFileAttributesW(str(path))  # type: ignore[attr-defined]
-        if attrs == invalid_file_attributes:
+        if (
+            attrs in (-1, invalid_file_attributes)
+            or (attrs & invalid_file_attributes) == invalid_file_attributes
+        ):
             return path.is_symlink()
         return bool(attrs & file_attribute_reparse_point)
     except Exception:

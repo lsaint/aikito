@@ -1,3 +1,4 @@
+import ctypes
 import os
 import sys
 import tempfile
@@ -12,6 +13,7 @@ from aikito.compat import (
     get_permission_fix_cmd,
     get_workspace_config_dir,
     init_console_encoding,
+    is_reparse_point,
     is_windows,
     launch_browser,
     resolve_executable,
@@ -362,6 +364,42 @@ class AikitoPlatformTest(unittest.TestCase):
                     norm = _normalize_identity_path(p)
                     self.assertNotIn("CheckoutA", norm)
                     self.assertIn("checkouta", norm)
+
+    def test_is_reparse_point(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            regular_file = root / "regular.txt"
+            regular_file.write_text("content", encoding="utf-8")
+            non_existent = root / "does_not_exist.txt"
+
+            # POSIX checks
+            with patch("aikito.compat.is_windows", return_value=False):
+                self.assertFalse(is_reparse_point(regular_file))
+                self.assertFalse(is_reparse_point(non_existent))
+                symlink = root / "link.txt"
+                symlink.symlink_to(regular_file)
+                self.assertTrue(is_reparse_point(symlink))
+
+            # Windows checks
+            with patch("aikito.compat.is_windows", return_value=True):
+                # Non-existent file must never be a reparse point
+                self.assertFalse(is_reparse_point(non_existent))
+
+                mock_kernel32 = MagicMock()
+                mock_windll = MagicMock(kernel32=mock_kernel32)
+                with patch.object(ctypes, "windll", mock_windll, create=True):
+                    # Regular file returning 0x80 (NORMAL)
+                    mock_kernel32.GetFileAttributesW.return_value = 0x80
+                    self.assertFalse(is_reparse_point(regular_file))
+
+                    # Reparse point returning 0x400
+                    mock_kernel32.GetFileAttributesW.return_value = 0x400
+                    self.assertTrue(is_reparse_point(regular_file))
+
+                    # Signed -1 error return (INVALID_FILE_ATTRIBUTES) fallback to is_symlink
+                    mock_kernel32.GetFileAttributesW.return_value = -1
+                    self.assertFalse(is_reparse_point(regular_file))
+                    self.assertTrue(is_reparse_point(symlink))
 
 
 if __name__ == "__main__":
