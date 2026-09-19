@@ -23,7 +23,9 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from .compat import (
+    get_physical_path,
     is_reparse_point,
+    normalize_file_bytes,
     require_symlink_support,
     safe_symlink,
 )
@@ -369,7 +371,9 @@ def execute_skill_plan(
                     error_message=f"Failed to read project configuration for CAS verification: {exc}",
                 )
 
-            if live_bytes != cas.pre_image_bytes:
+            if normalize_file_bytes(live_bytes) != normalize_file_bytes(
+                cas.pre_image_bytes
+            ):
                 return SkillExecutionResult(
                     applied_ops=(),
                     skipped_ops=(),
@@ -450,20 +454,19 @@ def execute_skill_plan(
                     )
 
                 if expected_rep in ("link", "symlink"):
-                    canon_dest = canonical_source.resolve(strict=False)
-                    canon_root = (plan.workspace_root / "skills").resolve(strict=False)
+                    canon_dest = get_physical_path(canonical_source)
+                    canon_root = get_physical_path(plan.workspace_root / "skills")
                     link_dest_valid = False
                     try:
-                        raw_target = Path(os.readlink(target.target_path))
-                        resolved_target = (
-                            target.target_path.parent / raw_target
-                        ).resolve(strict=False)
+                        resolved_target = get_physical_path(
+                            _resolve_symlink_target(target.target_path)
+                        )
                         if (
                             resolved_target == canon_dest
                             or resolved_target.is_relative_to(canon_root)
                         ):
                             link_dest_valid = True
-                    except OSError:
+                    except Exception:
                         pass
                     if not link_dest_valid:
                         return SkillExecutionResult(
@@ -582,7 +585,7 @@ def execute_skill_plan(
 
                 if op.action == "UNLINK":
                     orig_link = (
-                        os.readlink(target.target_path)
+                        str(_resolve_symlink_target(target.target_path))
                         if target.target_path.is_symlink()
                         else None
                     )
@@ -595,7 +598,7 @@ def execute_skill_plan(
                     )
                 elif op.action == "CREATE" and op.desired_representation == "link":
                     orig_link = (
-                        os.readlink(target.target_path)
+                        str(_resolve_symlink_target(target.target_path))
                         if target.target_path.is_symlink()
                         else None
                     )
@@ -1171,7 +1174,7 @@ def execute_selection_transaction(
         for f_path, pre_text, _ in file_updates:
             if f_path.is_file():
                 current = f_path.read_text(encoding="utf-8")
-                if current != pre_text:
+                if current.replace("\r\n", "\n") != pre_text.replace("\r\n", "\n"):
                     return (
                         False,
                         f"Concurrent modification detected in {f_path}: pre-image mismatch",
@@ -1187,7 +1190,7 @@ def execute_selection_transaction(
             s_path, s_pre, _ = skills_toml_update
             if s_path.is_file():
                 current = s_path.read_text(encoding="utf-8")
-                if current != s_pre:
+                if current.replace("\r\n", "\n") != s_pre.replace("\r\n", "\n"):
                     return (
                         False,
                         f"Concurrent modification detected in {s_path}: pre-image mismatch",
@@ -1265,7 +1268,7 @@ def execute_selection_transaction(
                         cfg = tomllib.loads(agent_toml.read_text(encoding="utf-8"))
                         binding = resolve_project_binding(cfg, home)
                         for entry in binding.entries:
-                            co_path = entry.resolved_path.resolve(strict=False)
+                            co_path = get_physical_path(entry.resolved_path)
                             tx_checkouts.add(co_path)
                             doc, load_err = load_project_skill_state(
                                 home, workspace_root, proj, co_path
@@ -1352,8 +1355,9 @@ def execute_selection_transaction(
                         cfg = tomllib.loads(agent_toml.read_text(encoding="utf-8"))
                         binding = resolve_project_binding(cfg, home)
                         for entry in binding.entries:
+                            co_path = get_physical_path(entry.resolved_path)
                             doc, load_err = load_project_skill_state(
-                                home, workspace_root, proj, entry.resolved_path
+                                home, workspace_root, proj, co_path
                             )
                             if load_err:
                                 raise RuntimeError(

@@ -35,6 +35,7 @@ from .compat import (
     get_physical_path,
     is_reparse_point,
     is_windows,
+    normalize_file_bytes,
     safe_symlink,
     secure_directory_permissions,
     secure_file_permissions,
@@ -721,7 +722,11 @@ def run_recovery_pass(
                         continue
                     pre_bytes = base64.b64decode(pre_b64)
                     post_bytes = base64.b64decode(post_b64)
-                    if file_path.read_bytes() not in (pre_bytes, post_bytes):
+                    curr_bytes_norm = normalize_file_bytes(file_path.read_bytes())
+                    if curr_bytes_norm not in (
+                        normalize_file_bytes(pre_bytes),
+                        normalize_file_bytes(post_bytes),
+                    ):
                         continue
                     post_config = tomllib.loads(post_bytes.decode("utf-8"))
                     post_binding = resolve_project_binding(post_config, home)
@@ -850,13 +855,17 @@ def run_recovery_pass(
                             )
 
                     curr_bytes = f_path.read_bytes()
+                    curr_norm = normalize_file_bytes(curr_bytes)
+                    pre_norm = normalize_file_bytes(pre_bytes)
+                    post_norm = normalize_file_bytes(post_bytes)
+
                     # If already pre-image, nothing to do
-                    if pre_bytes is not None and curr_bytes == pre_bytes:
+                    if pre_norm is not None and curr_norm == pre_norm:
                         continue
 
                     # If post_bytes was recorded and current matches neither pre nor post:
                     # File was modified concurrently; abort recovery to preserve pending journal
-                    if post_bytes is not None and curr_bytes != post_bytes:
+                    if post_norm is not None and curr_norm != post_norm:
                         return (
                             False,
                             f"Concurrent modification detected in file {f_path}; recovery aborted to preserve pending journal {journal.tx_id}",

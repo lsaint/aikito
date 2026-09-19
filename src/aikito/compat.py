@@ -295,6 +295,7 @@ def _atomic_write_text(
         prefix=f".{target_path.name}.tmp.",
         delete=False,
         encoding=encoding,
+        newline="",
     )
     temp_path = Path(temp_file.name)
     try:
@@ -425,7 +426,20 @@ def get_physical_path(path: Path) -> Path:
                 ctypes.windll.kernel32.CloseHandle(handle)  # type: ignore[attr-defined]
     except Exception:
         pass
-    return path.resolve(strict=False)
+    res = path.resolve(strict=False)
+    s = str(res)
+    if s.startswith("\\\\?\\UNC\\"):
+        return Path("\\\\" + s[8:])
+    elif s.startswith("\\\\?\\"):
+        return Path(s[4:])
+    return res
+
+
+def normalize_file_bytes(data: bytes | None) -> bytes | None:
+    """Normalize CRLF to LF for cross-platform byte comparison."""
+    if data is None:
+        return None
+    return data.replace(b"\r\n", b"\n")
 
 
 class _DarwinAttrList(ctypes.Structure):
