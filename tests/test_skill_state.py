@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -583,7 +582,7 @@ class SkillTransactionRecoveryTests(TestCase):
             self.assertTrue(recovered, f"Recovery failed: {msg}")
             # Target path should now be restored as the original symlink
             self.assertTrue(target_path.is_symlink())
-            self.assertEqual(os.readlink(target_path), canon_dir.as_posix())
+            self.assertEqual(target_path.resolve(), canon_dir.resolve())
 
     def test_copy_to_link_recovery_checks_symlink_target(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -644,7 +643,7 @@ class SkillTransactionRecoveryTests(TestCase):
             self.assertFalse(recovered)
             self.assertIn("symlink target mismatch", msg or "")
             self.assertTrue(target_path.is_symlink())
-            self.assertEqual(os.readlink(target_path), foreign_dir.as_posix())
+            self.assertEqual(target_path.resolve(), foreign_dir.resolve())
 
     def test_multi_skill_transaction_crash_recovers_state(self) -> None:
         with tempfile.TemporaryDirectory() as td:

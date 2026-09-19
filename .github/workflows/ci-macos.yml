@@ -245,7 +245,7 @@ jobs:
           p_copy.write_text(p_copy.read_text().replace('skills = []', 'skills = [\"test-copy-skill\"]'))
           "
           AIKITO_DIR=$WS python3 -m aikito sync project demo-link
-          AIKITO_DIR=$WS python3 -m aikito sync project demo-copy
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-copy --force
 
           # Capture first sync metadata (mtime, inode, readlink) using Python standard library
           python3 -c "

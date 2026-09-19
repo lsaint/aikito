@@ -510,8 +510,8 @@ def _is_safe_tx_id(tx_id: str) -> bool:
 def _assert_path_within(path: Path, root: Path, label: str) -> str | None:
     """Return an error string if path does not resolve strictly under root."""
     try:
-        resolved = path.resolve(strict=False)
-        root_resolved = root.resolve(strict=False)
+        resolved = get_physical_path(path)
+        root_resolved = get_physical_path(root)
         if resolved == root_resolved or not resolved.is_relative_to(root_resolved):
             return f"Journal {label} path escapes trusted root ({root_resolved}): {resolved}"
     except Exception as exc:
@@ -522,11 +522,13 @@ def _assert_path_within(path: Path, root: Path, label: str) -> str | None:
 def _is_valid_file_path(path: Path, ws_root: Path, checkouts: Sequence[Path]) -> bool:
     """Return True if file resolves strictly inside workspace or a valid checkout."""
     try:
-        p_res = path.resolve(strict=False)
-        if p_res != ws_root and p_res.is_relative_to(ws_root):
+        p_res = get_physical_path(path)
+        ws_root_res = get_physical_path(ws_root)
+        if p_res != ws_root_res and p_res.is_relative_to(ws_root_res):
             return True
         for co in checkouts:
-            if p_res != co and p_res.is_relative_to(co):
+            co_res = get_physical_path(co)
+            if p_res != co_res and p_res.is_relative_to(co_res):
                 return True
     except Exception:
         pass
@@ -541,16 +543,16 @@ def _is_valid_staging_or_recovery_dir(
         return False
     try:
         # Check parent directory resolution to avoid resolving path itself when it is a symlink
-        parent_res = path.parent.resolve(strict=False)
+        parent_res = get_physical_path(path.parent)
         name = path.name
         if not name or name in (".", ".."):
             return False
 
-        ws_tx = (ws_root / ".aikito-tx" / tx_id).resolve(strict=False)
+        ws_tx = get_physical_path(ws_root / ".aikito-tx" / tx_id)
         if parent_res == ws_tx or parent_res.is_relative_to(ws_tx):
             return True
         for co in checkouts:
-            co_tx = (co / ".agents" / ".aikito-tx" / tx_id).resolve(strict=False)
+            co_tx = get_physical_path(co / ".agents" / ".aikito-tx" / tx_id)
             if parent_res == co_tx or parent_res.is_relative_to(co_tx):
                 return True
     except Exception:
@@ -563,12 +565,12 @@ def _is_valid_target_path(path: Path, ws_root: Path, checkouts: Sequence[Path]) 
     try:
         if not path.name or path.name in (".", ".."):
             return False
-        parent_res = path.parent.resolve(strict=False)
-        ws_skills = (ws_root / "skills").resolve(strict=False)
+        parent_res = get_physical_path(path.parent)
+        ws_skills = get_physical_path(ws_root / "skills")
         if parent_res == ws_skills:
             return True
         for co in checkouts:
-            co_skills = (co / ".agents" / "skills").resolve(strict=False)
+            co_skills = get_physical_path(co / ".agents" / "skills")
             if parent_res == co_skills:
                 return True
     except Exception:
@@ -585,9 +587,7 @@ def delete_transaction_journal(home: Path, tx_id: str) -> None:
     tx_dir = tx_root / tx_id
     # Final safety: resolved path must stay within tx_root
     try:
-        if not tx_dir.resolve(strict=False).is_relative_to(
-            tx_root.resolve(strict=False)
-        ):
+        if not get_physical_path(tx_dir).is_relative_to(get_physical_path(tx_root)):
             return
     except Exception:
         return
@@ -675,11 +675,11 @@ def run_recovery_pass(
             continue
 
         # Enforce strict sandboxing: derive trusted checkouts from workspace configuration
-        ws_resolved = affected_workspace.resolve(strict=False)
+        ws_resolved = get_physical_path(affected_workspace)
         derived_checkouts: set[Path] = set()
         if authorized_checkouts:
             derived_checkouts.update(
-                path.resolve(strict=False) for path in authorized_checkouts
+                get_physical_path(path) for path in authorized_checkouts
             )
         from .project import resolve_project_binding
 
@@ -695,7 +695,7 @@ def run_recovery_pass(
                         binding = resolve_project_binding(cfg, home)
                         for entry in binding.entries:
                             derived_checkouts.add(
-                                entry.resolved_path.resolve(strict=False)
+                                get_physical_path(entry.resolved_path)
                             )
                     except Exception:
                         pass
@@ -711,9 +711,9 @@ def run_recovery_pass(
                     file_path = Path(str(file_entry["path"]))
                     project_name = file_path.parent.name
                     expected_path = projects_dir / project_name / "agent.toml"
-                    if project_name not in journal.project_names or file_path.resolve(
-                        strict=False
-                    ) != expected_path.resolve(strict=False):
+                    if project_name not in journal.project_names or get_physical_path(
+                        file_path
+                    ) != get_physical_path(expected_path):
                         continue
                     pre_b64 = file_entry.get("pre_image_base64")
                     post_b64 = file_entry.get("post_image_base64")
@@ -726,12 +726,12 @@ def run_recovery_pass(
                     post_config = tomllib.loads(post_bytes.decode("utf-8"))
                     post_binding = resolve_project_binding(post_config, home)
                     for entry in post_binding.entries:
-                        checkout = entry.resolved_path.resolve(strict=False)
+                        checkout = get_physical_path(entry.resolved_path)
                         has_binding_evidence = any(
                             transition.get("project_name") == project_name
-                            and Path(
-                                str(transition.get("physical_checkout", ""))
-                            ).resolve(strict=False)
+                            and get_physical_path(
+                                Path(str(transition.get("physical_checkout", "")))
+                            )
                             == checkout
                             and transition.get("binding_hash")
                             == get_binding_hash(
@@ -747,7 +747,7 @@ def run_recovery_pass(
         valid_checkouts: list[Path] = []
         for cp in journal.checkout_paths:
             try:
-                cp_res = Path(cp).resolve(strict=False)
+                cp_res = get_physical_path(Path(cp))
                 if cp_res not in derived_checkouts:
                     return (
                         False,
@@ -821,7 +821,7 @@ def run_recovery_pass(
             details.append(f"Finalized committed transaction {journal.tx_id}")
         else:
             # Pending phase -> rollback
-            state_root = get_skill_state_dir(home).resolve(strict=False)
+            state_root = get_physical_path(get_skill_state_dir(home))
 
             # 1. Restore files (strictly within workspace or valid checkouts)
             for file_entry in reversed(journal.files):
@@ -901,8 +901,8 @@ def run_recovery_pass(
                         # Transaction created or updated this symlink
                         if curr_is_symlink and (
                             curr_target == post_link
-                            or Path(curr_target).resolve(strict=False)
-                            == Path(post_link).resolve(strict=False)
+                            or get_physical_path(Path(curr_target))
+                            == get_physical_path(Path(post_link))
                         ):
                             target_path.unlink()
                             if pre_link is not None:
@@ -988,10 +988,8 @@ def run_recovery_pass(
                                     )
                                 curr_link = os.readlink(target_path)
                                 if expected_target:
-                                    exp_res = Path(expected_target).resolve(
-                                        strict=False
-                                    )
-                                    curr_res = Path(curr_link).resolve(strict=False)
+                                    exp_res = get_physical_path(Path(expected_target))
+                                    curr_res = get_physical_path(Path(curr_link))
                                     if (
                                         curr_link != expected_target
                                         and curr_res != exp_res
@@ -1091,7 +1089,7 @@ def run_recovery_pass(
                         f"Journal state transition project mismatch for {b_hash}",
                     )
                 try:
-                    co_resolved = Path(st_co).resolve(strict=False)
+                    co_resolved = get_physical_path(Path(st_co))
                     if co_resolved not in valid_checkouts:
                         return (
                             False,
@@ -1110,7 +1108,7 @@ def run_recovery_pass(
                     )
 
                 st_file = get_skill_state_dir(home) / f"{b_hash}.json"
-                if not st_file.resolve(strict=False).is_relative_to(state_root):
+                if not get_physical_path(st_file).is_relative_to(state_root):
                     return (
                         False,
                         f"Journal state file path validation failed: {st_file} outside state root",

@@ -189,6 +189,7 @@ def check_credential_permissions(path: Path) -> tuple[bool, str]:
     safe_sids = {
         "S-1-5-18",  # SYSTEM
         "S-1-5-32-544",  # Administrators
+        "S-1-3-4",  # Owner Rights
     }
     if owner_sid:
         safe_sids.add(owner_sid)
