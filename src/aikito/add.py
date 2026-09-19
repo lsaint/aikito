@@ -6,10 +6,8 @@ Provides lightweight canonical skeleton creation and registration for skills, su
 from dataclasses import dataclass, field
 import io
 import json
-import os
 import re
 import shutil
-import stat
 import sys
 import tempfile
 import tomllib
@@ -18,7 +16,9 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from . import mcp
-from .compat import safe_relative_path
+from .compat import _atomic_write_text, safe_relative_path
+from .project_sync import sync_project
+from .skill_state import SkillWriterLock
 from .subagent import KNOWN_PLATFORM_FIELDS
 from .templating import BUNDLED_SKILL_NAMES
 
@@ -160,70 +160,6 @@ def _update_skills_in_toml(original_text: str, new_skills: List[str]) -> str:
     if trimmed:
         return f"{trimmed}\n\n{formatted_skills}\n"
     return f"{formatted_skills}\n"
-
-
-def _atomic_write_text(
-    target_path: Path, content: str, encoding: str = "utf-8"
-) -> None:
-    """
-    Atomically write text content to target_path using a temporary file in the same
-    directory and replacing target_path with os.replace.
-    Preserves file mode, permissions, and metadata (ACLs/xattrs) of existing files,
-    and applies standard umask permissions to newly created files.
-    """
-    target_path = target_path.resolve()
-    parent = target_path.parent
-    parent.mkdir(parents=True, exist_ok=True)
-    temp_file = tempfile.NamedTemporaryFile(
-        mode="w",
-        dir=parent,
-        prefix=f".{target_path.name}.tmp.",
-        delete=False,
-        encoding=encoding,
-    )
-    temp_path = Path(temp_file.name)
-    try:
-        temp_file.write(content)
-        temp_file.flush()
-        os.fsync(temp_file.fileno())
-        temp_file.close()
-
-        if target_path.exists():
-            try:
-                shutil.copystat(target_path, temp_path)
-                try:
-                    os.utime(temp_path, None)
-                except OSError:
-                    pass
-            except OSError:
-                try:
-                    st = target_path.stat()
-                    os.chmod(temp_path, stat.S_IMODE(st.st_mode))
-                except OSError:
-                    pass
-            if hasattr(os, "chown"):
-                try:
-                    st = target_path.stat()
-                    os.chown(temp_path, -1, st.st_gid)
-                except OSError:
-                    pass
-        else:
-            try:
-                current_umask = os.umask(0)
-                os.umask(current_umask)
-                os.chmod(temp_path, 0o666 & ~current_umask)
-            except OSError:
-                pass
-
-        os.replace(temp_path, target_path)
-    except Exception:
-        temp_file.close()
-        if temp_path.exists():
-            try:
-                temp_path.unlink()
-            except OSError:
-                pass
-        raise
 
 
 def _split_markdown_frontmatter(
@@ -777,7 +713,7 @@ def add_skill(
                 )
             return False
 
-        # Phase 1: Preflight planning and semantic integrity verification (in-memory)
+        # Preflight planning and semantic integrity verification (in-memory)
         planned_project_updates: List[Tuple[Path, str, str, str]] = []
         for proj in pending_projects:
             agent_toml = aikito_dir / "projects" / proj / "agent.toml"
@@ -826,14 +762,15 @@ def add_skill(
                 print(f"[ERROR] Failed to prepare skill import: {exc}", file=sys.stderr)
                 return False
 
-        # Phase 2: Execute writes with transactional rollback
+        # Execute writes with transactional rollback
         created_skill_dir = not is_existing_canonical
 
-        try:
-            if import_transaction is not None:
-                import_transaction.apply()
-            elif not is_existing_canonical:
-                skill_content = f"""---
+        with SkillWriterLock(home):
+            try:
+                if import_transaction is not None:
+                    import_transaction.apply()
+                elif not is_existing_canonical:
+                    skill_content = f"""---
 name: {name_clean}
 description: {desc_val}
 ---
@@ -844,38 +781,43 @@ description: {desc_val}
 
 Describe what this skill does and when agents should use it.
 """
-                skill_dir.mkdir(parents=True, exist_ok=True)
-                _atomic_write_text(skill_file, skill_content)
+                    skill_dir.mkdir(parents=True, exist_ok=True)
+                    _atomic_write_text(skill_file, skill_content)
 
-            # Write project configs atomically
-            for agent_toml, original_text, new_content, proj in planned_project_updates:
-                _atomic_write_text(agent_toml, new_content, encoding="utf-8")
-                print(
-                    f"[UPDATE FILE] {_display_path(agent_toml, home)} (registered skill for project '{proj}')"
-                )
-
-        except Exception as exc:
-            # Full rollback of all planned project configs
-            for agent_toml, original_text, _, _ in planned_project_updates:
-                try:
-                    _atomic_write_text(agent_toml, original_text, encoding="utf-8")
-                except Exception as rb_exc:
+                # Write project configs atomically
+                for (
+                    agent_toml,
+                    original_text,
+                    new_content,
+                    proj,
+                ) in planned_project_updates:
+                    _atomic_write_text(agent_toml, new_content, encoding="utf-8")
                     print(
-                        f"[ERROR] Failed to rollback configuration for project '{proj}': {rb_exc}",
-                        file=sys.stderr,
+                        f"[UPDATE FILE] {_display_path(agent_toml, home)} (registered skill for project '{proj}')"
                     )
-            if import_transaction is not None:
-                import_transaction.rollback()
-            elif created_skill_dir and skill_dir.exists():
-                shutil.rmtree(skill_dir, ignore_errors=True)
-            print(
-                f"[ERROR] Failed to write skill or project configuration: {exc}",
-                file=sys.stderr,
-            )
-            return False
 
-        if import_transaction is not None:
-            import_transaction.commit()
+            except Exception as exc:
+                # Full rollback of all planned project configs
+                for agent_toml, original_text, _, _ in planned_project_updates:
+                    try:
+                        _atomic_write_text(agent_toml, original_text, encoding="utf-8")
+                    except Exception as rb_exc:
+                        print(
+                            f"[ERROR] Failed to rollback configuration for project '{proj}': {rb_exc}",
+                            file=sys.stderr,
+                        )
+                if import_transaction is not None:
+                    import_transaction.rollback()
+                elif created_skill_dir and skill_dir.exists():
+                    shutil.rmtree(skill_dir, ignore_errors=True)
+                print(
+                    f"[ERROR] Failed to write skill or project configuration: {exc}",
+                    file=sys.stderr,
+                )
+                return False
+
+            if import_transaction is not None:
+                import_transaction.commit()
 
         if updating_import:
             print(f"[UPDATE DIR] {_display_path(skill_dir, home)}")
@@ -920,11 +862,17 @@ Describe what this skill does and when agents should use it.
         print(f"  {step}. Synchronize project(s): {sync_cmds}")
 
         if sync:
-            from .cli import sync_project_by_name
-
+            sync_ok = True
             for proj in target_projects:
-                if not sync_project_by_name(aikito_dir, home, proj):
-                    return False
+                if not sync_project(aikito_dir, home, proj):
+                    sync_ok = False
+            if not sync_ok:
+                print(
+                    "\n[ERROR] Registration completed, but synchronization was blocked.\n"
+                    "Review differences with 'aikito diff' and run 'aikito sync project <project> <path> --force' to overwrite.",
+                    file=sys.stderr,
+                )
+                return False
         return True
 
     # Global skill registration in skills.toml
@@ -996,11 +944,12 @@ Describe what this skill does and when agents should use it.
             print(f"[ERROR] Failed to prepare skill import: {exc}", file=sys.stderr)
             return False
 
-    try:
-        if import_transaction is not None:
-            import_transaction.apply()
-        else:
-            skill_content = f"""---
+    with SkillWriterLock(home):
+        try:
+            if import_transaction is not None:
+                import_transaction.apply()
+            else:
+                skill_content = f"""---
 name: {name_clean}
 description: {desc_val}
 ---
@@ -1011,27 +960,27 @@ description: {desc_val}
 
 Describe what this skill does and when agents should use it.
 """
-            skill_dir.mkdir(parents=True, exist_ok=True)
-            _atomic_write_text(skill_file, skill_content)
+                skill_dir.mkdir(parents=True, exist_ok=True)
+                _atomic_write_text(skill_file, skill_content)
 
-        _atomic_write_text(skills_toml, skills_toml_content, encoding="utf-8")
-    except Exception as exc:
-        if original_skills_toml_text:
-            try:
-                _atomic_write_text(
-                    skills_toml, original_skills_toml_text, encoding="utf-8"
-                )
-            except Exception:
-                pass
+            _atomic_write_text(skills_toml, skills_toml_content, encoding="utf-8")
+        except Exception as exc:
+            if original_skills_toml_text:
+                try:
+                    _atomic_write_text(
+                        skills_toml, original_skills_toml_text, encoding="utf-8"
+                    )
+                except Exception:
+                    pass
+            if import_transaction is not None:
+                import_transaction.rollback()
+            else:
+                shutil.rmtree(skill_dir, ignore_errors=True)
+            print(f"[ERROR] Failed to write global skill: {exc}", file=sys.stderr)
+            return False
+
         if import_transaction is not None:
-            import_transaction.rollback()
-        else:
-            shutil.rmtree(skill_dir, ignore_errors=True)
-        print(f"[ERROR] Failed to write global skill: {exc}", file=sys.stderr)
-        return False
-
-    if import_transaction is not None:
-        import_transaction.commit()
+            import_transaction.commit()
 
     if updating_import:
         print(f"[UPDATE DIR] {_display_path(skill_dir, home)}")

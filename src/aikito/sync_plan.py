@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from io import StringIO
-from typing import Callable
+from typing import Any, Callable, Sequence
 
 
 _CHANGE_MARKERS = (
@@ -31,6 +31,7 @@ class SyncPlan:
     stdout: str
     stderr: str
     can_apply: bool
+    skill_batches: tuple[Any, ...] = ()
 
     @property
     def lines(self) -> tuple[str, ...]:
@@ -45,7 +46,25 @@ class SyncPlan:
 
     @property
     def changes(self) -> int:
-        return self._count(_CHANGE_MARKERS)
+        if not self.skill_batches:
+            return self._count(_CHANGE_MARKERS)
+        skill_changes = 0
+        for b in self.skill_batches:
+            for op in b.skill_plan.operations:
+                if op.action in ("CREATE", "UPDATE", "UNLINK") and op.is_authorized:
+                    skill_changes += 1
+        other_lines = [
+            line
+            for line in self.lines
+            if not any(
+                marker in line
+                for marker in ("[DRY RUN LINK]", "[DRY RUN COPY]", "[DRY RUN CLEANUP]")
+            )
+        ]
+        other_changes = sum(
+            any(marker in line for marker in _CHANGE_MARKERS) for line in other_lines
+        )
+        return skill_changes + other_changes
 
     @property
     def unchanged(self) -> int:
@@ -63,7 +82,18 @@ class SyncPlan:
 
     @property
     def conflicts(self) -> tuple[str, ...]:
-        return self._important_lines(_CONFLICT_MARKERS)
+        base_conflicts = list(self._important_lines(_CONFLICT_MARKERS))
+        if not self.skill_batches:
+            return tuple(base_conflicts)
+        for b in self.skill_batches:
+            for op in b.skill_plan.operations:
+                if op.action == "CONFLICT" or (
+                    op.requires_force and not op.is_authorized
+                ):
+                    msg = op.finding or op.reason
+                    if msg not in base_conflicts:
+                        base_conflicts.append(msg)
+        return tuple(base_conflicts)
 
     @property
     def errors(self) -> tuple[str, ...]:
@@ -106,10 +136,29 @@ class SyncPlan:
         return "\n".join(lines)
 
 
-def capture_sync_plan(run_preview: Callable[[], bool]) -> SyncPlan:
-    """Run a dry-run callback and retain its complete diagnostic output."""
+def capture_sync_plan(
+    run_preview: Callable[[], bool],
+    skill_batches: Sequence[Any] | None = None,
+    skill_batches_fn: Callable[[], Sequence[Any]] | None = None,
+) -> SyncPlan:
+    """Run a dry-run callback and retain its complete diagnostic output.
+
+    *skill_batches_fn* is evaluated **after** run_preview() so that callers can
+    pass a lambda that reads a dict populated during the preview run.
+    *skill_batches* is retained for backward-compatibility but is deprecated when
+    used with a lazy source (values would be empty at call time).
+    """
     stdout = StringIO()
     stderr = StringIO()
     with redirect_stdout(stdout), redirect_stderr(stderr):
         can_apply = run_preview()
-    return SyncPlan(stdout.getvalue(), stderr.getvalue(), can_apply)
+    # Resolve batches after preview has populated them
+    if skill_batches_fn is not None:
+        batches = tuple(skill_batches_fn())
+    else:
+        batches = tuple(skill_batches) if skill_batches else ()
+    if batches:
+        can_apply = can_apply and all(b.can_apply for b in batches)
+    return SyncPlan(
+        stdout.getvalue(), stderr.getvalue(), can_apply, skill_batches=batches
+    )

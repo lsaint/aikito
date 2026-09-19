@@ -10,12 +10,14 @@ Encapsulates OS-specific behavior for Windows, macOS, and Linux:
 
 from __future__ import annotations
 
+import ctypes
 import functools
 import importlib.resources
 import os
 import shlex
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -240,6 +242,324 @@ def get_permission_fix_cmd(path: Path) -> str:
         return f'icacls "{abs_path}" /inheritance:r /grant:r "%USERNAME%:(R,W)"'
     # Quote path to handle spaces
     return f'chmod 600 "{path}"'
+
+
+def secure_directory_permissions(path: Path) -> bool:
+    """Harden directory permissions for state and transaction stores.
+
+    On POSIX: chmod 0700 (owner read/write/exec only).
+    On Windows: applies icacls to disable inheritance and grant only the current user full access.
+    """
+    if not path.exists():
+        return False
+    if not is_windows():
+        try:
+            path.chmod(0o700)
+            return True
+        except OSError:
+            return False
+
+    try:
+        username = os.environ.get("USERNAME") or os.environ.get("USER")
+        principal = f"{username}:(OI)(CI)(F)" if username else "*S-1-3-4:(OI)(CI)(F)"
+        result = subprocess.run(
+            ["icacls", str(path), "/inheritance:r", "/grant:r", principal],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def _atomic_write_text(
+    target_path: Path, content: str, encoding: str = "utf-8"
+) -> None:
+    """
+    Atomically write text content to target_path using a temporary file in the same
+    directory and replacing target_path with os.replace.
+    Preserves file mode, permissions, and metadata (ACLs/xattrs) of existing files,
+    and applies standard umask permissions to newly created files.
+    """
+    target_path = target_path.resolve()
+    parent = target_path.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    temp_file = tempfile.NamedTemporaryFile(
+        mode="w",
+        dir=parent,
+        prefix=f".{target_path.name}.tmp.",
+        delete=False,
+        encoding=encoding,
+    )
+    temp_path = Path(temp_file.name)
+    try:
+        temp_file.write(content)
+        temp_file.flush()
+        os.fsync(temp_file.fileno())
+        temp_file.close()
+
+        if target_path.exists():
+            try:
+                shutil.copystat(target_path, temp_path)
+                try:
+                    os.utime(temp_path, None)
+                except OSError:
+                    pass
+            except OSError:
+                try:
+                    st = target_path.stat()
+                    os.chmod(temp_path, stat.S_IMODE(st.st_mode))
+                except OSError:
+                    pass
+            if hasattr(os, "chown"):
+                try:
+                    st = target_path.stat()
+                    os.chown(temp_path, -1, st.st_gid)
+                except OSError:
+                    pass
+        else:
+            try:
+                current_umask = os.umask(0)
+                os.umask(current_umask)
+                os.chmod(temp_path, 0o666 & ~current_umask)
+            except OSError:
+                pass
+
+        os.replace(temp_path, target_path)
+    except Exception:
+        temp_file.close()
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except OSError:
+                pass
+        raise
+
+
+def check_directory_permissions(path: Path) -> tuple[bool, str]:
+    """Check that a state or transaction directory has secure permissions.
+
+    On POSIX: checks mode does not allow group or other write permissions.
+    On Windows: uses SID-based ACL matching.
+    """
+    if not path.exists():
+        return True, "missing"
+    if not is_windows():
+        mode = stat.S_IMODE(path.stat().st_mode)
+        if mode & 0o022 != 0:
+            return False, oct(mode)
+        return True, oct(mode)
+
+    return check_credential_permissions(path)
+
+
+def is_reparse_point(path: Path) -> bool:
+    """Check if a path is a symbolic link, junction, or other reparse point.
+
+    On POSIX: checks path.is_symlink().
+    On Windows: checks GetFileAttributesW for FILE_ATTRIBUTE_REPARSE_POINT (0x400).
+    """
+    if not is_windows():
+        return path.is_symlink()
+    try:
+        file_attribute_reparse_point = 0x00000400
+        invalid_file_attributes = 0xFFFFFFFF
+        attrs = ctypes.windll.kernel32.GetFileAttributesW(str(path))  # type: ignore[attr-defined]
+        if attrs == invalid_file_attributes:
+            return path.is_symlink()
+        return bool(attrs & file_attribute_reparse_point)
+    except Exception:
+        return path.is_symlink()
+
+
+def get_physical_path(path: Path) -> Path:
+    """Resolve the true physical path on the filesystem, resolving case aliases and symlinks.
+
+    On Windows: uses GetFinalPathNameByHandleW to normalize drive letter casing and volume roots.
+    On POSIX: uses Path.resolve(strict=False).
+    """
+    if not is_windows():
+        return path.resolve(strict=False)
+    try:
+        file_share_read = 0x00000001
+        file_share_write = 0x00000002
+        file_share_delete = 0x00000004
+        open_existing = 3
+        file_flag_backup_semantics = 0x02000000
+        file_name_normalized = 0x0
+        volume_name_dos = 0x0
+
+        handle = ctypes.windll.kernel32.CreateFileW(  # type: ignore[attr-defined]
+            str(path),
+            0,
+            file_share_read | file_share_write | file_share_delete,
+            None,
+            open_existing,
+            file_flag_backup_semantics,
+            None,
+        )
+        if handle and handle != -1:
+            try:
+                buf = ctypes.create_unicode_buffer(1024)
+                ret = ctypes.windll.kernel32.GetFinalPathNameByHandleW(  # type: ignore[attr-defined]
+                    handle, buf, 1024, file_name_normalized | volume_name_dos
+                )
+                if ret > 0:
+                    raw = buf.value
+                    if raw.startswith("\\\\?\\UNC\\"):
+                        raw = "\\\\" + raw[8:]
+                    elif raw.startswith("\\\\?\\"):
+                        raw = raw[4:]
+                    return Path(raw)
+            finally:
+                ctypes.windll.kernel32.CloseHandle(handle)  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    return path.resolve(strict=False)
+
+
+class _DarwinAttrList(ctypes.Structure):
+    _fields_ = [
+        ("bitmapcount", ctypes.c_ushort),
+        ("reserved", ctypes.c_ushort),
+        ("commonattr", ctypes.c_uint),
+        ("volattr", ctypes.c_uint),
+        ("dirattr", ctypes.c_uint),
+        ("fileattr", ctypes.c_uint),
+        ("forkattr", ctypes.c_uint),
+    ]
+
+
+def is_directory_case_sensitive(path: Path) -> bool:
+    """Return True if the directory at *path* is case-sensitive, False otherwise.
+
+    On Windows, NTFS volumes may have per-directory case-sensitivity enabled
+    (Win10 1803+).  GetVolumeInformationW only exposes the volume-level flag and
+    misreports per-directory state, so we probe with a temporary scratch file pair
+    instead.  Falls back conservatively to False if the probe cannot be performed.
+    On macOS, getattrlist is used against the containing volume.  On Linux and
+    other POSIX systems the filesystem is assumed case-sensitive.
+    """
+    if is_windows():
+        probe_dir = path if path.is_dir() else path.parent
+        if not probe_dir.is_dir():
+            return False
+        try:
+            import ctypes
+
+            # 1. Query per-directory case sensitivity via NtQueryInformationFile (Win10 1803+)
+            # Open handle with FILE_READ_ATTRIBUTES and FILE_FLAG_BACKUP_SEMANTICS (read-only query on directory)
+            FILE_READ_ATTRIBUTES = 0x0080
+            FILE_SHARE_READ = 1
+            FILE_SHARE_WRITE = 2
+            FILE_SHARE_DELETE = 4
+            OPEN_EXISTING = 3
+            FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
+
+            handle = ctypes.windll.kernel32.CreateFileW(  # type: ignore[attr-defined]
+                str(probe_dir),
+                FILE_READ_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                None,
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS,
+                None,
+            )
+            INVALID_HANDLE_VALUE = -1
+            if handle != INVALID_HANDLE_VALUE and handle != 0:
+                try:
+
+                    class IO_STATUS_BLOCK(ctypes.Structure):
+                        _fields_ = [
+                            ("Status", ctypes.c_void_p),
+                            ("Information", ctypes.c_ulong),
+                        ]
+
+                    class FILE_CASE_SENSITIVE_INFORMATION(ctypes.Structure):
+                        _fields_ = [("Flags", ctypes.c_ulong)]
+
+                    io_status = IO_STATUS_BLOCK()
+                    info = FILE_CASE_SENSITIVE_INFORMATION()
+                    FileCaseSensitiveInformation = 64
+                    status = ctypes.windll.ntdll.NtQueryInformationFile(  # type: ignore[attr-defined]
+                        handle,
+                        ctypes.byref(io_status),
+                        ctypes.byref(info),
+                        ctypes.sizeof(info),
+                        FileCaseSensitiveInformation,
+                    )
+                    if status == 0:
+                        FILE_CS_FLAG_CASE_SENSITIVE_DIR = 0x00000001
+                        return bool(info.Flags & FILE_CS_FLAG_CASE_SENSITIVE_DIR)
+                finally:
+                    ctypes.windll.kernel32.CloseHandle(handle)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+        # 2. Fallback to volume-level query via GetVolumeInformationW
+        try:
+            root_path = str(probe_dir.anchor) if probe_dir.anchor else "C:\\"
+            volume_flags = ctypes.c_uint32()
+            ret = ctypes.windll.kernel32.GetVolumeInformationW(  # type: ignore[attr-defined]
+                root_path, None, 0, None, None, ctypes.byref(volume_flags), None, 0
+            )
+            FILE_CASE_SENSITIVE_SEARCH = 0x00000001
+            if ret:
+                return bool(volume_flags.value & FILE_CASE_SENSITIVE_SEARCH)
+        except Exception:
+            pass
+        return False
+
+    if sys.platform == "darwin":
+        try:
+            attr_list = _DarwinAttrList(
+                bitmapcount=5,
+                reserved=0,
+                commonattr=0,
+                volattr=0x00020000,  # ATTR_VOL_CAPABILITIES
+                dirattr=0,
+                fileattr=0,
+                forkattr=0,
+            )
+            libc = ctypes.cdll.LoadLibrary("libc.dylib")
+            buf = ctypes.create_string_buffer(256)
+            query_path = path if path.exists() else path.parent
+            ret = libc.getattrlist(
+                str(query_path).encode("utf-8"),
+                ctypes.byref(attr_list),
+                buf,
+                ctypes.sizeof(buf),
+                0,
+            )
+            if ret == 0:
+                caps = struct.unpack_from("4I", buf.raw, 4)
+                vol_cap_fmt_case_sensitive = 0x00000100
+                return bool(caps[0] & vol_cap_fmt_case_sensitive)
+        except Exception:
+            pass
+        return False
+
+    # Linux / other POSIX: ext4 / btrfs / tmpfs are case-sensitive by default
+    return True
+
+
+def check_case_collision(
+    names: Sequence[str], dir_path: Path
+) -> tuple[str, str] | None:
+    """Check for resource names that collide on case-insensitive filesystems."""
+    if is_directory_case_sensitive(dir_path):
+        return None
+    seen: dict[str, str] = {}
+    for name in names:
+        lower = name.lower()
+        if lower in seen and seen[lower] != name:
+            return seen[lower], name
+        seen[lower] = name
+    return None
 
 
 def resolve_executable(command: Sequence[str]) -> list[str]:

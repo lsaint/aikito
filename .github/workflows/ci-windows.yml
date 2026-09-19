@@ -368,6 +368,100 @@ jobs:
           # Restore clean project instructions
           Set-Content $exampleAgents $origAgents
 
+      - name: Project Skill Sync Engine on Windows (copy mode, idempotency, drift vs update, force, deselection)
+        shell: pwsh
+        run: |
+          $wsDir = Join-Path $env:RUNNER_TEMP "aikito-ws"
+          $env:AIKITO_DIR = $wsDir
+          $p2ProjDir = Join-Path $env:RUNNER_TEMP "win-copy-proj"
+          New-Item -ItemType Directory -Force -Path $p2ProjDir | Out-Null
+
+          # Initialize project and switch to copy mode
+          python -m aikito init project win-copy "$p2ProjDir"
+          $p2Config = Join-Path $wsDir "projects\win-copy\agent.toml"
+          $configContent = (Get-Content $p2Config -Raw) -replace 'sync_mode = "link"', 'sync_mode = "copy"'
+          Set-Content -Path $p2Config -Value $configContent
+
+          # 1. Add skill and first-time sync
+          python -m aikito add skill win-copy-skill --description "Windows Copy Skill" --project win-copy
+          $canonicalSkill = Join-Path $wsDir "skills\win-copy-skill"
+          @("canonical v1") | Set-Content (Join-Path $canonicalSkill "SKILL.md")
+
+          # Dry run preview check
+          $dryOutput = python -m aikito sync project win-copy --dry-run | Out-String
+          if ($dryOutput -notmatch "\[DRY RUN COPY\]") {
+            throw "Expected dry run to preview copy operation"
+          }
+          $runtimeSkill = Join-Path $p2ProjDir ".agents\skills\win-copy-skill"
+          if (Test-Path $runtimeSkill) {
+            throw "Dry run unexpectedly created runtime skill directory"
+          }
+
+          # Real first-time sync
+          python -m aikito sync project win-copy
+          if (-not (Test-Path $runtimeSkill)) {
+            throw "Runtime skill directory missing after first sync"
+          }
+          $runtimeSkillMd = Join-Path $runtimeSkill "SKILL.md"
+          if (-not (Test-Path $runtimeSkillMd)) {
+            throw "Runtime SKILL.md missing after first sync"
+          }
+          $content = Get-Content $runtimeSkillMd -Raw
+          if ($content -notmatch "canonical v1") {
+            throw "Runtime SKILL.md content mismatch"
+          }
+
+          # 2. Idempotent repeated sync (zero writes / mtime invariance)
+          $mtimeBefore = (Get-Item $runtimeSkillMd).LastWriteTimeUtc.Ticks
+          python -m aikito sync project win-copy
+          $mtimeAfter = (Get-Item $runtimeSkillMd).LastWriteTimeUtc.Ticks
+          if ($mtimeBefore -ne $mtimeAfter) {
+            throw "Repeated sync modified mtime on Windows (before=$mtimeBefore, after=$mtimeAfter)"
+          }
+
+          # 3. Canonical upstream update without --force (R == B != C)
+          @("canonical v2") | Set-Content (Join-Path $canonicalSkill "SKILL.md")
+          python -m aikito sync project win-copy
+          $updatedContent = Get-Content $runtimeSkillMd -Raw
+          if ($updatedContent -notmatch "canonical v2") {
+            throw "Upstream update failed to synchronize"
+          }
+
+          # 4. Local drift conflict (R != B != C)
+          @("local drift content") | Set-Content $runtimeSkillMd
+          $driftError = python -m aikito sync project win-copy 2>&1 | Out-String
+          if ($LASTEXITCODE -eq 0) {
+            throw "Expected sync project to fail on local drift"
+          }
+          if ($driftError -notmatch "drifted") {
+            throw "Expected error output to mention drifted skill"
+          }
+          $global:LASTEXITCODE = 0
+
+          # 5. Overwrite drift with --force
+          python -m aikito sync project win-copy --force
+          $forcedContent = Get-Content $runtimeSkillMd -Raw
+          if ($forcedContent -notmatch "canonical v2") {
+            throw "--force did not overwrite drifted skill"
+          }
+
+          # 6. Deselection preservation (aikito rm skill --project preserves files on disk)
+          python -m aikito rm skill win-copy-skill --project win-copy
+          python -m aikito sync project win-copy
+          if (-not (Test-Path $runtimeSkill)) {
+            throw "Deselected copy skill was deleted from disk"
+          }
+          if (-not (Test-Path $runtimeSkillMd)) {
+            throw "Deselected copy skill file was deleted from disk"
+          }
+
+          # 7. Re-register and reactivate state with --force
+          python -m aikito add skill win-copy-skill --project win-copy
+          python -m aikito sync project win-copy --force
+          if (-not (Test-Path $runtimeSkillMd)) {
+            throw "Reactivated skill is missing on disk"
+          }
+
       - name: Verify Graceful Failure When Symlinks Unavailable
         shell: pwsh
         run: |

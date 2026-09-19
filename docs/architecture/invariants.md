@@ -14,8 +14,8 @@ Every invariant is identified by a permanent rule ID. Status tags denote current
 implementation status versus planned future phases:
 
 - `[current]`: Behavior verified by regression tests and currently active in the codebase.
-- `[planned-p2]`: Target contract for Phase 2 implementation (Plan / Executor / State Store).
-- `[compat-gap]`: Discrepancy between current implementation heuristic and target safety model, documented for Phase 2 alignment.
+- `[planned]`: Target contract for Plan / Executor / State Store implementation.
+- `[compat-gap]`: Discrepancy between current implementation heuristic and target safety model, documented for alignment.
 
 Fingerprint notation:
 
@@ -35,7 +35,7 @@ Existence, ownership, desired content matching, and selection state are orthogon
 - An entry may match desired content ($R = C$) without establishing ownership (e.g. unmanaged pre-existing directory).
 - An operation returning `NOOP` does not imply ownership was established or recorded.
 
-### INV-OWN-02: Evidence Evaluation Order `[planned-p2]` {: #inv-own-02 }
+### INV-OWN-02: Evidence Evaluation Order `[planned]` {: #inv-own-02 }
 
 Evidence must be evaluated in strict priority order. Path traversal failures, escaping symlinks, or conflicting evidence cannot be superseded by matching content:
 
@@ -50,23 +50,28 @@ Evidence must be evaluated in strict priority order. Path traversal failures, es
 4. **Fingerprint Comparison**: Compare current runtime fingerprint $R$ against baseline $B$ to detect local drift. Compare runtime fingerprint $R$ against canonical fingerprint $C$ to detect upstream updates. Baseline origin must distinguish recorded write success from explicit state reconciliation.
 5. **Rejection of Pseudo-Ownership**: Identical directory contents, matching directory names, or inclusion in project `skills` configuration never establish ownership on their own.
 
-### INV-OWN-03: Symlink Ownership Semantics `[planned-p2]` (Current: Root-Level Scope Heuristic) {: #inv-own-03 }
+### INV-OWN-03: Symlink Ownership Semantics `[planned]` (Current: Root-Level Scope Heuristic) {: #inv-own-03 }
 
-- **Target Model (`[planned-p2]`)**: A symlink entry is owned if and only if its literal target resolves to the canonical path of *this specific resource* (`canonical_root / resource_name`). A symlink pointing to an arbitrary workspace location or a different workspace skill is an unmanaged error/mismatch (`FOREIGN`/`UNKNOWN`). Deletion acts strictly on the link entry, never on referenced content.
+- **Target Model (`[planned]`)**: A symlink entry is owned if and only if its literal target resolves to the canonical path of *this specific resource* (`canonical_root / resource_name`). A symlink pointing to an arbitrary workspace location or a different workspace skill is an unmanaged error/mismatch (`FOREIGN`/`UNKNOWN`). Deletion acts strictly on the link entry, never on referenced content.
 - **Current Behavior (`[compat-gap]`)**: `_symlink_points_within()` (`src/aikito/project.py:451`) checks `any(target.is_relative_to(root.resolve()) for root in roots)`. Because `roots` is the parent canonical directory `(workspace / "skills",)`, any symlink whose target resolves anywhere within the workspace skills directory (even pointing to another skill) is currently classified as `owned`. If that skill name is deselected, current cleanup unlinks it.
-- **Broken Links**: A broken symlink whose literal target points within the canonical workspace skills directory retains proof of prior Aikito management and is eligible for cleanup upon deselection.
+- **Broken Links**: A broken symlink is owned if and only if its literal target points specifically to the canonical path of *this specific resource* (`canonical_root / resource_name`), retaining proof of prior Aikito management and rendering it eligible for cleanup upon deselection. A broken symlink pointing to an arbitrary workspace location or another skill is an unmanaged error/mismatch (`FOREIGN`/`UNKNOWN`).
+- **Inspection Safety**: Canonical roots and intermediate parent directories must be real directories, not symlinks, junctions, or reparse points escaping the trusted workspace boundary. Symlinks inside copy sources or targets are rejected.
 
-### INV-OWN-04: Copy Lifecycle and State Record Invariants `[planned-p2]` {: #inv-own-04 }
+### INV-OWN-04: Copy Lifecycle and State Record Invariants `[planned]` {: #inv-own-04 }
 
 Copy management records follow an explicit two-state lifecycle (`active` vs. `inactive`):
 
-- **`active`**: The copy was successfully synchronized by Aikito and is currently selected. Eligible for automated updates when $R = B$.
+- **`active`**: The copy was successfully synchronized by Aikito and is currently selected. Eligible for automated updates when $R = B$. Baseline fingerprint $B$ reflects the last successful write or verified convergence, recording an origin of `write`, `reconcile`, `claim`, or `reactivate`.
 - **`inactive`**: The copy was previously synchronized but is currently deselected. Historical baseline $B$ is retained solely for origin auditing and does not grant automated update or deletion rights.
-- **Corrupt / Missing Record**: Any corrupt, mismatched, or unreadable management record reverts to `UNKNOWN`. Aikito halts destructive actions and refuses automated updates.
+- **Link Separation**: Symlink ownership is derived solely from live directory entry and symlink target facts; symlinks do not create or maintain active copy management records.
+- **Deselection Protection**: Deselected copy skills are **never deleted or unlinked** by Aikito. Deselection marks the management record `inactive` and leaves target files completely untouched.
+- **Corrupt / Missing Record**: Any corrupt, mismatched, or unreadable management record reverts to `UNKNOWN`. Aikito halts destructive actions and refuses automated updates; `--force` cannot bypass record corruption.
 
-### INV-OWN-05: Directory Fingerprint Specification `[planned-p2]` {: #inv-own-05 }
+### INV-OWN-05: Directory Fingerprint Specification `[planned]` {: #inv-own-05 }
 
-Directory fingerprints must capture the complete directory tree: file relative paths, file types (regular file, symlink), byte contents, empty directories, and internal symlink targets. A fingerprint must never rely solely on `SKILL.md` or top-level timestamps.
+Directory fingerprints must capture the complete directory tree: file relative paths, file types (regular file, symlink, directory), byte contents, empty directories, and POSIX executable permission bits. File timestamps (`mtime`) and filesystem inode numbers are excluded from content equality comparisons, but may be used during preflight to detect concurrent entry replacement.
+
+Any unsupported filesystem entry (FIFO, socket, device node) or internal symlink inside a copy source or target causes fingerprinting/inspection to fail and blocks synchronization.
 
 ---
 
@@ -76,26 +81,26 @@ The following transition table governs synchronization planning for project skil
 
 | Rule ID | Status | Selection & Mode | Target & Evidence | Classification & Default Action | Post-State or Handling | Fixture ID |
 | --- | --- | --- | --- | --- | --- | --- |
-| `INV-TR-01` | `[current]` | Selected, link / copy | Target missing; canonical valid; state missing or present | `MISSING` &rarr; `CREATE` | Creates link or copy. In Phase 2, writes active record $B := C$. | `FIX-TR-01` |
-| `INV-TR-02` | `[planned-p2]` | Selected, any | Canonical missing or unreadable | `BLOCK` (Planned) / Unlink-then-fail (Current) | Planned Phase 2 preflight halts execution without modifying target or state. Current link mode does not preflight canonical readability and deletes existing target before linking; copy mode fails during file read/copy. | `FIX-TR-02` |
-| `INV-TR-03` | `[planned-p2]` | Selected, link | Symlink accurately points to canonical resource | `OWNED` &rarr; `NOOP` (Planned) / Recreate (Current) | Planned Phase 2 NOOPs. Current `sync_resource()` (`sync.py:46-63`) unconditionally removes and recreates the symlink. | `FIX-TR-03` |
+| `INV-TR-01` | `[current]` | Selected, link / copy | Target missing; canonical valid; state missing or present | `MISSING` &rarr; `CREATE` | Creates link or copy. For copy mode, writes active record $B := C$ (origin `write`). Link mode creates symlink without state record. | `FIX-TR-01` |
+| `INV-TR-02` | `[planned]` | Selected, any | Canonical missing or unreadable | `BLOCK` (Planned) / Unlink-then-fail (Current) | Planned preflight halts execution without modifying target or state. Current link mode does not preflight canonical readability and deletes existing target before linking; copy mode fails during file read/copy. | `FIX-TR-02` |
+| `INV-TR-03` | `[planned]` | Selected, link | Symlink accurately points to canonical resource | `OWNED` &rarr; `NOOP` (Planned) / Recreate (Current) | Planned behavior NOOPs. Current `sync_resource()` (`sync.py:46-63`) unconditionally removes and recreates the symlink. | `FIX-TR-03` |
 | `INV-TR-04` | `[current]` | Selected, link | Broken symlink pointing to canonical (source missing) | `OWNED` + source missing &rarr; `BLOCK` | Refuses to treat broken link as an empty slot. | `FIX-TR-04` |
 | `INV-TR-05` | `[current]` | Selected, link | Points to external/wrong resource; state missing | `FOREIGN` / `UNKNOWN` &rarr; `CONFLICT` | Refuses automatic relink. Sync aborted. | `FIX-TR-05` |
-| `INV-TR-06` | `[planned-p2]` | Selected, link | Previously managed, but link redirected elsewhere | `DRIFT` / `UNKNOWN` &rarr; `CONFLICT` | Stale record cannot override current directory entry fact. | `FIX-TR-06` |
-| `INV-TR-07` | `[planned-p2]` | Selected, copy | Valid active state, $R = B = C$ | `OWNED_UNCHANGED` &rarr; `NOOP` | No file or state writes. | `FIX-TR-07` |
-| `INV-TR-08` | `[planned-p2]` | Selected, copy | Valid active state, $R = B$, $C$ changed | `OWNED_UNCHANGED` &rarr; `UPDATE` | Copies new $C$; updates baseline $B := C$. | `FIX-TR-08` |
-| `INV-TR-09` | `[planned-p2]` | Selected, copy | Valid active state, $R \ne B$ and $R \ne C$ | `OWNED_DRIFTED` &rarr; `CONFLICT` | Blocks sync. Explicit `--force` replaces target; updates $B := C$. | `FIX-TR-09` |
-| `INV-TR-10` | `[planned-p2]` | Selected, copy | Valid active state, $R \ne B$ but $R = C$ | `RECONCILE_STATE` &rarr; `NOOP` on files | Verifies existing ownership; atomically updates $B := C$. | `FIX-TR-10` |
-| `INV-TR-11` | `[planned-p2]` | Selected, copy | No state record, $R = C$ | `UNKNOWN` &rarr; `NOOP` + Diagnostic | Does not manufacture ownership. `--force` authorizes `CLAIM_STATE`. | `FIX-TR-11` |
-| `INV-TR-12` | `[planned-p2]` | Selected, copy | No state record, $R \ne C$, safe normal directory | `UNKNOWN` &rarr; `CONFLICT` (Default); `--force` Overwrites | Current `--force` replaces directory without writing state. Phase 2 `--force` creates active state $B := C$. | `FIX-TR-12` |
-| `INV-TR-13` | `[planned-p2]` | Selected, copy | State corrupt/mismatched, unreadable, or unsafe entry | `UNKNOWN` &rarr; `CONFLICT` | Current checks directory readability and entry type. Phase 2 checks state corruption; `--force` cannot bypass entry or record corruption. | `FIX-TR-13` |
+| `INV-TR-06` | `[planned]` | Selected, link | Previously managed, but link redirected elsewhere | `DRIFT` / `UNKNOWN` &rarr; `CONFLICT` | Stale record cannot override current directory entry fact. | `FIX-TR-06` |
+| `INV-TR-07` | `[planned]` | Selected, copy | Valid active state, $R = B = C$ | `OWNED_UNCHANGED` &rarr; `NOOP` | No file or state writes. | `FIX-TR-07` |
+| `INV-TR-08` | `[planned]` | Selected, copy | Valid active state, $R = B$, $C$ changed | `OWNED_UNCHANGED` &rarr; `UPDATE` | Copies new $C$; updates baseline $B := C$ (origin `write`). | `FIX-TR-08` |
+| `INV-TR-09` | `[planned]` | Selected, copy | Valid active state, $R \ne B$ and $R \ne C$ | `OWNED_DRIFTED` &rarr; `CONFLICT` | Blocks sync. Explicit `--force` replaces target; updates $B := C$ (origin `write`). | `FIX-TR-09` |
+| `INV-TR-10` | `[planned]` | Selected, copy | Valid active state, $R \ne B$ but $R = C$ | `RECONCILE_STATE` &rarr; `NOOP` on files | Verifies existing ownership; atomically updates $B := C$ (origin `reconcile`). | `FIX-TR-10` |
+| `INV-TR-11` | `[planned]` | Selected, copy | No state record, $R = C$ | `UNKNOWN` &rarr; `NOOP` + Diagnostic | Does not manufacture ownership. `--force` authorizes `CLAIM_STATE` ($B := C$, origin `claim`). | `FIX-TR-11` |
+| `INV-TR-12` | `[planned]` | Selected, copy | No state record, $R \ne C$, safe normal directory | `UNKNOWN` &rarr; `CONFLICT` (Default); `--force` Overwrites | Current `--force` replaces directory without writing state. Planned `--force` creates active state $B := C$ (origin `write`). | `FIX-TR-12` |
+| `INV-TR-13` | `[planned]` | Selected, copy | State corrupt/mismatched, unreadable, or unsafe entry | `UNKNOWN` &rarr; `CONFLICT` | Current checks directory readability and entry type. Planned behavior checks state corruption; `--force` cannot bypass entry or record corruption. | `FIX-TR-13` |
 | `INV-TR-14` | `[current]` | Deselected, actual link | Symlink points to workspace canonical resource | `OWNED` &rarr; `UNLINK` | Unlinks symlink entry only. | `FIX-TR-14` |
 | `INV-TR-15` | `[current]` | Deselected, actual link | External symlink or insufficient evidence | `FOREIGN` / `UNKNOWN` &rarr; Preserve + Info | Leaves link untouched; informs user. | `FIX-TR-15` |
-| `INV-TR-16` | `[planned-p2]` | Deselected, actual copy | Valid active state, any $R$ / $B$ / $C$ relation | `DEACTIVATE_STATE` &rarr; Preserve target | Sets state to `inactive`; target directory preserved untouched. | `FIX-TR-16` |
+| `INV-TR-16` | `[planned]` | Deselected, actual copy | Valid active state, any $R$ / $B$ / $C$ relation | `DEACTIVATE_STATE` &rarr; Preserve target | Sets state to `inactive`; target directory preserved untouched. | `FIX-TR-16` |
 | `INV-TR-17` | `[current]` | Deselected, actual copy | Inactive state or no state record | Preserve target &rarr; `NOOP` | Never deletes copy. Does not alter state. | `FIX-TR-17` |
-| `INV-TR-18` | `[planned-p2]` | Re-selected, copy | Inactive state, $R = C$ | `UNKNOWN` &rarr; `NOOP` + Diagnostic | `--force` authorizes `REACTIVATE_STATE` ($B := C$). | `FIX-TR-18` |
-| `INV-TR-19` | `[planned-p2]` | Re-selected, copy | Inactive state, $R \ne C$ | `UNKNOWN` &rarr; `CONFLICT` | `--force` authorizes replacement and active baseline $B := C$. | `FIX-TR-19` |
-| `INV-TR-20` | `[planned-p2]` | Selected, mode switch | Representation differs from desired mode | Mode switch plan (Planned) / Direct conflict (Current) | Current copy-to-link with existing directory directly conflicts. Phase 2 evaluates mode switch as explicit replacement plan. | `FIX-TR-20` |
+| `INV-TR-18` | `[planned]` | Re-selected, copy | Inactive state, $R = C$ | `UNKNOWN` &rarr; `NOOP` + Diagnostic | `--force` authorizes `REACTIVATE_STATE` ($B := C$, origin `reactivate`). | `FIX-TR-18` |
+| `INV-TR-19` | `[planned]` | Re-selected, copy | Inactive state, $R \ne C$ | `UNKNOWN` &rarr; `CONFLICT` | `--force` authorizes replacement and active baseline $B := C$ (origin `write`). | `FIX-TR-19` |
+| `INV-TR-20` | `[planned]` | Selected, mode switch | Representation differs from desired mode | Mode switch plan | Link to copy: managed link replaced by copy ($B := C$, active). Copy to link: active copy with $R = B$ replaced by symlink (state inactive). Drifted, unmanaged, or inactive copy to link is blocked (`CONFLICT`); `--force` does not bypass. | `FIX-TR-20` |
 
 ### Detailed Lifecycle Rules
 
@@ -110,22 +115,22 @@ The following transition table governs synchronization planning for project skil
 
 ## 4. `--force` Authorization Contract
 
-### INV-AUTH-01: Project Skill Force Semantics `[planned-p2]` {: #inv-auth-01 }
+### INV-AUTH-01: Project Skill Force Semantics `[planned]` {: #inv-auth-01 }
 
 The `--force` option in `aikito sync project <name> [project_path] --force` authorizes:
 1. Overwriting drifted copies where valid active state exists ($R \ne B$).
 2. Overwriting inactive copies or unmanaged normal skill directories ($R \ne C$).
 3. Explicitly claiming (`CLAIM_STATE`) or reactivating (`REACTIVATE_STATE`) management when $R = C$.
 
-### INV-AUTH-02: Scoping Boundaries `[planned-p2]` (Current: Project-Level Boolean Force) {: #inv-auth-02 }
+### INV-AUTH-02: Scoping Boundaries `[planned]` (Current: Project-Level Boolean Force) {: #inv-auth-02 }
 
 - **Current Behavior (`[current]`)**: `--force` on `aikito sync project <name> [project_path] --force` is a single command-level boolean flag that permits overwriting all drifted copied skills within the target project checkout, without generating individual per-skill authorization tokens.
-- **Target Model (`[planned-p2]`)**: Every selected skill generates an independent authorization item.
+- **Target Model (`[planned]`)**: Every selected skill generates an independent authorization item.
   - **Explicit Checkout Path**: When `project_path` is passed, `--force` authorization applies strictly to that physical checkout.
   - **Omitted Path**: When `project_path` is omitted, `--force` applies only to currently accessible active checkouts on this host. Offline or missing candidate paths are never authorized.
   - **Granular Authorization**: Every selected skill generates an independent authorization item. Authorization does not cover arbitrary subdirectories or sibling files.
 
-### INV-AUTH-03: Authorization Target Binding `[planned-p2]` {: #inv-auth-03 }
+### INV-AUTH-03: Authorization Target Binding `[planned]` {: #inv-auth-03 }
 
 Each authorization item binds seven attributes:
 ```text
@@ -139,9 +144,11 @@ expected management record version + lifecycle state
 ```
 Target directory inspection evaluates the immediate directory entry, not the destination of any secondary symlink. Parent directory path sanity is validated against directory traversal and symlink escapes.
 
-### INV-AUTH-04: Authorization Invalidation `[planned-p2]` {: #inv-auth-04 }
+### INV-AUTH-04: Authorization Invalidation and Explicit CAS `[planned]` {: #inv-auth-04 }
 
 Any divergence in source content, target directory entry, project selection, or checkout path invalidates the plan and all associated authorizations. An invalid plan halts execution; authorizations are not automatically transferred to a regenerated plan. A dry-run displays planned authorizations but persists nothing.
+
+**Explicit Candidate Path CAS Contract**: When an explicit project path is passed to `aikito sync project <name> <path>`, path registration executes as a deterministic Compare-And-Swap (CAS) step within the Plan. The Plan binds exact pre-image bytes/hash and post-image bytes/hash of `agent.toml`. Before writing, Aikito verifies that `agent.toml` matches the expected pre-image; if external modifications occurred, the Plan halts. After successful atomic CAS write, only the resulting post-image is accepted as the authorized configuration baseline for runtime synchronization.
 
 ### INV-AUTH-05: Non-Bypassable Boundaries `[current]` {: #inv-auth-05 }
 
@@ -255,16 +262,16 @@ All public exceptions inherit from `ProjectError -> RuntimeError`.
 
 ## 6. Appendix: Migration Inventory
 
-Every subsystem scheduled for migration into the Phase 2 Plan / Executor engine and subsequent phases is documented below.
+Every subsystem scheduled for migration into the structured Plan / Executor engine is documented below.
 
-| Subsystem / Entry | Reads | Writes | Ownership Evidence | State File | Dry-run Behavior | Recovery Boundary | Target Phase | Old Implementation Deletion Criteria |
+| Subsystem / Entry | Reads | Writes | Ownership Evidence | State File | Dry-run Behavior | Recovery Boundary | Target Engine | Old Implementation Deletion Criteria |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `cli.py::cmd_sync_all` | Workspace config, `agents.toml`, all projects, global resources, agent runtimes | Runtime global symlinks, project checkouts, MCP configs, subagents | Symlink pointing within workspace canonical roots; copy matching | None (delegates to subsystem sync handlers) | First runs complete `--dry-run` preview pass; if safe (`plan.can_apply` and not dry-run), immediately executes without interactive prompt | Partial failure leaves processed items intact; no rollback across subsystems | Phase 5 (Unified Coordinator) | Replaced when all underlying resource subsystems (project, global, MCP, subagent) migrate to unified Plan/Executor |
-| `cli.py::cmd_global_sync` | Workspace `skills/`, `global/AGENTS.md`, `agents.toml` | Agent runtime instruction symlinks and global skills | Symlinks resolving within `workspace/skills`; `allow_matching_copies=True` for global skills cleanup | None | Read-only simulation (`--dry-run`) | Per-entry unlink/symlink; no transaction log | Phase 3 (Global Engine) | Replaced after global Plan/Executor contract verified |
-| `cli.py::cmd_project_sync` | Project `agent.toml`, `AGENTS.md`, workspace skills, memory | Project checkout `.agents/skills/`, `.agents/memory/`, instructions | Symlink resolving to canonical roots; `allow_matching_copies=False` for project skills | None (Phase 2 introduces copy management records) | Read-only preview (`[DRY RUN CLEANUP]`, `[DRY RUN LINK]`, `[DRY RUN COPY]`) | Preflights conflicts before writing; runtime write failure leaves partial checkout files | Phase 2 (Project Plan/Executor) | Replaced when Phase 2 Executor handles project sync |
-| `sync.py::sync_resource`, `apply_runtime_cleanup`, `sync_global_entry`; `compat.py::safe_symlink` | Source filesystem item, target filesystem item | Target symlink or copied directory tree; unlinks stale entries | `_symlink_points_within` verifies target points inside canonical roots; `safe_symlink` creates link via `symlink_to()` without prior target inspection; `sync_resource` deletes existing target before recreating | None | `dry_run=True` checks existence/paths and prints preview without filesystem mutation | Direct filesystem operations; `safe_symlink` wraps `symlink_to()` with OS error handling; no tempfile atomic swap; no rollback | Phase 2 (Core Primitives for Project) & Phase 3 (Global Primitives) | Primitives adapted or replaced by structured Executor operations |
-| `project.py::classify_project_skill_state`, `plan_runtime_cleanup`, `find_selected_runtime_conflicts` | Canonical skill directory, runtime checkout skill entry | None (pure query/classification functions) | `_symlink_points_within` (checks if target resolves within any canonical root); `_directories_match` when `allow_matching_copies=True` | None | Purely functional / read-only | Non-destructive query | Phase 2 (Planner Analysis) | Retired when planner evaluates management records and whole-tree fingerprints |
-| `project_runtime.py::Project.prepare`, `sync_project_path`, `_resolve_project_sync_inputs` | Workspace config, `agents.toml`, project `agent.toml`, checkout directories | Checkout instructions, skills, memory | Symlink targets, copy directory comparisons | None | Supported via `dry_run` parameter in internal helpers | Validates conflicts before modifying persistent resources; write failure raises `ProjectPrepareConflictError` | Phase 2 (Project Executor) | Replaced when `prepare` delegates to Phase 2 project Plan/Executor |
+| `cli.py::cmd_sync_all` | Workspace config, `agents.toml`, all projects, global resources, agent runtimes | Runtime global symlinks, project checkouts, MCP configs, subagents | Symlink pointing within workspace canonical roots; copy matching | None (delegates to subsystem sync handlers) | First runs complete `--dry-run` preview pass; if safe (`plan.can_apply` and not dry-run), immediately executes without interactive prompt | Partial failure leaves processed items intact; no rollback across subsystems | Unified Coordinator | Replaced when all underlying resource subsystems (project, global, MCP, subagent) migrate to unified Plan/Executor |
+| `cli.py::cmd_global_sync` | Workspace `skills/`, `global/AGENTS.md`, `agents.toml` | Agent runtime instruction symlinks and global skills | Symlinks resolving within `workspace/skills`; `allow_matching_copies=True` for global skills cleanup | None | Read-only simulation (`--dry-run`) | Per-entry unlink/symlink; no transaction log | Global Engine | Replaced after global Plan/Executor contract verified |
+| `cli.py::cmd_project_sync` | Project `agent.toml`, `AGENTS.md`, workspace skills, memory | Project checkout `.agents/skills/`, `.agents/memory/`, instructions | Symlink resolving to canonical roots; `allow_matching_copies=False` for project skills | None (planned executor introduces copy management records) | Read-only preview (`[DRY RUN CLEANUP]`, `[DRY RUN LINK]`, `[DRY RUN COPY]`) | Preflights conflicts before writing; runtime write failure leaves partial checkout files | Project Plan/Executor | Replaced when structured Executor handles project sync |
+| `sync.py::sync_resource`, `apply_runtime_cleanup`, `sync_global_entry`; `compat.py::safe_symlink` | Source filesystem item, target filesystem item | Target symlink or copied directory tree; unlinks stale entries | `_symlink_points_within` verifies target points inside canonical roots; `safe_symlink` creates link via `symlink_to()` without prior target inspection; `sync_resource` deletes existing target before recreating | None | `dry_run=True` checks existence/paths and prints preview without filesystem mutation | Direct filesystem operations; `safe_symlink` wraps `symlink_to()` with OS error handling; no tempfile atomic swap; no rollback | Core Primitives (Project & Global) | Primitives adapted or replaced by structured Executor operations |
+| `project.py::classify_project_skill_state`, `plan_runtime_cleanup`, `find_selected_runtime_conflicts` | Canonical skill directory, runtime checkout skill entry | None (pure query/classification functions) | `_symlink_points_within` (checks if target resolves within any canonical root); `_directories_match` when `allow_matching_copies=True` | None | Purely functional / read-only | Non-destructive query | Planner Analysis | Retired when planner evaluates management records and whole-tree fingerprints |
+| `project_runtime.py::Project.prepare`, `sync_project_path`, `_resolve_project_sync_inputs` | Workspace config, `agents.toml`, project `agent.toml`, checkout directories | Checkout instructions, skills, memory | Symlink targets, copy directory comparisons | None | Supported via `dry_run` parameter in internal helpers | Validates conflicts before modifying persistent resources; write failure raises `ProjectPrepareConflictError` | Project Executor | Replaced when `prepare` delegates to structured project Plan/Executor |
 | `mcp.py::sync_mcp_configs`, `sync_remove_mcp_from_agents`, `remove.py::remove_mcp` | Workspace `mcps/*.toml`, agent configuration files, `.local/state/aikito/mcp-state.json` | Agent configuration files (merged blocks), workspace `mcps/*.toml` on remove, updates `.local/state/aikito/mcp-state.json`, creates backup files | Recorded server entries in `.local/state/aikito/mcp-state.json` | `.local/state/aikito/mcp-state.json` (tracks applied server hashes per agent config) | Full read-only merge simulation; prints diff/actions without touching files or state | Timestamped backups created prior to writing; atomic state promotion via temporary state file and `os.replace`; restores backup on failure | Phase 4 (MCP Engine) | Replaced when MCP engine adopts unified Plan/Executor model |
 | `subagent.py::build_plan`, `sync_subagent_configs`, `remove.py::remove_subagent` | Workspace `subagents/<name>.md`, `subagents.toml`, agent configuration files / subagent directories | Agent subagent prompt files / configs, workspace `subagents/<name>.md` and `subagents.toml` on remove | Generated prompt Aikito header banner / managed comment markers | None | Previews generated subagent plan items and actions | File-level backups for modified configs; atomic write via tempfile (`_write_file_atomic`) | Phase 4 (Subagent Engine) | Replaced when subagent engine adopts unified Plan/Executor model |
 | `adopt.py::build_adopt_plan`, `execute_adoption` | Agent native configuration files, skills, MCP definitions | Workspace definitions (`skills/`, `mcps/`, `subagents/`, `projects/`, `config.toml`) | Native config presence; user approval via interactive/explicit plan | Timestamped backup directory `~/.aikito/backups/adopt_<timestamp>` | Complete read-only plan preview (`--dry-run`); calculates all changes and conflicts | Full preflight validation before any write; timestamped backups created | Phase 5 (Adoption Engine) | Preserved; integrates with unified Planner validation |

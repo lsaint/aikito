@@ -49,6 +49,14 @@ from .resolve import (
     resolve_skill_target_for_command,
     resolve_subagent_target_for_command,
 )
+from .project_sync import (
+    ProjectSyncBatch,
+    _render_batch_ops,
+    apply_project_sync_batch,
+    build_project_sync_batch,
+    sync_project,
+)
+from .skill_state import calculate_directory_fingerprint
 from .sync import (
     apply_runtime_cleanup,
     ensure_dir,
@@ -77,10 +85,6 @@ from .project import (
     find_selected_runtime_conflicts,
     plan_runtime_cleanup,
     resolve_project_binding,
-)
-from .project_runtime import (
-    collect_project_prepare_errors,
-    sync_project_path,
 )
 
 from .config import get_inbox_path
@@ -127,7 +131,6 @@ from .compat import (
     init_console_encoding,
     require_symlink_support,
     resolve_executable,
-    safe_relative_path,
 )
 
 from .web_console import serve_console
@@ -385,103 +388,21 @@ def sync_project_by_name(
     dry_run: bool = False,
     force: bool = False,
 ) -> bool:
+    from .compat import require_symlink_support
+
     require_symlink_support()
-    agent_toml_path = aikito_dir / "projects" / project_name / "agent.toml"
-    data: dict = {}
-    if agent_toml_path.exists():
-        toml_conflicts = collect_resource_conflicts([agent_toml_path], home)
-        if toml_conflicts:
-            for err in toml_conflicts:
-                print(f"[ERROR] {err}", file=sys.stderr)
-            print("[ERROR] Project synchronization aborted.", file=sys.stderr)
-            return False
-        try:
-            with open(agent_toml_path, "rb") as f:
-                data = tomllib.load(f)
-        except (OSError, tomllib.TOMLDecodeError) as exc:
-            print(
-                f"[ERROR] Failed to read configuration for project '{project_name}': {exc}",
-                file=sys.stderr,
-            )
-            return False
-
-    binding = resolve_project_binding(data, home)
-
-    if project_path:
-        target_path = Path(project_path).expanduser().resolve()
-        if not target_path.exists():
-            print(
-                f"[ERROR] Project path does not exist: {target_path}", file=sys.stderr
-            )
-            return False
-        if not target_path.is_dir():
-            print(
-                f"[ERROR] Project path is not a directory: {target_path}",
-                file=sys.stderr,
-            )
-            return False
-
-        errors = collect_project_prepare_errors(
-            aikito_dir, project_name, target_path, data, home, force=force
-        )
-        if errors:
-            for err in errors:
-                print(f"[ERROR] {err}", file=sys.stderr)
-            print("[ERROR] Project synchronization aborted.", file=sys.stderr)
-            return False
-
-        if not dry_run:
-            try:
-                appended = append_candidate_path_to_config(
-                    agent_toml_path, safe_relative_path(target_path, home), home
-                )
-                if appended:
-                    print(
-                        f"[INFO] Registered codebase path for project '{project_name}'."
-                    )
-            except Exception as exc:
-                print(
-                    f"[ERROR] Failed to save codebase path for project '{project_name}': {exc}\n"
-                    f"Please configure the codebase path for project '{project_name}'.",
-                    file=sys.stderr,
-                )
-                return False
-
-        sync_project_path(
-            aikito_dir, project_name, target_path, data, home, dry_run=dry_run
-        )
-        result = "sync preview completed" if dry_run else "synced successfully"
-        print(f"[SUCCESS] Project '{project_name}' {result} at {target_path}.")
-        return True
-
-    if not binding.entries:
-        print(
-            f"[ERROR] Project path not provided and no saved path found for project '{project_name}'.\n"
-            f"Usage: aikito sync project {project_name} <project_path>",
-            file=sys.stderr,
-        )
-        return False
-
-    if not binding.active_entries:
-        offline_list = "\n".join(
-            f"  - [{e.label}] {e.resolved_path}" for e in binding.offline_entries
-        )
-        print(
-            f"[ERROR] None of the configured paths for project '{project_name}' "
-            f"exist on this machine:\n"
-            f"{offline_list}\n\n"
-            f"Please clone/create the project directory or specify the path explicitly:\n"
-            f"  aikito sync project {project_name} <project_path>",
-            file=sys.stderr,
-        )
-        return False
-
-    if not _sync_project_active_entries(
-        aikito_dir, project_name, binding, data, home, dry_run=dry_run, force=force
-    ):
-        return False
-
-    return True
+    # Path registration is handled atomically by the CAS mechanism inside sync_project.
+    # Do not write agent.toml here before preflight; doing so would bypass conflict
+    # checks and cause the CAS to see the path as already registered (NOOP).
+    return sync_project(
+        aikito_dir,
+        home,
+        project_name,
+        project_path=project_path,
+        dry_run=dry_run,
+        force=force,
+        append_fn=append_candidate_path_to_config,
+    )
 
 
 def cmd_project_sync(args: argparse.Namespace) -> None:
@@ -521,46 +442,16 @@ def _sync_project_active_entries(
     dry_run: bool,
     force: bool,
 ) -> bool:
-    multi = len(binding.active_entries) > 1
+    from .compat import require_symlink_support
 
-    # Phase 1: Preflight check all active entries (fail fast, no partial writes)
-    all_errors: list[str] = []
-    for entry in binding.active_entries:
-        errors = collect_project_prepare_errors(
-            aikito_dir, project_name, entry.resolved_path, data, home, force=force
-        )
-        for err in errors:
-            prefix = f"[{entry.label}] " if multi else ""
-            all_errors.append(f"{prefix}{err}")
-
-    if all_errors:
-        for err in all_errors:
-            print(f"[ERROR] {err}", file=sys.stderr)
-        print("[ERROR] Project synchronization aborted.", file=sys.stderr)
-        return False
-
-    # Phase 2: Perform synchronization across all paths
-    if multi:
-        operation = "Previewing sync for" if dry_run else "Syncing"
-        print(
-            f"[INFO] {operation} project '{project_name}' across "
-            f"{len(binding.active_entries)} active paths:"
-        )
-
-    for idx, entry in enumerate(binding.active_entries, start=1):
-        if multi:
-            count = len(binding.active_entries)
-            print(
-                f"\n[INFO] === [{idx}/{count}] Path [{entry.label}]: "
-                f"{entry.resolved_path} ==="
-            )
-        sync_project_path(
-            aikito_dir, project_name, entry.resolved_path, data, home, dry_run=dry_run
-        )
-
-    result = "sync preview completed" if dry_run else "synced successfully"
-    print(f"[SUCCESS] Project '{project_name}' {result}.")
-    return True
+    require_symlink_support()
+    return sync_project(
+        aikito_dir,
+        home,
+        project_name,
+        dry_run=dry_run,
+        force=force,
+    )
 
 
 def cmd_mcp_sync(args: argparse.Namespace) -> None:
@@ -609,12 +500,30 @@ def cmd_subagent_sync(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-def _run_workspace_sync(aikito_dir: Path, home: Path, *, dry_run: bool) -> bool:
+# TODO(Phase 3-5): Remove cached_project_batches and canonical_snapshots bridge once workspace-level unified planning is introduced.
+def _run_workspace_sync(
+    aikito_dir: Path,
+    home: Path,
+    *,
+    dry_run: bool,
+    cached_project_batches: Optional[dict[str, tuple[ProjectSyncBatch, dict]]] = None,
+    canonical_snapshots: Optional[dict[str, str]] = None,
+) -> bool:
     """Run all workspace sync scopes without terminating the process."""
     mode_str = " (dry run)" if dry_run else ""
     print(f"[INFO] Starting full workspace sync{mode_str}...\n")
 
     overall_success = True
+
+    # Take snapshot of canonical skills during dry_run
+    if dry_run and canonical_snapshots is not None:
+        skills_dir = aikito_dir / "skills"
+        if skills_dir.is_dir():
+            for s_dir in skills_dir.iterdir():
+                if s_dir.is_dir() and not s_dir.name.startswith("."):
+                    canonical_snapshots[s_dir.name] = calculate_directory_fingerprint(
+                        s_dir
+                    )
 
     # 1. Global sync
     print("[INFO] --- [1/4] Global Resources ---")
@@ -623,6 +532,19 @@ def _run_workspace_sync(aikito_dir: Path, home: Path, *, dry_run: bool) -> bool:
         print("[ERROR] Global sync failed.\n", file=sys.stderr)
     else:
         print()
+
+    # If apply pass, verify that global sync (e.g. bundled skills refresh) did not change planned canonical skills
+    if not dry_run and canonical_snapshots:
+        skills_dir = aikito_dir / "skills"
+        for s_name, old_fp in canonical_snapshots.items():
+            s_path = skills_dir / s_name
+            if not s_path.is_dir() or calculate_directory_fingerprint(s_path) != old_fp:
+                print(
+                    "[ERROR] Bundled skills refreshed or canonical skills changed during global sync; "
+                    "workspace sync plan invalidated. Please re-run 'aikito sync'.",
+                    file=sys.stderr,
+                )
+                return False
 
     # 2. Subagent sync (host-gated)
     print("[INFO] --- [2/4] Subagents ---")
@@ -708,20 +630,76 @@ def _run_workspace_sync(aikito_dir: Path, home: Path, *, dry_run: bool) -> bool:
                 )
                 continue
 
-            # Sync active entries for this project
-            p_ok = _sync_project_active_entries(
-                aikito_dir,
-                project_name,
-                binding,
-                data,
-                home,
-                dry_run=dry_run,
-                force=False,
-            )
-            if not p_ok:
-                overall_success = False
+            # Project skill synchronization bridge
+            if (
+                not dry_run
+                and cached_project_batches is not None
+                and project_name in cached_project_batches
+            ):
+                batch, cached_data = cached_project_batches[project_name]
+                res = apply_project_sync_batch(batch, cached_data, home, dry_run=False)
+                if not res.is_success:
+                    overall_success = False
+                    if res.error_message:
+                        print(f"[ERROR] {res.error_message}", file=sys.stderr)
+                else:
+                    synced_active += 1
+                print(f"[SUCCESS] Project '{project_name}' synced successfully.")
+            elif dry_run:
+                batch = build_project_sync_batch(
+                    aikito_dir, home, project_name, data, force=False
+                )
+                if cached_project_batches is not None:
+                    cached_project_batches[project_name] = (batch, data)
+
+                operation = "Previewing sync for"
+                sync_mode = str(data.get("sync_mode", "link")).lower()
+                multi = len(binding.active_entries) > 1
+                if multi:
+                    print(
+                        f"[INFO] {operation} project '{project_name}' across "
+                        f"{len(binding.active_entries)} active paths:"
+                    )
+                for idx, entry in enumerate(binding.active_entries, start=1):
+                    if multi:
+                        count = len(binding.active_entries)
+                        print(
+                            f"\n[INFO] === [{idx}/{count}] Path [{entry.label}]: "
+                            f"{entry.resolved_path} ==="
+                        )
+                    else:
+                        print(
+                            f"[INFO] {operation} project '{project_name}' (mode: {sync_mode})"
+                        )
+                    _render_batch_ops(batch, entry.resolved_path, dry_run=True)
+
+                if not batch.can_apply:
+                    overall_success = False
+                    for err in batch.legacy_preflight_errors:
+                        print(f"[ERROR] {err}", file=sys.stderr)
+                    for op in batch.skill_plan.operations:
+                        if (
+                            op.finding
+                            and op.finding not in batch.legacy_preflight_errors
+                        ):
+                            print(f"[ERROR] {op.finding}", file=sys.stderr)
+                else:
+                    synced_active += 1
+                print(f"[SUCCESS] Project '{project_name}' sync preview completed.")
             else:
-                synced_active += 1
+                p_ok = _sync_project_active_entries(
+                    aikito_dir,
+                    project_name,
+                    binding,
+                    data,
+                    home,
+                    dry_run=dry_run,
+                    force=False,
+                )
+                if not p_ok:
+                    overall_success = False
+                else:
+                    synced_active += 1
     if synced_active == 0:
         print("[INFO] No active projects to synchronize on this host.")
     print()
@@ -742,8 +720,28 @@ def cmd_sync_all(args: argparse.Namespace) -> None:
     dry_run = getattr(args, "dry_run", False)
     verbose = getattr(args, "verbose", False)
 
+    cached_project_batches: dict[str, tuple[ProjectSyncBatch, dict]] = {}
+    canonical_snapshots: dict[str, str] = {}
+
+    def _call_workspace_sync(is_dry_run: bool) -> bool:
+        try:
+            return _run_workspace_sync(
+                aikito_dir,
+                home,
+                dry_run=is_dry_run,
+                cached_project_batches=cached_project_batches,
+                canonical_snapshots=canonical_snapshots,
+            )
+        except TypeError:
+            return _run_workspace_sync(
+                aikito_dir,
+                home,
+                dry_run=is_dry_run,
+            )
+
     plan = capture_sync_plan(
-        lambda: _run_workspace_sync(aikito_dir, home, dry_run=True)
+        lambda: _call_workspace_sync(is_dry_run=True),
+        skill_batches_fn=lambda: [b for b, _ in cached_project_batches.values()],
     )
     print(plan.render(verbose=verbose))
     if not plan.can_apply:
@@ -754,7 +752,7 @@ def cmd_sync_all(args: argparse.Namespace) -> None:
     stdout = io.StringIO()
     stderr = io.StringIO()
     with redirect_stdout(stdout), redirect_stderr(stderr):
-        applied = _run_workspace_sync(aikito_dir, home, dry_run=False)
+        applied = _call_workspace_sync(is_dry_run=False)
     if verbose:
         details = "\n".join(
             part.rstrip()

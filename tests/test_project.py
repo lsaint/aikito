@@ -993,6 +993,68 @@ class ProjectSummaryTest(unittest.TestCase):
             self.assertEqual(states2[0].project_name, "p2")
             self.assertEqual(states2[0].status, "MISSING")
 
+    def test_collect_project_skill_states_distinguishes_update_from_drift(self) -> None:
+        from aikito.skill_state import (
+            SkillStateRecord,
+            ProjectSkillStateDocument,
+            calculate_directory_fingerprint,
+            save_project_skill_state,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            aikito_dir = root / "aikito"
+            project_dir = root / "p1"
+            project_dir.mkdir()
+            p1_agents_skills = project_dir / ".agents" / "skills" / "demo"
+            p1_agents_skills.mkdir(parents=True)
+            (p1_agents_skills / "SKILL.md").write_text("version 1", encoding="utf-8")
+
+            proj_def = aikito_dir / "projects" / "p1"
+            proj_def.mkdir(parents=True)
+            (proj_def / "agent.toml").write_text(
+                f'path = "{project_dir.as_posix()}"\nsync_mode = "copy"\nskills = ["demo"]\n',
+                encoding="utf-8",
+            )
+            canon = aikito_dir / "skills" / "demo"
+            canon.mkdir(parents=True)
+            (canon / "SKILL.md").write_text(
+                "version 2 (upstream updated)", encoding="utf-8"
+            )
+
+            # Case 1: Active record with baseline == version 1 (R == B != C) -> UPDATE
+            b_fp, _ = calculate_directory_fingerprint(p1_agents_skills)
+            doc = ProjectSkillStateDocument(
+                version=1,
+                generation=1,
+                workspace_root=aikito_dir.as_posix(),
+                project_name="p1",
+                physical_checkout=project_dir.as_posix(),
+                records={
+                    "demo": SkillStateRecord(
+                        skill_name="demo",
+                        representation="copy",
+                        lifecycle="active",
+                        baseline_fingerprint=b_fp,
+                        baseline_origin="write",
+                        last_observed_selected=True,
+                    )
+                },
+            )
+            save_project_skill_state(root, doc)
+
+            states = collect_project_skill_states(aikito_dir, root)
+            self.assertEqual(len(states), 1)
+            self.assertEqual(states[0].status, "UPDATE")
+
+            # Case 2: Local modification (R != B and R != C) -> DRIFT
+            (p1_agents_skills / "SKILL.md").write_text(
+                "version 1 (locally modified)", encoding="utf-8"
+            )
+            states_drift = collect_project_skill_states(aikito_dir, root)
+            self.assertEqual(len(states_drift), 1)
+            self.assertEqual(states_drift[0].status, "DRIFT")
+
     def test_uninstalled_agent_instruction_target_skipped_when_parent_missing(
         self,
     ) -> None:

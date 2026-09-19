@@ -18,7 +18,7 @@ from typing import Any
 from .compat import can_symlink, safe_relative_path
 from .conflict import collect_resource_conflicts
 from .init import project_sync_validation_error
-from .mcp import MCPConfigError, collect_project_instruction_targets, load_agents
+from .mcp import MCPConfigError, load_agents
 from .project import (
     RuntimeCleanupPlan,
     _resolve_project_path,
@@ -28,12 +28,7 @@ from .project import (
     plan_runtime_cleanup,
     resolve_project_binding,
 )
-from .sync import (
-    apply_runtime_cleanup,
-    ensure_dir,
-    sync_project_instruction,
-    sync_resource,
-)
+from .project_sync import apply_project_sync_batch, build_project_sync_batch
 from .workspace import resolve_workspace
 
 PROJECT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -210,25 +205,31 @@ class Project:
         else:
             project_path = _resolve_supplied_project_path(path, self._home)
 
-        errors = collect_project_prepare_errors(
+        batch = build_project_sync_batch(
             self.workspace,
-            self.name,
-            project_path,
-            dict(self._config),
             self._home,
+            self.name,
+            dict(self._config),
+            explicit_path=project_path,
+            force=False,
+            register_explicit_path=False,
         )
-        if errors:
-            raise ProjectPrepareConflictError(self.name, tuple(errors))
-        try:
-            sync_project_path(
-                self.workspace,
-                self.name,
-                project_path,
-                dict(self._config),
-                self._home,
+        if not batch.can_apply:
+            errors = list(batch.legacy_preflight_errors)
+            for op in batch.skill_plan.operations:
+                if op.finding and op.finding not in errors:
+                    errors.append(op.finding)
+            raise ProjectPrepareConflictError(
+                self.name, tuple(errors or ["Project preparation conflict detected"])
             )
-        except (OSError, RuntimeError) as exc:
-            raise ProjectPrepareConflictError(self.name, (str(exc),)) from exc
+
+        result = apply_project_sync_batch(
+            batch, dict(self._config), self._home, dry_run=False
+        )
+        if not result.is_success:
+            raise ProjectPrepareConflictError(
+                self.name, (result.error_message or "Project preparation failed",)
+            )
 
         return PreparedProject(
             name=self.name,
@@ -462,84 +463,24 @@ def sync_project_path(
     *,
     dry_run: bool = False,
 ) -> None:
-    """Synchronize one preflighted project path using existing ownership rules."""
-    inputs = _resolve_project_sync_inputs(aikito_dir, project_name, project_path, data)
-    operation = "Previewing sync for" if dry_run else "Syncing"
-    print(f"[INFO] {operation} project '{project_name}' (mode: {inputs.sync_mode})")
-
-    for path in inputs.skill_cleanup.conflicts:
-        print(f"[INFO] Preserving project-owned skill: {path}")
-    apply_runtime_cleanup(
-        (*inputs.skill_cleanup.cleanup, *inputs.memory_cleanup.cleanup), dry_run
+    """Synchronize one preflighted project path using project skill sync engine."""
+    batch = build_project_sync_batch(
+        aikito_dir, home, project_name, data, explicit_path=project_path, force=False
     )
-
-    if not dry_run:
-        ensure_dir(inputs.agents_dir)
-        ensure_dir(inputs.agents_skills_dir)
-        ensure_dir(inputs.agents_memory_dir)
-
-    for skill_name in inputs.skills:
-        source = aikito_dir / "skills" / skill_name
-        target = inputs.agents_skills_dir / skill_name
-        if not sync_resource(source, target, mode=inputs.sync_mode, dry_run=dry_run):
-            raise RuntimeError(f"Failed to synchronize project skill: {skill_name}")
-
-    for memory_file in inputs.memory_files:
-        source = aikito_dir / "memory" / memory_file
-        target = inputs.agents_memory_dir / memory_file
-        if not sync_resource(source, target, mode="link", dry_run=dry_run):
-            raise RuntimeError(f"Failed to synchronize project memory: {memory_file}")
-
-    project_notes = inputs.proj_mem_source / "notes"
-    if project_notes.is_dir():
-        target = inputs.agents_memory_dir / "notes"
-        if not sync_resource(project_notes, target, mode="link", dry_run=dry_run):
-            raise RuntimeError("Failed to synchronize project memory notes")
-    else:
-        print(f"[INFO] No project memory notes found at {project_notes}")
-
-    project_instructions = aikito_dir / "projects" / project_name / "AGENTS.md"
-    if not project_instructions.exists():
-        print(f"[INFO] No instructions found for project '{project_name}'.")
-        return
-
-    all_instruction_targets = collect_project_instruction_targets(
-        aikito_dir, project_path, home
-    )
-    instruction_targets = collect_project_instruction_targets(
-        aikito_dir, project_path, home, active_only=True
-    )
-    instructions_enabled = bool(
-        project_instructions.read_text(encoding="utf-8", errors="replace").strip()
-    )
-    possible_stale_targets = {inputs.agents_dir / "AGENTS.md"}
-    if not instructions_enabled:
-        possible_stale_targets.update(all_instruction_targets)
-    managed_stale_targets = tuple(
-        sorted(
-            target
-            for target in possible_stale_targets
-            if target.is_symlink()
-            and target.resolve(strict=False)
-            == project_instructions.resolve(strict=False)
+    if not batch.can_apply:
+        errs = list(batch.legacy_preflight_errors)
+        for op in batch.skill_plan.operations:
+            if op.finding and op.finding not in errs:
+                errs.append(op.finding)
+        raise RuntimeError(
+            "; ".join(errs or [f"Project sync failed for '{project_name}'"])
         )
-    )
-    apply_runtime_cleanup(managed_stale_targets, dry_run)
-    if not instructions_enabled:
-        print(
-            f"[INFO] Project instructions are empty for '{project_name}'; "
-            "no Agent-native instruction links are required."
+
+    res = apply_project_sync_batch(batch, data, home, dry_run=dry_run)
+    if not res.is_success:
+        raise RuntimeError(
+            res.error_message or f"Project sync failed for '{project_name}'"
         )
-        return
-
-    for target, agent_names in all_instruction_targets.items():
-        if target not in instruction_targets:
-            print(f"[SKIP] {', '.join(agent_names)} not detected: {target.parent}")
-
-    for target, agent_names in instruction_targets.items():
-        print(f"[INFO] Project instructions for {', '.join(agent_names)}")
-        if not sync_project_instruction(project_instructions, target, dry_run):
-            raise RuntimeError(f"Project instructions already exist: {target}")
 
 
 __all__ = [

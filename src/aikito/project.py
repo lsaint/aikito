@@ -8,8 +8,9 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from .mcp import MCPConfigError, collect_project_instruction_targets
 from .compat import safe_relative_path
+from .mcp import MCPConfigError, collect_project_instruction_targets
+from .skill_state import calculate_directory_fingerprint, load_project_skill_state
 
 
 @dataclass(frozen=True)
@@ -846,8 +847,11 @@ def classify_project_skill_state(
     project_name: str,
     project_path: Path | None,
     skill_name: str,
+    home: Path | None = None,
 ) -> ProjectSkillState:
     """Classify the synchronization state of a single copied skill for a project path."""
+    if home is None:
+        home = Path.home()
     canonical = aikito_dir / "skills" / skill_name
     runtime = (
         project_path / ".agents" / "skills" / skill_name
@@ -874,8 +878,30 @@ def classify_project_skill_state(
         if error:
             status, reason = "CONFLICT", error
         elif not matches:
-            status = "DRIFT"
-            reason = "Copied project skill drifted from workspace skill"
+            # Check if runtime matches recorded baseline B, but canonical has changed upstream (R == B != C)
+            doc, _ = load_project_skill_state(
+                home, aikito_dir, project_name, project_path
+            )
+            if (
+                doc
+                and skill_name in doc.records
+                and doc.records[skill_name].lifecycle == "active"
+            ):
+                record = doc.records[skill_name]
+                r_fp, _ = calculate_directory_fingerprint(runtime)
+                c_fp, _ = calculate_directory_fingerprint(canonical)
+                b_fp = record.baseline_fingerprint
+                if r_fp and c_fp and r_fp == b_fp and r_fp != c_fp:
+                    status = "UPDATE"
+                    reason = (
+                        "Canonical skill updated upstream; safe to sync without --force"
+                    )
+                else:
+                    status = "DRIFT"
+                    reason = "Copied project skill drifted from workspace skill"
+            else:
+                status = "DRIFT"
+                reason = "Copied project skill drifted from workspace skill"
     return ProjectSkillState(
         project_name=project_name,
         skill_name=skill_name,
@@ -891,11 +917,12 @@ def collect_single_project_skill_states(
     project_name: str,
     project_path: Path | None,
     skills: list[str],
+    home: Path | None = None,
 ) -> list[ProjectSkillState]:
     """Classify copied runtime skills for a single project path."""
     return [
         classify_project_skill_state(
-            aikito_dir, project_name, project_path, str(skill_name)
+            aikito_dir, project_name, project_path, str(skill_name), home=home
         )
         for skill_name in sorted(skills)
     ]
@@ -929,7 +956,7 @@ def collect_project_skill_states(
         for entry in binding.active_entries:
             states.extend(
                 collect_single_project_skill_states(
-                    aikito_dir, project_dir.name, entry.resolved_path, skills
+                    aikito_dir, project_dir.name, entry.resolved_path, skills, home=home
                 )
             )
     return states

@@ -18,6 +18,8 @@ from .add import (
     _update_skills_in_toml,
     validate_resource_name,
 )
+from .project_sync import sync_project
+from .skill_runtime import execute_selection_transaction
 from .templating import BUNDLED_SKILL_NAMES
 
 
@@ -91,26 +93,27 @@ def _remove_skill_from_projects(
     for proj in not_registered_projects:
         print(f"[INFO] Skill '{skill_name}' was not registered in project '{proj}'.")
 
-    # 3. Apply atomic updates with rollback
-    written_files: List[Tuple[Path, str]] = []
-    try:
-        for agent_toml, original_text, new_content, proj in planned_updates:
-            _atomic_write_text(agent_toml, new_content, encoding="utf-8")
-            written_files.append((agent_toml, original_text))
-            print(
-                f"[UPDATE FILE] {_display_path(agent_toml, home)} (unregistered skill from project '{proj}')"
-            )
-    except Exception as exc:
-        for agent_toml, original_text in reversed(written_files):
-            try:
-                _atomic_write_text(agent_toml, original_text, encoding="utf-8")
-            except Exception as rb_exc:
-                print(
-                    f"[ERROR] Failed to rollback configuration for project '{proj}': {rb_exc}",
-                    file=sys.stderr,
-                )
-        print(f"[ERROR] Failed to update project configuration: {exc}", file=sys.stderr)
+    # 3. Apply atomic updates with selection transaction
+    file_updates = [
+        (agent_toml, original_text, new_content)
+        for agent_toml, original_text, new_content, _ in planned_updates
+    ]
+    ok, err = execute_selection_transaction(
+        home,
+        aikito_dir,
+        registered_projects,
+        file_updates,
+        deactivate_skills=[skill_name],
+        write_fn=_atomic_write_text,
+    )
+    if not ok:
+        print(f"[ERROR] Failed to update project configuration: {err}", file=sys.stderr)
         return False
+
+    for agent_toml, _, _, proj in planned_updates:
+        print(
+            f"[UPDATE FILE] {_display_path(agent_toml, home)} (unregistered skill from project '{proj}')"
+        )
 
     proj_names_str = ", ".join(f"'{p}'" for p in registered_projects)
     print(
@@ -119,10 +122,8 @@ def _remove_skill_from_projects(
 
     # 4. Optional runtime synchronization
     if sync:
-        from .cli import sync_project_by_name
-
         for proj in registered_projects:
-            if not sync_project_by_name(aikito_dir, home, proj):
+            if not sync_project(aikito_dir, home, proj):
                 return False
 
     return True
@@ -224,7 +225,20 @@ def _remove_skill_globally(
         return False
 
     # Execute transactional removal
-    backup_dir: Optional[Path] = None
+    file_updates = [
+        (agent_toml, orig_text, new_content)
+        for agent_toml, orig_text, new_content, _ in planned_project_updates
+    ]
+    skills_toml_update = None
+    if skills_toml_has_skill:
+        skills_toml_update = (
+            skills_toml,
+            original_skills_toml_text,
+            new_skills_toml_content,
+        )
+
+    canonical_backup_update = None
+    backup_dir = None
     if has_canonical_dir:
         backup_dir = Path(
             tempfile.mkdtemp(
@@ -232,74 +246,47 @@ def _remove_skill_globally(
                 dir=skill_dir.parent,
             )
         )
-        staged_backup = backup_dir / skill_name
-        try:
-            skill_dir.replace(staged_backup)
-        except Exception as exc:
+        canonical_backup_update = (skill_dir, backup_dir / skill_name)
+
+    ok, err = execute_selection_transaction(
+        home=home,
+        workspace_root=aikito_dir,
+        project_names=referencing_projects,
+        file_updates=file_updates,
+        skills_toml_update=skills_toml_update,
+        canonical_backup_update=canonical_backup_update,
+        deactivate_skills=[skill_name],
+        write_fn=_atomic_write_text,
+    )
+    if not ok:
+        if backup_dir and backup_dir.exists():
             shutil.rmtree(backup_dir, ignore_errors=True)
-            print(
-                f"[ERROR] Failed to move skill directory for removal: {exc}",
-                file=sys.stderr,
-            )
-            return False
-
-    written_project_files: List[Tuple[Path, str]] = []
-    skills_toml_written = False
-
-    try:
-        # Write project agent.toml files
-        for agent_toml, orig_text, new_content, proj in planned_project_updates:
-            _atomic_write_text(agent_toml, new_content, encoding="utf-8")
-            written_project_files.append((agent_toml, orig_text))
-            print(
-                f"[UPDATE FILE] {_display_path(agent_toml, home)} (unregistered skill from project '{proj}')"
-            )
-
-        # Write skills.toml
-        if skills_toml_has_skill:
-            _atomic_write_text(skills_toml, new_skills_toml_content, encoding="utf-8")
-            skills_toml_written = True
-            print(
-                f"[UPDATE FILE] {_display_path(skills_toml, home)} (unregistered global skill)"
-            )
-
-    except Exception as exc:
-        # Rollback
-        for agent_toml, orig_text in reversed(written_project_files):
-            try:
-                _atomic_write_text(agent_toml, orig_text, encoding="utf-8")
-            except Exception:
-                pass
-        if skills_toml_written and original_skills_toml_text:
-            try:
-                _atomic_write_text(
-                    skills_toml, original_skills_toml_text, encoding="utf-8"
-                )
-            except Exception:
-                pass
-        if backup_dir and (backup_dir / skill_name).exists():
-            try:
-                (backup_dir / skill_name).replace(skill_dir)
-                shutil.rmtree(backup_dir, ignore_errors=True)
-            except Exception:
-                pass
-        print(f"[ERROR] Failed during skill removal: {exc}", file=sys.stderr)
+        print(f"[ERROR] Failed during skill removal: {err}", file=sys.stderr)
         return False
 
-    # Cleanup backup directory
-    if backup_dir:
+    if backup_dir and backup_dir.exists():
         shutil.rmtree(backup_dir, ignore_errors=True)
+
+    for agent_toml, _, _, proj in planned_project_updates:
+        print(
+            f"[UPDATE FILE] {_display_path(agent_toml, home)} (unregistered skill from project '{proj}')"
+        )
+    if skills_toml_has_skill:
+        print(
+            f"[UPDATE FILE] {_display_path(skills_toml, home)} (unregistered global skill)"
+        )
+    if has_canonical_dir:
         print(f"[REMOVE DIR] {_display_path(skill_dir, home)}")
 
     print(f"\n[SUCCESS] Removed skill '{skill_name}'.")
 
     # 4. Optional runtime synchronization
     if sync:
-        from .cli import sync_global_resources, sync_project_by_name
+        from .cli import sync_global_resources
         from .compat import require_symlink_support
 
         for _, _, _, proj in planned_project_updates:
-            if not sync_project_by_name(aikito_dir, home, proj):
+            if not sync_project(aikito_dir, home, proj):
                 return False
 
         require_symlink_support()

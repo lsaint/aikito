@@ -230,7 +230,7 @@ jobs:
           test -f "$PROJ_COPY/.agents/skills/test-copy-skill/SKILL.md"
           test -f "$PROJ_COPY/.agents/skills/test-copy-skill/extra.txt"
 
-      - name: macOS CLI smoke - Repeat Sync Baseline (Phase 1 Baseline)
+      - name: macOS CLI smoke - Repeated Sync Invariance (Zero-Write Invariance)
         run: |
           WS=${{ runner.temp }}/macos-ws
           PROJ_LINK=${{ runner.temp }}/macos-proj-link
@@ -275,7 +275,7 @@ jobs:
           AIKITO_DIR=$WS python3 -m aikito sync project demo-link
           AIKITO_DIR=$WS python3 -m aikito sync project demo-copy
 
-          # Assert content and link semantics are valid; record differences without failing (Phase 1 baseline)
+          # Assert content and link semantics are valid and verify zero-write invariance
           python3 -c "
           import os, json
           from pathlib import Path
@@ -289,11 +289,52 @@ jobs:
           assert copy_skill.is_dir() and not copy_skill.is_symlink(), 'Copy skill should remain directory'
           assert (copy_skill / 'SKILL.md').read_text() == 'canonical copy content\n'
 
-          # Log differences for phase 1 baseline observation
+          # Zero-write assertion: directory and child mtime must be invariant
           st_copy = copy_skill.lstat()
-          print(f'[BASELINE OBS] Copy skill mtime_before={before[\"copy\"][\".agents/skills/test-copy-skill\"][\"mtime_ns\"]} mtime_after={st_copy.st_mtime_ns}')
-          print('[BASELINE OBS] Phase 1 repeat sync verified: contents and semantics intact; zero-write assertion planned for Phase 2')
+          assert st_copy.st_mtime_ns == before['copy']['.agents/skills/test-copy-skill']['mtime_ns'], (
+              f'Copy skill was unexpectedly re-written: before={before[\"copy\"][\".agents/skills/test-copy-skill\"][\"mtime_ns\"]} after={st_copy.st_mtime_ns}'
+          )
+          assert (copy_skill / 'SKILL.md').lstat().st_mtime_ns == before['copy']['.agents/skills/test-copy-skill/SKILL.md']['mtime_ns'], (
+              'Copy skill child file was unexpectedly re-written'
+          )
+          print('[SUCCESS] Zero-write repeat sync verified')
           "
+
+      - name: macOS CLI smoke - Drift vs Update, Force Overwrite, and Deselection
+        run: |
+          WS=${{ runner.temp }}/macos-ws
+          PROJ_COPY=${{ runner.temp }}/macos-proj-copy
+          copy_skill="$PROJ_COPY/.agents/skills/test-copy-skill"
+
+          # 1. Upstream update without --force (R == B != C)
+          printf "canonical copy updated v2\n" > "$WS/skills/test-copy-skill/SKILL.md"
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-copy
+          grep -F "canonical copy updated v2" "$copy_skill/SKILL.md"
+
+          # 2. Local drift conflict (R != B != C)
+          printf "local modified content\n" > "$copy_skill/SKILL.md"
+          if AIKITO_DIR=$WS python3 -m aikito sync project demo-copy 2>${{ runner.temp }}/macos-drift.err; then
+            echo "Expected sync project to fail on local drift"
+            exit 1
+          fi
+          grep -F "drifted" ${{ runner.temp }}/macos-drift.err
+
+          # 3. Overwrite drift with --force
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-copy --force
+          grep -F "canonical copy updated v2" "$copy_skill/SKILL.md"
+
+          # 4. Deselection preservation (aikito rm skill --project preserves files on disk)
+          AIKITO_DIR=$WS python3 -m aikito rm skill test-copy-skill --project demo-copy
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-copy
+          test -d "$copy_skill"
+          test -f "$copy_skill/SKILL.md"
+          grep -F "canonical copy updated v2" "$copy_skill/SKILL.md"
+
+          # 5. Restore original state for subsequent dry-run smoke test
+          printf "canonical copy content\n" > "$WS/skills/test-copy-skill/SKILL.md"
+          AIKITO_DIR=$WS python3 -m aikito add skill test-copy-skill --project demo-copy
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-copy --force
+          grep -F "canonical copy content" "$copy_skill/SKILL.md"
 
       - name: macOS CLI smoke - Dry Run Non-Mutation Guarantee
         run: |

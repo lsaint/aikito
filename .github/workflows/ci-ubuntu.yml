@@ -827,6 +827,72 @@ jobs:
           # Restore clean global instructions
           printf '%s\n' "$orig_global" > "$global_agents"
 
+      - name: Project Skill Sync Engine (copy mode, idempotency, drift vs update, force, deselection preservation)
+        run: |
+          WS=${{ runner.temp }}/aikito-ws
+          PROJ=${{ runner.temp }}/copy-mode-proj
+          mkdir -p "$PROJ"
+
+          AIKITO_DIR=$WS python3 -m aikito init project copy-proj "$PROJ"
+          # Switch to copy mode
+          python3 -c "
+          from pathlib import Path
+          p = Path('$WS/projects/copy-proj/agent.toml')
+          p.write_text(p.read_text().replace('sync_mode = \"link\"', 'sync_mode = \"copy\"'))
+          "
+
+          # 1. Add skill and first-time sync
+          AIKITO_DIR=$WS python3 -m aikito add skill copy-test-skill --description "Copy test skill" --project copy-proj
+          printf "canonical v1\n" > "$WS/skills/copy-test-skill/SKILL.md"
+
+          # Dry run preview check
+          AIKITO_DIR=$WS python3 -m aikito sync project copy-proj --dry-run | tee ${{ runner.temp }}/copy-dryrun.out
+          grep -F "[DRY RUN COPY]" ${{ runner.temp }}/copy-dryrun.out
+          test ! -d "$PROJ/.agents/skills/copy-test-skill"
+
+          # Real first-time sync
+          AIKITO_DIR=$WS python3 -m aikito sync project copy-proj
+          test -d "$PROJ/.agents/skills/copy-test-skill"
+          test ! -L "$PROJ/.agents/skills/copy-test-skill"
+          test -f "$PROJ/.agents/skills/copy-test-skill/SKILL.md"
+          grep -F "canonical v1" "$PROJ/.agents/skills/copy-test-skill/SKILL.md"
+
+          # 2. Idempotent repeated sync (zero mutations)
+          mtime_before=$(stat -c %Y "$PROJ/.agents/skills/copy-test-skill/SKILL.md" 2>/dev/null || stat -f %m "$PROJ/.agents/skills/copy-test-skill/SKILL.md")
+          AIKITO_DIR=$WS python3 -m aikito sync project copy-proj
+          mtime_after=$(stat -c %Y "$PROJ/.agents/skills/copy-test-skill/SKILL.md" 2>/dev/null || stat -f %m "$PROJ/.agents/skills/copy-test-skill/SKILL.md")
+          [ "$mtime_before" = "$mtime_after" ]
+
+          # 3. Canonical upstream update without --force (R == B != C)
+          printf "canonical v2\n" > "$WS/skills/copy-test-skill/SKILL.md"
+          AIKITO_DIR=$WS python3 -m aikito sync project copy-proj
+          grep -F "canonical v2" "$PROJ/.agents/skills/copy-test-skill/SKILL.md"
+
+          # 4. Local drift conflict (R != B != C)
+          printf "local modified\n" > "$PROJ/.agents/skills/copy-test-skill/SKILL.md"
+          if AIKITO_DIR=$WS python3 -m aikito sync project copy-proj 2>${{ runner.temp }}/copy-drift.err; then
+            echo "Expected sync project to fail on local drift"
+            exit 1
+          fi
+          grep -F "drifted" ${{ runner.temp }}/copy-drift.err
+
+          # 5. Overwrite drift with --force
+          AIKITO_DIR=$WS python3 -m aikito sync project copy-proj --force
+          grep -F "canonical v2" "$PROJ/.agents/skills/copy-test-skill/SKILL.md"
+
+          # 6. Deselection preservation (INV-TR-14/15/17)
+          AIKITO_DIR=$WS python3 -m aikito rm skill copy-test-skill --project copy-proj
+          AIKITO_DIR=$WS python3 -m aikito sync project copy-proj
+          test -d "$PROJ/.agents/skills/copy-test-skill"
+          test -f "$PROJ/.agents/skills/copy-test-skill/SKILL.md"
+          grep -F "canonical v2" "$PROJ/.agents/skills/copy-test-skill/SKILL.md"
+
+          # 7. Re-register and reactivate state with --force
+          AIKITO_DIR=$WS python3 -m aikito add skill copy-test-skill --project copy-proj
+          AIKITO_DIR=$WS python3 -m aikito sync project copy-proj --force
+          test -d "$PROJ/.agents/skills/copy-test-skill"
+          test -f "$PROJ/.agents/skills/copy-test-skill/SKILL.md"
+
       - name: Verify workspace config customization in CI
         run: |
           cat << 'EOF' > ${{ runner.temp }}/aikito-ws/config.toml
