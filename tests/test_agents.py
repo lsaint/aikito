@@ -9,9 +9,13 @@ from unittest.mock import patch
 
 from aikito.agents import (
     Agent,
+    AgentAvailability,
     AgentRegistry,
+    Target,
     check_agent_availability,
+    check_target_availability,
     is_agent_installed,
+    resolve_targets,
 )
 from aikito.mcp import load_agents
 from aikito.templating import load_agents_template
@@ -126,6 +130,128 @@ class AgentsModelTests(unittest.TestCase):
         bad_dir.mkdir()
         (bad_dir / "agents.toml").write_text("not toml = = =", encoding="utf-8")
         self.assertEqual(len(AgentRegistry.load(bad_dir, self.home)), 0)
+
+
+class TargetResolutionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.td = tempfile.TemporaryDirectory()
+        self.root = Path(self.td.name)
+        self.home = self.root / "home"
+        self.ws = self.root / "workspace"
+        self.home.mkdir()
+        self.ws.mkdir()
+        (self.ws / "agents.toml").write_text(load_agents_template(), encoding="utf-8")
+        (self.ws / "skills.toml").write_text('skills = ["skill-1", "skill-2"]\n', encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.td.cleanup()
+
+    def test_global_skills_deduplication_and_metrics(self) -> None:
+        targets = resolve_targets("global_skills", self.ws, self.home)
+
+        # 8 bundled agents declare skills_path
+        total_consumers = sum(len(t.consumers) for t in targets)
+        self.assertEqual(total_consumers, 8)
+
+        # Deduplicates into exactly 3 physical targets:
+        # 1. ~/.agents/skills (shared by 6 agents)
+        # 2. ~/.claude/skills (claude-code)
+        # 3. ~/.gemini/antigravity-cli/skills (agy)
+        self.assertEqual(len(targets), 3)
+
+        # Count metrics verification:
+        resource_count = 2  # from skills.toml
+        consumer_count = total_consumers  # 8
+        operation_count = len(targets)  # 3
+        self.assertEqual(resource_count, 2)
+        self.assertEqual(consumer_count, 8)
+        self.assertEqual(operation_count, 3)
+
+        # Check path distributions
+        target_map = {t.path: t for t in targets}
+        shared_target = target_map[self.home / ".agents" / "skills"]
+        self.assertEqual(len(shared_target.consumers), 6)
+        self.assertTrue(shared_target.is_same_object)
+
+        claude_target = target_map[self.home / ".claude" / "skills"]
+        self.assertEqual(claude_target.consumers, ("claude-code",))
+        self.assertFalse(claude_target.is_same_object)
+
+        agy_target = target_map[self.home / ".gemini" / "antigravity-cli" / "skills"]
+        self.assertEqual(agy_target.consumers, ("agy",))
+        self.assertFalse(agy_target.is_same_object)
+
+    def test_target_kinds(self) -> None:
+        entry_target = Target(
+            kind="managed_entry",
+            scope="global",
+            path=self.home / ".agents" / "skills" / "demo",
+            canonical_source=self.ws / "skills" / "demo",
+        )
+        self.assertEqual(entry_target.kind, "managed_entry")
+
+        container_target = Target(
+            kind="managed_container",
+            scope="global",
+            path=self.home / ".agents" / "skills",
+            canonical_source=self.ws / "skills",
+        )
+        self.assertEqual(container_target.kind, "managed_container")
+
+        consumer_target = Target(
+            kind="consumer_link",
+            scope="global",
+            path=self.home / ".claude" / "skills",
+            canonical_source=self.home / ".agents" / "skills",
+            consumers=("claude-code",),
+        )
+        self.assertEqual(consumer_target.kind, "consumer_link")
+
+    def test_target_same_object_evaluation(self) -> None:
+        dir_a = self.home / "dir_a"
+        dir_a.mkdir()
+
+        # Exact same path
+        t1 = Target(kind="consumer_link", scope="global", path=dir_a, canonical_source=dir_a)
+        self.assertTrue(t1.is_same_object)
+
+        # Symlink pointing to source
+        link_b = self.home / "link_b"
+        link_b.symlink_to(dir_a)
+        t2 = Target(kind="consumer_link", scope="global", path=link_b, canonical_source=dir_a)
+        self.assertTrue(t2.is_same_object)
+
+        # Distinct directory
+        dir_c = self.home / "dir_c"
+        dir_c.mkdir()
+        t3 = Target(kind="consumer_link", scope="global", path=dir_c, canonical_source=dir_a)
+        self.assertFalse(t3.is_same_object)
+
+    def test_global_instructions_resolution(self) -> None:
+        targets = resolve_targets("global_instructions", self.ws, self.home)
+        self.assertGreater(len(targets), 0)
+        for t in targets:
+            self.assertEqual(t.kind, "consumer_link")
+            self.assertEqual(t.scope, "global")
+            self.assertEqual(t.canonical_source, self.ws / "global" / "AGENTS.md")
+
+    def test_project_instructions_resolution(self) -> None:
+        proj_path = self.root / "myproject"
+        proj_path.mkdir()
+        targets = resolve_targets(
+            "project_instructions",
+            self.ws,
+            self.home,
+            project_path=proj_path,
+            project_name="myproj",
+        )
+        self.assertGreater(len(targets), 0)
+        for t in targets:
+            self.assertEqual(t.kind, "consumer_link")
+            self.assertEqual(t.scope, "project")
+            self.assertEqual(
+                t.canonical_source, self.ws / "projects" / "myproj" / "AGENTS.md"
+            )
 
 
 if __name__ == "__main__":

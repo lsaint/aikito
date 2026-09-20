@@ -71,6 +71,7 @@ from .memory import (
     resolve_memory_target_for_command,
     validate_memory_name,
 )
+from .agents import check_target_availability, resolve_targets
 from .mcp import (
     MCPConfigError,
     authenticate_mcp,
@@ -338,30 +339,50 @@ def sync_global_resources(
     ):
         apply_runtime_cleanup((legacy_grok_instructions,), dry_run)
 
-    instruction_results = [
-        sync_global_entry(
-            global_instruction_source,
-            definition.instruction_path,
-            definition.display_name,
-            "instructions",
-            dry_run,
-            installed=is_agent_installed(definition.name, home),
-        )
-        for definition in agents.values()
-        if definition.instruction_path is not None
-    ]
-    skill_entry_results = [
-        sync_global_entry(
-            agents_skills_dir,
-            definition.skills_path,
-            definition.display_name,
-            "skills",
-            dry_run,
-            installed=is_agent_installed(definition.name, home),
-        )
-        for definition in agents.values()
-        if definition.skills_path is not None
-    ]
+    instruction_targets = resolve_targets("global_instructions", aikito_dir, home)
+    skill_targets = resolve_targets("global_skills", aikito_dir, home)
+
+    instruction_results: list[bool] = []
+    for target in instruction_targets:
+        if target.is_same_object:
+            print(
+                f"[OK] {'/'.join(target.consumer_display_names)} instructions: shared path {target.path}"
+            )
+            instruction_results.append(True)
+        else:
+            avail = check_target_availability(target, home)
+            instruction_results.append(
+                sync_global_entry(
+                    target.canonical_source,
+                    target.path,
+                    "/".join(target.consumer_display_names),
+                    "instructions",
+                    dry_run,
+                    installed=avail.is_installed,
+                    home=home,
+                )
+            )
+
+    skill_entry_results: list[bool] = []
+    for target in skill_targets:
+        if target.is_same_object:
+            print(
+                f"[OK] {'/'.join(target.consumer_display_names)} skills: shared path {target.path}"
+            )
+            skill_entry_results.append(True)
+        else:
+            avail = check_target_availability(target, home)
+            skill_entry_results.append(
+                sync_global_entry(
+                    target.canonical_source,
+                    target.path,
+                    "/".join(target.consumer_display_names),
+                    "skills",
+                    dry_run,
+                    installed=avail.is_installed,
+                    home=home,
+                )
+            )
 
     if not all((*instruction_results, *skill_entry_results)):
         print(
@@ -371,10 +392,11 @@ def sync_global_resources(
         )
         return False
 
+    skill_consumer_count = sum(len(t.consumers) for t in skill_targets)
     print(
         f"[SUCCESS] Global resources synced successfully "
         f"({len(valid_targets)} skills, 1 instruction source, "
-        f"{len(skill_entry_results)} Agent skill entries)."
+        f"{len(skill_entry_results)} Agent skill entries across {skill_consumer_count} consumers)."
     )
     return True
 

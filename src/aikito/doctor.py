@@ -36,7 +36,11 @@ from .conflict import (
     find_conflict_marker_lines,
     has_any_conflict_markers as _has_conflict_markers,
 )
-from .agents import check_agent_availability
+from .agents import (
+    check_agent_availability,
+    check_target_availability,
+    resolve_targets,
+)
 from .diagnostics import Finding, FindingAction
 from .link import SymlinkVerdict, classify_symlink
 from .mcp import (
@@ -221,13 +225,17 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
         except tomllib.TOMLDecodeError:
             pass
 
-    for definition in agents.values():
-        if definition.skills_path is None:
-            continue
-        skills_dir = definition.skills_path
-        avail = check_agent_availability(definition, home, target_path=skills_dir)
+    skill_targets = resolve_targets("global_skills", aikito_dir, home)
+    for target in skill_targets:
+        skills_dir = target.path
+        avail = check_target_availability(target, home)
         if not avail.is_installed:
             continue
+        display_name = (
+            target.consumer_display_names[0]
+            if target.consumer_display_names
+            else target.path.name
+        )
         for skill_name in global_skills:
             skill_target = skills_dir / skill_name
             if skill_target in seen_skill_targets:
@@ -244,7 +252,7 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
                 skills_fail_count += 1
                 findings.append(
                     _fail(
-                        f"{definition.display_name}/{skill_name}: dangling symlink ({display})",
+                        f"{display_name}/{skill_name}: dangling symlink ({display})",
                         "aikito sync global",
                     )
                 )
@@ -252,7 +260,7 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
                 skills_fail_count += 1
                 findings.append(
                     _fail(
-                        f"{definition.display_name}/{skill_name}: points elsewhere ({display})",
+                        f"{display_name}/{skill_name}: points elsewhere ({display})",
                         "aikito sync global",
                     )
                 )
@@ -260,7 +268,7 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
                 skills_fail_count += 1
                 findings.append(
                     _fail(
-                        f"{definition.display_name}/{skill_name}: not a symlink ({display})",
+                        f"{display_name}/{skill_name}: not a symlink ({display})",
                         "aikito sync global",
                     )
                 )
@@ -268,16 +276,20 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
                 skills_fail_count += 1
                 findings.append(
                     _fail(
-                        f"{definition.display_name}/{skill_name}: missing symlink ({display})",
+                        f"{display_name}/{skill_name}: missing symlink ({display})",
                         "aikito sync global",
                     )
                 )
 
     if global_skills and skills_fail_count == 0 and skills_checked_count > 0:
+        installed_targets = [
+            t for t in skill_targets if check_target_availability(t, home).is_installed
+        ]
+        total_installed_consumers = sum(len(t.consumers) for t in installed_targets)
         findings.append(
             _ok(
                 f"Global skills OK ({len(global_skills)} skills, "
-                f"{sum(1 for d in agents.values() if d.skills_path and check_agent_availability(d, home, target_path=d.skills_path).is_installed)} agents)"
+                f"{total_installed_consumers} agents)"
             )
         )
 

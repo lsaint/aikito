@@ -29,8 +29,10 @@ from .agents import (
     Agent,
     AgentAvailability,
     AgentRegistry,
+    Target,
     check_agent_availability,
     is_agent_installed,
+    resolve_targets,
 )
 from .compat import resolve_executable, secure_file_permissions
 
@@ -426,24 +428,14 @@ def collect_project_instruction_targets(
     active_only: bool = False,
 ) -> dict[Path, tuple[str, ...]]:
     """Group agent-native project instruction targets by runtime path."""
-    definitions = load_agents(aikito_dir, home)
-    grouped: dict[Path, list[tuple[str, str]]] = {}
-    for definition in definitions.values():
-        relative_path = definition.project_instruction_path
-        if relative_path is None:
-            continue
-        target = project_path / relative_path
-        grouped.setdefault(target, []).append(
-            (definition.name, definition.display_name)
-        )
-
-    result: dict[Path, tuple[str, ...]] = {}
-    for target, agents in sorted(grouped.items(), key=lambda item: str(item[0])):
-        if active_only and not target.parent.exists():
-            if all(is_agent_installed(name, home) is False for name, _ in agents):
-                continue
-        result[target] = tuple(sorted(display_name for _, display_name in agents))
-    return result
+    targets = resolve_targets(
+        "project_instructions",
+        aikito_dir,
+        home,
+        project_path=project_path,
+        active_only=active_only,
+    )
+    return {t.path: tuple(sorted(t.consumer_display_names)) for t in targets}
 
 
 def _target_name(name_style: str, server_name: str) -> str:

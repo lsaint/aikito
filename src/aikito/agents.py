@@ -172,3 +172,166 @@ class AgentRegistry:
 
     def __len__(self) -> int:
         return len(self.agents)
+
+
+@dataclass(frozen=True)
+class Target:
+    """A resolved physical target for a resource with associated agent consumers.
+
+    Kinds:
+    - managed_entry: Single managed directory item (e.g. ~/.agents/skills/<name>).
+    - managed_container: Managed container whose children are individually managed (e.g. ~/.agents/skills).
+    - consumer_link: Agent consumer link pointing to a container or file (e.g. ~/.claude/skills).
+    """
+
+    kind: str  # "managed_entry", "managed_container", "consumer_link"
+    scope: str  # "global", "project"
+    path: Path
+    canonical_source: Path | None = None
+    consumers: tuple[str, ...] = ()  # Agent names that consume this target
+    consumer_display_names: tuple[str, ...] = ()
+
+    @property
+    def is_same_object(self) -> bool:
+        """Return True if target path and canonical source resolve to the exact same filesystem object."""
+        if self.canonical_source is None:
+            return False
+        from .compat import get_physical_path
+
+        try:
+            return get_physical_path(self.path) == get_physical_path(self.canonical_source)
+        except Exception:
+            try:
+                return self.path.resolve(strict=False) == self.canonical_source.resolve(strict=False)
+            except Exception:
+                return False
+
+
+def check_target_availability(
+    target: Target,
+    home: Path,
+) -> AgentAvailability:
+    """Check availability across all consumers of a Target."""
+    statuses = [
+        check_agent_availability(consumer, home, target_path=target.path)
+        for consumer in target.consumers
+    ]
+    if any(s.is_installed for s in statuses):
+        installed_ev = next(s.evidence for s in statuses if s.is_installed)
+        return AgentAvailability("installed", installed_ev)
+    if statuses and all(s.is_not_installed for s in statuses):
+        return AgentAvailability("not_installed", "all_consumers_not_installed")
+    return AgentAvailability("unknown", "cannot_determine")
+
+
+def resolve_targets(
+    resource_kind: str,
+    aikito_dir: Path,
+    home: Path,
+    *,
+    project_path: Path | None = None,
+    project_name: str | None = None,
+    active_only: bool = False,
+    registry: AgentRegistry | None = None,
+) -> tuple[Target, ...]:
+    """Resolve physical targets and deduplicate shared agent consumers.
+
+    Supported resource kinds:
+    - 'global_skills': Returns Target for agent consumer links (consumer_link).
+      Deduplicates 8 bundled agents into 3 physical targets.
+    - 'global_instructions': Returns Target for each agent's global AGENTS.md link (consumer_link).
+    - 'project_instructions': Returns Target for project AGENTS.md links (consumer_link).
+    """
+    if registry is None:
+        registry = AgentRegistry.load(aikito_dir, home)
+
+    if resource_kind == "global_skills":
+        canonical_source = home / ".agents" / "skills"
+        grouped: dict[Path, list[tuple[str, str]]] = {}
+        for agent in registry.values():
+            if agent.skills_path is None:
+                continue
+            grouped.setdefault(agent.skills_path, []).append((agent.name, agent.display_name))
+
+        targets: list[Target] = []
+        for path, consumers in sorted(grouped.items(), key=lambda x: str(x[0])):
+            names = tuple(c[0] for c in consumers)
+            display_names = tuple(c[1] for c in consumers)
+            t = Target(
+                kind="consumer_link",
+                scope="global",
+                path=path,
+                canonical_source=canonical_source,
+                consumers=names,
+                consumer_display_names=display_names,
+            )
+            if active_only:
+                avail = check_target_availability(t, home)
+                if not avail.is_installed and not path.parent.exists():
+                    continue
+            targets.append(t)
+        return tuple(targets)
+
+    elif resource_kind == "global_instructions":
+        canonical_source = aikito_dir / "global" / "AGENTS.md"
+        grouped = {}
+        for agent in registry.values():
+            if agent.instruction_path is None:
+                continue
+            grouped.setdefault(agent.instruction_path, []).append((agent.name, agent.display_name))
+
+        targets = []
+        for path, consumers in sorted(grouped.items(), key=lambda x: str(x[0])):
+            names = tuple(c[0] for c in consumers)
+            display_names = tuple(c[1] for c in consumers)
+            t = Target(
+                kind="consumer_link",
+                scope="global",
+                path=path,
+                canonical_source=canonical_source,
+                consumers=names,
+                consumer_display_names=display_names,
+            )
+            if active_only:
+                avail = check_target_availability(t, home)
+                if not avail.is_installed and not path.parent.exists():
+                    continue
+            targets.append(t)
+        return tuple(targets)
+
+    elif resource_kind == "project_instructions":
+        if project_path is None:
+            return ()
+        canonical_source = (
+            aikito_dir / "projects" / project_name / "AGENTS.md"
+            if project_name
+            else None
+        )
+        grouped = {}
+        for agent in registry.values():
+            if agent.project_instruction_path is None:
+                continue
+            target_path = project_path / agent.project_instruction_path
+            grouped.setdefault(target_path, []).append((agent.name, agent.display_name))
+
+        targets = []
+        for path, consumers in sorted(grouped.items(), key=lambda x: str(x[0])):
+            names = tuple(c[0] for c in consumers)
+            display_names = tuple(c[1] for c in consumers)
+            t = Target(
+                kind="consumer_link",
+                scope="project",
+                path=path,
+                canonical_source=canonical_source,
+                consumers=names,
+                consumer_display_names=display_names,
+            )
+            if active_only and not path.parent.exists():
+                avail = check_target_availability(t, home)
+                if not avail.is_installed:
+                    continue
+            targets.append(t)
+        return tuple(targets)
+
+    else:
+        raise ValueError(f"Unknown resource kind for target resolution: {resource_kind}")
