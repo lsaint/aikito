@@ -251,3 +251,27 @@ class GlobalSkillBatchTest(TestCase):
         # Consumer link created
         self.assertTrue(self.claude_skills.is_symlink())
         self.assertEqual(self.claude_skills.resolve(), self.agents_skills.resolve())
+
+    def test_execute_global_skills_result_metrics(self) -> None:
+        (self.skills_dir / "my-skill").mkdir()
+        (self.skills_dir / "my-skill" / "SKILL.md").write_text("# My Skill", encoding="utf-8")
+        self.claude_skills.parent.mkdir(parents=True, exist_ok=True)
+
+        batch = build_global_skill_batch(
+            self.workspace, self.home, skills=["my-skill"], registry=self.registry
+        )
+        plan = plan_global_skills(batch, self.home)
+
+        res = execute_global_skills(plan, refreshed_bundled=["my-skill"])
+        self.assertTrue(res.success)
+        self.assertEqual(res.resource_count, 1)
+        self.assertEqual(res.consumer_count, 8)
+        self.assertEqual(res.consumer_target_count, 3)
+        self.assertGreater(res.planned_change_count, 0)
+        self.assertEqual(res.executed_change_count, res.planned_change_count)
+        self.assertEqual(res.refreshed_bundled, ("my-skill",))
+        # Verify tuple unpacking compatibility
+        ok, ops = res
+        self.assertTrue(ok)
+        self.assertEqual(len(ops), len(res.operations))
+

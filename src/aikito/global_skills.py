@@ -119,6 +119,25 @@ class GlobalSkillBatchPlan:
         return sum(1 for op in self.all_operations if op.action == "SKIP")
 
 
+@dataclass(frozen=True)
+class GlobalSkillExecutionResult:
+    """Structured result of executing a GlobalSkillBatchPlan."""
+
+    success: bool
+    resource_count: int
+    consumer_count: int
+    consumer_target_count: int
+    planned_change_count: int
+    executed_change_count: int
+    refreshed_bundled: tuple[str, ...] = ()
+    operations: tuple[LinkExecutionResult, ...] = ()
+    error_message: str | None = None
+
+    def __iter__(self):
+        yield self.success
+        yield self.operations
+
+
 def build_global_skill_batch(
     aikito_dir: Path,
     home: Path,
@@ -350,15 +369,75 @@ def execute_global_skills(
     *,
     dry_run: bool = False,
     verbose: bool = False,
-) -> tuple[bool, tuple[LinkExecutionResult, ...]]:
+    refreshed_bundled: Sequence[str] = (),
+) -> GlobalSkillExecutionResult:
     """Execute all operations of a GlobalSkillBatchPlan in deterministic sequence."""
-    success, entry_results = execute_global_skill_entries(
-        plan, dry_run=dry_run, verbose=verbose
-    )
-    if not success:
-        return False, entry_results
+    results: list[LinkExecutionResult] = []
 
-    consumer_success, consumer_results = execute_global_skill_consumers(
-        plan, dry_run=dry_run, verbose=verbose
+    # 1. Container operation
+    res = apply_link_operation(plan.container_op, dry_run=dry_run, verbose=verbose)
+    results.append(res)
+    if not res.success:
+        return _build_execution_result(
+            plan, results, success=False, refreshed_bundled=refreshed_bundled, error_message=res.error_message
+        )
+
+    # 2. Stale cleanups first
+    stale_ops = [op for op in plan.entry_ops if op.desired_representation == "absent"]
+    for op in stale_ops:
+        res = apply_link_operation(op, dry_run=dry_run, verbose=verbose)
+        results.append(res)
+        if not res.success:
+            return _build_execution_result(
+                plan, results, success=False, refreshed_bundled=refreshed_bundled, error_message=res.error_message
+            )
+
+    # 3. Selected entry operations
+    selected_ops = [op for op in plan.entry_ops if op.desired_representation == "link"]
+    for op in selected_ops:
+        res = apply_link_operation(op, dry_run=dry_run, verbose=verbose)
+        results.append(res)
+        if not res.success:
+            return _build_execution_result(
+                plan, results, success=False, refreshed_bundled=refreshed_bundled, error_message=res.error_message
+            )
+
+    # 4. Consumer link operations
+    for op in plan.consumer_ops:
+        res = apply_link_operation(op, dry_run=dry_run, verbose=verbose)
+        results.append(res)
+        if not res.success:
+            return _build_execution_result(
+                plan, results, success=False, refreshed_bundled=refreshed_bundled, error_message=res.error_message
+            )
+
+    return _build_execution_result(
+        plan, results, success=True, refreshed_bundled=refreshed_bundled
     )
-    return consumer_success, (*entry_results, *consumer_results)
+
+
+def _build_execution_result(
+    plan: GlobalSkillBatchPlan,
+    results: list[LinkExecutionResult],
+    *,
+    success: bool,
+    refreshed_bundled: Sequence[str] = (),
+    error_message: str | None = None,
+) -> GlobalSkillExecutionResult:
+    batch = plan.batch
+    resource_count = len(batch.selected_entries)
+    consumer_count = sum(len(t.consumers) for t in batch.consumers)
+    consumer_target_count = len(batch.consumers)
+    planned_change_count = plan.planned_change_count
+    executed_change_count = sum(1 for r in results if r.applied)
+    return GlobalSkillExecutionResult(
+        success=success,
+        resource_count=resource_count,
+        consumer_count=consumer_count,
+        consumer_target_count=consumer_target_count,
+        planned_change_count=planned_change_count,
+        executed_change_count=executed_change_count,
+        refreshed_bundled=tuple(refreshed_bundled),
+        operations=tuple(results),
+        error_message=error_message,
+    )

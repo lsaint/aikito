@@ -184,6 +184,66 @@ class BundledSkillWriterLockTest(unittest.TestCase):
         lock_file = get_skill_state_dir(self.home) / "writer.lock"
         self.assertFalse(lock_file.exists())
 
+    def test_cli_sync_global_executes_apply_under_writer_lock(self) -> None:
+        from aikito.cli import sync_global_resources
+        import aikito.cli
+
+        lock_depth_during_apply = -1
+        orig_execute = aikito.cli.execute_global_skills
+
+        def tracking_execute(*args, **kwargs):
+            nonlocal lock_depth_during_apply
+            lock_depth_during_apply = SkillWriterLock._lock_depth
+            return orig_execute(*args, **kwargs)
+
+        with (
+            patch("aikito.cli.get_agents_dir", return_value=self.home / ".agents"),
+            patch("aikito.cli.execute_global_skills", side_effect=tracking_execute),
+        ):
+            ok = sync_global_resources(self.workspace, self.home, dry_run=False)
+            self.assertTrue(ok)
+            self.assertGreaterEqual(lock_depth_during_apply, 1)
+
+    def test_cli_sync_global_aborts_if_refreshed_canonical_missing(self) -> None:
+        from aikito.cli import sync_global_resources
+
+        with (
+            patch("aikito.cli.get_agents_dir", return_value=self.home / ".agents"),
+            patch("aikito.cli.outdated_bundled_skills", return_value=["missing-skill"]),
+            patch("aikito.cli.refresh_bundled_skills", return_value=["missing-skill"]),
+        ):
+            res = sync_global_resources(self.workspace, self.home, dry_run=False)
+            self.assertFalse(res)
+            self.assertIn("missing-skill", res.error_message or "")
+
+    def test_cli_sync_global_result_segmentation_on_instruction_failure(self) -> None:
+        from aikito.cli import sync_global_resources
+
+        (self.workspace / "skills.toml").write_text(
+            'skills = ["aikito"]\n', encoding="utf-8"
+        )
+        (self.workspace / "agents.toml").write_text(
+            '[agents.claude]\nskills_path = ".agents/skills"\ninstruction_path = ".claude/AGENTS.md"\n',
+            encoding="utf-8",
+        )
+
+        # Mock sync_global_entry for instructions to fail
+        with (
+            patch("aikito.cli.get_agents_dir", return_value=self.home / ".agents"),
+            patch("aikito.cli.sync_global_entry", return_value=False),
+        ):
+            res = sync_global_resources(self.workspace, self.home, dry_run=False)
+            self.assertFalse(res.success)
+            self.assertFalse(bool(res))
+            self.assertIsNotNone(res.skill_result)
+            self.assertTrue(res.skill_result.success)
+            self.assertFalse(res.instruction_success)
+            # Skills runtime links were nonetheless successfully applied
+            container = self.home / ".agents" / "skills"
+            self.assertTrue(container.is_dir())
+            self.assertTrue((container / "aikito").is_symlink())
+
+
     def test_init_existing_workspace_holds_writer_lock(self) -> None:
         from aikito.init import init_workspace
 
