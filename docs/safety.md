@@ -89,10 +89,13 @@ review is useful.
   [INV-TR-14](architecture/invariants.md#3-state-transition-table)). Deselected links pointing to other
   workspace resources, external locations, or unmanaged targets are preserved rather than removed.
   Deselected copy skills and unmanaged entries in project checkouts are always preserved as project-owned
-  ([INV-TR-17](architecture/invariants.md#3-state-transition-table)).
-  *(Note: Global synchronization maintains a legacy compatibility heuristic where deselected
-  runtime skills identical to canonical are cleaned up via `allow_matching_copies=True`;
-  see [INV-OWN-03](architecture/invariants.md#inv-own-03).)*
+  - Deselected global skills follow strict link ownership ([INV-GLB-03](architecture/invariants.md#inv-glb-03)):
+    only symlinks pointing specifically to the active workspace's canonical skill are unlinked upon deselection.
+    Pre-existing normal directories (even with identical content) are strictly preserved as unmanaged conflicts,
+    eliminating the previous `allow_matching_copies=True` heuristic.
+  - Unexpected or external consumer symlinks (e.g. `~/.claude/skills` pointing elsewhere) are reported as
+    conflicts and preserved untouched ([INV-GLB-05](architecture/invariants.md#inv-glb-05)), eliminating
+    automatic relinking.
 - Shared targets across Agent runtimes are deduplicated prior to synchronization (e.g. 8 bundled
   agent skill consumers resolve into 3 physical target paths), preventing redundant filesystem writes
   and distinguishing logical resource counts, agent consumers, and physical target operations.
