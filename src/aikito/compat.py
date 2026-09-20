@@ -104,6 +104,38 @@ def safe_symlink(source: Path, target: Path) -> bool:
         return False
 
 
+def resolve_symlink_target(path: Path) -> Path:
+    """Resolve a symlink target handling raw readlink and Windows UNC/short names."""
+    try:
+        raw = os.readlink(path)
+        if isinstance(raw, str):
+            if raw.startswith("\\\\?\\UNC\\"):
+                raw = "\\\\" + raw[8:]
+            elif raw.startswith("\\\\?\\"):
+                raw = raw[4:]
+        target = path.parent / raw if not os.path.isabs(raw) else Path(raw)
+    except OSError:
+        target = path.resolve(strict=False)
+
+    # For broken symlinks or non-existent targets, resolve the nearest existing ancestor
+    # so short names (e.g. RUNNER~1 on Windows) and intermediate symlinks are expanded.
+    parts: list[str] = []
+    curr = target
+    while not curr.exists() and curr != curr.parent:
+        parts.append(curr.name)
+        curr = curr.parent
+    try:
+        resolved_curr = curr.resolve()
+    except OSError:
+        resolved_curr = curr
+    for part in reversed(parts):
+        resolved_curr = resolved_curr / part
+    return resolved_curr
+
+
+_resolve_symlink_target = resolve_symlink_target
+
+
 def secure_file_permissions(path: Path) -> bool:
     """Harden file permissions for sensitive/credential files.
 

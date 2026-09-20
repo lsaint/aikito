@@ -23,13 +23,13 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from .compat import (
+    _resolve_symlink_target,
     get_physical_path,
     is_reparse_point,
     normalize_file_bytes,
     require_symlink_support,
     safe_symlink,
 )
-from .project import _resolve_symlink_target, resolve_project_binding
 from .skill_plan import (
     DesiredSkill,
     ObservedSkill,
@@ -1260,6 +1260,8 @@ def execute_selection_transaction(
         tx_checkouts: set[Path] = set()
         state_transitions: list[dict[str, Any]] = []
         if deactivate_skills:
+            from .project import resolve_project_binding
+
             for proj in project_names:
                 proj_dir = workspace_root / "projects" / proj
                 agent_toml = proj_dir / "agent.toml"

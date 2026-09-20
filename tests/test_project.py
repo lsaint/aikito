@@ -21,14 +21,28 @@ from aikito.project import (
     ProjectResourceDetail,
     ProjectSummary,
     append_candidate_path_to_config,
+    classify_project_skill_state,
     collect_project_skill_states,
     collect_project_summaries,
     collect_single_project_skill_states,
     find_selected_runtime_conflicts,
+    map_skill_operation_to_project_state,
     plan_runtime_cleanup,
     resolve_project_binding,
 )
 from aikito.render import render_project_detail, render_projects_table
+from aikito.skill_plan import (
+    ObservedSkill,
+    SkillOperation,
+    SkillTarget,
+    plan_single_skill,
+)
+from aikito.skill_runtime import inspect_skill_target
+from aikito.skill_state import (
+    ProjectSkillStateDocument,
+    SkillStateRecord,
+    save_project_skill_state,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -1122,9 +1136,13 @@ class ExactSymlinkOwnershipTests(unittest.TestCase):
 
         # Create two canonical skills
         (self.canonical_skills / "skill-a").mkdir()
-        (self.canonical_skills / "skill-a" / "SKILL.md").write_text("# A\n", encoding="utf-8")
+        (self.canonical_skills / "skill-a" / "SKILL.md").write_text(
+            "# A\n", encoding="utf-8"
+        )
         (self.canonical_skills / "skill-b").mkdir()
-        (self.canonical_skills / "skill-b" / "SKILL.md").write_text("# B\n", encoding="utf-8")
+        (self.canonical_skills / "skill-b" / "SKILL.md").write_text(
+            "# B\n", encoding="utf-8"
+        )
 
         # Create two canonical memory files
         (self.canonical_mem / "notes.md").write_text("# Notes\n", encoding="utf-8")
@@ -1133,7 +1151,9 @@ class ExactSymlinkOwnershipTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
 
-    def test_deselected_skill_symlink_pointing_to_another_skill_is_preserved_as_conflict(self) -> None:
+    def test_deselected_skill_symlink_pointing_to_another_skill_is_preserved_as_conflict(
+        self,
+    ) -> None:
         # runtime/skill-a points to canonical/skill-b
         target = self.runtime_skills / "skill-a"
         target.symlink_to(self.canonical_skills / "skill-b")
@@ -1148,7 +1168,9 @@ class ExactSymlinkOwnershipTests(unittest.TestCase):
         self.assertEqual(plan.cleanup, ())
         self.assertEqual(plan.conflicts, (target,))
 
-    def test_deselected_broken_symlink_pointing_to_another_skill_is_preserved(self) -> None:
+    def test_deselected_broken_symlink_pointing_to_another_skill_is_preserved(
+        self,
+    ) -> None:
         target = self.runtime_skills / "skill-a"
         # Points to a non-existent skill-c in canonical root
         target.symlink_to(self.canonical_skills / "skill-c")
@@ -1162,7 +1184,9 @@ class ExactSymlinkOwnershipTests(unittest.TestCase):
         self.assertEqual(plan.cleanup, ())
         self.assertEqual(plan.conflicts, (target,))
 
-    def test_deselected_skill_symlink_pointing_to_own_canonical_is_cleaned_up(self) -> None:
+    def test_deselected_skill_symlink_pointing_to_own_canonical_is_cleaned_up(
+        self,
+    ) -> None:
         target = self.runtime_skills / "skill-a"
         target.symlink_to(self.canonical_skills / "skill-a")
 
@@ -1187,7 +1211,9 @@ class ExactSymlinkOwnershipTests(unittest.TestCase):
         )
         self.assertEqual(conflicts, (target,))
 
-    def test_deselected_memory_symlink_pointing_to_another_memory_is_preserved(self) -> None:
+    def test_deselected_memory_symlink_pointing_to_another_memory_is_preserved(
+        self,
+    ) -> None:
         # runtime/notes.md points to canonical/other.md
         target = self.runtime_mem / "notes.md"
         target.symlink_to(self.canonical_mem / "other.md")
@@ -1200,6 +1226,279 @@ class ExactSymlinkOwnershipTests(unittest.TestCase):
         )
         self.assertEqual(plan.cleanup, ())
         self.assertEqual(plan.conflicts, (target,))
+
+
+class ClassifyProjectSkillStateMappingTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.dummy_target = SkillTarget(
+            workspace_root=Path("/ws"),
+            workspace_id="ws",
+            project_name="proj",
+            physical_checkout=Path("/checkout"),
+            skill_name="my-skill",
+            target_path=Path("/checkout/.agents/skills/my-skill"),
+        )
+
+    def _dummy_observed(
+        self,
+        entry_type: str = "dir",
+        canonical_valid: bool = True,
+        canonical_error: str | None = None,
+    ) -> ObservedSkill:
+        return ObservedSkill(
+            target=self.dummy_target,
+            entry_type=entry_type,
+            canonical_valid=canonical_valid,
+            canonical_error=canonical_error,
+        )
+
+    def test_map_noop_and_reconcile_to_ok(self) -> None:
+        obs = self._dummy_observed()
+        for rule in ("INV-TR-07", "INV-TR-11", "INV-TR-18"):
+            op = SkillOperation(
+                action="NOOP",
+                rule_id=rule,
+                target=self.dummy_target,
+                reason="all good",
+            )
+            status, reason = map_skill_operation_to_project_state(op, obs)
+            self.assertEqual(status, "OK")
+            self.assertEqual(reason, "")
+
+        reconcile_op = SkillOperation(
+            action="RECONCILE_STATE",
+            rule_id="INV-TR-10",
+            target=self.dummy_target,
+            reason="reconcile",
+        )
+        status, reason = map_skill_operation_to_project_state(reconcile_op, obs)
+        self.assertEqual(status, "OK")
+        self.assertEqual(reason, "")
+
+    def test_map_create_to_missing_runtime(self) -> None:
+        obs = self._dummy_observed(entry_type="missing")
+        op = SkillOperation(
+            action="CREATE",
+            rule_id="INV-TR-01",
+            target=self.dummy_target,
+            reason="create copy",
+        )
+        status, reason = map_skill_operation_to_project_state(op, obs)
+        self.assertEqual(status, "MISSING")
+        self.assertEqual(reason, "Runtime skill is missing")
+
+    def test_map_update_cases(self) -> None:
+        obs = self._dummy_observed()
+        # Upstream canonical change
+        op_upstream = SkillOperation(
+            action="UPDATE",
+            rule_id="INV-TR-08",
+            target=self.dummy_target,
+            reason="upstream changed",
+        )
+        status, reason = map_skill_operation_to_project_state(op_upstream, obs)
+        self.assertEqual(status, "UPDATE")
+        self.assertEqual(
+            reason, "Canonical skill updated upstream; safe to sync without --force"
+        )
+
+        # Mode transition
+        op_mode = SkillOperation(
+            action="UPDATE",
+            rule_id="INV-TR-20",
+            target=self.dummy_target,
+            reason="Switch mode from link to copy",
+        )
+        status, reason = map_skill_operation_to_project_state(op_mode, obs)
+        self.assertEqual(status, "UPDATE")
+        self.assertEqual(reason, "Switch mode from link to copy")
+
+    def test_map_drift_cases(self) -> None:
+        obs = self._dummy_observed()
+        for rule in ("INV-TR-09", "INV-TR-12", "INV-TR-19"):
+            op = SkillOperation(
+                action="CONFLICT",
+                rule_id=rule,
+                target=self.dummy_target,
+                reason="drift occurred",
+            )
+            status, reason = map_skill_operation_to_project_state(op, obs)
+            self.assertEqual(status, "DRIFT")
+            self.assertEqual(
+                reason, "Copied project skill drifted from workspace skill"
+            )
+
+    def test_map_conflict_cases(self) -> None:
+        # Missing canonical
+        obs_missing = self._dummy_observed(
+            canonical_valid=False,
+            canonical_error="Canonical skill source does not exist: /ws/skills/my-skill",
+        )
+        op_canon_missing = SkillOperation(
+            action="CONFLICT",
+            rule_id="INV-TR-14",
+            target=self.dummy_target,
+            reason="missing canon",
+        )
+        status, reason = map_skill_operation_to_project_state(
+            op_canon_missing, obs_missing
+        )
+        self.assertEqual(status, "MISSING")
+        self.assertEqual(reason, "Canonical skill is missing")
+
+        # Invalid canonical (e.g. boundary escape)
+        obs_invalid = self._dummy_observed(
+            canonical_valid=False,
+            canonical_error="Canonical skill escapes boundary",
+        )
+        op_canon_invalid = SkillOperation(
+            action="CONFLICT",
+            rule_id="INV-TR-14",
+            target=self.dummy_target,
+            reason="escapes boundary",
+        )
+        status, reason = map_skill_operation_to_project_state(
+            op_canon_invalid, obs_invalid
+        )
+        self.assertEqual(status, "CONFLICT")
+        self.assertEqual(reason, "escapes boundary")
+
+        # Unsupported runtime entry (file instead of dir)
+        obs_unsupported = self._dummy_observed(entry_type="unsupported")
+        op_unsupported = SkillOperation(
+            action="CONFLICT",
+            rule_id="INV-TR-13",
+            target=self.dummy_target,
+            reason="unsupported file",
+        )
+        status, reason = map_skill_operation_to_project_state(
+            op_unsupported, obs_unsupported
+        )
+        self.assertEqual(status, "CONFLICT")
+        self.assertEqual(reason, "Runtime skill is not a directory")
+
+        # Unauthorized symlink
+        obs_sym = self._dummy_observed(entry_type="symlink")
+        op_sym = SkillOperation(
+            action="CONFLICT",
+            rule_id="INV-TR-20",
+            target=self.dummy_target,
+            reason="Unauthorized link destination",
+        )
+        status, reason = map_skill_operation_to_project_state(op_sym, obs_sym)
+        self.assertEqual(status, "CONFLICT")
+        self.assertEqual(reason, "Unauthorized link destination")
+
+    def test_classify_project_skill_state_invalid_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ws = root / "workspace"
+            ws.mkdir()
+            (ws / "skills" / "demo").mkdir(parents=True)
+
+            # project_path is None
+            st = classify_project_skill_state(ws, "p1", None, "demo", home=root)
+            self.assertEqual(st.status, "CONFLICT")
+            self.assertEqual(st.reason, "Project path is not configured")
+
+            # invalid skill names
+            st = classify_project_skill_state(ws, "p1", root / "proj", "..", home=root)
+            self.assertEqual(st.status, "CONFLICT")
+            self.assertEqual(st.reason, "Skill name must be a single path component")
+
+            st = classify_project_skill_state(
+                ws, "p1", root / "proj", "sub/dir", home=root
+            )
+            self.assertEqual(st.status, "CONFLICT")
+            self.assertEqual(st.reason, "Skill name must be a single path component")
+
+    def test_classify_project_skill_state_strictly_read_only(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ws = root / "workspace"
+            proj = root / "project"
+            canon = ws / "skills" / "demo"
+            runtime = proj / ".agents" / "skills" / "demo"
+            canon.mkdir(parents=True)
+            runtime.mkdir(parents=True)
+            (canon / "SKILL.md").write_text("v1", encoding="utf-8")
+            (runtime / "SKILL.md").write_text("v1", encoding="utf-8")
+
+            with patch("aikito.skill_state.run_recovery_pass") as mock_recovery:
+                st = classify_project_skill_state(ws, "p1", proj, "demo", home=root)
+                self.assertEqual(st.status, "OK")
+                mock_recovery.assert_not_called()
+
+            # Ensure zero state files were written to home
+            state_dir = root / ".aikito" / "state"
+            self.assertFalse(state_dir.exists())
+
+    def test_classify_project_skill_state_equivalence_with_planner(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ws = root / "workspace"
+            proj = root / "project"
+            canon = ws / "skills" / "demo"
+            runtime = proj / ".agents" / "skills" / "demo"
+            canon.mkdir(parents=True)
+            runtime.mkdir(parents=True)
+            (canon / "SKILL.md").write_text("v1", encoding="utf-8")
+            (runtime / "SKILL.md").write_text("v1", encoding="utf-8")
+
+            # 1. Matching copy
+            st = classify_project_skill_state(ws, "p1", proj, "demo", home=root)
+            target = SkillTarget(ws, ws.name, "p1", proj, "demo", runtime)
+            obs, des = inspect_skill_target(target, "copy", root)
+            op = plan_single_skill(target, des, obs, force=False)
+            self.assertEqual(st.status, "OK")
+            self.assertEqual(op.action, "NOOP")
+
+            # 2. Missing runtime
+            runtime_missing = proj / ".agents" / "skills" / "other"
+            (ws / "skills" / "other").mkdir(parents=True)
+            (ws / "skills" / "other" / "SKILL.md").write_text("v1", encoding="utf-8")
+            st_miss = classify_project_skill_state(ws, "p1", proj, "other", home=root)
+            t_miss = SkillTarget(ws, ws.name, "p1", proj, "other", runtime_missing)
+            obs_m, des_m = inspect_skill_target(t_miss, "copy", root)
+            op_m = plan_single_skill(t_miss, des_m, obs_m, force=False)
+            self.assertEqual(st_miss.status, "MISSING")
+            self.assertEqual(op_m.action, "CREATE")
+
+            # 3. Upstream updated
+            doc = ProjectSkillStateDocument(
+                version=1,
+                generation=1,
+                workspace_root=ws.as_posix(),
+                project_name="p1",
+                physical_checkout=proj.as_posix(),
+                records={
+                    "demo": SkillStateRecord(
+                        skill_name="demo",
+                        representation="copy",
+                        lifecycle="active",
+                        baseline_fingerprint=obs.runtime_fingerprint,
+                        baseline_origin="write",
+                        last_observed_selected=True,
+                    )
+                },
+            )
+            save_project_skill_state(root, doc)
+            (canon / "SKILL.md").write_text("v2 upstream", encoding="utf-8")
+            st_up = classify_project_skill_state(ws, "p1", proj, "demo", home=root)
+            obs_u, des_u = inspect_skill_target(target, "copy", root)
+            op_u = plan_single_skill(target, des_u, obs_u, force=False)
+            self.assertEqual(st_up.status, "UPDATE")
+            self.assertEqual(op_u.action, "UPDATE")
+            self.assertEqual(op_u.rule_id, "INV-TR-08")
+
+            # 4. Drifted copy
+            (runtime / "SKILL.md").write_text("v_drift local", encoding="utf-8")
+            st_dr = classify_project_skill_state(ws, "p1", proj, "demo", home=root)
+            obs_d, des_d = inspect_skill_target(target, "copy", root)
+            op_d = plan_single_skill(target, des_d, obs_d, force=False)
+            self.assertEqual(st_dr.status, "DRIFT")
+            self.assertEqual(op_d.action, "CONFLICT")
+            self.assertEqual(op_d.rule_id, "INV-TR-09")
 
 
 if __name__ == "__main__":

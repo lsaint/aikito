@@ -2,15 +2,15 @@
 
 import difflib
 import json
-import os
 import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from .compat import safe_relative_path
+from .compat import _resolve_symlink_target, safe_relative_path
 from .mcp import MCPConfigError, collect_project_instruction_targets
-from .skill_state import calculate_directory_fingerprint, load_project_skill_state
+from .skill_plan import SkillOperation, SkillTarget, plan_single_skill
+from .skill_runtime import ObservedSkill, inspect_skill_target
 
 
 @dataclass(frozen=True)
@@ -432,6 +432,9 @@ def _file_inventory(root: Path) -> tuple[dict[str, Path], str | None]:
     return files, None
 
 
+# NOTE: Retired from project skill classification in Phase 3 (unified under inspect_skill_target).
+# Remaining callers: plan_runtime_cleanup (memory) and find_selected_runtime_conflicts (memory).
+# Scheduled for removal in Phase 5 (project memory migration).
 def _directories_match(canonical: Path, runtime: Path) -> tuple[bool, str | None]:
     canonical_files, canonical_error = _file_inventory(canonical)
     if canonical_error:
@@ -448,34 +451,6 @@ def _directories_match(canonical: Path, runtime: Path) -> tuple[bool, str | None
         ), None
     except OSError as exc:
         return False, str(exc)
-
-
-def _resolve_symlink_target(path: Path) -> Path:
-    try:
-        raw = os.readlink(path)
-        if isinstance(raw, str):
-            if raw.startswith("\\\\?\\UNC\\"):
-                raw = "\\\\" + raw[8:]
-            elif raw.startswith("\\\\?\\"):
-                raw = raw[4:]
-        target = path.parent / raw if not os.path.isabs(raw) else Path(raw)
-    except OSError:
-        target = path.resolve(strict=False)
-
-    # For broken symlinks or non-existent targets, resolve the nearest existing ancestor
-    # so short names (e.g. RUNNER~1 on Windows) and intermediate symlinks are expanded.
-    parts: list[str] = []
-    curr = target
-    while not curr.exists() and curr != curr.parent:
-        parts.append(curr.name)
-        curr = curr.parent
-    try:
-        resolved_curr = curr.resolve()
-    except OSError:
-        resolved_curr = curr
-    for part in reversed(parts):
-        resolved_curr = resolved_curr / part
-    return resolved_curr
 
 
 def _symlink_points_within(path: Path, expected_targets: tuple[Path, ...]) -> bool:
@@ -842,6 +817,52 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
     return summaries
 
 
+def map_skill_operation_to_project_state(
+    op: SkillOperation,
+    observed: ObservedSkill,
+) -> tuple[str, str]:
+    """Map SkillOperation and ObservedSkill to (status, reason) for ProjectSkillState.
+
+    Explicit mapping table:
+    - NOOP (INV-TR-07, 11, 18) -> ("OK", "")
+    - RECONCILE_STATE (INV-TR-10) -> ("OK", "")
+    - CREATE (INV-TR-01) -> ("MISSING", "Runtime skill is missing")
+    - UPDATE (INV-TR-08) -> ("UPDATE", "Canonical skill updated upstream; safe to sync without --force")
+    - UPDATE (INV-TR-20) -> ("UPDATE", op.reason)
+    - CONFLICT (INV-TR-09, 12, 19) -> ("DRIFT", "Copied project skill drifted from workspace skill")
+    - CONFLICT (INV-TR-14 with missing source) -> ("MISSING", "Canonical skill is missing")
+    - CONFLICT (INV-TR-13 with unsupported entry) -> ("CONFLICT", "Runtime skill is not a directory")
+    - Other CONFLICT -> ("CONFLICT", op.reason)
+    """
+    if op.action in ("NOOP", "RECONCILE_STATE"):
+        return "OK", ""
+    if op.action == "CREATE":
+        return "MISSING", "Runtime skill is missing"
+    if op.rule_id == "INV-TR-08":
+        return (
+            "UPDATE",
+            "Canonical skill updated upstream; safe to sync without --force",
+        )
+    if op.rule_id == "INV-TR-20" and op.action == "UPDATE":
+        return "UPDATE", op.reason
+    if op.rule_id in ("INV-TR-09", "INV-TR-12", "INV-TR-19"):
+        return "DRIFT", "Copied project skill drifted from workspace skill"
+    if op.rule_id == "INV-TR-14":
+        if observed.canonical_error and (
+            "does not exist" in observed.canonical_error
+            or "missing" in observed.canonical_error.lower()
+        ):
+            return "MISSING", "Canonical skill is missing"
+        return "CONFLICT", op.reason
+    if op.rule_id == "INV-TR-13":
+        if observed.entry_type == "unsupported":
+            return "CONFLICT", "Runtime skill is not a directory"
+        return "CONFLICT", op.reason
+    if op.action == "CONFLICT":
+        return "CONFLICT", op.reason
+    return op.action, op.reason
+
+
 def classify_project_skill_state(
     aikito_dir: Path,
     project_name: str,
@@ -858,50 +879,37 @@ def classify_project_skill_state(
         if project_path is not None
         else Path("<unbound>") / skill_name
     )
-    status = "OK"
-    reason = ""
     if Path(skill_name).name != skill_name or skill_name in ("", ".", ".."):
-        status, reason = (
-            "CONFLICT",
-            "Skill name must be a single path component",
+        return ProjectSkillState(
+            project_name=project_name,
+            skill_name=skill_name,
+            canonical_path=canonical,
+            runtime_path=runtime,
+            status="CONFLICT",
+            reason="Skill name must be a single path component",
         )
-    elif project_path is None:
-        status, reason = "CONFLICT", "Project path is not configured"
-    elif not canonical.is_dir():
-        status, reason = "MISSING", "Canonical skill is missing"
-    elif not runtime.exists():
-        status, reason = "MISSING", "Runtime skill is missing"
-    elif not runtime.is_dir():
-        status, reason = "CONFLICT", "Runtime skill is not a directory"
-    else:
-        matches, error = _directories_match(canonical, runtime)
-        if error:
-            status, reason = "CONFLICT", error
-        elif not matches:
-            # Check if runtime matches recorded baseline B, but canonical has changed upstream (R == B != C)
-            doc, _ = load_project_skill_state(
-                home, aikito_dir, project_name, project_path
-            )
-            if (
-                doc
-                and skill_name in doc.records
-                and doc.records[skill_name].lifecycle == "active"
-            ):
-                record = doc.records[skill_name]
-                r_fp, _ = calculate_directory_fingerprint(runtime)
-                c_fp, _ = calculate_directory_fingerprint(canonical)
-                b_fp = record.baseline_fingerprint
-                if r_fp and c_fp and r_fp == b_fp and r_fp != c_fp:
-                    status = "UPDATE"
-                    reason = (
-                        "Canonical skill updated upstream; safe to sync without --force"
-                    )
-                else:
-                    status = "DRIFT"
-                    reason = "Copied project skill drifted from workspace skill"
-            else:
-                status = "DRIFT"
-                reason = "Copied project skill drifted from workspace skill"
+    if project_path is None:
+        return ProjectSkillState(
+            project_name=project_name,
+            skill_name=skill_name,
+            canonical_path=canonical,
+            runtime_path=runtime,
+            status="CONFLICT",
+            reason="Project path is not configured",
+        )
+
+    target = SkillTarget(
+        workspace_root=aikito_dir,
+        workspace_id=aikito_dir.name,
+        project_name=project_name,
+        physical_checkout=project_path,
+        skill_name=skill_name,
+        target_path=runtime,
+    )
+    observed, desired = inspect_skill_target(target, "copy", home)
+    op = plan_single_skill(target, desired, observed, force=False, is_offline=False)
+    status, reason = map_skill_operation_to_project_state(op, observed)
+
     return ProjectSkillState(
         project_name=project_name,
         skill_name=skill_name,
