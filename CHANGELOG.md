@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.44.1] - 2026-09-20
+
 ### Added
 
 - Extracted clean, read-only `Agent`, `AgentRegistry`, and `AgentAvailability` models into `aikito.agents`, eliminating ad-hoc fallback heuristics across synchronization and diagnostics.
@@ -789,7 +791,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.44.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.44.1...HEAD
+[1.44.1]: https://github.com/lsaint/aikito/compare/v1.44.0...v1.44.1
 [1.44.0]: https://github.com/lsaint/aikito/compare/v1.43.0...v1.44.0
 [1.43.0]: https://github.com/lsaint/aikito/compare/v1.42.0...v1.43.0
 [1.42.0]: https://github.com/lsaint/aikito/compare/v1.41.0...v1.42.0
