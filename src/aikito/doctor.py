@@ -43,6 +43,7 @@ from .agents import (
     resolve_targets,
 )
 from .diagnostics import Finding, FindingAction
+from .global_skills import build_global_skill_batch, plan_global_skills
 from .link import SymlinkVerdict, classify_symlink
 from .mcp import (
     MCPConfigError,
@@ -226,7 +227,6 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
     # 1b. Check skills directories and entries
     skills_checked_count = 0
     skills_fail_count = 0
-    seen_skill_targets: set[Path] = set()
     skills_toml_path = aikito_dir / "skills.toml"
     global_skills: list[str] = []
     if skills_toml_path.exists():
@@ -237,67 +237,98 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
         except tomllib.TOMLDecodeError:
             pass
 
-    skill_targets = resolve_targets(
-        "global_skills", aikito_dir, home, registry=registry
+    global_skill_batch = build_global_skill_batch(
+        aikito_dir,
+        home,
+        skills=global_skills,
+        registry=registry,
+        container_path=agents_skills_dir,
     )
-    for target in skill_targets:
-        skills_dir = target.path
-        avail = check_target_availability(target, home)
-        if not avail.is_installed:
-            continue
-        display_name = (
-            target.consumer_display_names[0]
-            if target.consumer_display_names
-            else target.path.name
-        )
-        for skill_name in global_skills:
-            skill_target = skills_dir / skill_name
-            if skill_target in seen_skill_targets:
-                continue
-            seen_skill_targets.add(skill_target)
-            expected = aikito_dir / "skills" / skill_name
-            verdict = classify_symlink(skill_target, expected)
-            display = _home_rel(skill_target, home)
-            skills_checked_count += 1
-            if verdict == SymlinkVerdict.OK:
-                pass
+    global_skill_plan = plan_global_skills(global_skill_batch, home, dry_run=True)
 
-            elif verdict == SymlinkVerdict.DANGLING:
+    # 1. Managed container
+    cop = global_skill_plan.container_op
+    display_container = _home_rel(cop.target_path, home)
+    if cop.action == "CONFLICT":
+        skills_fail_count += 1
+        findings.append(
+            _fail(
+                f"Global skills container: {cop.reason} ({display_container})",
+                "aikito sync global",
+            )
+        )
+    elif cop.action == "CREATE":
+        skills_fail_count += 1
+        findings.append(
+            _fail(
+                f"Global skills container: missing directory ({display_container})",
+                "aikito sync global",
+            )
+        )
+    elif cop.action == "MIGRATE_CONTAINER":
+        findings.append(
+            _warn(
+                f"Global skills container: legacy symlink ({display_container})",
+                "aikito sync global",
+            )
+        )
+
+    # 2. Managed entries
+    for op in global_skill_plan.entry_ops:
+        if op.desired_representation == "link":
+            skills_checked_count += 1
+            display = _home_rel(op.target_path, home)
+            if op.action == "NOOP":
+                pass
+            elif op.action == "CREATE":
                 skills_fail_count += 1
                 findings.append(
                     _fail(
-                        f"{display_name}/{skill_name}: dangling symlink ({display})",
+                        f"Global skill '{op.resource_name}': missing symlink ({display})",
                         "aikito sync global",
                     )
                 )
-            elif verdict == SymlinkVerdict.WRONG_TARGET:
+            elif op.action == "CONFLICT":
                 skills_fail_count += 1
                 findings.append(
                     _fail(
-                        f"{display_name}/{skill_name}: points elsewhere ({display})",
+                        f"Global skill '{op.resource_name}': {op.reason} ({display})",
                         "aikito sync global",
                     )
                 )
-            elif verdict == SymlinkVerdict.NOT_SYMLINK:
-                skills_fail_count += 1
-                findings.append(
-                    _fail(
-                        f"{display_name}/{skill_name}: not a symlink ({display})",
-                        "aikito sync global",
-                    )
+
+    # 3. Consumer links
+    for op in global_skill_plan.consumer_ops:
+        if op.action == "SHARED_PATH":
+            continue
+        if op.action == "SKIP":
+            continue
+        display = _home_rel(op.target_path, home)
+        skills_checked_count += 1
+        if op.action == "NOOP":
+            pass
+        elif op.action == "CREATE":
+            skills_fail_count += 1
+            findings.append(
+                _fail(
+                    f"{op.resource_name} skills: missing symlink ({display})",
+                    "aikito sync global",
                 )
-            elif verdict == SymlinkVerdict.MISSING:
-                skills_fail_count += 1
-                findings.append(
-                    _fail(
-                        f"{display_name}/{skill_name}: missing symlink ({display})",
-                        "aikito sync global",
-                    )
+            )
+        elif op.action == "CONFLICT":
+            skills_fail_count += 1
+            findings.append(
+                _fail(
+                    f"{op.resource_name} skills: {op.reason} ({display})",
+                    "aikito sync global",
                 )
+            )
 
     if global_skills and skills_fail_count == 0 and skills_checked_count > 0:
         installed_targets = [
-            t for t in skill_targets if check_target_availability(t, home).is_installed
+            t
+            for t in global_skill_batch.consumers
+            if check_target_availability(t, home).is_installed
         ]
         total_installed_consumers = sum(len(t.consumers) for t in installed_targets)
         findings.append(
@@ -306,20 +337,6 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
                 f"{total_installed_consumers} agents)"
             )
         )
-
-    # 1c. Global ~/.agents/skills/ aggregation directory entries
-    if agents_skills_dir.is_dir():
-        for item in sorted(agents_skills_dir.iterdir()):
-            if item.is_symlink():
-                try:
-                    item.resolve(strict=True)
-                except OSError:
-                    findings.append(
-                        _fail(
-                            f"~/.agents/skills/{item.name}: dangling symlink",
-                            "aikito sync global",
-                        )
-                    )
 
     # 1d. Project .agents/memory and .agents/skills symlinks
     projects_dir = aikito_dir / "projects"
@@ -437,18 +454,38 @@ def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
 
     agents_skills_dir = home / ".agents" / "skills"
     if agents_skills_dir.is_dir():
-        stale: list[str] = []
-        for item in sorted(agents_skills_dir.iterdir()):
-            if item.name not in global_skills:
-                stale.append(item.name)
-        if stale:
-            for name in stale:
-                findings.append(
-                    _fail(
-                        f"~/.agents/skills/{name}: not in skills.toml",
-                        "aikito sync global",
+        try:
+            agents_dict = load_agents(aikito_dir, home)
+            reg = AgentRegistry(agents_dict)
+        except Exception:
+            reg = None
+        s_batch = build_global_skill_batch(
+            aikito_dir,
+            home,
+            skills=sorted(global_skills),
+            registry=reg,
+            container_path=agents_skills_dir,
+        )
+        s_plan = plan_global_skills(s_batch, home, dry_run=True)
+        stale_ops = [
+            op for op in s_plan.entry_ops if op.desired_representation == "absent"
+        ]
+        if stale_ops:
+            for op in stale_ops:
+                if op.action == "CONFLICT":
+                    findings.append(
+                        _fail(
+                            f"~/.agents/skills/{op.resource_name}: unmanaged item: {op.reason}",
+                            "aikito sync global",
+                        )
                     )
-                )
+                else:
+                    findings.append(
+                        _fail(
+                            f"~/.agents/skills/{op.resource_name}: not in skills.toml",
+                            "aikito sync global",
+                        )
+                    )
         else:
             findings.append(_ok("No stale entries in ~/.agents/skills/"))
 

@@ -10,6 +10,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from .agents import AgentRegistry
+from .global_skills import build_global_skill_batch, plan_global_skills
 from .link import SymlinkVerdict, classify_symlink, symlink_verdict_to_status
 from .mcp import (
     MCPConfigError,
@@ -333,6 +335,15 @@ def collect_agent_status_rows(
     global_skills = _get_skills_list(aikito_dir)
     total_global_skills = len(global_skills)
 
+    global_skill_batch = build_global_skill_batch(
+        aikito_dir,
+        home,
+        skills=global_skills,
+        registry=AgentRegistry(agents_dict),
+        container_path=home / ".agents" / "skills",
+    )
+    global_skill_plan = plan_global_skills(global_skill_batch, home, dry_run=True)
+
     agent_issues = 0
 
     # Pre-fetch MCP specs and Subagent plan items
@@ -376,28 +387,52 @@ def collect_agent_status_rows(
         # 2. Skills Status
         skills_status = "SKIP"
         if definition.skills_path is not None:
-            skills_dir = definition.skills_path
-            if not skills_dir.parent.exists():
+            consumer_op = next(
+                (
+                    op
+                    for op in global_skill_plan.consumer_ops
+                    if op.target_path == definition.skills_path
+                ),
+                None,
+            )
+            if consumer_op is None or consumer_op.action == "SKIP":
                 skills_status = "SKIP"
-            elif not skills_dir.exists() and not skills_dir.is_symlink():
+            elif consumer_op.action == "CREATE":
                 skills_status = "MISSING"
                 agent_issues += 1
+            elif consumer_op.action == "CONFLICT":
+                skills_status = (
+                    f"CONFLICT (0/{total_global_skills})"
+                    if total_global_skills > 0
+                    else "CONFLICT"
+                )
+                agent_issues += 1
             else:
-                ok_skills = 0
-                for skill_name in global_skills:
-                    skill_target = skills_dir / skill_name
-                    expected_source = aikito_dir / "skills" / skill_name
-                    verdict = classify_symlink(skill_target, expected_source)
-                    if verdict == SymlinkVerdict.OK:
-                        ok_skills += 1
-
-                if ok_skills == total_global_skills and total_global_skills > 0:
-                    skills_status = f"OK ({total_global_skills})"
-                elif total_global_skills > 0:
-                    skills_status = f"CONFLICT ({ok_skills}/{total_global_skills})"
+                # Consumer link is OK (NOOP or SHARED_PATH). Now check container & managed entries.
+                if global_skill_plan.container_op.action == "CONFLICT":
+                    skills_status = (
+                        f"CONFLICT (0/{total_global_skills})"
+                        if total_global_skills > 0
+                        else "CONFLICT"
+                    )
+                    agent_issues += 1
+                elif global_skill_plan.container_op.action == "CREATE":
+                    skills_status = "MISSING"
                     agent_issues += 1
                 else:
-                    skills_status = "OK (0)"
+                    ok_skills = sum(
+                        1
+                        for op in global_skill_plan.entry_ops
+                        if op.desired_representation == "link"
+                        and op.action == "NOOP"
+                    )
+                    if ok_skills == total_global_skills and total_global_skills > 0:
+                        skills_status = f"OK ({total_global_skills})"
+                    elif total_global_skills > 0:
+                        skills_status = f"CONFLICT ({ok_skills}/{total_global_skills})"
+                        agent_issues += 1
+                    else:
+                        skills_status = "OK (0)"
 
         # 3. MCP Status
         mcp_status = "SKIP"
