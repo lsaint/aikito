@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 from aikito.agents import (
     Agent,
-    AgentAvailability,
     AgentRegistry,
     Target,
     check_agent_availability,
@@ -141,7 +140,9 @@ class TargetResolutionTests(unittest.TestCase):
         self.home.mkdir()
         self.ws.mkdir()
         (self.ws / "agents.toml").write_text(load_agents_template(), encoding="utf-8")
-        (self.ws / "skills.toml").write_text('skills = ["skill-1", "skill-2"]\n', encoding="utf-8")
+        (self.ws / "skills.toml").write_text(
+            'skills = ["skill-1", "skill-2"]\n', encoding="utf-8"
+        )
 
     def tearDown(self) -> None:
         self.td.cleanup()
@@ -212,19 +213,25 @@ class TargetResolutionTests(unittest.TestCase):
         dir_a.mkdir()
 
         # Exact same path
-        t1 = Target(kind="consumer_link", scope="global", path=dir_a, canonical_source=dir_a)
+        t1 = Target(
+            kind="consumer_link", scope="global", path=dir_a, canonical_source=dir_a
+        )
         self.assertTrue(t1.is_same_object)
 
         # Symlink pointing to source
         link_b = self.home / "link_b"
         link_b.symlink_to(dir_a)
-        t2 = Target(kind="consumer_link", scope="global", path=link_b, canonical_source=dir_a)
+        t2 = Target(
+            kind="consumer_link", scope="global", path=link_b, canonical_source=dir_a
+        )
         self.assertTrue(t2.is_same_object)
 
         # Distinct directory
         dir_c = self.home / "dir_c"
         dir_c.mkdir()
-        t3 = Target(kind="consumer_link", scope="global", path=dir_c, canonical_source=dir_a)
+        t3 = Target(
+            kind="consumer_link", scope="global", path=dir_c, canonical_source=dir_a
+        )
         self.assertFalse(t3.is_same_object)
 
     def test_global_instructions_resolution(self) -> None:
@@ -252,6 +259,55 @@ class TargetResolutionTests(unittest.TestCase):
             self.assertEqual(
                 t.canonical_source, self.ws / "projects" / "myproj" / "AGENTS.md"
             )
+
+    def test_uninstalled_agent_skip_does_not_create_directory(self) -> None:
+        fake_agent_target = Target(
+            kind="consumer_link",
+            scope="global",
+            path=self.home / ".nonexistent_agent" / "skills",
+            canonical_source=self.home / ".agents" / "skills",
+            consumers=("nonexistent-agent",),
+        )
+        avail = check_target_availability(fake_agent_target, self.home)
+        self.assertFalse(avail.is_installed)
+        self.assertFalse(fake_agent_target.path.exists())
+        self.assertFalse(fake_agent_target.path.parent.exists())
+
+    def test_shared_path_special_case_needs_no_management(self) -> None:
+        target_dir = self.home / ".agents" / "skills"
+        target_dir.mkdir(parents=True)
+        t = Target(
+            kind="consumer_link",
+            scope="global",
+            path=target_dir,
+            canonical_source=target_dir,
+            consumers=("codex",),
+        )
+        self.assertTrue(t.is_same_object)
+
+    def test_global_binding_multi_workspace_ownership_unknown(self) -> None:
+        from aikito.compat import resolve_symlink_target
+
+        ws_b = self.root / "ws_b"
+        ws_b.mkdir()
+        (ws_b / "skills" / "shared_skill").mkdir(parents=True)
+        (ws_b / "skills" / "shared_skill" / "SKILL.md").write_text(
+            "ws_b\n", encoding="utf-8"
+        )
+
+        shared_skills_dir = self.home / ".agents" / "skills"
+        shared_skills_dir.mkdir(parents=True)
+        runtime_link = shared_skills_dir / "shared_skill"
+        runtime_link.symlink_to(ws_b / "skills" / "shared_skill")
+
+        ws_a_canonical = self.ws / "skills" / "shared_skill"
+        ws_a_canonical.mkdir(parents=True)
+        (ws_a_canonical / "SKILL.md").write_text("ws_a\n", encoding="utf-8")
+
+        resolved = resolve_symlink_target(runtime_link)
+        self.assertEqual(resolved, (ws_b / "skills" / "shared_skill").resolve())
+        self.assertNotEqual(resolved, ws_a_canonical.resolve())
+        self.assertTrue(runtime_link.is_symlink())
 
 
 if __name__ == "__main__":

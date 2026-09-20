@@ -75,7 +75,6 @@ from .agents import check_target_availability, resolve_targets
 from .mcp import (
     MCPConfigError,
     authenticate_mcp,
-    is_agent_installed,
     load_agents,
     sync_mcp_configs,
 )

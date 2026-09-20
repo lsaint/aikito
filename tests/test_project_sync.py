@@ -6,12 +6,9 @@ import tempfile
 from pathlib import Path
 from typing import Any
 from unittest import TestCase
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from aikito.project_sync import (
-    LegacySyncResult,
-    ProjectSyncBatch,
-    ProjectSyncExecutionResult,
     apply_project_sync_batch,
     build_project_sync_batch,
 )
@@ -196,11 +193,15 @@ class ProjectSyncBatchTests(TestCase):
                     return False
                 return original_sync_resource(source, target, **kwargs)
 
-            with patch("aikito.project_sync.sync_resource", side_effect=fail_memory_sync):
+            with patch(
+                "aikito.project_sync.sync_resource", side_effect=fail_memory_sync
+            ):
                 res = apply_project_sync_batch(batch, data, home, dry_run=False)
 
             self.assertFalse(res.is_success)
-            self.assertIn("Failed to synchronize project memory", res.error_message or "")
+            self.assertIn(
+                "Failed to synchronize project memory", res.error_message or ""
+            )
             # Skill segment succeeded and was not overwritten
             self.assertTrue(res.skill_result.is_success)
             self.assertEqual(len(res.skill_result.applied_ops), 1)
@@ -233,7 +234,9 @@ class ProjectSyncBatchTests(TestCase):
 
             proj_dir = ws / "projects" / "demo"
             proj_dir.mkdir(parents=True)
-            (proj_dir / "AGENTS.md").write_text("# Project instructions\n", encoding="utf-8")
+            (proj_dir / "AGENTS.md").write_text(
+                "# Project instructions\n", encoding="utf-8"
+            )
 
             data = {
                 "name": "demo",
@@ -245,11 +248,15 @@ class ProjectSyncBatchTests(TestCase):
             batch = build_project_sync_batch(ws, home, "demo", data)
             self.assertTrue(batch.can_apply)
 
-            with patch("aikito.project_sync.sync_project_instruction", return_value=False):
+            with patch(
+                "aikito.project_sync.sync_project_instruction", return_value=False
+            ):
                 res = apply_project_sync_batch(batch, data, home, dry_run=False)
 
             self.assertFalse(res.is_success)
-            self.assertIn("Failed to synchronize project instructions", res.error_message or "")
+            self.assertIn(
+                "Failed to synchronize project instructions", res.error_message or ""
+            )
             # Skill segment succeeded and was not overwritten
             self.assertTrue(res.skill_result.is_success)
             self.assertEqual(len(res.skill_result.applied_ops), 1)

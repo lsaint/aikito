@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from aikito.bundled_skills import (
     outdated_bundled_skills,
@@ -130,7 +130,9 @@ class BundledSkillWriterLockTest(unittest.TestCase):
         (self.workspace / "subagents.toml").write_text("", encoding="utf-8")
         for marker in ("mcps", "memory", "projects", "skills", "global", "subagents"):
             (self.workspace / marker).mkdir(parents=True, exist_ok=True)
-        (self.workspace / "global" / "AGENTS.md").write_text("# Global\n", encoding="utf-8")
+        (self.workspace / "global" / "AGENTS.md").write_text(
+            "# Global\n", encoding="utf-8"
+        )
         (self.home / ".agents" / "skills").mkdir(parents=True, exist_ok=True)
 
     def tearDown(self) -> None:
@@ -149,7 +151,9 @@ class BundledSkillWriterLockTest(unittest.TestCase):
 
         with (
             patch("aikito.cli.get_agents_dir", return_value=self.home / ".agents"),
-            patch.object(SkillWriterLock, "acquire", side_effect=tracking_acquire, autospec=True),
+            patch.object(
+                SkillWriterLock, "acquire", side_effect=tracking_acquire, autospec=True
+            ),
         ):
             ok = sync_global_resources(self.workspace, self.home, dry_run=False)
             self.assertTrue(ok)
@@ -168,7 +172,9 @@ class BundledSkillWriterLockTest(unittest.TestCase):
 
         with (
             patch("aikito.cli.get_agents_dir", return_value=self.home / ".agents"),
-            patch.object(SkillWriterLock, "acquire", side_effect=tracking_acquire, autospec=True),
+            patch.object(
+                SkillWriterLock, "acquire", side_effect=tracking_acquire, autospec=True
+            ),
         ):
             ok = sync_global_resources(self.workspace, self.home, dry_run=True)
             self.assertTrue(ok)
@@ -193,7 +199,9 @@ class BundledSkillWriterLockTest(unittest.TestCase):
             lock_acquired = True
             orig_acquire(lock_self)
 
-        with patch.object(SkillWriterLock, "acquire", side_effect=tracking_acquire, autospec=True):
+        with patch.object(
+            SkillWriterLock, "acquire", side_effect=tracking_acquire, autospec=True
+        ):
             ok = init_workspace(self.workspace, self.home)
             self.assertTrue(ok)
             self.assertTrue(lock_acquired)

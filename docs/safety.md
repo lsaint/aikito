@@ -83,13 +83,19 @@ review is useful.
 ## Conflict and Drift Protection
 
 - Unmanaged targets are reported as conflicts rather than silently replaced.
-- Deselected project skills are removed only when a workspace symlink proves they were
-  managed by Aikito ([INV-OWN-03](architecture/invariants.md#inv-own-03),
-  [INV-TR-14](architecture/invariants.md#3-state-transition-table)). Deselected copy skills
-  and unmanaged entries in project checkouts are preserved as project-owned ([INV-TR-17](architecture/invariants.md#3-state-transition-table)).
+- Deselected project skills are removed only when a workspace symlink points specifically
+  to this resource's exact canonical path (`canonical_root / name`), proving prior Aikito
+  management ([INV-OWN-03](architecture/invariants.md#inv-own-03),
+  [INV-TR-14](architecture/invariants.md#3-state-transition-table)). Deselected links pointing to other
+  workspace resources, external locations, or unmanaged targets are preserved rather than removed.
+  Deselected copy skills and unmanaged entries in project checkouts are always preserved as project-owned
+  ([INV-TR-17](architecture/invariants.md#3-state-transition-table)).
   *(Note: Global synchronization maintains a legacy compatibility heuristic where deselected
   runtime skills identical to canonical are cleaned up via `allow_matching_copies=True`;
   see [INV-OWN-03](architecture/invariants.md#inv-own-03).)*
+- Shared targets across Agent runtimes are deduplicated prior to synchronization (e.g. 8 bundled
+  agent skill consumers resolve into 3 physical target paths), preventing redundant filesystem writes
+  and distinguishing logical resource counts, agent consumers, and physical target operations.
 - Managed-entry fingerprints expose local drift.
 - Copied project skill drift is shown by `aikito diff` and blocks project sync
   unless the user supplies `--force` after review ([INV-AUTH-01](architecture/invariants.md#inv-auth-01)).

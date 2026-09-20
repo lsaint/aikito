@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Extracted clean, read-only `Agent`, `AgentRegistry`, and `AgentAvailability` models into `aikito.agents`, eliminating ad-hoc fallback heuristics across synchronization and diagnostics.
+- Introduced `Target` model with `is_same_object` evaluation and deduplication in `resolve_targets()`, collapsing 8 bundled agent consumers into 3 physical filesystem operations.
+- Partitioned batch project synchronization execution results into isolated segments (`ProjectSyncExecutionResult`), preserving committed skill synchronization results against downstream legacy failures.
+- Cataloged engineering invariant rule groups for selection transactions (`INV-TX-01..04`), transaction journals (`INV-PEND-01..03`), recovery passes (`INV-REC-01..04`), writer locks (`INV-LOCK-01..03`), segmented execution results (`INV-RES-01..02`), and global binding identity (`INV-BIND-01..03`).
+
+### Changed
+
+- Tightened symlink ownership verification to exact canonical targets (`canonical_root / name`), preserving cross-skill and cross-resource links upon deselection.
+- Converged `classify_project_skill_state()` to a thin read-only wrapper around `inspect_skill_target()` and `plan_single_skill()`, eliminating redundant heuristic state classification.
+- Held `SkillWriterLock` during bundled skill and init template refreshes, preventing race conditions with concurrent operations.
+- Aligned synchronization output and diagnostic reports to distinguish logical resource counts, agent consumers, and physical target operations.
+
 ## [1.44.0] - 2026-09-19
 
 ### Added

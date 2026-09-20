@@ -41,6 +41,21 @@ jobs:
             "$HOME/.gemini/config" \
             "$HOME/.config/opencode" \
             "$HOME/.pi/agent"
+      - name: macOS CLI smoke - Global Sync and Deduplication
+        run: |
+          WS=${{ runner.temp }}/macos-ws
+          AIKITO_DIR=$WS python3 -m aikito init workspace "$WS"
+          AIKITO_DIR=$WS python3 -m aikito sync global | tee ${{ runner.temp }}/macos-sync-global.out
+          grep -E "[0-9]+ Agent skill entries across [0-9]+ consumers" \
+            ${{ runner.temp }}/macos-sync-global.out
+          grep -F "skills: shared path" \
+            ${{ runner.temp }}/macos-sync-global.out
+          test -L "$HOME/.agents/skills/aikito"
+          test -L "$HOME/.agents/skills/durable-memory"
+          test -f "$HOME/.agents/skills/aikito/SKILL.md"
+          test -f "$HOME/.agents/skills/durable-memory/SKILL.md"
+          test -L "$HOME/.claude/skills"
+          test -L "$HOME/.gemini/antigravity-cli/skills"
 
       - name: macOS CLI smoke - Link and Copy Modes
         run: |

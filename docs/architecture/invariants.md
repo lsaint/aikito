@@ -35,7 +35,7 @@ Existence, ownership, desired content matching, and selection state are orthogon
 - An entry may match desired content ($R = C$) without establishing ownership (e.g. unmanaged pre-existing directory).
 - An operation returning `NOOP` does not imply ownership was established or recorded.
 
-### INV-OWN-02: Evidence Evaluation Order `[planned]` {: #inv-own-02 }
+### INV-OWN-02: Evidence Evaluation Order `[current]` {: #inv-own-02 }
 
 Evidence must be evaluated in strict priority order. Path traversal failures, escaping symlinks, or conflicting evidence cannot be superseded by matching content:
 
@@ -57,7 +57,7 @@ Evidence must be evaluated in strict priority order. Path traversal failures, es
 - **Broken Links**: A broken symlink is owned if and only if its literal target points specifically to the canonical path of *this specific resource* (`canonical_root / resource_name`), retaining proof of prior Aikito management and rendering it eligible for cleanup upon deselection. A broken symlink pointing to an arbitrary workspace location or another skill is an unmanaged error/mismatch (`FOREIGN`/`UNKNOWN`).
 - **Inspection Safety**: Canonical roots and intermediate parent directories must be real directories, not symlinks, junctions, or reparse points escaping the trusted workspace boundary. Symlinks inside copy sources or targets are rejected.
 
-### INV-OWN-04: Copy Lifecycle and State Record Invariants `[planned]` {: #inv-own-04 }
+### INV-OWN-04: Copy Lifecycle and State Record Invariants `[current]` {: #inv-own-04 }
 
 Copy management records follow an explicit two-state lifecycle (`active` vs. `inactive`):
 
@@ -67,11 +67,29 @@ Copy management records follow an explicit two-state lifecycle (`active` vs. `in
 - **Deselection Protection**: Deselected copy skills are **never deleted or unlinked** by Aikito. Deselection marks the management record `inactive` and leaves target files completely untouched.
 - **Corrupt / Missing Record**: Any corrupt, mismatched, or unreadable management record reverts to `UNKNOWN`. Aikito halts destructive actions and refuses automated updates; `--force` cannot bypass record corruption.
 
-### INV-OWN-05: Directory Fingerprint Specification `[planned]` {: #inv-own-05 }
+### INV-OWN-05: Directory Fingerprint Specification `[current]` {: #inv-own-05 }
 
 Directory fingerprints must capture the complete directory tree: file relative paths, file types (regular file, symlink, directory), byte contents, empty directories, and POSIX executable permission bits. File timestamps (`mtime`) and filesystem inode numbers are excluded from content equality comparisons, but may be used during preflight to detect concurrent entry replacement.
 
 Any unsupported filesystem entry (FIFO, socket, device node) or internal symlink inside a copy source or target causes fingerprinting/inspection to fail and blocks synchronization.
+
+### INV-BIND-01: Global Binding Identity Definition `[planned-p4]` {: #inv-bind-01 }
+
+Global resources lack project checkouts and reside in host-level paths (e.g. `~/.agents/`, `~/.claude/`). Their binding identity tuple is defined as:
+
+```text
+(workspace_identity, agent_id, normalized_target_path)
+```
+
+This replaces project-scoped `(workspace, project, physical_checkout)` keys without introducing duplicate metadata stores.
+
+### INV-BIND-02: Multi-Workspace Global Ownership and Conflict Resolution `[planned-p4]` {: #inv-bind-02 }
+
+When multiple independent Aikito workspaces configure the same host agent target (e.g. `~/.agents/skills/`), ownership cannot be assumed by the active workspace unless the target link explicitly resolves to canonical resources within the active workspace. Targets pointing to other workspaces or external locations evaluate to `UNKNOWN` / `FOREIGN`. Aikito preserves these entries, emits diagnostic findings, and refuses automatic takeover or deletion.
+
+### INV-BIND-03: Scope Reduction for Link-Only Resources `[current]` {: #inv-bind-03 }
+
+Global skills and instructions operate strictly in `link` mode (`mode="link"`); copy mode is intentionally not supported. Therefore, global resources require NO content baseline records ($B$), NO directory fingerprint tracking in state documents, and NO copy reconciliation lifecycle. Their ownership and state transitions depend exclusively on live filesystem directory entries and symlink destination verification ([INV-OWN-02](#inv-own-02), [INV-OWN-03](#inv-own-03)).
 
 ---
 
@@ -82,25 +100,25 @@ The following transition table governs synchronization planning for project skil
 | Rule ID | Status | Selection & Mode | Target & Evidence | Classification & Default Action | Post-State or Handling | Fixture ID |
 | --- | --- | --- | --- | --- | --- | --- |
 | `INV-TR-01` | `[current]` | Selected, link / copy | Target missing; canonical valid; state missing or present | `MISSING` &rarr; `CREATE` | Creates link or copy. For copy mode, writes active record $B := C$ (origin `write`). Link mode creates symlink without state record. | `FIX-TR-01` |
-| `INV-TR-02` | `[planned]` | Selected, any | Canonical missing or unreadable | `BLOCK` (Planned) / Unlink-then-fail (Current) | Planned preflight halts execution without modifying target or state. Current link mode does not preflight canonical readability and deletes existing target before linking; copy mode fails during file read/copy. | `FIX-TR-02` |
-| `INV-TR-03` | `[planned]` | Selected, link | Symlink accurately points to canonical resource | `OWNED` &rarr; `NOOP` (Planned) / Recreate (Current) | Planned behavior NOOPs. Current `sync_resource()` (`sync.py:46-63`) unconditionally removes and recreates the symlink. | `FIX-TR-03` |
+| `INV-TR-02` | `[current]` | Selected, any | Canonical missing or unreadable | `BLOCK` &rarr; `CONFLICT` | Preflight halts execution without modifying target or state. Verified in `tests/test_skill_plan.py::test_canonical_missing_or_unreadable`. | `FIX-TR-02` |
+| `INV-TR-03` | `[current]` | Selected, link | Symlink accurately points to canonical resource | `OWNED` &rarr; `NOOP` | Link already points to canonical resource; no filesystem mutation. Verified in `tests/test_skill_plan.py::test_link_mode_noop_when_owned`. | `FIX-TR-03` |
 | `INV-TR-04` | `[current]` | Selected, link | Broken symlink pointing to canonical (source missing) | `OWNED` + source missing &rarr; `BLOCK` | Refuses to treat broken link as an empty slot. | `FIX-TR-04` |
 | `INV-TR-05` | `[current]` | Selected, link | Points to external/wrong resource; state missing | `FOREIGN` / `UNKNOWN` &rarr; `CONFLICT` | Refuses automatic relink. Sync aborted. | `FIX-TR-05` |
-| `INV-TR-06` | `[planned]` | Selected, link | Previously managed, but link redirected elsewhere | `DRIFT` / `UNKNOWN` &rarr; `CONFLICT` | Stale record cannot override current directory entry fact. | `FIX-TR-06` |
-| `INV-TR-07` | `[planned]` | Selected, copy | Valid active state, $R = B = C$ | `OWNED_UNCHANGED` &rarr; `NOOP` | No file or state writes. | `FIX-TR-07` |
-| `INV-TR-08` | `[planned]` | Selected, copy | Valid active state, $R = B$, $C$ changed | `OWNED_UNCHANGED` &rarr; `UPDATE` | Copies new $C$; updates baseline $B := C$ (origin `write`). | `FIX-TR-08` |
-| `INV-TR-09` | `[planned]` | Selected, copy | Valid active state, $R \ne B$ and $R \ne C$ | `OWNED_DRIFTED` &rarr; `CONFLICT` | Blocks sync. Explicit `--force` replaces target; updates $B := C$ (origin `write`). | `FIX-TR-09` |
-| `INV-TR-10` | `[planned]` | Selected, copy | Valid active state, $R \ne B$ but $R = C$ | `RECONCILE_STATE` &rarr; `NOOP` on files | Verifies existing ownership; atomically updates $B := C$ (origin `reconcile`). | `FIX-TR-10` |
-| `INV-TR-11` | `[planned]` | Selected, copy | No state record, $R = C$ | `UNKNOWN` &rarr; `NOOP` + Diagnostic | Does not manufacture ownership. `--force` authorizes `CLAIM_STATE` ($B := C$, origin `claim`). | `FIX-TR-11` |
-| `INV-TR-12` | `[planned]` | Selected, copy | No state record, $R \ne C$, safe normal directory | `UNKNOWN` &rarr; `CONFLICT` (Default); `--force` Overwrites | Current `--force` replaces directory without writing state. Planned `--force` creates active state $B := C$ (origin `write`). | `FIX-TR-12` |
-| `INV-TR-13` | `[planned]` | Selected, copy | State corrupt/mismatched, unreadable, or unsafe entry | `UNKNOWN` &rarr; `CONFLICT` | Current checks directory readability and entry type. Planned behavior checks state corruption; `--force` cannot bypass entry or record corruption. | `FIX-TR-13` |
+| `INV-TR-06` | `[current]` | Selected, link | Previously managed, but link redirected elsewhere | `DRIFT` / `UNKNOWN` &rarr; `CONFLICT` | Stale record cannot override current directory entry fact. Verified in `tests/test_skill_plan.py`. | `FIX-TR-06` |
+| `INV-TR-07` | `[current]` | Selected, copy | Valid active state, $R = B = C$ | `OWNED_UNCHANGED` &rarr; `NOOP` | No file or state writes. Verified in `tests/test_skill_plan.py::test_copy_mode_owned_unchanged_noop`. | `FIX-TR-07` |
+| `INV-TR-08` | `[current]` | Selected, copy | Valid active state, $R = B$, $C$ changed | `OWNED_UNCHANGED` &rarr; `UPDATE` | Copies new $C$; updates baseline $B := C$ (origin `write`). Verified in `tests/test_skill_plan.py::test_copy_mode_upstream_updated`. | `FIX-TR-08` |
+| `INV-TR-09` | `[current]` | Selected, copy | Valid active state, $R \ne B$ and $R \ne C$ | `OWNED_DRIFTED` &rarr; `CONFLICT` | Blocks sync. Explicit `--force` replaces target; updates $B := C$ (origin `write`). Verified in `tests/test_skill_plan.py::test_copy_mode_local_drift_conflict_and_force`. | `FIX-TR-09` |
+| `INV-TR-10` | `[current]` | Selected, copy | Valid active state, $R \ne B$ but $R = C$ | `RECONCILE_STATE` &rarr; `NOOP` on files | Verifies existing ownership; atomically updates $B := C$ (origin `reconcile`). Verified in `tests/test_skill_plan.py::test_copy_mode_reconcile_state`. | `FIX-TR-10` |
+| `INV-TR-11` | `[current]` | Selected, copy | No state record, $R = C$ | `UNKNOWN` &rarr; `NOOP` + Diagnostic | Does not manufacture ownership. `--force` authorizes `CLAIM_STATE` ($B := C$, origin `claim`). Verified in `tests/test_skill_plan.py::test_copy_mode_unmanaged_matching_requires_force`. | `FIX-TR-11` |
+| `INV-TR-12` | `[current]` | Selected, copy | No state record, $R \ne C$, safe normal directory | `UNKNOWN` &rarr; `CONFLICT` (Default); `--force` Overwrites | Default blocks sync; `--force` creates active state $B := C$ (origin `write`). Verified in `tests/test_skill_plan.py::test_copy_mode_unmanaged_conflicting_requires_force`. | `FIX-TR-12` |
+| `INV-TR-13` | `[current]` | Selected, copy | State corrupt/mismatched, unreadable, or unsafe entry | `UNKNOWN` &rarr; `CONFLICT` | Checks directory readability, entry type, and state corruption; `--force` cannot bypass corruption. Verified in `tests/test_skill_plan.py::test_copy_mode_corrupted_state_causes_conflict`. | `FIX-TR-13` |
 | `INV-TR-14` | `[current]` | Deselected, actual link | Symlink points to workspace canonical resource | `OWNED` &rarr; `UNLINK` | Unlinks symlink entry only. | `FIX-TR-14` |
 | `INV-TR-15` | `[current]` | Deselected, actual link | External symlink or insufficient evidence | `FOREIGN` / `UNKNOWN` &rarr; Preserve + Info | Leaves link untouched; informs user. | `FIX-TR-15` |
-| `INV-TR-16` | `[planned]` | Deselected, actual copy | Valid active state, any $R$ / $B$ / $C$ relation | `DEACTIVATE_STATE` &rarr; Preserve target | Sets state to `inactive`; target directory preserved untouched. | `FIX-TR-16` |
+| `INV-TR-16` | `[current]` | Deselected, actual copy | Valid active state, any $R$ / $B$ / $C$ relation | `DEACTIVATE_STATE` &rarr; Preserve target | Sets state to `inactive`; target directory preserved untouched. Verified in `tests/test_skill_plan.py::test_deselected_copy_skill_deactivates_state_and_preserves_dir`. | `FIX-TR-16` |
 | `INV-TR-17` | `[current]` | Deselected, actual copy | Inactive state or no state record | Preserve target &rarr; `NOOP` | Never deletes copy. Does not alter state. | `FIX-TR-17` |
-| `INV-TR-18` | `[planned]` | Re-selected, copy | Inactive state, $R = C$ | `UNKNOWN` &rarr; `NOOP` + Diagnostic | `--force` authorizes `REACTIVATE_STATE` ($B := C$, origin `reactivate`). | `FIX-TR-18` |
-| `INV-TR-19` | `[planned]` | Re-selected, copy | Inactive state, $R \ne C$ | `UNKNOWN` &rarr; `CONFLICT` | `--force` authorizes replacement and active baseline $B := C$ (origin `write`). | `FIX-TR-19` |
-| `INV-TR-20` | `[planned]` | Selected, mode switch | Representation differs from desired mode | Mode switch plan | Link to copy: managed link replaced by copy ($B := C$, active). Copy to link: active copy with $R = B$ replaced by symlink (state inactive). Drifted, unmanaged, or inactive copy to link is blocked (`CONFLICT`); `--force` does not bypass. | `FIX-TR-20` |
+| `INV-TR-18` | `[current]` | Re-selected, copy | Inactive state, $R = C$ | `UNKNOWN` &rarr; `NOOP` + Diagnostic | `--force` authorizes `REACTIVATE_STATE` ($B := C$, origin `reactivate`). Verified in `tests/test_skill_plan.py::test_reselected_inactive_copy_matches_canonical`. | `FIX-TR-18` |
+| `INV-TR-19` | `[current]` | Re-selected, copy | Inactive state, $R \ne C$ | `UNKNOWN` &rarr; `CONFLICT` | `--force` authorizes replacement and active baseline $B := C$ (origin `write`). Verified in `tests/test_skill_plan.py::test_reselected_inactive_copy_differs_requires_force`. | `FIX-TR-19` |
+| `INV-TR-20` | `[current]` | Selected, mode switch | Representation differs from desired mode | Mode switch plan | Link to copy: managed link replaced by copy ($B := C$, active). Copy to link: active copy with $R = B$ replaced by symlink (state inactive). Drifted, unmanaged, or inactive copy to link is blocked (`CONFLICT`); `--force` does not bypass. Verified in `tests/test_skill_plan.py::test_mode_switch_link_to_copy`, `tests/test_skill_plan.py::test_mode_switch_copy_to_link`. | `FIX-TR-20` |
 
 ### Detailed Lifecycle Rules
 
@@ -115,24 +133,23 @@ The following transition table governs synchronization planning for project skil
 
 ## 4. `--force` Authorization Contract
 
-### INV-AUTH-01: Project Skill Force Semantics `[planned]` {: #inv-auth-01 }
+### INV-AUTH-01: Project Skill Force Semantics `[current]` {: #inv-auth-01 }
 
 The `--force` option in `aikito sync project <name> [project_path] --force` authorizes:
 1. Overwriting drifted copies where valid active state exists ($R \ne B$).
 2. Overwriting inactive copies or unmanaged normal skill directories ($R \ne C$).
 3. Explicitly claiming (`CLAIM_STATE`) or reactivating (`REACTIVATE_STATE`) management when $R = C$.
 
-### INV-AUTH-02: Scoping Boundaries `[planned]` (Current: Project-Level Boolean Force) {: #inv-auth-02 }
+### INV-AUTH-02: Scoping Boundaries `[current]` {: #inv-auth-02 }
 
-- **Current Behavior (`[current]`)**: `--force` on `aikito sync project <name> [project_path] --force` is a single command-level boolean flag that permits overwriting all drifted copied skills within the target project checkout, without generating individual per-skill authorization tokens.
-- **Target Model (`[planned]`)**: Every selected skill generates an independent authorization item.
-  - **Explicit Checkout Path**: When `project_path` is passed, `--force` authorization applies strictly to that physical checkout.
-  - **Omitted Path**: When `project_path` is omitted, `--force` applies only to currently accessible active checkouts on this host. Offline or missing candidate paths are never authorized.
-  - **Granular Authorization**: Every selected skill generates an independent authorization item. Authorization does not cover arbitrary subdirectories or sibling files.
+Every selected skill generates an independent authorization item.
+- **Explicit Checkout Path**: When `project_path` is passed, `--force` authorization applies strictly to that physical checkout.
+- **Omitted Path**: When `project_path` is omitted, `--force` applies only to currently accessible active checkouts on this host. Offline or missing candidate paths are never authorized.
+- **Granular Authorization**: Every selected skill generates an independent authorization item. Authorization does not cover arbitrary subdirectories or sibling files.
 
-### INV-AUTH-03: Authorization Target Binding `[planned]` {: #inv-auth-03 }
+### INV-AUTH-03: Authorization Target Binding `[current]` {: #inv-auth-03 }
 
-Each authorization item binds seven attributes:
+Each authorization item binds seven attributes (`format_authorization_token` in `src/aikito/skill_plan.py`):
 ```text
 plan identity / lifetime
 operation kind
@@ -144,7 +161,7 @@ expected management record version + lifecycle state
 ```
 Target directory inspection evaluates the immediate directory entry, not the destination of any secondary symlink. Parent directory path sanity is validated against directory traversal and symlink escapes.
 
-### INV-AUTH-04: Authorization Invalidation and Explicit CAS `[planned]` {: #inv-auth-04 }
+### INV-AUTH-04: Authorization Invalidation and Explicit CAS `[current]` {: #inv-auth-04 }
 
 Any divergence in source content, target directory entry, project selection, or checkout path invalidates the plan and all associated authorizations. An invalid plan halts execution; authorizations are not automatically transferred to a regenerated plan. A dry-run displays planned authorizations but persists nothing.
 
@@ -186,7 +203,91 @@ The `--force` flag is scoped per command; boolean parameters do not constitute e
 
 ---
 
-## 5. Public Python API Invariants
+## 5. Transactional Execution and Recovery Invariants
+
+### INV-TX-01: Selection Transaction Boundary `[current]` {: #inv-tx-01 }
+
+A selection mutation (e.g. `add skill --project`, `rm skill --project`, or `Project.prepare` with selection changes) executes inside an isolated transaction governed by `execute_selection_transaction()`. Participating files include project configuration (`agent.toml`), canonical skills (if affected), checkout skill runtimes (`.agents/skills/*`), and project skill state documents (`.aikito/state/project-skills/`).
+Verified by: `tests/test_skill_runtime.py::test_selection_transaction_success_and_rollback`.
+
+### INV-TX-02: Pre-Image and Post-Image CAS Verification `[current]` {: #inv-tx-02 }
+
+Every mutated file within a selection transaction records exact pre-image bytes/hash and expected post-image bytes/hash. Before applying mutations, Aikito verifies that current disk state matches the pre-image. Any divergence aborts the transaction before committing. On rollback, Aikito only reverts files if current bytes still match post-image or expected interim state, preventing clobbering concurrent modifications.
+Verified by: `tests/test_skill_runtime.py::test_selection_transaction_pre_image_cas_mismatch`, `tests/test_skill_runtime.py::test_selection_transaction_concurrent_modification_avoids_clobber_on_rollback`.
+
+### INV-TX-03: Two-Phase Commit Marker `[current]` {: #inv-tx-03 }
+
+Transactions follow a strict two-phase commit protocol recorded in the persistent journal (`phase="pending"` vs. `phase="committed"`). A transaction is only considered committed once the journal's `phase` field is atomically updated to `"committed"` via temporary file rename. If a process terminates prior to the commit marker, the transaction is strictly rolled back to pre-images during recovery; once marked committed, recovery rolls forward or cleans up staging/temporary artifacts.
+Verified by: `tests/test_skill_state.py::test_pending_transaction_rolled_back`, `tests/test_skill_state.py::test_committed_transaction_finalized`.
+
+### INV-TX-04: Rollback and Recovery Required Flag `[current]` {: #inv-tx-04 }
+
+If any operation within a selection transaction fails before completion, the transaction automatically rolls back all applied file writes, directory changes, and state transitions. If an unrecoverable failure or external corruption prevents clean rollback, the journal remains on disk and the execution result sets `recovery_required=True`, halting subsequent mutating operations until resolved.
+Verified by: `tests/test_skill_runtime.py::test_execute_selection_transaction_committed_cleanup_failure_retains_journal`, `tests/test_skill_state.py::test_recovery_aborts_and_retains_journal_if_state_externally_modified`.
+
+### INV-PEND-01: Journal Storage Location and Safe Identifiers `[current]` {: #inv-pend-01 }
+
+Transaction journals are stored under `.aikito/state/project-skills/transactions/<tx_id>/journal.json` relative to the state root (`$HOME` or specified `home`). Each transaction is assigned a cryptographically random, safe alphanumeric/dash/underscore identifier validated by `_is_safe_tx_id()`. Journal storage is strictly per-host and local; journals are never tracked in Git or exported to user workspaces.
+Verified by: `tests/test_skill_state.py::test_save_and_load_roundtrip`, `tests/test_skill_state.py::test_forged_journal_rejected`.
+
+### INV-PEND-02: Trusted Boundaries and Path Derivation `[current]` {: #inv-pend-02 }
+
+Journals must strictly reference paths within trusted boundaries: workspace root, authorized checkouts, and runtime staging directories (`.aikito-tx/<tx_id>`). Any journal attempting path traversal, symlink/reparse point escaping, or arbitrary filesystem mutation outside authorized roots is rejected as forged/corrupt (`_is_valid_file_path`, `_is_valid_target_path`, `_is_valid_staging_or_recovery_dir`).
+Verified by: `tests/test_skill_state.py::test_forged_journal_rejected`, `tests/test_skill_state.py::test_forged_journal_files_cannot_authorize_checkout`.
+
+### INV-PEND-03: Journal File and Directory Permissions `[current]` {: #inv-pend-03 }
+
+Transaction directories and journal files are created with restricted POSIX permissions (`0700` for directories, `0600` for journal files) via `secure_directory_permissions` and `secure_file_permissions` (or equivalent restricted ACLs on Windows). Journals must be real regular files; symlinks, junctions, or reparse points as journal paths cause immediate abort.
+Verified by: `tests/test_skill_state.py::test_forged_journal_rejected`.
+
+### INV-REC-01: Recovery Pass Trigger Order and Exclusivity `[current]` {: #inv-rec-01 }
+
+Whenever a mutating entrypoint (`Project.prepare`, `sync_project_path`, `execute_selection_transaction`, `cmd_project_sync`) acquires the writer lock, it executes `run_recovery_pass()` before executing any planned operation. Recovery scans all transaction journals affecting the active workspace, projects, or checkouts.
+Verified by: `tests/test_skill_runtime.py::test_selection_transaction_stops_after_recovery`, `tests/test_skill_state.py::test_pending_transaction_rolled_back`.
+
+### INV-REC-02: Halting Request Upon Recovery `[current]` {: #inv-rec-02 }
+
+If `run_recovery_pass()` performs any state rollback or cleanup (`recovery_occurred=True`), it stops the current mutating request immediately (`recovery_required=True` / abort). The current request does not proceed with stale planning; the user or caller must re-issue the command with fresh state inspection.
+Verified by: `tests/test_skill_runtime.py::test_selection_transaction_stops_after_recovery`.
+
+### INV-REC-03: Read-Only Operations Exemption `[current]` {: #inv-rec-03 }
+
+Purely read-only inspection operations (`classify_project_skill_state`, `plan_project_skills`, `inspect_skill_target`, `aikito status`, `aikito doctor` without `--fix`) do not trigger `run_recovery_pass()` and do not mutate or delete pending journals. They observe existing on-disk state safely without side effects.
+Verified by: `tests/test_project.py::test_classify_project_skill_state_read_only_purity`, `tests/test_project.py::test_classify_project_skill_state_convergence`.
+
+### INV-REC-04: Non-Blocking Cleanup and Loop Prevention `[current]` {: #inv-rec-04 }
+
+Corrupt, unparseable, or externally altered journals halt automatic recovery and retain the journal file on disk for diagnostic audit. Aikito refuses to loop indefinitely or repeatedly overwrite unverified state, requiring explicit administrative intervention or diagnostics (`aikito doctor`).
+Verified by: `tests/test_skill_state.py::test_recovery_aborts_and_retains_journal_if_copy_target_externally_modified`, `tests/test_skill_state.py::test_recovery_aborts_and_retains_journal_if_file_externally_deleted`.
+
+### INV-LOCK-01: Canonical Skill Mutator Lock Coverage `[current]` {: #inv-lock-01 }
+
+All commands and API functions that mutate canonical skills, bundled skills, project skills runtime, or their persistent state documents MUST hold `SkillWriterLock(home)` across their entire operation. This includes: `aikito add skill --from` (`add.py`), `aikito rm skill` (`skill_runtime.py`), `SkillPlan` execution (`skill_runtime.py`), bundled skill refresh (`cli.py`), and init template refresh (`init.py`).
+Verified by: `tests/test_skill_state.py::test_writer_lock_reentrancy`, `tests/test_cli.py::test_bundled_skills_refresh_holds_writer_lock`.
+
+### INV-LOCK-02: Lock Re-Entrancy and Outermost Hold `[current]` {: #inv-lock-02 }
+
+`SkillWriterLock` is process-reentrant (`_lock_depth`). Composite workflows (e.g. `aikito add skill <name> --from <path> --sync`) acquire the lock at the outermost command entrypoint and hold it continuously across canonical import, template refresh, and project sync without releasing or deadlocking.
+Verified by: `tests/test_skill_state.py::test_writer_lock_reentrancy`, `tests/test_cli.py::test_add_skill_with_sync_holds_lock_composite`.
+
+### INV-LOCK-03: Dry-Run Exclusion `[current]` {: #inv-lock-03 }
+
+Dry-run commands (`aikito sync --dry-run`, `aikito sync project --dry-run`, `aikito sync global --dry-run`) MUST NOT acquire or create the `writer.lock` file. Dry-run runs purely in read-only analysis mode and leaves the lock file and filesystem completely unmutated.
+Verified by: `tests/test_skill_runtime.py`, `tests/test_cli.py::test_dry_run_zero_write_and_no_lock`, `tests/test_cli.py::test_global_dry_run_zero_write_filesystem_snapshot`.
+
+### INV-RES-01: Segment Boundaries Match Commit Units `[current]` {: #inv-res-01 }
+
+Batch synchronization results are partitioned into explicit segments (`skills`, `legacy_compat`) corresponding directly to independent atomic commit units. Failure in one segment (e.g. memory or instructions sync in legacy compat) does NOT overwrite, mask, or downgrade the committed success of another segment (e.g. skills sync).
+Verified by: `tests/test_project_sync.py::test_segmented_project_sync_execution_result_skill_success_legacy_failure`.
+
+### INV-RES-02: Overall Success Conjunction `[current]` {: #inv-res-02 }
+
+Overall execution result `is_success` is the logical conjunction of all active segments. If any segment fails or reports conflicts, `is_success` is False, but per-segment applied operations, conflict lists, and state progressions remain accurately preserved for caller inspection and reporting.
+Verified by: `tests/test_project_sync.py::test_segmented_project_sync_execution_result_overall_failure_with_skill_applied`.
+
+---
+
+## 6. Public Python API Invariants
 
 ### INV-API-01: Exported Symbols `[current]` {: #inv-api-01 }
 
@@ -260,17 +361,17 @@ All public exceptions inherit from `ProjectError -> RuntimeError`.
 
 ---
 
-## 6. Appendix: Migration Inventory
+## 7. Appendix: Migration Inventory
 
 Every subsystem scheduled for migration into the structured Plan / Executor engine is documented below.
 
 | Subsystem / Entry | Reads | Writes | Ownership Evidence | State File | Dry-run Behavior | Recovery Boundary | Target Engine | Old Implementation Deletion Criteria |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `cli.py::cmd_sync_all` | Workspace config, `agents.toml`, all projects, global resources, agent runtimes | Runtime global symlinks, project checkouts, MCP configs, subagents | Symlink pointing within workspace canonical roots; copy matching | None (delegates to subsystem sync handlers) | First runs complete `--dry-run` preview pass; if safe (`plan.can_apply` and not dry-run), immediately executes without interactive prompt | Partial failure leaves processed items intact; no rollback across subsystems | Unified Coordinator | Replaced when all underlying resource subsystems (project, global, MCP, subagent) migrate to unified Plan/Executor |
-| `cli.py::cmd_global_sync` | Workspace `skills/`, `global/AGENTS.md`, `agents.toml` | Agent runtime instruction symlinks and global skills | Symlinks resolving within `workspace/skills`; `allow_matching_copies=True` for global skills cleanup | None | Read-only simulation (`--dry-run`) | Per-entry unlink/symlink; no transaction log | Global Engine | Replaced after global Plan/Executor contract verified |
-| `cli.py::cmd_project_sync` | Project `agent.toml`, `AGENTS.md`, workspace skills, memory | Project checkout `.agents/skills/`, `.agents/memory/`, instructions | Symlink resolving to canonical roots; `allow_matching_copies=False` for project skills | None (planned executor introduces copy management records) | Read-only preview (`[DRY RUN CLEANUP]`, `[DRY RUN LINK]`, `[DRY RUN COPY]`) | Preflights conflicts before writing; runtime write failure leaves partial checkout files | Project Plan/Executor | Replaced when structured Executor handles project sync |
-| `sync.py::sync_resource`, `apply_runtime_cleanup`, `sync_global_entry`; `compat.py::safe_symlink` | Source filesystem item, target filesystem item | Target symlink or copied directory tree; unlinks stale entries | `_symlink_points_within` verifies target points inside canonical roots; `safe_symlink` creates link via `symlink_to()` without prior target inspection; `sync_resource` deletes existing target before recreating | None | `dry_run=True` checks existence/paths and prints preview without filesystem mutation | Direct filesystem operations; `safe_symlink` wraps `symlink_to()` with OS error handling; no tempfile atomic swap; no rollback | Core Primitives (Project & Global) | Primitives adapted or replaced by structured Executor operations |
-| `project.py::classify_project_skill_state`, `plan_runtime_cleanup`, `find_selected_runtime_conflicts` | Canonical skill directory, runtime checkout skill entry | None (pure query/classification functions) | `_symlink_points_within` (checks if target resolves within any canonical root); `_directories_match` when `allow_matching_copies=True` | None | Purely functional / read-only | Non-destructive query | Planner Analysis | Retired when planner evaluates management records and whole-tree fingerprints |
+| `cli.py::cmd_global_sync` | Workspace `skills/`, `global/AGENTS.md`, `agents.toml` | Agent runtime instruction symlinks and global skills | Symlinks resolving to exact canonical paths (`canonical_root / name`); shared target deduplication via `resolve_targets` | None | Read-only simulation (`--dry-run`); zero writes to home directory | Per-entry unlink/symlink; no transaction log | Global Engine | Replaced after global Plan/Executor contract verified |
+| `cli.py::cmd_project_sync` | Project `agent.toml`, `AGENTS.md`, workspace skills, memory | Project checkout `.agents/skills/`, `.agents/memory/`, instructions | Symlink resolving to exact canonical roots; copy management records | `.aikito/state/project-skills/` records | Read-only preview (`[DRY RUN CLEANUP]`, `[DRY RUN LINK]`, `[DRY RUN COPY]`) | Atomic compare-and-swap (CAS) plan preflight; rollback and crash recovery journals | Project Plan/Executor | Replaced when structured Executor handles project sync |
+| `sync.py::sync_resource`, `apply_runtime_cleanup`, `sync_global_entry`; `compat.py::safe_symlink` | Source filesystem item, target filesystem item | Target symlink or copied directory tree; unlinks stale entries | `is_symlink_pointing_to` verifies exact canonical target path (`canonical_root / name`); `safe_symlink` creates link via `symlink_to()` with rollback and OS error handling | None | `dry_run=True` checks existence/paths and prints preview without filesystem mutation | Direct filesystem operations; rollback on safe link creation; no tempfile atomic swap | Core Primitives (Project & Global) | Primitives adapted or replaced by structured Executor operations |
+| `project.py::classify_project_skill_state` | Canonical skill directory, runtime checkout skill entry, project skill state records | None (pure query/classification functions, zero state mutation, no recovery pass) | Exact canonical destination check via `inspect_skill_target` + `plan_single_skill` | Reads `.aikito/state/project-skills/` documents via `inspect_skill_target`; writes nothing | Purely functional / read-only | Non-destructive query; exempt from recovery pass | Thin Planner Wrapper (`skill_plan.py`) | Legacy heuristic eliminated in Phase 3; delegates directly to `inspect_skill_target` and `plan_single_skill` with explicit state mapping table |
 | `project_runtime.py::Project.prepare`, `sync_project_path`, `_resolve_project_sync_inputs` | Workspace config, `agents.toml`, project `agent.toml`, checkout directories | Checkout instructions, skills, memory | Symlink targets, copy directory comparisons | None | Supported via `dry_run` parameter in internal helpers | Validates conflicts before modifying persistent resources; write failure raises `ProjectPrepareConflictError` | Project Executor | Replaced when `prepare` delegates to structured project Plan/Executor |
 | `mcp.py::sync_mcp_configs`, `sync_remove_mcp_from_agents`, `remove.py::remove_mcp` | Workspace `mcps/*.toml`, agent configuration files, `.local/state/aikito/mcp-state.json` | Agent configuration files (merged blocks), workspace `mcps/*.toml` on remove, updates `.local/state/aikito/mcp-state.json`, creates backup files | Recorded server entries in `.local/state/aikito/mcp-state.json` | `.local/state/aikito/mcp-state.json` (tracks applied server hashes per agent config) | Full read-only merge simulation; prints diff/actions without touching files or state | Timestamped backups created prior to writing; atomic state promotion via temporary state file and `os.replace`; restores backup on failure | Phase 4 (MCP Engine) | Replaced when MCP engine adopts unified Plan/Executor model |
 | `subagent.py::build_plan`, `sync_subagent_configs`, `remove.py::remove_subagent` | Workspace `subagents/<name>.md`, `subagents.toml`, agent configuration files / subagent directories | Agent subagent prompt files / configs, workspace `subagents/<name>.md` and `subagents.toml` on remove | Generated prompt Aikito header banner / managed comment markers | None | Previews generated subagent plan items and actions | File-level backups for modified configs; atomic write via tempfile (`_write_file_atomic`) | Phase 4 (Subagent Engine) | Replaced when subagent engine adopts unified Plan/Executor model |

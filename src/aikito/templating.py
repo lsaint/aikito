@@ -18,7 +18,6 @@ from typing import List, Tuple
 from .agents import (
     AGENT_INSTALL_MARKERS,
     check_agent_availability,
-    is_agent_installed,
 )
 from .compat import _package_resource_dir
 

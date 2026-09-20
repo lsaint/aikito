@@ -25,12 +25,9 @@ from urllib.parse import parse_qs, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .agents import (
-    AGENT_INSTALL_MARKERS,
+    AGENT_INSTALL_MARKERS as AGENT_INSTALL_MARKERS,
     Agent,
-    AgentAvailability,
     AgentRegistry,
-    Target,
-    check_agent_availability,
     is_agent_installed,
     resolve_targets,
 )
@@ -428,12 +425,14 @@ def collect_project_instruction_targets(
     active_only: bool = False,
 ) -> dict[Path, tuple[str, ...]]:
     """Group agent-native project instruction targets by runtime path."""
+    agents = load_agents(aikito_dir, home)
     targets = resolve_targets(
         "project_instructions",
         aikito_dir,
         home,
         project_path=project_path,
         active_only=active_only,
+        registry=AgentRegistry(agents),
     )
     return {t.path: tuple(sorted(t.consumer_display_names)) for t in targets}
 

@@ -123,7 +123,20 @@ jobs:
           $syncPlan | Select-String "Sync plan"
           $syncPlan | Select-String "Safe to apply"
           python -m aikito sync --dry-run --verbose | Select-String "Details"
-          python -m aikito sync global
+          $syncGlobalOutput = python -m aikito sync global | Out-String
+          $syncGlobalOutput | Write-Host
+          if ($syncGlobalOutput -notmatch "\d+ Agent skill entries across \d+ consumers") {
+            throw "Global sync output did not match expected consumer pattern"
+          }
+          if ($syncGlobalOutput -notmatch "skills: shared path") {
+            throw "Global sync output did not report shared target deduplication"
+          }
+          if (-not (Test-Path (Join-Path $HOME ".agents\skills\aikito"))) {
+            throw "Global aikito skill link missing"
+          }
+          if (-not (Test-Path (Join-Path $HOME ".agents\skills\durable-memory"))) {
+            throw "Global durable-memory skill link missing"
+          }
           $aikitoSkill = Join-Path $wsDir "skills\aikito\SKILL.md"
           $memorySkill = Join-Path $wsDir "skills\durable-memory\SKILL.md"
           "customized aikito" | Set-Content $aikitoSkill

@@ -6,7 +6,7 @@ import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Iterator
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -121,28 +121,27 @@ class AgentRegistry:
         agents_data = document.get("agents")
         if not isinstance(agents_data, dict):
             return cls({})
+
+        def _resolve_home(val: object) -> Path | None:
+            if not isinstance(val, str) or not val:
+                return None
+            if val.startswith("~/"):
+                return home / val[2:]
+            p = Path(val)
+            return p if p.is_absolute() else home / p
+
         loaded: dict[str, Agent] = {}
         for name, spec in agents_data.items():
             if not isinstance(spec, dict):
                 continue
-            instr_val = spec.get("instruction_path")
-            instr_path = (
-                (home / instr_val[2:] if instr_val.startswith("~/") else Path(instr_val))
-                if isinstance(instr_val, str) and instr_val
-                else None
-            )
+            instr_path = _resolve_home(spec.get("instruction_path"))
             proj_instr_val = spec.get("project_instruction_path")
             proj_instr_path = (
                 Path(proj_instr_val)
                 if isinstance(proj_instr_val, str) and proj_instr_val
                 else None
             )
-            skills_val = spec.get("skills_path")
-            skills_path = (
-                (home / skills_val[2:] if skills_val.startswith("~/") else Path(skills_val))
-                if isinstance(skills_val, str) and skills_val
-                else None
-            )
+            skills_path = _resolve_home(spec.get("skills_path"))
             loaded[name] = Agent(
                 name=name,
                 display_name=str(spec.get("display_name", name)),
@@ -199,10 +198,14 @@ class Target:
         from .compat import get_physical_path
 
         try:
-            return get_physical_path(self.path) == get_physical_path(self.canonical_source)
+            return get_physical_path(self.path) == get_physical_path(
+                self.canonical_source
+            )
         except Exception:
             try:
-                return self.path.resolve(strict=False) == self.canonical_source.resolve(strict=False)
+                return self.path.resolve(strict=False) == self.canonical_source.resolve(
+                    strict=False
+                )
             except Exception:
                 return False
 
@@ -251,7 +254,9 @@ def resolve_targets(
         for agent in registry.values():
             if agent.skills_path is None:
                 continue
-            grouped.setdefault(agent.skills_path, []).append((agent.name, agent.display_name))
+            grouped.setdefault(agent.skills_path, []).append(
+                (agent.name, agent.display_name)
+            )
 
         targets: list[Target] = []
         for path, consumers in sorted(grouped.items(), key=lambda x: str(x[0])):
@@ -278,7 +283,9 @@ def resolve_targets(
         for agent in registry.values():
             if agent.instruction_path is None:
                 continue
-            grouped.setdefault(agent.instruction_path, []).append((agent.name, agent.display_name))
+            grouped.setdefault(agent.instruction_path, []).append(
+                (agent.name, agent.display_name)
+            )
 
         targets = []
         for path, consumers in sorted(grouped.items(), key=lambda x: str(x[0])):
@@ -334,4 +341,6 @@ def resolve_targets(
         return tuple(targets)
 
     else:
-        raise ValueError(f"Unknown resource kind for target resolution: {resource_kind}")
+        raise ValueError(
+            f"Unknown resource kind for target resolution: {resource_kind}"
+        )

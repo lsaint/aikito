@@ -37,6 +37,7 @@ from .conflict import (
     has_any_conflict_markers as _has_conflict_markers,
 )
 from .agents import (
+    AGENT_INSTALL_MARKERS,
     check_agent_availability,
     check_target_availability,
     resolve_targets,
@@ -44,7 +45,6 @@ from .agents import (
 from .diagnostics import Finding, FindingAction
 from .link import SymlinkVerdict, classify_symlink
 from .mcp import (
-    AGENT_INSTALL_MARKERS,
     MCPConfigError,
     _load_document,
     _parse_jsonc,

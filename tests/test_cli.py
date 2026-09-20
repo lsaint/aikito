@@ -470,7 +470,9 @@ skills_path = ".agents/skills"
         with (
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
             patch("pathlib.Path.home", return_value=self.home),
-            patch.object(AIKITO_CLI, "_run_workspace_sync", side_effect=raise_type_error),
+            patch.object(
+                AIKITO_CLI, "_run_workspace_sync", side_effect=raise_type_error
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["sync"])
             with self.assertRaises(TypeError) as ctx:
@@ -761,11 +763,11 @@ class ProjectSyncSafetyTest(unittest.TestCase):
             (external_dir / "SKILL.md").read_text(encoding="utf-8"), "external\n"
         )
 
-    def test_deselected_internal_mismatched_symlink_cleaned_by_current_scope_heuristic(
+    def test_deselected_internal_mismatched_symlink_preserved_by_exact_ownership_rule(
         self,
     ) -> None:
-        # Document INV-OWN-03 [compat-gap]: current _symlink_points_within checks only that
-        # target resolves within canonical_roots (workspace/skills), not the specific resource.
+        # Document INV-OWN-03: exact canonical pointing tightening.
+        # A symlink pointing to another skill (mismatched) is unmanaged and preserved upon deselection.
         canonical_a = self.workspace / "skills" / "skill-a"
         canonical_b = self.workspace / "skills" / "skill-b"
         canonical_a.mkdir(parents=True)
@@ -782,8 +784,9 @@ class ProjectSyncSafetyTest(unittest.TestCase):
         self.assertTrue(runtime_a.is_symlink())
         self._run_sync()
 
-        # Under current implementation, it is cleaned up because canonical_b is within workspace/skills
-        self.assertFalse(runtime_a.is_symlink())
+        # Under tightened ownership (INV-OWN-03), it is preserved because it does not point to canonical_a
+        self.assertTrue(runtime_a.is_symlink())
+        self.assertEqual(os.readlink(runtime_a), str(canonical_b))
 
 
 class GlobalSyncSafetyTest(unittest.TestCase):
@@ -895,6 +898,48 @@ class GlobalSyncSafetyTest(unittest.TestCase):
 
         self.assertNotIn("category:", note.read_text(encoding="utf-8"))
         self.assertEqual(stderr.getvalue(), "")
+
+    def _snapshot_fs(self, root: Path) -> dict[str, tuple[str, int]]:
+        snapshot: dict[str, tuple[str, int]] = {}
+        for p in sorted(root.rglob("*")):
+            rel = str(p.relative_to(root))
+            if p.is_symlink():
+                snapshot[rel] = ("link", len(os.readlink(p)))
+            elif p.is_file():
+                snapshot[rel] = ("file", p.stat().st_size)
+            elif p.is_dir():
+                snapshot[rel] = ("dir", 0)
+        return snapshot
+
+    def test_global_dry_run_zero_write_filesystem_snapshot(self) -> None:
+        (self.workspace / "skills.toml").write_text(
+            'skills = ["stale"]\n', encoding="utf-8"
+        )
+        before = self._snapshot_fs(self.root)
+        with patch("sys.stdout", new_callable=io.StringIO):
+            self._run_sync("--dry-run")
+        after = self._snapshot_fs(self.root)
+        self.assertEqual(before, after)
+        lock_file = self.root / ".aikito" / "state" / "project-skills" / "writer.lock"
+        self.assertFalse(lock_file.exists())
+
+    def test_phase4_idempotency_fixture_records_current_behavior(self) -> None:
+        # Fixture documenting current recreation behavior vs. planned Phase 4 idempotency.
+        (self.workspace / "skills.toml").write_text(
+            'skills = ["stale"]\n', encoding="utf-8"
+        )
+        self._run_sync()
+        target_link = self.runtime / "stale"
+        self.assertTrue(target_link.is_symlink())
+
+        # Under current implementation, sync_resource deletes and recreates symlink:
+        self._run_sync()
+        self.assertTrue(target_link.is_symlink())
+        # Planned Phase 4: Atomic idempotent sync without link recreation (mtime_ns/inode preserved).
+        # In current implementation, link is removed and recreated, so it is valid and points correctly.
+        self.assertEqual(
+            os.readlink(target_link), str(self.workspace / "skills" / "stale")
+        )
 
 
 class InitSubcommandParserTest(unittest.TestCase):

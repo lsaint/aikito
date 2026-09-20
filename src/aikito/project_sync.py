@@ -475,7 +475,9 @@ def apply_project_sync_batch(
                     if not sync_project_instruction(
                         project_instructions, target, dry_run
                     ):
-                        inst_err = f"Failed to synchronize project instructions to {target}"
+                        inst_err = (
+                            f"Failed to synchronize project instructions to {target}"
+                        )
                         legacy_results.append(
                             LegacySyncResult(
                                 resource_kind="instructions",
@@ -492,7 +494,9 @@ def apply_project_sync_batch(
     if memory_files or (proj_mem_source / "notes").is_dir():
         legacy_results.append(LegacySyncResult(resource_kind="memory", success=True))
     if (workspace_root / "projects" / project_name / "AGENTS.md").is_file():
-        legacy_results.append(LegacySyncResult(resource_kind="instructions", success=True))
+        legacy_results.append(
+            LegacySyncResult(resource_kind="instructions", success=True)
+        )
 
     return ProjectSyncExecutionResult(
         skill_result=skill_result,

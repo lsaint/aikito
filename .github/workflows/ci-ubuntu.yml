@@ -269,7 +269,13 @@ jobs:
       - name: aikito sync global
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 -m aikito sync global
+            python3 -m aikito sync global | tee ${{ runner.temp }}/sync-global.out
+          grep -E "[0-9]+ Agent skill entries across [0-9]+ consumers" \
+            ${{ runner.temp }}/sync-global.out
+          grep -F "skills: shared path" \
+            ${{ runner.temp }}/sync-global.out
+          test -L ~/.agents/skills/aikito
+          test -L ~/.agents/skills/durable-memory
 
       - name: Refresh divergent bundled skills
         run: |
