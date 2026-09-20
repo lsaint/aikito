@@ -324,3 +324,41 @@ def execute_global_skill_entries(
             return False, tuple(results)
 
     return True, tuple(results)
+
+
+def execute_global_skill_consumers(
+    plan: GlobalSkillBatchPlan,
+    *,
+    dry_run: bool = False,
+    verbose: bool = False,
+) -> tuple[bool, tuple[LinkExecutionResult, ...]]:
+    """Execute consumer link operations of a GlobalSkillBatchPlan.
+
+    Halts immediately upon any failure.
+    """
+    results: list[LinkExecutionResult] = []
+    for op in plan.consumer_ops:
+        res = apply_link_operation(op, dry_run=dry_run, verbose=verbose)
+        results.append(res)
+        if not res.success:
+            return False, tuple(results)
+    return True, tuple(results)
+
+
+def execute_global_skills(
+    plan: GlobalSkillBatchPlan,
+    *,
+    dry_run: bool = False,
+    verbose: bool = False,
+) -> tuple[bool, tuple[LinkExecutionResult, ...]]:
+    """Execute all operations of a GlobalSkillBatchPlan in deterministic sequence."""
+    success, entry_results = execute_global_skill_entries(
+        plan, dry_run=dry_run, verbose=verbose
+    )
+    if not success:
+        return False, entry_results
+
+    consumer_success, consumer_results = execute_global_skill_consumers(
+        plan, dry_run=dry_run, verbose=verbose
+    )
+    return consumer_success, (*entry_results, *consumer_results)

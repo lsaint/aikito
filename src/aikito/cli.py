@@ -38,6 +38,7 @@ from .diff import collect_drift_diffs, render_drift_diffs
 from .doctor import run_doctor, run_doctor_fixes
 from .global_skills import (
     build_global_skill_batch,
+    execute_global_skill_consumers,
     execute_global_skill_entries,
     plan_global_skills,
 )
@@ -278,17 +279,35 @@ def sync_global_resources(
         batch, home, dry_run=dry_run, refreshed_bundled=refreshed_bundled
     )
 
-    entry_conflicts = [
-        op for op in (plan.container_op, *plan.entry_ops) if op.action == "CONFLICT"
+    all_conflicts = [
+        op
+        for op in (plan.container_op, *plan.entry_ops, *plan.consumer_ops)
+        if op.action == "CONFLICT"
     ]
-    if entry_conflicts:
-        for op in entry_conflicts:
+    if all_conflicts:
+        for op in all_conflicts:
             if op.target_path == agents_skills_dir and plan.container_op.action == "CONFLICT":
                 print(
                     f"[CONFLICT] Global skills path points outside Aikito: "
                     f"{agents_skills_dir}",
                     file=sys.stderr,
                 )
+            elif op.target_kind == "consumer_link":
+                if op.target_path.is_symlink():
+                    try:
+                        dest = os.readlink(op.target_path)
+                    except OSError:
+                        dest = "unknown"
+                    print(
+                        f"[CONFLICT] Unexpected consumer symlink destination for {op.resource_name}: {op.target_path} -> {dest}",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        f"[CONFLICT] {op.resource_name} skills: {op.target_path} is not a symlink; "
+                        "move or merge it manually, then run 'aikito sync global' again.",
+                        file=sys.stderr,
+                    )
             else:
                 print(f"[CONFLICT] Unmanaged global skill item: {op.target_path}", file=sys.stderr)
         print("[ERROR] Global synchronization aborted.", file=sys.stderr)
@@ -319,9 +338,6 @@ def sync_global_resources(
     instruction_targets = resolve_targets(
         "global_instructions", aikito_dir, home, registry=registry
     )
-    skill_targets = resolve_targets(
-        "global_skills", aikito_dir, home, registry=registry
-    )
 
     instruction_results: list[bool] = []
     for target in instruction_targets:
@@ -344,26 +360,14 @@ def sync_global_resources(
                 )
             )
 
-    skill_entry_results: list[bool] = []
-    for target in skill_targets:
-        if target.is_same_object:
-            print(
-                f"[OK] {'/'.join(target.consumer_display_names)} skills: shared path {target.path}"
-            )
-            skill_entry_results.append(True)
-        else:
-            avail = check_target_availability(target, home)
-            skill_entry_results.append(
-                sync_global_entry(
-                    target.canonical_source,
-                    target.path,
-                    "/".join(target.consumer_display_names),
-                    "skills",
-                    dry_run,
-                    installed=avail.is_installed,
-                    home=home,
-                )
-            )
+    consumer_success, consumer_results = execute_global_skill_consumers(
+        plan, dry_run=dry_run
+    )
+    if not consumer_success:
+        print("[ERROR] Global skill synchronization aborted.", file=sys.stderr)
+        return False
+
+    skill_entry_results = [res.success for res in consumer_results]
 
     if not all((*instruction_results, *skill_entry_results)):
         print(
@@ -373,7 +377,7 @@ def sync_global_resources(
         )
         return False
 
-    skill_consumer_count = sum(len(t.consumers) for t in skill_targets)
+    skill_consumer_count = sum(len(t.consumers) for t in batch.consumers)
     print(
         f"[SUCCESS] Global resources synced successfully "
         f"({len(valid_targets)} skills, 1 instruction source, "

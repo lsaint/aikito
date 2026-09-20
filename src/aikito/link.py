@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -54,6 +54,8 @@ class LinkOperation:
     desired_representation: str = "link"
     requires_parent_creation: bool = False
     is_same_object: bool = False
+    target_kind: str = "managed_entry"
+    resource_name: str = ""
 
 
 def inspect_link_target(
@@ -143,7 +145,7 @@ def inspect_link_target(
     )
 
 
-def plan_link_target(
+def _plan_link_target_impl(
     observed: ObservedLink,
     desired_mode: str = "link",
     *,
@@ -287,7 +289,9 @@ def plan_link_target(
                         rule_id="INV-GLB-05",
                         target_path=target_path,
                         canonical_path=canonical,
-                        reason=f"Agent not detected: {parent}",
+                        reason=f"{resource_name} not detected: {parent}"
+                        if resource_name
+                        else f"Agent not detected: {parent}",
                         expected_representation="missing",
                         desired_representation="link",
                         is_authorized=True,
@@ -502,6 +506,31 @@ def plan_link_target(
         is_authorized=True,
     )
 
+
+def plan_link_target(
+    observed: ObservedLink,
+    desired_mode: str = "link",
+    *,
+    availability_status: str = "installed",
+    parent_exists: bool | None = None,
+    has_state_record: bool = False,
+    is_legacy_container: bool = False,
+    resource_name: str = "",
+) -> LinkOperation:
+    """Evaluate observed link facts against desired state to produce a deterministic LinkOperation."""
+    op = _plan_link_target_impl(
+        observed,
+        desired_mode=desired_mode,
+        availability_status=availability_status,
+        parent_exists=parent_exists,
+        has_state_record=has_state_record,
+        is_legacy_container=is_legacy_container,
+        resource_name=resource_name,
+    )
+    t_kind = "managed_container" if is_legacy_container else observed.target_kind
+    return replace(op, target_kind=t_kind, resource_name=resource_name)
+
+
 @dataclass(frozen=True)
 class LinkExecutionResult:
     """Result of applying a single LinkOperation."""
@@ -523,12 +552,17 @@ def apply_link_operation(
     canonical = op.canonical_path
 
     if op.action in ("NOOP", "SHARED_PATH"):
-        if op.action == "SHARED_PATH" and verbose:
-            print(f"[OK] shared path {target}")
+        if op.action == "SHARED_PATH":
+            if op.target_kind == "consumer_link":
+                print(f"[OK] {op.resource_name} skills: shared path {target}")
+            elif verbose:
+                print(f"[OK] shared path {target}")
+        elif op.target_kind == "consumer_link":
+            print(f"[OK] {op.resource_name} skills: {target} -> {canonical}")
         return LinkExecutionResult(operation=op, success=True, applied=False)
 
     if op.action == "SKIP":
-        if op.reason and verbose:
+        if op.reason:
             print(f"[SKIP] {op.reason}")
         return LinkExecutionResult(operation=op, success=True, applied=False)
 
@@ -587,7 +621,10 @@ def apply_link_operation(
 
         require_symlink_support()
         if dry_run:
-            print(f"[DRY RUN LINK] {canonical} -> {target}")
+            if op.target_kind == "consumer_link":
+                print(f"[DRY RUN LINK] {op.resource_name} skills: {target} -> {canonical}")
+            else:
+                print(f"[DRY RUN LINK] {canonical} -> {target}")
             return LinkExecutionResult(operation=op, success=True, applied=False)
 
         if canonical is None or not canonical.exists():
@@ -616,7 +653,10 @@ def apply_link_operation(
                     applied=False,
                     error_message=f"Failed to create symlink: {target} -> {canonical}",
                 )
-            print(f"[LINK] {target} -> {canonical}")
+            if op.target_kind == "consumer_link":
+                print(f"[LINK] {op.resource_name} skills: {target} -> {canonical}")
+            else:
+                print(f"[LINK] {target} -> {canonical}")
             return LinkExecutionResult(operation=op, success=True, applied=True)
         except OSError as exc:
             return LinkExecutionResult(

@@ -6,12 +6,16 @@ import shutil
 import tempfile
 from pathlib import Path
 from unittest import TestCase
+from unittest.mock import patch
 
-from aikito.agents import Agent, AgentRegistry
+from aikito.agents import Agent, AgentAvailability, AgentRegistry
 from aikito.global_skills import (
     GlobalSkillBatch,
     GlobalSkillBatchPlan,
     build_global_skill_batch,
+    execute_global_skill_consumers,
+    execute_global_skill_entries,
+    execute_global_skills,
     load_global_skills_list,
     plan_global_skills,
 )
@@ -171,3 +175,79 @@ class GlobalSkillBatchTest(TestCase):
         self.assertEqual(plan.container_op.action, "MIGRATE_CONTAINER")
         self.assertEqual(plan.container_op.rule_id, "INV-GLB-04")
         self.assertTrue(plan.container_op.is_authorized)
+
+    def test_execute_consumer_links_creates_link(self) -> None:
+        self.agents_skills.mkdir(parents=True)
+        self.claude_skills.parent.mkdir(parents=True, exist_ok=True)
+
+        batch = build_global_skill_batch(
+            self.workspace, self.home, registry=self.registry
+        )
+        plan = plan_global_skills(batch, self.home)
+
+        success, results = execute_global_skill_consumers(plan)
+        self.assertTrue(success)
+        self.assertTrue(self.claude_skills.is_symlink())
+        self.assertEqual(self.claude_skills.resolve(), self.agents_skills.resolve())
+
+    def test_execute_consumer_links_skips_when_parent_missing(self) -> None:
+        self.agents_skills.mkdir(parents=True)
+        # Parent of claude skills does not exist; agent not installed
+        self.assertFalse(self.claude_skills.parent.exists())
+
+        batch = build_global_skill_batch(
+            self.workspace, self.home, registry=self.registry
+        )
+        with patch(
+            "aikito.global_skills.check_target_availability",
+            return_value=AgentAvailability("not_installed", "mock_not_installed"),
+        ):
+            plan = plan_global_skills(batch, self.home)
+
+        success, results = execute_global_skill_consumers(plan)
+        self.assertTrue(success)
+        self.assertFalse(self.claude_skills.parent.exists())
+        self.assertFalse(self.claude_skills.exists())
+
+    def test_execute_consumer_links_conflict_on_external_symlink_does_not_relink(self) -> None:
+        self.agents_skills.mkdir(parents=True)
+        self.claude_skills.parent.mkdir(parents=True, exist_ok=True)
+        external = self.root / "external-skills"
+        external.mkdir()
+        self.claude_skills.symlink_to(external)
+
+        batch = build_global_skill_batch(
+            self.workspace, self.home, registry=self.registry
+        )
+        plan = plan_global_skills(batch, self.home)
+
+        # Plan detects conflict (INV-GLB-05)
+        self.assertTrue(plan.has_conflicts)
+        # If execution is attempted on conflicting op, it fails and does not unlink/relink
+        success, results = execute_global_skill_consumers(plan)
+        self.assertFalse(success)
+        self.assertTrue(self.claude_skills.is_symlink())
+        self.assertEqual(self.claude_skills.resolve(), external.resolve())
+
+    def test_execute_global_skills_deterministic_pipeline(self) -> None:
+        (self.skills_dir / "my-skill").mkdir()
+        (self.skills_dir / "my-skill" / "SKILL.md").write_text("# My Skill", encoding="utf-8")
+        (self.workspace / "skills.toml").write_text('skills = ["my-skill"]\n', encoding="utf-8")
+        self.claude_skills.parent.mkdir(parents=True, exist_ok=True)
+
+        batch = build_global_skill_batch(
+            self.workspace, self.home, skills=["my-skill"], registry=self.registry
+        )
+        plan = plan_global_skills(batch, self.home)
+
+        success, results = execute_global_skills(plan)
+        self.assertTrue(success)
+        # Container created
+        self.assertTrue(self.agents_skills.is_dir())
+        # Managed entry created
+        entry_link = self.agents_skills / "my-skill"
+        self.assertTrue(entry_link.is_symlink())
+        self.assertEqual(entry_link.resolve(), (self.skills_dir / "my-skill").resolve())
+        # Consumer link created
+        self.assertTrue(self.claude_skills.is_symlink())
+        self.assertEqual(self.claude_skills.resolve(), self.agents_skills.resolve())
