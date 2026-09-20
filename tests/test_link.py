@@ -201,22 +201,38 @@ class PlanLinkTargetTest(TestCase):
             link_points_to_canonical=False,
             resolved_link_target=Path("/other/workspace/foo"),
             canonical_valid=True,
+            target_kind="project_entry",
         )
         op = plan_link_target(obs, desired_mode="absent", resource_name="foo")
         self.assertEqual(op.action, "NOOP")
         self.assertEqual(op.rule_id, "INV-TR-15")
         self.assertTrue(op.is_authorized)
 
-    def test_deselected_matching_dir_preserved_noop(self) -> None:
+    def test_deselected_matching_dir_conflicts_for_global_entry(self) -> None:
         obs = ObservedLink(
             target_path=self.target_path,
             entry_type="dir",
             expected_canonical=self.canonical,
             canonical_valid=True,
+            target_kind="managed_entry",
+            scope="global",
+        )
+        op = plan_link_target(obs, desired_mode="absent", resource_name="foo")
+        self.assertEqual(op.action, "CONFLICT")
+        self.assertEqual(op.rule_id, "INV-GLB-03")
+        self.assertFalse(op.is_authorized)
+
+    def test_deselected_dir_preserved_noop_for_project_entry(self) -> None:
+        obs = ObservedLink(
+            target_path=self.target_path,
+            entry_type="dir",
+            expected_canonical=self.canonical,
+            canonical_valid=True,
+            target_kind="project_entry",
         )
         op = plan_link_target(obs, desired_mode="absent", resource_name="foo")
         self.assertEqual(op.action, "NOOP")
-        self.assertEqual(op.rule_id, "INV-GLB-03")
+        self.assertEqual(op.rule_id, "INV-TR-17")
         self.assertTrue(op.is_authorized)
 
     def test_consumer_link_same_object_disposition(self) -> None:

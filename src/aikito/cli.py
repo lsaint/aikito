@@ -36,6 +36,11 @@ from .bundled_skills import (
 from .conflict import collect_resource_conflicts
 from .diff import collect_drift_diffs, render_drift_diffs
 from .doctor import run_doctor, run_doctor_fixes
+from .global_skills import (
+    build_global_skill_batch,
+    execute_global_skill_entries,
+    plan_global_skills,
+)
 from .init import init_project, init_workspace, is_recognized_workspace
 from .maintain import MemoryMaintenanceError, run_memory_maintenance
 from .resolve import (
@@ -241,51 +246,6 @@ def sync_global_resources(
         print("[ERROR] Global synchronization aborted.", file=sys.stderr)
         return False
 
-    # A legacy top-level link is safe to replace only when it points to Aikito.
-    legacy_skills_link = agents_skills_dir.is_symlink()
-    if legacy_skills_link:
-        if not agents_skills_dir.resolve(strict=False).is_relative_to(
-            (aikito_dir / "skills").resolve()
-        ):
-            print(
-                f"[CONFLICT] Global skills path points outside Aikito: "
-                f"{agents_skills_dir}",
-                file=sys.stderr,
-            )
-            return False
-        print(
-            f"[INFO] Replacing old top-level symlink at {agents_skills_dir} with directory"
-        )
-        if not dry_run:
-            agents_skills_dir.unlink()
-
-    if not dry_run:
-        ensure_dir(agents_skills_dir)
-
-    valid_targets = {str(skill_name) for skill_name in skills}
-    cleanup_paths: tuple[Path, ...] = ()
-    cleanup_conflicts: tuple[Path, ...] = ()
-    if not legacy_skills_link:
-        cleanup_plan = plan_runtime_cleanup(
-            agents_skills_dir,
-            valid_targets,
-            (aikito_dir / "skills",),
-            allow_matching_copies=True,
-        )
-        cleanup_paths = cleanup_plan.cleanup
-        cleanup_conflicts = cleanup_plan.conflicts
-    selected_conflicts = find_selected_runtime_conflicts(
-        agents_skills_dir,
-        valid_targets,
-        aikito_dir / "skills",
-        allow_drifted_copies=False,
-    )
-    all_conflicts = (*cleanup_conflicts, *selected_conflicts)
-    if all_conflicts:
-        for path in all_conflicts:
-            print(f"[CONFLICT] Unmanaged global skill item: {path}", file=sys.stderr)
-        print("[ERROR] Global synchronization aborted.", file=sys.stderr)
-        return False
     try:
         if not dry_run:
             with SkillWriterLock(home):
@@ -299,20 +259,45 @@ def sync_global_resources(
     except BundledSkillRefreshError as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
         return False
-    apply_runtime_cleanup(cleanup_paths, dry_run)
 
-    skill_results: list[bool] = []
-    for skill_name in skills:
-        source = aikito_dir / "skills" / skill_name
-        target = agents_skills_dir / skill_name
-        if dry_run and skill_name in refreshed_bundled and not source.exists():
-            print(f"[DRY RUN LINK] {source} -> {target}")
-            skill_results.append(True)
-            continue
-        skill_results.append(
-            sync_resource(source, target, mode="link", dry_run=dry_run)
-        )
-    if not all(skill_results):
+    try:
+        agents = load_agents(aikito_dir, home)
+    except MCPConfigError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        return False
+    valid_targets = tuple(str(skill_name) for skill_name in skills)
+    registry = AgentRegistry(agents)
+    batch = build_global_skill_batch(
+        aikito_dir,
+        home,
+        skills=skills,
+        registry=registry,
+        container_path=agents_skills_dir,
+    )
+    plan = plan_global_skills(
+        batch, home, dry_run=dry_run, refreshed_bundled=refreshed_bundled
+    )
+
+    entry_conflicts = [
+        op for op in (plan.container_op, *plan.entry_ops) if op.action == "CONFLICT"
+    ]
+    if entry_conflicts:
+        for op in entry_conflicts:
+            if op.target_path == agents_skills_dir and plan.container_op.action == "CONFLICT":
+                print(
+                    f"[CONFLICT] Global skills path points outside Aikito: "
+                    f"{agents_skills_dir}",
+                    file=sys.stderr,
+                )
+            else:
+                print(f"[CONFLICT] Unmanaged global skill item: {op.target_path}", file=sys.stderr)
+        print("[ERROR] Global synchronization aborted.", file=sys.stderr)
+        return False
+
+    success, entry_results = execute_global_skill_entries(
+        plan, dry_run=dry_run
+    )
+    if not success:
         print("[ERROR] Global skill synchronization aborted.", file=sys.stderr)
         return False
 
@@ -323,12 +308,6 @@ def sync_global_resources(
         )
         return False
 
-    try:
-        agents = load_agents(aikito_dir, home)
-    except MCPConfigError as exc:
-        print(f"[ERROR] {exc}", file=sys.stderr)
-        return False
-
     legacy_grok_instructions = Path.home() / ".grok" / "AGENTS.md"
     if (
         "grok" in agents
@@ -337,8 +316,6 @@ def sync_global_resources(
         == global_instruction_source.resolve(strict=False)
     ):
         apply_runtime_cleanup((legacy_grok_instructions,), dry_run)
-
-    registry = AgentRegistry(agents)
     instruction_targets = resolve_targets(
         "global_instructions", aikito_dir, home, registry=registry
     )

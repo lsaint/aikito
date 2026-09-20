@@ -9,7 +9,14 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from .agents import AgentRegistry, Target, check_target_availability, resolve_targets
-from .link import LinkOperation, ObservedLink, inspect_link_target, plan_link_target
+from .link import (
+    LinkExecutionResult,
+    LinkOperation,
+    ObservedLink,
+    apply_link_operation,
+    inspect_link_target,
+    plan_link_target,
+)
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -118,13 +125,15 @@ def build_global_skill_batch(
     *,
     skills: Sequence[str] | None = None,
     registry: AgentRegistry | None = None,
+    container_path: Path | None = None,
 ) -> GlobalSkillBatch:
     """Construct GlobalSkillBatch from workspace configuration and host filesystem facts."""
     if skills is None:
         skills = load_global_skills_list(aikito_dir)
     selected_set = set(skills)
 
-    container_path = home / ".agents" / "skills"
+    if container_path is None:
+        container_path = home / ".agents" / "skills"
     canonical_skills_root = aikito_dir / "skills"
 
     container_target = Target(
@@ -190,6 +199,7 @@ def plan_global_skills(
         batch.container.path,
         batch.container.canonical_source,
         target_kind="managed_container",
+        scope="global",
     )
     container_op = plan_link_target(
         container_obs,
@@ -221,6 +231,7 @@ def plan_global_skills(
             canonical_valid=canonical_valid,
             canonical_error=canonical_error,
             target_kind="managed_entry",
+            scope="global",
         )
         op = plan_link_target(
             obs,
@@ -237,6 +248,7 @@ def plan_global_skills(
             canonical_path,
             canonical_valid=True,
             target_kind="managed_entry",
+            scope="global",
         )
         op = plan_link_target(
             obs,
@@ -256,6 +268,7 @@ def plan_global_skills(
             c_target.path,
             c_target.canonical_source,
             target_kind="consumer_link",
+            scope="global",
             is_same_object=c_target.is_same_object,
         )
         op = plan_link_target(
@@ -273,3 +286,41 @@ def plan_global_skills(
         entry_ops=tuple(entry_ops),
         consumer_ops=tuple(consumer_ops),
     )
+
+
+def execute_global_skill_entries(
+    plan: GlobalSkillBatchPlan,
+    *,
+    dry_run: bool = False,
+    verbose: bool = False,
+) -> tuple[bool, tuple[LinkExecutionResult, ...]]:
+    """Execute the container and managed entry operations of a GlobalSkillBatchPlan.
+
+    Executes container migration/creation first, followed by stale cleanup,
+    and finally selected link operations. Halts immediately upon any failure.
+    """
+    results: list[LinkExecutionResult] = []
+
+    # 1. Container operation
+    res = apply_link_operation(plan.container_op, dry_run=dry_run, verbose=verbose)
+    results.append(res)
+    if not res.success:
+        return False, tuple(results)
+
+    # 2. Stale cleanups first
+    stale_ops = [op for op in plan.entry_ops if op.desired_representation == "absent"]
+    for op in stale_ops:
+        res = apply_link_operation(op, dry_run=dry_run, verbose=verbose)
+        results.append(res)
+        if not res.success:
+            return False, tuple(results)
+
+    # 3. Selected entry operations
+    selected_ops = [op for op in plan.entry_ops if op.desired_representation == "link"]
+    for op in selected_ops:
+        res = apply_link_operation(op, dry_run=dry_run, verbose=verbose)
+        results.append(res)
+        if not res.success:
+            return False, tuple(results)
+
+    return True, tuple(results)

@@ -134,8 +134,8 @@ class GlobalSkillBatchTest(TestCase):
         self.assertEqual(stale_ops["stale-skill"].action, "UNLINK")
         self.assertEqual(stale_ops["stale-skill"].rule_id, "INV-TR-14")
 
-        # Stale normal directory should be PRESERVED (NOOP under INV-GLB-03)
-        self.assertEqual(stale_ops["matching-dir"].action, "NOOP")
+        # Stale normal directory should be PRESERVED as CONFLICT under INV-GLB-03
+        self.assertEqual(stale_ops["matching-dir"].action, "CONFLICT")
         self.assertEqual(stale_ops["matching-dir"].rule_id, "INV-GLB-03")
 
     def test_plan_wrong_consumer_symlink_reports_conflict(self) -> None:

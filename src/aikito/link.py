@@ -14,7 +14,11 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from .compat import _resolve_symlink_target
+from .compat import (
+    _resolve_symlink_target,
+    require_symlink_support,
+    safe_symlink,
+)
 
 
 @dataclass(frozen=True)
@@ -32,6 +36,7 @@ class ObservedLink:
     is_same_object: bool = False
     target_lstat: Any = None
     target_kind: str = "managed_entry"  # "managed_entry", "consumer_link", "managed_container"
+    scope: str = "project"  # "global", "project"
 
 
 @dataclass(frozen=True)
@@ -58,6 +63,7 @@ def inspect_link_target(
     canonical_valid: bool = True,
     canonical_error: str | None = None,
     target_kind: str = "managed_entry",
+    scope: str = "project",
     is_same_object: bool = False,
 ) -> ObservedLink:
     """Inspect the live filesystem entry at target_path without side effects."""
@@ -133,6 +139,7 @@ def inspect_link_target(
         is_same_object=is_same_object,
         target_lstat=target_lstat,
         target_kind=target_kind,
+        scope=scope,
     )
 
 
@@ -151,8 +158,8 @@ def plan_link_target(
     canonical = observed.expected_canonical
     res_label = f" for '{resource_name}'" if resource_name else ""
 
-    # 1. Legacy container migration
-    if is_legacy_container:
+    # 1. Container disposition
+    if is_legacy_container or observed.target_kind == "managed_container":
         if observed.entry_type == "symlink":
             if observed.link_points_to_canonical:
                 return LinkOperation(
@@ -407,6 +414,18 @@ def plan_link_target(
             or observed.resolved_link_target
             or "unknown"
         )
+        if observed.scope == "global":
+            return LinkOperation(
+                action="CONFLICT",
+                rule_id="INV-GLB-03",
+                target_path=target_path,
+                canonical_path=canonical,
+                reason=f"Unmanaged global skill item: {target_path}",
+                finding=f"Unmanaged global skill item: {target_path}",
+                expected_representation="symlink",
+                desired_representation="absent",
+                is_authorized=False,
+            )
         return LinkOperation(
             action="NOOP",
             rule_id="INV-TR-15",
@@ -422,9 +441,21 @@ def plan_link_target(
         )
 
     if observed.entry_type == "dir":
+        if observed.scope == "global":
+            return LinkOperation(
+                action="CONFLICT",
+                rule_id="INV-GLB-03",
+                target_path=target_path,
+                canonical_path=canonical,
+                reason=f"Unmanaged global skill item: {target_path}",
+                finding=f"Unmanaged global skill item: {target_path}",
+                expected_representation="dir",
+                desired_representation="absent",
+                is_authorized=False,
+            )
         return LinkOperation(
             action="NOOP",
-            rule_id="INV-GLB-03",
+            rule_id="INV-TR-17",
             target_path=target_path,
             canonical_path=canonical,
             reason=f"Preserve unmanaged directory for deselected skill '{resource_name}'"
@@ -438,7 +469,7 @@ def plan_link_target(
     if observed.entry_type == "missing":
         return LinkOperation(
             action="NOOP",
-            rule_id="INV-GLB-03",
+            rule_id="INV-GLB-03" if observed.scope == "global" else "INV-TR-17",
             target_path=target_path,
             canonical_path=canonical,
             reason=f"Entry is already absent{res_label}",
@@ -447,15 +478,208 @@ def plan_link_target(
             is_authorized=True,
         )
 
+    if observed.scope == "global":
+        return LinkOperation(
+            action="CONFLICT",
+            rule_id="INV-GLB-03",
+            target_path=target_path,
+            canonical_path=canonical,
+            reason=f"Unmanaged global skill item: {target_path}",
+            finding=f"Unmanaged global skill item: {target_path}",
+            expected_representation=observed.entry_type,
+            desired_representation="absent",
+            is_authorized=False,
+        )
+
     return LinkOperation(
         action="NOOP",
-        rule_id="INV-GLB-03",
+        rule_id="INV-TR-15",
         target_path=target_path,
         canonical_path=canonical,
         reason=f"Preserve unmanaged entry of type {observed.entry_type}{res_label}",
         expected_representation=observed.entry_type,
         desired_representation="absent",
         is_authorized=True,
+    )
+
+@dataclass(frozen=True)
+class LinkExecutionResult:
+    """Result of applying a single LinkOperation."""
+
+    operation: LinkOperation
+    success: bool
+    applied: bool  # True if filesystem was actually mutated
+    error_message: str | None = None
+
+
+def apply_link_operation(
+    op: LinkOperation,
+    *,
+    dry_run: bool = False,
+    verbose: bool = False,
+) -> LinkExecutionResult:
+    """Apply a planned LinkOperation with strict preflight verification."""
+    target = op.target_path
+    canonical = op.canonical_path
+
+    if op.action in ("NOOP", "SHARED_PATH"):
+        if op.action == "SHARED_PATH" and verbose:
+            print(f"[OK] shared path {target}")
+        return LinkExecutionResult(operation=op, success=True, applied=False)
+
+    if op.action == "SKIP":
+        if op.reason and verbose:
+            print(f"[SKIP] {op.reason}")
+        return LinkExecutionResult(operation=op, success=True, applied=False)
+
+    if op.action == "CONFLICT":
+        return LinkExecutionResult(
+            operation=op, success=False, applied=False, error_message=op.reason
+        )
+
+    if op.action == "MIGRATE_CONTAINER":
+        # Preflight: must still be a symlink pointing to canonical root
+        if not target.is_symlink():
+            return LinkExecutionResult(
+                operation=op,
+                success=False,
+                applied=False,
+                error_message=f"Preflight failed: container is no longer a symlink: {target}",
+            )
+        resolved = _resolve_symlink_target(target)
+        if canonical is not None and resolved is not None:
+            if os.path.normcase(str(resolved.resolve(strict=False))) != os.path.normcase(
+                str(canonical.resolve(strict=False))
+            ):
+                return LinkExecutionResult(
+                    operation=op,
+                    success=False,
+                    applied=False,
+                    error_message=f"Preflight failed: container symlink changed destination: {target} -> {resolved}",
+                )
+        print(f"[INFO] Replacing old top-level symlink at {target} with directory")
+        if not dry_run:
+            try:
+                target.unlink()
+                target.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                return LinkExecutionResult(
+                    operation=op,
+                    success=False,
+                    applied=False,
+                    error_message=f"Failed to migrate container {target}: {exc}",
+                )
+        return LinkExecutionResult(operation=op, success=True, applied=not dry_run)
+
+    if op.action == "CREATE":
+        if op.desired_representation == "dir":
+            if not dry_run:
+                try:
+                    target.mkdir(parents=True, exist_ok=True)
+                except OSError as exc:
+                    return LinkExecutionResult(
+                        operation=op,
+                        success=False,
+                        applied=False,
+                        error_message=f"Failed to create directory {target}: {exc}",
+                    )
+            return LinkExecutionResult(operation=op, success=True, applied=not dry_run)
+
+        require_symlink_support()
+        if dry_run:
+            print(f"[DRY RUN LINK] {canonical} -> {target}")
+            return LinkExecutionResult(operation=op, success=True, applied=False)
+
+        if canonical is None or not canonical.exists():
+            return LinkExecutionResult(
+                operation=op,
+                success=False,
+                applied=False,
+                error_message=f"Preflight failed: canonical source does not exist: {canonical}",
+            )
+        # Preflight: target must not exist
+        if target.is_symlink() or target.exists():
+            return LinkExecutionResult(
+                operation=op,
+                success=False,
+                applied=False,
+                error_message=f"Preflight failed: target already exists: {target}",
+            )
+
+        try:
+            if op.requires_parent_creation:
+                target.parent.mkdir(parents=True, exist_ok=True)
+            if not safe_symlink(canonical, target):
+                return LinkExecutionResult(
+                    operation=op,
+                    success=False,
+                    applied=False,
+                    error_message=f"Failed to create symlink: {target} -> {canonical}",
+                )
+            print(f"[LINK] {target} -> {canonical}")
+            return LinkExecutionResult(operation=op, success=True, applied=True)
+        except OSError as exc:
+            return LinkExecutionResult(
+                operation=op,
+                success=False,
+                applied=False,
+                error_message=f"Failed to create symlink: {exc}",
+            )
+
+    if op.action == "UNLINK":
+        # Preflight: must still be a symlink pointing to canonical
+        if not target.is_symlink():
+            return LinkExecutionResult(
+                operation=op,
+                success=False,
+                applied=False,
+                error_message=f"Preflight failed: target is not a symlink: {target}",
+            )
+        # Check ownership evidence before deleting
+        raw_val = ""
+        try:
+            raw_val = os.readlink(target)
+        except OSError:
+            pass
+        resolved = _resolve_symlink_target(target)
+        owned = False
+        if canonical is not None:
+            canon_norm = os.path.normcase(str(canonical.resolve(strict=False)))
+            if resolved is not None and os.path.normcase(str(resolved.resolve(strict=False))) == canon_norm:
+                owned = True
+            elif raw_val:
+                raw_path = target.parent / raw_val if not os.path.isabs(raw_val) else Path(raw_val)
+                if os.path.normcase(str(raw_path.resolve(strict=False))) == canon_norm:
+                    owned = True
+        if not owned:
+            return LinkExecutionResult(
+                operation=op,
+                success=False,
+                applied=False,
+                error_message=f"Preflight failed: link {target} no longer points to canonical {canonical}",
+            )
+
+        if dry_run:
+            print(f"[DRY RUN CLEANUP] Would remove stale managed item: {target}")
+            return LinkExecutionResult(operation=op, success=True, applied=False)
+
+        try:
+            target.unlink()
+            print(f"[CLEANUP] Removed stale managed item: {target}")
+            return LinkExecutionResult(operation=op, success=True, applied=True)
+        except OSError as exc:
+            return LinkExecutionResult(
+                operation=op,
+                success=False,
+                applied=False,
+                error_message=f"Failed to remove stale link {target}: {exc}",
+            )
+
+    return LinkExecutionResult(
+        operation=op,
+        success=False,
+        applied=False,
+        error_message=f"Unknown link action: {op.action}",
     )
 
 
