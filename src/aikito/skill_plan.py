@@ -11,7 +11,26 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
+from .link import LinkOperation, ObservedLink, plan_link_target
 from .skill_state import SkillStateRecord
+
+
+def _skill_op_from_link_op(
+    link_op: LinkOperation,
+    target: SkillTarget,
+    exp_gen: int | None = None,
+) -> SkillOperation:
+    return SkillOperation(
+        action=link_op.action,
+        rule_id=link_op.rule_id,
+        target=target,
+        reason=link_op.reason,
+        finding=link_op.finding,
+        is_authorized=link_op.is_authorized,
+        expected_representation=link_op.expected_representation,
+        desired_representation=link_op.desired_representation,
+        expected_generation=exp_gen,
+    )
 
 
 @dataclass(frozen=True)
@@ -166,44 +185,6 @@ def plan_single_skill(
 
         # Mode: Link
         if desired.mode == "link":
-            if observed.entry_type == "missing":
-                return SkillOperation(
-                    action="CREATE",
-                    rule_id="INV-TR-01",
-                    target=target,
-                    reason=f"Create symbolic link for skill '{target.skill_name}'",
-                    expected_representation="missing",
-                    desired_representation="link",
-                    expected_generation=exp_gen,
-                    is_authorized=True,
-                )
-            if observed.entry_type == "symlink":
-                if observed.link_points_to_canonical:
-                    return SkillOperation(
-                        action="NOOP",
-                        rule_id="INV-TR-03",
-                        target=target,
-                        reason=f"Symbolic link for skill '{target.skill_name}' already points to canonical resource",
-                        expected_representation="link",
-                        desired_representation="link",
-                        is_authorized=True,
-                    )
-                rule = "INV-TR-06" if observed.state_record else "INV-TR-05"
-                dest = (
-                    observed.raw_link_target
-                    or observed.resolved_link_target
-                    or "unknown"
-                )
-                return SkillOperation(
-                    action="CONFLICT",
-                    rule_id=rule,
-                    target=target,
-                    reason=f"Symbolic link points to unauthorized destination: {dest}",
-                    finding=f"Symbolic link points to unauthorized destination: {target.target_path} -> {dest}",
-                    expected_representation="symlink",
-                    desired_representation="link",
-                    is_authorized=False,
-                )
             if observed.entry_type == "dir":
                 state = observed.state_record
                 if (
@@ -233,16 +214,25 @@ def plan_single_skill(
                     desired_representation="link",
                     is_authorized=False,
                 )
-            return SkillOperation(
-                action="CONFLICT",
-                rule_id="INV-TR-13",
-                target=target,
-                reason=f"Unsupported target filesystem entry for skill '{target.skill_name}'",
-                finding=f"Unsupported target filesystem entry: {target.target_path}",
-                expected_representation="unsupported",
-                desired_representation="link",
-                is_authorized=False,
+            observed_link = ObservedLink(
+                target_path=target.target_path,
+                entry_type=observed.entry_type,
+                expected_canonical=desired.canonical_path,
+                canonical_valid=observed.canonical_valid,
+                canonical_error=observed.canonical_error,
+                raw_link_target=observed.raw_link_target,
+                resolved_link_target=observed.resolved_link_target,
+                link_points_to_canonical=observed.link_points_to_canonical,
+                target_lstat=observed.target_lstat,
+                target_kind="managed_entry",
             )
+            link_op = plan_link_target(
+                observed=observed_link,
+                desired_mode="link",
+                has_state_record=bool(observed.state_record),
+                resource_name=target.skill_name,
+            )
+            return _skill_op_from_link_op(link_op, target, exp_gen)
 
         # Mode: Copy
         if observed.state_error:
@@ -496,26 +486,24 @@ def plan_single_skill(
 
     # 2. Deselected skills: mode == "absent"
     if observed.entry_type == "symlink":
-        if observed.link_points_to_canonical:
-            return SkillOperation(
-                action="UNLINK",
-                rule_id="INV-TR-14",
-                target=target,
-                reason=f"Remove deselected symbolic link for skill '{target.skill_name}'",
-                expected_representation="link",
-                desired_representation="absent",
-                expected_generation=exp_gen,
-                is_authorized=True,
-            )
-        return SkillOperation(
-            action="NOOP",
-            rule_id="INV-TR-15",
-            target=target,
-            reason=f"Preserve unmanaged symbolic link for deselected skill '{target.skill_name}'",
-            expected_representation="symlink",
-            desired_representation="absent",
-            is_authorized=True,
+        observed_link = ObservedLink(
+            target_path=target.target_path,
+            entry_type=observed.entry_type,
+            expected_canonical=desired.canonical_path,
+            canonical_valid=observed.canonical_valid,
+            canonical_error=observed.canonical_error,
+            raw_link_target=observed.raw_link_target,
+            resolved_link_target=observed.resolved_link_target,
+            link_points_to_canonical=observed.link_points_to_canonical,
+            target_lstat=observed.target_lstat,
+            target_kind="managed_entry",
         )
+        link_op = plan_link_target(
+            observed=observed_link,
+            desired_mode="absent",
+            resource_name=target.skill_name,
+        )
+        return _skill_op_from_link_op(link_op, target, exp_gen)
     if observed.entry_type == "dir":
         state = observed.state_record
         if state and state.lifecycle == "active":
