@@ -496,7 +496,7 @@ def plan_single_skill(
 
     # 2. Deselected skills: mode == "absent"
     if observed.entry_type == "symlink":
-        if observed.link_points_to_canonical or observed.link_points_within_canonical:
+        if observed.link_points_to_canonical:
             return SkillOperation(
                 action="UNLINK",
                 rule_id="INV-TR-14",

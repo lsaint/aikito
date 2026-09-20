@@ -24,6 +24,8 @@ from aikito.project import (
     collect_project_skill_states,
     collect_project_summaries,
     collect_single_project_skill_states,
+    find_selected_runtime_conflicts,
+    plan_runtime_cleanup,
     resolve_project_binding,
 )
 from aikito.render import render_project_detail, render_projects_table
@@ -1099,6 +1101,105 @@ class ProjectSummaryTest(unittest.TestCase):
                 # With claude installed, sync_project_path provisions .claude/CLAUDE.md
                 sync_project_path(workspace, "demo", project, {"skills": []}, root)
                 self.assertTrue((project / ".claude" / "CLAUDE.md").is_symlink())
+
+
+class ExactSymlinkOwnershipTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary_directory.name).resolve()
+        self.ws = (self.root / "workspace").resolve()
+        self.co = (self.root / "checkout").resolve()
+        self.ws.mkdir()
+        self.co.mkdir()
+        self.canonical_skills = self.ws / "skills"
+        self.canonical_skills.mkdir()
+        self.canonical_mem = self.ws / "memory"
+        self.canonical_mem.mkdir()
+        self.runtime_skills = self.co / ".agents" / "skills"
+        self.runtime_skills.mkdir(parents=True)
+        self.runtime_mem = self.co / ".agents" / "memory"
+        self.runtime_mem.mkdir(parents=True)
+
+        # Create two canonical skills
+        (self.canonical_skills / "skill-a").mkdir()
+        (self.canonical_skills / "skill-a" / "SKILL.md").write_text("# A\n", encoding="utf-8")
+        (self.canonical_skills / "skill-b").mkdir()
+        (self.canonical_skills / "skill-b" / "SKILL.md").write_text("# B\n", encoding="utf-8")
+
+        # Create two canonical memory files
+        (self.canonical_mem / "notes.md").write_text("# Notes\n", encoding="utf-8")
+        (self.canonical_mem / "other.md").write_text("# Other\n", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.temporary_directory.cleanup()
+
+    def test_deselected_skill_symlink_pointing_to_another_skill_is_preserved_as_conflict(self) -> None:
+        # runtime/skill-a points to canonical/skill-b
+        target = self.runtime_skills / "skill-a"
+        target.symlink_to(self.canonical_skills / "skill-b")
+
+        # Deselected: selected_names does not include "skill-a"
+        plan = plan_runtime_cleanup(
+            self.runtime_skills,
+            selected_names=set(),
+            canonical_roots=(self.canonical_skills,),
+            allow_matching_copies=True,
+        )
+        self.assertEqual(plan.cleanup, ())
+        self.assertEqual(plan.conflicts, (target,))
+
+    def test_deselected_broken_symlink_pointing_to_another_skill_is_preserved(self) -> None:
+        target = self.runtime_skills / "skill-a"
+        # Points to a non-existent skill-c in canonical root
+        target.symlink_to(self.canonical_skills / "skill-c")
+
+        plan = plan_runtime_cleanup(
+            self.runtime_skills,
+            selected_names=set(),
+            canonical_roots=(self.canonical_skills,),
+            allow_matching_copies=True,
+        )
+        self.assertEqual(plan.cleanup, ())
+        self.assertEqual(plan.conflicts, (target,))
+
+    def test_deselected_skill_symlink_pointing_to_own_canonical_is_cleaned_up(self) -> None:
+        target = self.runtime_skills / "skill-a"
+        target.symlink_to(self.canonical_skills / "skill-a")
+
+        plan = plan_runtime_cleanup(
+            self.runtime_skills,
+            selected_names=set(),
+            canonical_roots=(self.canonical_skills,),
+            allow_matching_copies=True,
+        )
+        self.assertEqual(plan.cleanup, (target,))
+        self.assertEqual(plan.conflicts, ())
+
+    def test_selected_skill_symlink_pointing_to_another_skill_is_conflict(self) -> None:
+        target = self.runtime_skills / "skill-a"
+        target.symlink_to(self.canonical_skills / "skill-b")
+
+        conflicts = find_selected_runtime_conflicts(
+            self.runtime_skills,
+            selected_names={"skill-a"},
+            canonical_root=self.canonical_skills,
+            allow_drifted_copies=False,
+        )
+        self.assertEqual(conflicts, (target,))
+
+    def test_deselected_memory_symlink_pointing_to_another_memory_is_preserved(self) -> None:
+        # runtime/notes.md points to canonical/other.md
+        target = self.runtime_mem / "notes.md"
+        target.symlink_to(self.canonical_mem / "other.md")
+
+        plan = plan_runtime_cleanup(
+            self.runtime_mem,
+            selected_names=set(),
+            canonical_roots=(self.canonical_mem,),
+            allow_matching_copies=False,
+        )
+        self.assertEqual(plan.cleanup, ())
+        self.assertEqual(plan.conflicts, (target,))
 
 
 if __name__ == "__main__":

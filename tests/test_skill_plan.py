@@ -377,3 +377,34 @@ class SkillPlanTransitionTests(TestCase):
         self.assertEqual(op_drift_c_to_l.rule_id, "INV-TR-20")
         self.assertEqual(op_drift_c_to_l.action, "CONFLICT")
         self.assertFalse(op_drift_c_to_l.is_authorized)
+
+    def test_deselected_symlink_pointing_to_another_skill_is_preserved(self) -> None:
+        desired_absent = DesiredSkill("foo", "absent", self.canon)
+        # Symlink points to another skill in canonical root, but not this skill's canonical
+        obs = ObservedSkill(
+            target=self.target,
+            entry_type="symlink",
+            link_points_to_canonical=False,
+            link_points_within_canonical=True,
+            canonical_valid=True,
+        )
+        op = plan_single_skill(self.target, desired_absent, obs)
+        self.assertEqual(op.rule_id, "INV-TR-15")
+        self.assertEqual(op.action, "NOOP")
+        self.assertEqual(op.desired_representation, "absent")
+        self.assertIn("Preserve unmanaged symbolic link", op.reason)
+
+    def test_selected_symlink_pointing_to_another_skill_is_conflict(self) -> None:
+        desired_link = DesiredSkill("foo", "link", self.canon)
+        obs = ObservedSkill(
+            target=self.target,
+            entry_type="symlink",
+            link_points_to_canonical=False,
+            link_points_within_canonical=True,
+            canonical_valid=True,
+            raw_link_target=str(self.ws / "skills" / "bar"),
+        )
+        op = plan_single_skill(self.target, desired_link, obs)
+        self.assertEqual(op.rule_id, "INV-TR-05")
+        self.assertEqual(op.action, "CONFLICT")
+        self.assertFalse(op.is_authorized)

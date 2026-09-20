@@ -478,17 +478,16 @@ def _resolve_symlink_target(path: Path) -> Path:
     return resolved_curr
 
 
-def _symlink_points_within(path: Path, roots: tuple[Path, ...]) -> bool:
+def _symlink_points_within(path: Path, expected_targets: tuple[Path, ...]) -> bool:
+    """Check if a symlink precisely resolves to one of the expected canonical target paths."""
     if not path.is_symlink():
         return False
     target = _resolve_symlink_target(path)
     fallback = path.resolve(strict=False)
-    for root in roots:
+    for expected in expected_targets:
         try:
-            resolved_root = root.resolve()
-            if target.is_relative_to(resolved_root) or fallback.is_relative_to(
-                resolved_root
-            ):
+            resolved_expected = expected.resolve(strict=False)
+            if target == resolved_expected or fallback == resolved_expected:
                 return True
         except (ValueError, OSError):
             continue
@@ -511,7 +510,8 @@ def plan_runtime_cleanup(
     for item in sorted(runtime_dir.iterdir()):
         if item.name in selected_names:
             continue
-        owned = _symlink_points_within(item, canonical_roots)
+        expected_targets = tuple(root / item.name for root in canonical_roots)
+        owned = _symlink_points_within(item, expected_targets)
         if not owned and allow_matching_copies and item.is_dir():
             canonical = canonical_roots[0] / item.name
             if canonical.is_dir():
@@ -534,7 +534,7 @@ def find_selected_runtime_conflicts(
         target = runtime_dir / name
         if not target.exists() and not target.is_symlink():
             continue
-        if _symlink_points_within(target, (canonical_root,)):
+        if _symlink_points_within(target, (canonical_root / name,)):
             continue
         if target.is_dir():
             if allow_drifted_copies:
