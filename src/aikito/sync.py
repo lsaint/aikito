@@ -11,6 +11,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from .agents import check_agent_availability
 from .compat import require_symlink_support, safe_symlink
 
 
@@ -126,12 +127,20 @@ def sync_global_entry(
     resource_name: str,
     dry_run: bool = False,
     installed: bool | None = None,
+    home: Path | None = None,
 ) -> bool:
     """Ensures an agent runtime entry points to its canonical global resource.
 
     Existing regular files and directories are never overwritten because they
     may contain unmanaged user resources.
     """
+    if installed is None and home is not None:
+        avail = check_agent_availability(agent_name, home, target_path=target)
+        if avail.is_installed:
+            installed = True
+        elif avail.is_not_installed:
+            installed = False
+
     if not target.parent.exists():
         if installed is True:
             if not dry_run:

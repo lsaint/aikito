@@ -36,6 +36,7 @@ from .conflict import (
     find_conflict_marker_lines,
     has_any_conflict_markers as _has_conflict_markers,
 )
+from .agents import check_agent_availability
 from .diagnostics import Finding, FindingAction
 from .link import SymlinkVerdict, classify_symlink
 from .mcp import (
@@ -161,7 +162,8 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
         if definition.instruction_path is None:
             continue
         target = definition.instruction_path
-        if not target.parent.exists():
+        avail = check_agent_availability(definition, home, target_path=target)
+        if not avail.is_installed:
             continue  # agent not installed — not a symlink issue
         instr_total += 1
         verdict = classify_symlink(target, global_instruction_source)
@@ -223,7 +225,8 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
         if definition.skills_path is None:
             continue
         skills_dir = definition.skills_path
-        if not skills_dir.parent.exists():
+        avail = check_agent_availability(definition, home, target_path=skills_dir)
+        if not avail.is_installed:
             continue
         for skill_name in global_skills:
             skill_target = skills_dir / skill_name
@@ -274,7 +277,7 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
         findings.append(
             _ok(
                 f"Global skills OK ({len(global_skills)} skills, "
-                f"{sum(1 for d in agents.values() if d.skills_path and d.skills_path.parent.exists())} agents)"
+                f"{sum(1 for d in agents.values() if d.skills_path and check_agent_availability(d, home, target_path=d.skills_path).is_installed)} agents)"
             )
         )
 

@@ -24,6 +24,14 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from .agents import (
+    AGENT_INSTALL_MARKERS,
+    Agent,
+    AgentAvailability,
+    AgentRegistry,
+    check_agent_availability,
+    is_agent_installed,
+)
 from .compat import resolve_executable, secure_file_permissions
 
 STATE_VERSION = 1
@@ -219,35 +227,6 @@ class Token:
         return json.loads(self.text) if self.kind == "string" else self.text
 
 
-# Canonical "is this Agent installed on this machine" registry. Shared by
-# init detection, doctor diagnostics, and synchronization gating. A value is
-# (display_name, binary_on_path, home-relative marker directory); either
-# signal counts as installed.
-AGENT_INSTALL_MARKERS = {
-    "codex": ("Codex", "codex", Path(".codex")),
-    "claude-code": ("Claude Code", "claude", Path(".claude")),
-    "agy": ("Antigravity CLI", "agy", Path(".gemini/config")),
-    "opencode": ("OpenCode", "opencode", Path(".config/opencode")),
-    "github-copilot": ("GitHub Copilot CLI", "copilot", Path(".copilot")),
-    "dsh": ("DeepSeek Harness", "dsh", Path(".dsh")),
-    "grok": ("Grok Build", "grok", Path(".grok")),
-    "pi": ("Pi", "pi", Path(".pi")),
-}
-
-
-def is_agent_installed(agent_name: str, home: Path) -> bool | None:
-    """Return the canonical install state for a bundled agent.
-
-    None means the agent is not in AGENT_INSTALL_MARKERS (a custom registry
-    entry), so callers should fall back to their own heuristic.
-    """
-    marker = AGENT_INSTALL_MARKERS.get(agent_name)
-    if marker is None:
-        return None
-    _display_name, binary, relative_marker = marker
-    return bool(shutil.which(binary)) or (home / relative_marker).exists()
-
-
 @dataclass(frozen=True)
 class AgentSpec:
     agent: str
@@ -270,20 +249,15 @@ class AgentSpec:
 
 
 @dataclass(frozen=True)
-class AgentDefinition:
+class AgentDefinition(Agent):
     """Static identity and paths for one agent, loaded from agents.toml."""
 
-    name: str
-    display_name: str
-    instruction_path: Path | None
-    project_instruction_path: Path | None
-    skills_path: Path | None
-    mcp_config_path: Path | None
-    mcp_config_format: str
-    mcp_name_style: str
-    mcp_reason: str
-    mcp_live_command: tuple[str, ...]
-    mcp_auth_command: tuple[str, ...]
+    mcp_config_path: Path | None = None
+    mcp_config_format: str = "unsupported"
+    mcp_name_style: str = "verbatim"
+    mcp_reason: str = ""
+    mcp_live_command: tuple[str, ...] = ()
+    mcp_auth_command: tuple[str, ...] = ()
     mcp_builtin_servers: tuple[str, ...] = ()
 
     @property
