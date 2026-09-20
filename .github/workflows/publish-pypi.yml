@@ -43,7 +43,7 @@ jobs:
           python-version: "3.12"
 
       - name: Verify release tag matches package version
-        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'pypi') || (github.event_name == 'workflow_call' && (inputs.target == 'pypi' || !inputs.target))
+        if: github.event_name == 'release' || (inputs.target == 'pypi' && (github.ref_type == 'tag' || inputs.tag != ''))
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_TAG: ${{ inputs.tag }}
@@ -120,7 +120,7 @@ jobs:
   publish-pypi:
     name: Publish to PyPI
     needs: build
-    if: (github.event_name == 'release' && github.event.action == 'published' && !github.event.release.prerelease) || (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'pypi' && github.ref_type == 'tag') || (github.event_name == 'workflow_call' && (inputs.target == 'pypi' || !inputs.target))
+    if: (github.event_name == 'release' && github.event.action == 'published' && !github.event.release.prerelease) || (inputs.target == 'pypi' && (github.ref_type == 'tag' || inputs.tag != ''))
     runs-on: ubuntu-latest
     environment:
       name: pypi
