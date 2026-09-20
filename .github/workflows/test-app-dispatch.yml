@@ -1,0 +1,26 @@
+name: Test GitHub App Auth
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate Homebrew GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: lsaint
+          repositories: homebrew-tap
+          permission-actions: write
+
+      - name: Test query homebrew-tap actions
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          echo "Testing API query to homebrew-tap..."
+          gh api repos/lsaint/homebrew-tap/actions/workflows
+          echo "Successfully authenticated and queried homebrew-tap workflows!"
