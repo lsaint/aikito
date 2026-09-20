@@ -12,6 +12,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from aikito import cli as AIKITO_CLI
+from aikito.compat import resolve_symlink_target
 from aikito.init import init_project
 from aikito.status import MCPRuntimeRow
 from aikito.sync import sync_project_instruction
@@ -786,7 +787,7 @@ class ProjectSyncSafetyTest(unittest.TestCase):
 
         # Under tightened ownership (INV-OWN-03), it is preserved because it does not point to canonical_a
         self.assertTrue(runtime_a.is_symlink())
-        self.assertEqual(os.readlink(runtime_a), str(canonical_b))
+        self.assertEqual(resolve_symlink_target(runtime_a), canonical_b.resolve())
 
 
 class GlobalSyncSafetyTest(unittest.TestCase):
@@ -938,7 +939,8 @@ class GlobalSyncSafetyTest(unittest.TestCase):
         # Planned Phase 4: Atomic idempotent sync without link recreation (mtime_ns/inode preserved).
         # In current implementation, link is removed and recreated, so it is valid and points correctly.
         self.assertEqual(
-            os.readlink(target_link), str(self.workspace / "skills" / "stale")
+            resolve_symlink_target(target_link),
+            (self.workspace / "skills" / "stale").resolve(),
         )
 
 
