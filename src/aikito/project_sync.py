@@ -62,6 +62,60 @@ class ProjectSyncBatch:
     config_cas: CandidatePathCAS | None = None
 
 
+@dataclass(frozen=True)
+class LegacySyncResult:
+    """Outcome for legacy (memory and instructions) sync segment."""
+
+    resource_kind: str
+    success: bool
+    error_message: str | None = None
+
+
+@dataclass(frozen=True)
+class ProjectSyncExecutionResult:
+    """Segmented execution outcome for a project sync batch."""
+
+    skill_result: SkillExecutionResult
+    legacy_results: tuple[LegacySyncResult, ...] = ()
+    error_message: str | None = None
+
+    @property
+    def is_success(self) -> bool:
+        return (
+            self.skill_result.is_success
+            and all(r.success for r in self.legacy_results)
+            and self.error_message is None
+        )
+
+    @property
+    def applied_ops(self) -> tuple[SkillOperation, ...]:
+        return self.skill_result.applied_ops
+
+    @property
+    def skipped_ops(self) -> tuple[SkillOperation, ...]:
+        return self.skill_result.skipped_ops
+
+    @property
+    def failed_ops(self) -> tuple[SkillOperation, ...]:
+        return self.skill_result.failed_ops
+
+    @property
+    def rolled_back_ops(self) -> tuple[SkillOperation, ...]:
+        return self.skill_result.rolled_back_ops
+
+    @property
+    def recovery_required(self) -> bool:
+        return self.skill_result.recovery_required
+
+    @property
+    def content_changes(self) -> int:
+        return self.skill_result.content_changes
+
+    @property
+    def state_only_changes(self) -> int:
+        return self.skill_result.state_only_changes
+
+
 def build_project_sync_batch(
     workspace_root: Path,
     home: Path,
@@ -314,12 +368,16 @@ def apply_project_sync_batch(
     home: Path,
     *,
     dry_run: bool = False,
-) -> SkillExecutionResult:
+) -> ProjectSyncExecutionResult:
     """Execute skill plan and compatible instruction/memory synchronizations."""
     # 1. Apply SkillPlan
     skill_result = execute_skill_plan(batch.skill_plan, home, dry_run=dry_run)
     if not skill_result.is_success or not batch.can_apply:
-        return skill_result
+        return ProjectSyncExecutionResult(
+            skill_result=skill_result,
+            legacy_results=(),
+            error_message=skill_result.error_message,
+        )
 
     # 2. Execute memory cleanup and synchronizations across active checkouts
     workspace_root = batch.workspace_root
@@ -328,6 +386,8 @@ def apply_project_sync_batch(
     proj_mem_source = workspace_root / "projects" / project_name / "memory"
     if not proj_mem_source.exists():
         proj_mem_source = workspace_root / "memory" / project_name
+
+    legacy_results: list[LegacySyncResult] = []
 
     for checkout in batch.active_checkouts:
         agents_dir = checkout / ".agents"
@@ -349,15 +409,18 @@ def apply_project_sync_batch(
             source = workspace_root / "memory" / mem_file
             target = agents_memory_dir / mem_file
             if not sync_resource(source, target, mode="link", dry_run=dry_run):
-                return SkillExecutionResult(
-                    applied_ops=skill_result.applied_ops,
-                    skipped_ops=skill_result.skipped_ops,
-                    failed_ops=batch.skill_plan.operations,
-                    rolled_back_ops=(),
-                    recovery_required=False,
-                    content_changes=skill_result.content_changes,
-                    state_only_changes=skill_result.state_only_changes,
-                    error_message=f"Failed to synchronize project memory: {mem_file}",
+                mem_err = f"Failed to synchronize project memory: {mem_file}"
+                legacy_results.append(
+                    LegacySyncResult(
+                        resource_kind="memory",
+                        success=False,
+                        error_message=mem_err,
+                    )
+                )
+                return ProjectSyncExecutionResult(
+                    skill_result=skill_result,
+                    legacy_results=tuple(legacy_results),
+                    error_message=mem_err,
                 )
 
         # Sync project notes
@@ -365,15 +428,18 @@ def apply_project_sync_batch(
         if project_notes.is_dir():
             target = agents_memory_dir / "notes"
             if not sync_resource(project_notes, target, mode="link", dry_run=dry_run):
-                return SkillExecutionResult(
-                    applied_ops=skill_result.applied_ops,
-                    skipped_ops=skill_result.skipped_ops,
-                    failed_ops=batch.skill_plan.operations,
-                    rolled_back_ops=(),
-                    recovery_required=False,
-                    content_changes=skill_result.content_changes,
-                    state_only_changes=skill_result.state_only_changes,
-                    error_message="Failed to synchronize project memory notes",
+                notes_err = "Failed to synchronize project memory notes"
+                legacy_results.append(
+                    LegacySyncResult(
+                        resource_kind="memory",
+                        success=False,
+                        error_message=notes_err,
+                    )
+                )
+                return ProjectSyncExecutionResult(
+                    skill_result=skill_result,
+                    legacy_results=tuple(legacy_results),
+                    error_message=notes_err,
                 )
 
         # Sync instructions (AGENTS.md)
@@ -409,18 +475,29 @@ def apply_project_sync_batch(
                     if not sync_project_instruction(
                         project_instructions, target, dry_run
                     ):
-                        return SkillExecutionResult(
-                            applied_ops=skill_result.applied_ops,
-                            skipped_ops=skill_result.skipped_ops,
-                            failed_ops=batch.skill_plan.operations,
-                            rolled_back_ops=(),
-                            recovery_required=False,
-                            content_changes=skill_result.content_changes,
-                            state_only_changes=skill_result.state_only_changes,
-                            error_message=f"Failed to synchronize project instructions to {target}",
+                        inst_err = f"Failed to synchronize project instructions to {target}"
+                        legacy_results.append(
+                            LegacySyncResult(
+                                resource_kind="instructions",
+                                success=False,
+                                error_message=inst_err,
+                            )
+                        )
+                        return ProjectSyncExecutionResult(
+                            skill_result=skill_result,
+                            legacy_results=tuple(legacy_results),
+                            error_message=inst_err,
                         )
 
-    return skill_result
+    if memory_files or (proj_mem_source / "notes").is_dir():
+        legacy_results.append(LegacySyncResult(resource_kind="memory", success=True))
+    if (workspace_root / "projects" / project_name / "AGENTS.md").is_file():
+        legacy_results.append(LegacySyncResult(resource_kind="instructions", success=True))
+
+    return ProjectSyncExecutionResult(
+        skill_result=skill_result,
+        legacy_results=tuple(legacy_results),
+    )
 
 
 def sync_project(

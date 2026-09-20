@@ -4,9 +4,17 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import Any
 from unittest import TestCase
+from unittest.mock import MagicMock, patch
 
-from aikito.project_sync import apply_project_sync_batch, build_project_sync_batch
+from aikito.project_sync import (
+    LegacySyncResult,
+    ProjectSyncBatch,
+    ProjectSyncExecutionResult,
+    apply_project_sync_batch,
+    build_project_sync_batch,
+)
 
 
 class ProjectSyncBatchTests(TestCase):
@@ -144,3 +152,112 @@ class ProjectSyncBatchTests(TestCase):
             skill_batches_fn=lambda: list(cached),
         )
         self.assertEqual(plan.skill_batches, (mock_batch,))
+
+    def test_segmented_execution_result_isolates_memory_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td).resolve()
+            home = (root / "home").resolve()
+            ws = (root / "workspace").resolve()
+            co = (root / "checkout").resolve()
+            home.mkdir()
+            ws.mkdir()
+            co.mkdir()
+
+            (ws / "agents.toml").write_text(
+                '[agents.codex]\nskills_path = ".agents/skills"\n',
+                encoding="utf-8",
+            )
+            skill_canon = ws / "skills" / "my-skill"
+            skill_canon.mkdir(parents=True)
+            (skill_canon / "SKILL.md").write_text("# S\n", encoding="utf-8")
+
+            mem_canon = ws / "memory" / "notes.md"
+            mem_canon.parent.mkdir(parents=True)
+            mem_canon.write_text("# Notes\n", encoding="utf-8")
+
+            data = {
+                "name": "demo",
+                "sync_mode": "copy",
+                "skills": ["my-skill"],
+                "memory": ["notes.md"],
+                "path": str(co),
+            }
+
+            batch = build_project_sync_batch(ws, home, "demo", data)
+            self.assertTrue(batch.can_apply)
+
+            # Invalidate sync_resource specifically when syncing memory
+            original_sync_resource = __import__(
+                "aikito.project_sync", fromlist=["sync_resource"]
+            ).sync_resource
+
+            def fail_memory_sync(source: Path, target: Path, **kwargs: Any) -> bool:
+                if "memory" in str(target):
+                    return False
+                return original_sync_resource(source, target, **kwargs)
+
+            with patch("aikito.project_sync.sync_resource", side_effect=fail_memory_sync):
+                res = apply_project_sync_batch(batch, data, home, dry_run=False)
+
+            self.assertFalse(res.is_success)
+            self.assertIn("Failed to synchronize project memory", res.error_message or "")
+            # Skill segment succeeded and was not overwritten
+            self.assertTrue(res.skill_result.is_success)
+            self.assertEqual(len(res.skill_result.applied_ops), 1)
+            self.assertEqual(res.skill_result.failed_ops, ())
+            self.assertEqual(res.failed_ops, ())
+            # Verify the skill copy was actually created on disk
+            self.assertTrue((co / ".agents" / "skills" / "my-skill").is_dir())
+            # Legacy segment recorded failure
+            self.assertEqual(len(res.legacy_results), 1)
+            self.assertEqual(res.legacy_results[0].resource_kind, "memory")
+            self.assertFalse(res.legacy_results[0].success)
+
+    def test_segmented_execution_result_isolates_instruction_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td).resolve()
+            home = (root / "home").resolve()
+            ws = (root / "workspace").resolve()
+            co = (root / "checkout").resolve()
+            home.mkdir()
+            ws.mkdir()
+            co.mkdir()
+
+            (ws / "agents.toml").write_text(
+                '[agents.codex]\nproject_instruction_path = "AGENTS.md"\nskills_path = ".agents/skills"\n',
+                encoding="utf-8",
+            )
+            skill_canon = ws / "skills" / "my-skill"
+            skill_canon.mkdir(parents=True)
+            (skill_canon / "SKILL.md").write_text("# S\n", encoding="utf-8")
+
+            proj_dir = ws / "projects" / "demo"
+            proj_dir.mkdir(parents=True)
+            (proj_dir / "AGENTS.md").write_text("# Project instructions\n", encoding="utf-8")
+
+            data = {
+                "name": "demo",
+                "sync_mode": "copy",
+                "skills": ["my-skill"],
+                "path": str(co),
+            }
+
+            batch = build_project_sync_batch(ws, home, "demo", data)
+            self.assertTrue(batch.can_apply)
+
+            with patch("aikito.project_sync.sync_project_instruction", return_value=False):
+                res = apply_project_sync_batch(batch, data, home, dry_run=False)
+
+            self.assertFalse(res.is_success)
+            self.assertIn("Failed to synchronize project instructions", res.error_message or "")
+            # Skill segment succeeded and was not overwritten
+            self.assertTrue(res.skill_result.is_success)
+            self.assertEqual(len(res.skill_result.applied_ops), 1)
+            self.assertEqual(res.skill_result.failed_ops, ())
+            self.assertEqual(res.failed_ops, ())
+            # Verify the skill copy was actually created on disk
+            self.assertTrue((co / ".agents" / "skills" / "my-skill").is_dir())
+            # Legacy segment recorded failure
+            self.assertEqual(len(res.legacy_results), 1)
+            self.assertEqual(res.legacy_results[0].resource_kind, "instructions")
+            self.assertFalse(res.legacy_results[0].success)

@@ -644,7 +644,7 @@ def _run_workspace_sync(
                         print(f"[ERROR] {res.error_message}", file=sys.stderr)
                 else:
                     synced_active += 1
-                print(f"[SUCCESS] Project '{project_name}' synced successfully.")
+                    print(f"[SUCCESS] Project '{project_name}' synced successfully.")
             elif dry_run:
                 batch = build_project_sync_batch(
                     aikito_dir, home, project_name, data, force=False
