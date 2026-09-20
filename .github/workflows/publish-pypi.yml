@@ -13,6 +13,17 @@ on:
         options:
           - testpypi
           - pypi
+  workflow_call:
+    inputs:
+      target:
+        description: "Target repository"
+        required: false
+        default: "pypi"
+        type: string
+      tag:
+        description: "Release tag (e.g. v1.44.1)"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -24,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ github.event.release.tag_name || github.ref }}
+          ref: ${{ inputs.tag || github.event.release.tag_name || github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
@@ -32,9 +43,10 @@ jobs:
           python-version: "3.12"
 
       - name: Verify release tag matches package version
-        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'pypi')
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'pypi') || (github.event_name == 'workflow_call' && (inputs.target == 'pypi' || !inputs.target))
         env:
           EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
@@ -43,8 +55,11 @@ jobs:
           python3 -c "
           import os, sys
           from aikito import __version__
+          input_tag = os.environ.get('INPUT_TAG', '')
           event = os.environ.get('EVENT_NAME', '')
-          if event == 'release':
+          if input_tag:
+              tag = input_tag.lstrip('v')
+          elif event == 'release':
               tag = os.environ.get('RELEASE_TAG', '').lstrip('v')
           else:
               ref_type = os.environ.get('REF_TYPE', '')
@@ -105,7 +120,7 @@ jobs:
   publish-pypi:
     name: Publish to PyPI
     needs: build
-    if: (github.event_name == 'release' && github.event.action == 'published' && !github.event.release.prerelease) || (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'pypi' && github.ref_type == 'tag')
+    if: (github.event_name == 'release' && github.event.action == 'published' && !github.event.release.prerelease) || (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'pypi' && github.ref_type == 'tag') || (github.event_name == 'workflow_call' && (inputs.target == 'pypi' || !inputs.target))
     runs-on: ubuntu-latest
     environment:
       name: pypi
