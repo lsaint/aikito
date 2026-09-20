@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from aikito import cli as AIKITO_CLI
@@ -372,7 +373,9 @@ class SyncAllExecutionTest(unittest.TestCase):
     def test_cmd_sync_all_does_not_apply_a_blocked_plan(self) -> None:
         calls: list[bool] = []
 
-        def run_sync(_aikito_dir: Path, _home: Path, *, dry_run: bool) -> bool:
+        def run_sync(
+            _aikito_dir: Path, _home: Path, *, dry_run: bool, **_kwargs: Any
+        ) -> bool:
             calls.append(dry_run)
             print("[CONFLICT] unmanaged target", file=sys.stderr)
             return False
@@ -440,7 +443,9 @@ skills_path = ".agents/skills"
     def test_cmd_sync_all_preflights_before_apply(self) -> None:
         calls: list[bool] = []
 
-        def run_sync(_aikito_dir: Path, _home: Path, *, dry_run: bool) -> bool:
+        def run_sync(
+            _aikito_dir: Path, _home: Path, *, dry_run: bool, **_kwargs: Any
+        ) -> bool:
             calls.append(dry_run)
             return True
 
@@ -457,6 +462,20 @@ skills_path = ".agents/skills"
         self.assertIn(
             "Full workspace sync completed successfully", mock_stdout.getvalue()
         )
+
+    def test_cmd_sync_all_propagates_internal_type_error(self) -> None:
+        def raise_type_error(*_args: Any, **_kwargs: Any) -> bool:
+            raise TypeError("Real internal type mismatch")
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("pathlib.Path.home", return_value=self.home),
+            patch.object(AIKITO_CLI, "_run_workspace_sync", side_effect=raise_type_error),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["sync"])
+            with self.assertRaises(TypeError) as ctx:
+                args.func(args)
+            self.assertIn("Real internal type mismatch", str(ctx.exception))
 
 
 class MaintainMemoryParserTest(unittest.TestCase):

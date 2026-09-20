@@ -724,20 +724,13 @@ def cmd_sync_all(args: argparse.Namespace) -> None:
     canonical_snapshots: dict[str, str] = {}
 
     def _call_workspace_sync(is_dry_run: bool) -> bool:
-        try:
-            return _run_workspace_sync(
-                aikito_dir,
-                home,
-                dry_run=is_dry_run,
-                cached_project_batches=cached_project_batches,
-                canonical_snapshots=canonical_snapshots,
-            )
-        except TypeError:
-            return _run_workspace_sync(
-                aikito_dir,
-                home,
-                dry_run=is_dry_run,
-            )
+        return _run_workspace_sync(
+            aikito_dir,
+            home,
+            dry_run=is_dry_run,
+            cached_project_batches=cached_project_batches,
+            canonical_snapshots=canonical_snapshots,
+        )
 
     plan = capture_sync_plan(
         lambda: _call_workspace_sync(is_dry_run=True),
