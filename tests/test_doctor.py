@@ -554,6 +554,40 @@ skills_path = ".claude/skills"
             msg=f"Expected missing skill symlink failure, got: {[f.message for f in fail_findings]}",
         )
 
+    def test_shared_same_object_instruction_target_is_not_rechecked(self) -> None:
+        shared = self.home / ".shared" / "AGENTS.md"
+        shared.parent.mkdir()
+        global_source = self.aikito_dir / "global" / "AGENTS.md"
+        global_source.parent.mkdir()
+        global_source.write_text("# Global\n", encoding="utf-8")
+        shared.symlink_to(global_source)
+        (self.aikito_dir / "agents.toml").write_text(
+            """
+[agents.custom-a]
+display_name = "Custom A"
+instruction_path = ".shared/AGENTS.md"
+
+[agents.custom-b]
+display_name = "Custom B"
+instruction_path = ".shared/AGENTS.md"
+""".strip(),
+            encoding="utf-8",
+        )
+
+        with patch(
+            "aikito.doctor.classify_symlink", wraps=classify_symlink
+        ) as classify:
+            section = check_symlinks(self.aikito_dir, self.home)
+
+        self.assertEqual(classify.call_count, 0)
+        self.assertTrue(
+            any(
+                f.status == "OK"
+                and "Global instructions OK (1 targets across 2 agents)" in f.message
+                for f in section.findings
+            )
+        )
+
 
 # ---------------------------------------------------------------------------
 # Doctor check_orphans tests

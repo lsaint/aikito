@@ -81,9 +81,19 @@ jobs:
           $piDir = Join-Path $HOME ".pi\agent"
           $codexDir = Join-Path $HOME ".codex"
           $claudeDir = Join-Path $HOME ".claude"
+          $agyMarkerDir = Join-Path $HOME ".gemini\config"
+          $copilotDir = Join-Path $HOME ".copilot"
+          $dshDir = Join-Path $HOME ".dsh"
+          $grokDir = Join-Path $HOME ".grok"
+          $opencodeDir = Join-Path $HOME ".config\opencode"
           New-Item -ItemType Directory -Force -Path $piDir | Out-Null
           New-Item -ItemType Directory -Force -Path $codexDir | Out-Null
           New-Item -ItemType Directory -Force -Path $claudeDir | Out-Null
+          New-Item -ItemType Directory -Force -Path $agyMarkerDir | Out-Null
+          New-Item -ItemType Directory -Force -Path $copilotDir | Out-Null
+          New-Item -ItemType Directory -Force -Path $dshDir | Out-Null
+          New-Item -ItemType Directory -Force -Path $grokDir | Out-Null
+          New-Item -ItemType Directory -Force -Path $opencodeDir | Out-Null
           $env:AIKITO_DIR = $wsDir
           $initOutput = python -m aikito init workspace "$wsDir"
           $initOutput | Write-Output
@@ -125,7 +135,7 @@ jobs:
           python -m aikito sync --dry-run --verbose | Select-String "Details"
           $syncGlobalOutput = python -m aikito sync global | Out-String
           $syncGlobalOutput | Write-Host
-          if ($syncGlobalOutput -notmatch "\d+ Agent skill entries across \d+ consumers") {
+          if ($syncGlobalOutput -notmatch "3 Agent skill entries across 8 consumers") {
             throw "Global sync output did not match expected consumer pattern"
           }
           if ($syncGlobalOutput -notmatch "skills: shared path") {
@@ -136,6 +146,12 @@ jobs:
           }
           if (-not (Test-Path (Join-Path $HOME ".agents\skills\durable-memory"))) {
             throw "Global durable-memory skill link missing"
+          }
+          if (-not (Test-Path (Join-Path $HOME ".claude\skills"))) {
+            throw "Claude skills consumer link missing"
+          }
+          if (-not (Test-Path (Join-Path $HOME ".gemini\antigravity-cli\skills"))) {
+            throw "Antigravity skills consumer link missing"
           }
           $aikitoSkill = Join-Path $wsDir "skills\aikito\SKILL.md"
           $memorySkill = Join-Path $wsDir "skills\durable-memory\SKILL.md"

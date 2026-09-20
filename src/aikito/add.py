@@ -524,6 +524,43 @@ def add_skill(
     """
     Create canonical Skill skeleton or import from external source, and register it in skills.toml or project agent.toml files.
     """
+    if sync:
+        with SkillWriterLock(home.expanduser().resolve()):
+            return _add_skill_impl(
+                aikito_dir,
+                home,
+                name=name,
+                description=description,
+                project_name=project_name,
+                projects=projects,
+                from_source=from_source,
+                sync=True,
+                force=force,
+            )
+    return _add_skill_impl(
+        aikito_dir,
+        home,
+        name=name,
+        description=description,
+        project_name=project_name,
+        projects=projects,
+        from_source=from_source,
+        sync=False,
+        force=force,
+    )
+
+
+def _add_skill_impl(
+    aikito_dir: Path,
+    home: Path,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    project_name: Optional[str] = None,
+    projects: Optional[List[str]] = None,
+    from_source: Optional[Union[str, Path]] = None,
+    sync: bool = False,
+    force: bool = False,
+) -> bool:
     aikito_dir = aikito_dir.expanduser().resolve()
     home = home.expanduser().resolve()
 

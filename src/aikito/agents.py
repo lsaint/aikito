@@ -6,7 +6,9 @@ import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator, Mapping
+
+from .compat import get_physical_path, is_directory_case_sensitive
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -61,6 +63,50 @@ class Agent:
     skills_path: Path | None = None
 
 
+class AgentRegistryError(ValueError):
+    """Raised when agents.toml cannot be loaded or validated."""
+
+
+def load_agent_document(aikito_dir: Path) -> Mapping[str, Any]:
+    """Load and validate the top-level agents.toml document."""
+    if not aikito_dir.exists() or not aikito_dir.is_dir():
+        raise AgentRegistryError(
+            f"Aikito workspace directory not found: {aikito_dir}. "
+            "Run 'aikito init workspace' to initialize."
+        )
+    config_path = aikito_dir / "agents.toml"
+    if not config_path.exists():
+        raise AgentRegistryError(
+            f"Agents config not found: {config_path}. "
+            "Run 'aikito init workspace' to initialize."
+        )
+    try:
+        document = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError) as exc:
+        raise AgentRegistryError(f"Invalid agents config {config_path}: {exc}") from exc
+    agents = document.get("agents")
+    if not isinstance(agents, dict):
+        raise AgentRegistryError(f"'agents' must be a table in {config_path}")
+    return document
+
+
+def _resolve_home_path(home: Path, value: object, field: str, agent: str) -> Path:
+    if not isinstance(value, str) or not value:
+        raise AgentRegistryError(f"Agent '{agent}' requires a string '{field}'")
+    return home / value
+
+
+def _resolve_project_path(value: object, field: str, agent: str) -> Path:
+    if not isinstance(value, str) or not value:
+        raise AgentRegistryError(f"Agent '{agent}' requires a string '{field}'")
+    path = Path(value)
+    if path.is_absolute() or path == Path(".") or ".." in path.parts:
+        raise AgentRegistryError(
+            f"Agent '{agent}' requires a safe relative '{field}', got: {value}"
+        )
+    return path
+
+
 def check_agent_availability(
     agent: str | Agent,
     home: Path,
@@ -110,38 +156,36 @@ class AgentRegistry:
     agents: dict[str, Agent]
 
     @classmethod
-    def load(cls, aikito_dir: Path, home: Path) -> AgentRegistry:
-        config_path = aikito_dir / "agents.toml"
-        if not config_path.is_file():
-            return cls({})
-        try:
-            document = tomllib.loads(config_path.read_text(encoding="utf-8"))
-        except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError):
-            return cls({})
+    def from_document(cls, document: Mapping[str, Any], home: Path) -> AgentRegistry:
+        """Build the base Agent registry from one parsed agents.toml document."""
         agents_data = document.get("agents")
         if not isinstance(agents_data, dict):
-            return cls({})
-
-        def _resolve_home(val: object) -> Path | None:
-            if not isinstance(val, str) or not val:
-                return None
-            if val.startswith("~/"):
-                return home / val[2:]
-            p = Path(val)
-            return p if p.is_absolute() else home / p
+            raise AgentRegistryError("'agents' must be a table")
 
         loaded: dict[str, Agent] = {}
         for name, spec in agents_data.items():
             if not isinstance(spec, dict):
-                continue
-            instr_path = _resolve_home(spec.get("instruction_path"))
-            proj_instr_val = spec.get("project_instruction_path")
-            proj_instr_path = (
-                Path(proj_instr_val)
-                if isinstance(proj_instr_val, str) and proj_instr_val
+                raise AgentRegistryError(f"Agent '{name}' must be a table")
+            instruction_value = spec.get("instruction_path")
+            instr_path = (
+                _resolve_home_path(home, instruction_value, "instruction_path", name)
+                if instruction_value is not None
                 else None
             )
-            skills_path = _resolve_home(spec.get("skills_path"))
+            project_instruction_value = spec.get("project_instruction_path")
+            proj_instr_path = (
+                _resolve_project_path(
+                    project_instruction_value, "project_instruction_path", name
+                )
+                if project_instruction_value is not None
+                else None
+            )
+            skills_value = spec.get("skills_path")
+            skills_path = (
+                _resolve_home_path(home, skills_value, "skills_path", name)
+                if skills_value is not None
+                else None
+            )
             loaded[name] = Agent(
                 name=name,
                 display_name=str(spec.get("display_name", name)),
@@ -150,6 +194,19 @@ class AgentRegistry:
                 skills_path=skills_path,
             )
         return cls(loaded)
+
+    @classmethod
+    def load_strict(cls, aikito_dir: Path, home: Path) -> AgentRegistry:
+        """Load agents.toml and raise AgentRegistryError on invalid input."""
+        return cls.from_document(load_agent_document(aikito_dir), home)
+
+    @classmethod
+    def load(cls, aikito_dir: Path, home: Path) -> AgentRegistry:
+        """Load agents.toml, returning an empty registry for invalid input."""
+        try:
+            return cls.load_strict(aikito_dir, home)
+        except AgentRegistryError:
+            return cls({})
 
     def get(self, name: str) -> Agent | None:
         return self.agents.get(name)
@@ -195,10 +252,9 @@ class Target:
         """Return True if target path and canonical source resolve to the exact same filesystem object."""
         if self.canonical_source is None:
             return False
-        from .compat import get_physical_path
 
         try:
-            return get_physical_path(self.path) == get_physical_path(
+            return _normalized_physical_path(self.path) == _normalized_physical_path(
                 self.canonical_source
             )
         except Exception:
@@ -208,6 +264,43 @@ class Target:
                 )
             except Exception:
                 return False
+
+
+def _normalized_physical_path(path: Path) -> str:
+    """Return the normalized identity of the filesystem object at path."""
+    physical = get_physical_path(path)
+    probe = physical if physical.is_dir() else physical.parent
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    normalized = str(physical)
+    if probe.exists() and not is_directory_case_sensitive(probe):
+        return normalized.casefold()
+    return normalized
+
+
+def _physical_target_key(path: Path) -> str:
+    """Identify a managed directory entry without following its final symlink."""
+    physical_parent = get_physical_path(path.parent)
+    probe = physical_parent
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    entry_name = path.name
+    if probe.exists() and not is_directory_case_sensitive(probe):
+        return str(physical_parent).casefold() + "/" + entry_name.casefold()
+    return str(physical_parent) + "/" + entry_name
+
+
+def _group_agent_paths(
+    entries: Iterator[tuple[Path, str, str]],
+) -> list[tuple[Path, list[tuple[str, str]]]]:
+    """Group configured paths by physical filesystem identity."""
+    grouped: dict[str, tuple[Path, list[tuple[str, str]]]] = {}
+    for path, name, display_name in entries:
+        key = _physical_target_key(path)
+        if key not in grouped:
+            grouped[key] = (path, [])
+        grouped[key][1].append((name, display_name))
+    return sorted(grouped.values(), key=lambda item: str(item[0]))
 
 
 def check_target_availability(
@@ -250,16 +343,16 @@ def resolve_targets(
 
     if resource_kind == "global_skills":
         canonical_source = home / ".agents" / "skills"
-        grouped: dict[Path, list[tuple[str, str]]] = {}
-        for agent in registry.values():
-            if agent.skills_path is None:
-                continue
-            grouped.setdefault(agent.skills_path, []).append(
-                (agent.name, agent.display_name)
+        grouped = _group_agent_paths(
+            (
+                (agent.skills_path, agent.name, agent.display_name)
+                for agent in registry.values()
+                if agent.skills_path is not None
             )
+        )
 
         targets: list[Target] = []
-        for path, consumers in sorted(grouped.items(), key=lambda x: str(x[0])):
+        for path, consumers in grouped:
             names = tuple(c[0] for c in consumers)
             display_names = tuple(c[1] for c in consumers)
             t = Target(
@@ -279,16 +372,16 @@ def resolve_targets(
 
     elif resource_kind == "global_instructions":
         canonical_source = aikito_dir / "global" / "AGENTS.md"
-        grouped = {}
-        for agent in registry.values():
-            if agent.instruction_path is None:
-                continue
-            grouped.setdefault(agent.instruction_path, []).append(
-                (agent.name, agent.display_name)
+        grouped = _group_agent_paths(
+            (
+                (agent.instruction_path, agent.name, agent.display_name)
+                for agent in registry.values()
+                if agent.instruction_path is not None
             )
+        )
 
         targets = []
-        for path, consumers in sorted(grouped.items(), key=lambda x: str(x[0])):
+        for path, consumers in grouped:
             names = tuple(c[0] for c in consumers)
             display_names = tuple(c[1] for c in consumers)
             t = Target(
@@ -314,15 +407,20 @@ def resolve_targets(
             if project_name
             else None
         )
-        grouped = {}
-        for agent in registry.values():
-            if agent.project_instruction_path is None:
-                continue
-            target_path = project_path / agent.project_instruction_path
-            grouped.setdefault(target_path, []).append((agent.name, agent.display_name))
+        grouped = _group_agent_paths(
+            (
+                (
+                    project_path / agent.project_instruction_path,
+                    agent.name,
+                    agent.display_name,
+                )
+                for agent in registry.values()
+                if agent.project_instruction_path is not None
+            )
+        )
 
         targets = []
-        for path, consumers in sorted(grouped.items(), key=lambda x: str(x[0])):
+        for path, consumers in grouped:
             names = tuple(c[0] for c in consumers)
             display_names = tuple(c[1] for c in consumers)
             t = Target(

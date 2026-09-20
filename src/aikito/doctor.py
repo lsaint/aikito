@@ -38,7 +38,7 @@ from .conflict import (
 )
 from .agents import (
     AGENT_INSTALL_MARKERS,
-    check_agent_availability,
+    AgentRegistry,
     check_target_availability,
     resolve_targets,
 )
@@ -159,19 +159,26 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
     global_instruction_source = aikito_dir / "global" / "AGENTS.md"
     agents_skills_dir = home / ".agents" / "skills"
 
-    # 1a. Per-agent instruction symlinks
+    registry = AgentRegistry(agents)
+
+    # 1a. Per-target instruction symlinks
     inst_fail_count = 0
     instr_total = 0
-    for definition in agents.values():
-        if definition.instruction_path is None:
-            continue
-        target = definition.instruction_path
-        avail = check_agent_availability(definition, home, target_path=target)
+    instr_target_total = 0
+    instruction_targets = resolve_targets(
+        "global_instructions", aikito_dir, home, registry=registry
+    )
+    for target in instruction_targets:
+        avail = check_target_availability(target, home)
         if not avail.is_installed:
             continue  # agent not installed — not a symlink issue
-        instr_total += 1
-        verdict = classify_symlink(target, global_instruction_source)
-        display = _home_rel(target, home)
+        instr_total += len(target.consumers)
+        instr_target_total += 1
+        if target.is_same_object:
+            continue
+        verdict = classify_symlink(target.path, global_instruction_source)
+        display = _home_rel(target.path, home)
+        display_name = "/".join(target.consumer_display_names)
         if verdict == SymlinkVerdict.OK:
             pass
 
@@ -179,7 +186,7 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
             inst_fail_count += 1
             findings.append(
                 _fail(
-                    f"{definition.display_name}: dangling symlink ({display})",
+                    f"{display_name}: dangling symlink ({display})",
                     "aikito sync global",
                 )
             )
@@ -187,7 +194,7 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
             inst_fail_count += 1
             findings.append(
                 _fail(
-                    f"{definition.display_name}: points elsewhere ({display})",
+                    f"{display_name}: points elsewhere ({display})",
                     "aikito sync global",
                 )
             )
@@ -195,7 +202,7 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
             inst_fail_count += 1
             findings.append(
                 _fail(
-                    f"{definition.display_name}: not a symlink ({display})",
+                    f"{display_name}: not a symlink ({display})",
                     "aikito sync global",
                 )
             )
@@ -203,13 +210,18 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
             inst_fail_count += 1
             findings.append(
                 _fail(
-                    f"{definition.display_name}: missing ({display})",
+                    f"{display_name}: missing ({display})",
                     "aikito sync global",
                 )
             )
 
     if instr_total > 0 and inst_fail_count == 0:
-        findings.append(_ok(f"Global instructions OK ({instr_total} agents)"))
+        findings.append(
+            _ok(
+                f"Global instructions OK ({instr_target_total} targets across "
+                f"{instr_total} agents)"
+            )
+        )
 
     # 1b. Check skills directories and entries
     skills_checked_count = 0
@@ -225,7 +237,9 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
         except tomllib.TOMLDecodeError:
             pass
 
-    skill_targets = resolve_targets("global_skills", aikito_dir, home)
+    skill_targets = resolve_targets(
+        "global_skills", aikito_dir, home, registry=registry
+    )
     for target in skill_targets:
         skills_dir = target.path
         avail = check_target_availability(target, home)

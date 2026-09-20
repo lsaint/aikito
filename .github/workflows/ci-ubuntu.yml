@@ -121,6 +121,7 @@ jobs:
             ~/.codex \
             ~/.claude \
             ~/.copilot/agents \
+            ~/.dsh \
             ~/.grok/rules \
             ~/.gemini/antigravity-cli \
             ~/.gemini/config \
@@ -268,14 +269,17 @@ jobs:
       # README Quick Start: init workspace → sync global → init project → status
       - name: aikito sync global
         run: |
+          mkdir -p ~/.claude ~/.gemini/config
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito sync global | tee ${{ runner.temp }}/sync-global.out
-          grep -E "[0-9]+ Agent skill entries across [0-9]+ consumers" \
+          grep -F "3 Agent skill entries across 8 consumers" \
             ${{ runner.temp }}/sync-global.out
           grep -F "skills: shared path" \
             ${{ runner.temp }}/sync-global.out
           test -L ~/.agents/skills/aikito
           test -L ~/.agents/skills/durable-memory
+          test -L ~/.claude/skills
+          test -L ~/.gemini/antigravity-cli/skills
 
       - name: Refresh divergent bundled skills
         run: |
@@ -980,4 +984,3 @@ jobs:
             python3 -m aikito completion candidates skills
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito completion candidates projects
-

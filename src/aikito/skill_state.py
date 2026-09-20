@@ -16,6 +16,7 @@ import shutil
 import stat
 import sys
 import tempfile
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -365,59 +366,79 @@ def save_project_skill_state(
 class SkillWriterLock:
     """Re-entrant cross-platform exclusive writer lock for skill mutations."""
 
+    _process_lock = threading.RLock()
     _lock_depth: int = 0
     _lock_file_obj: Any = None
+    _active_lock_path: Path | None = None
 
     def __init__(self, home: Path) -> None:
         self.home = home
         self.state_dir = get_skill_state_dir(home)
         self.lock_path = self.state_dir / "writer.lock"
+        self._instance_depth = 0
 
     def acquire(self) -> None:
-        if SkillWriterLock._lock_depth > 0:
-            SkillWriterLock._lock_depth += 1
-            return
-
-        validate_state_store_root(self.home, create_if_missing=True)
-        if is_reparse_point(self.lock_path):
-            raise RuntimeError(
-                f"Writer lock file is a reparse point or symlink: {self.lock_path}"
-            )
-
-        f = open(self.lock_path, "a+", encoding="utf-8")
+        SkillWriterLock._process_lock.acquire()
         try:
-            secure_file_permissions(self.lock_path)
-            if not is_windows():
-                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            else:
-                f.seek(0)
-                msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+            if SkillWriterLock._lock_depth > 0:
+                if SkillWriterLock._active_lock_path != self.lock_path:
+                    raise RuntimeError(
+                        "Cannot nest skill writer locks for different state stores"
+                    )
+                SkillWriterLock._lock_depth += 1
+                self._instance_depth += 1
+                return
+
+            validate_state_store_root(self.home, create_if_missing=True)
+            if is_reparse_point(self.lock_path):
+                raise RuntimeError(
+                    f"Writer lock file is a reparse point or symlink: {self.lock_path}"
+                )
+
+            f = open(self.lock_path, "a+", encoding="utf-8")
+            try:
+                secure_file_permissions(self.lock_path)
+                if not is_windows():
+                    fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                else:
+                    f.seek(0)
+                    msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+            except Exception:
+                f.close()
+                raise
+
+            SkillWriterLock._lock_file_obj = f
+            SkillWriterLock._active_lock_path = self.lock_path
+            SkillWriterLock._lock_depth = 1
+            self._instance_depth = 1
         except Exception:
-            f.close()
+            SkillWriterLock._process_lock.release()
             raise
 
-        SkillWriterLock._lock_file_obj = f
-        SkillWriterLock._lock_depth = 1
-
     def release(self) -> None:
-        if SkillWriterLock._lock_depth <= 0:
+        if self._instance_depth <= 0:
             return
-        SkillWriterLock._lock_depth -= 1
-        if SkillWriterLock._lock_depth == 0:
-            f = SkillWriterLock._lock_file_obj
-            SkillWriterLock._lock_file_obj = None
-            if f:
-                try:
-                    if not is_windows():
-                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-                    else:
-                        try:
-                            f.seek(0)
-                            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
-                        except Exception:
-                            pass
-                finally:
-                    f.close()
+        try:
+            self._instance_depth -= 1
+            SkillWriterLock._lock_depth -= 1
+            if SkillWriterLock._lock_depth == 0:
+                f = SkillWriterLock._lock_file_obj
+                SkillWriterLock._lock_file_obj = None
+                SkillWriterLock._active_lock_path = None
+                if f:
+                    try:
+                        if not is_windows():
+                            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                        else:
+                            try:
+                                f.seek(0)
+                                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+                            except Exception:
+                                pass
+                    finally:
+                        f.close()
+        finally:
+            SkillWriterLock._process_lock.release()
 
     def __enter__(self) -> SkillWriterLock:
         self.acquire()

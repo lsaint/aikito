@@ -182,6 +182,72 @@ class TargetResolutionTests(unittest.TestCase):
         self.assertEqual(agy_target.consumers, ("agy",))
         self.assertFalse(agy_target.is_same_object)
 
+    def test_target_deduplication_uses_physical_identity(self) -> None:
+        physical_parent = self.home / "shared-agent"
+        physical_parent.mkdir()
+        alias_parent = self.home / "shared-agent-alias"
+        alias_parent.symlink_to(physical_parent, target_is_directory=True)
+        physical = physical_parent / "skills"
+        alias = alias_parent / "skills"
+        registry = AgentRegistry(
+            {
+                "agent-a": Agent("agent-a", "Agent A", skills_path=physical),
+                "agent-b": Agent("agent-b", "Agent B", skills_path=alias),
+            }
+        )
+
+        targets = resolve_targets(
+            "global_skills", self.ws, self.home, registry=registry
+        )
+
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0].path, physical)
+        self.assertEqual(targets[0].consumers, ("agent-a", "agent-b"))
+
+    def test_distinct_consumer_links_are_not_collapsed_by_common_destination(
+        self,
+    ) -> None:
+        canonical = self.home / ".agents" / "skills"
+        canonical.mkdir(parents=True)
+        first = self.home / ".first" / "skills"
+        second = self.home / ".second" / "skills"
+        first.parent.mkdir()
+        second.parent.mkdir()
+        first.symlink_to(canonical, target_is_directory=True)
+        second.symlink_to(canonical, target_is_directory=True)
+        registry = AgentRegistry(
+            {
+                "agent-a": Agent("agent-a", "Agent A", skills_path=first),
+                "agent-b": Agent("agent-b", "Agent B", skills_path=second),
+            }
+        )
+
+        targets = resolve_targets(
+            "global_skills", self.ws, self.home, registry=registry
+        )
+
+        self.assertEqual(len(targets), 2)
+
+    def test_target_deduplication_honors_case_insensitive_identity(self) -> None:
+        registry = AgentRegistry(
+            {
+                "agent-a": Agent(
+                    "agent-a", "Agent A", skills_path=self.home / "Shared" / "skills"
+                ),
+                "agent-b": Agent(
+                    "agent-b", "Agent B", skills_path=self.home / "shared" / "skills"
+                ),
+            }
+        )
+
+        with patch("aikito.agents.is_directory_case_sensitive", return_value=False):
+            targets = resolve_targets(
+                "global_skills", self.ws, self.home, registry=registry
+            )
+
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0].consumers, ("agent-a", "agent-b"))
+
     def test_target_kinds(self) -> None:
         entry_target = Target(
             kind="managed_entry",

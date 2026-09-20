@@ -1,6 +1,7 @@
 import io
 import shutil
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -213,6 +214,35 @@ class BundledSkillWriterLockTest(unittest.TestCase):
                 self.assertEqual(SkillWriterLock._lock_depth, 2)
             self.assertEqual(SkillWriterLock._lock_depth, 1)
         self.assertEqual(SkillWriterLock._lock_depth, 0)
+
+    def test_writer_lock_serializes_threads(self) -> None:
+        first_entered = threading.Event()
+        release_first = threading.Event()
+        second_entered = threading.Event()
+
+        def first_writer() -> None:
+            with SkillWriterLock(self.home):
+                first_entered.set()
+                release_first.wait(timeout=2)
+
+        def second_writer() -> None:
+            if not first_entered.wait(timeout=2):
+                return
+            with SkillWriterLock(self.home):
+                second_entered.set()
+
+        first = threading.Thread(target=first_writer)
+        second = threading.Thread(target=second_writer)
+        first.start()
+        second.start()
+        self.assertTrue(first_entered.wait(timeout=2))
+        self.assertFalse(second_entered.wait(timeout=0.1))
+        release_first.set()
+        first.join(timeout=2)
+        second.join(timeout=2)
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        self.assertTrue(second_entered.is_set())
 
 
 if __name__ == "__main__":

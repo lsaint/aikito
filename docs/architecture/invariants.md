@@ -263,27 +263,27 @@ Verified by: `tests/test_skill_state.py::test_recovery_aborts_and_retains_journa
 ### INV-LOCK-01: Canonical Skill Mutator Lock Coverage `[current]` {: #inv-lock-01 }
 
 All commands and API functions that mutate canonical skills, bundled skills, project skills runtime, or their persistent state documents MUST hold `SkillWriterLock(home)` across their entire operation. This includes: `aikito add skill --from` (`add.py`), `aikito rm skill` (`skill_runtime.py`), `SkillPlan` execution (`skill_runtime.py`), bundled skill refresh (`cli.py`), and init template refresh (`init.py`).
-Verified by: `tests/test_skill_state.py::test_writer_lock_reentrancy`, `tests/test_cli.py::test_bundled_skills_refresh_holds_writer_lock`.
+Verified by: `tests/test_skill_state.py::test_writer_lock_reentrancy`, `tests/test_bundled_skills.py::test_cli_sync_global_holds_writer_lock_when_applying`, `tests/test_bundled_skills.py::test_writer_lock_serializes_threads`.
 
 ### INV-LOCK-02: Lock Re-Entrancy and Outermost Hold `[current]` {: #inv-lock-02 }
 
-`SkillWriterLock` is process-reentrant (`_lock_depth`). Composite workflows (e.g. `aikito add skill <name> --from <path> --sync`) acquire the lock at the outermost command entrypoint and hold it continuously across canonical import, template refresh, and project sync without releasing or deadlocking.
-Verified by: `tests/test_skill_state.py::test_writer_lock_reentrancy`, `tests/test_cli.py::test_add_skill_with_sync_holds_lock_composite`.
+`SkillWriterLock` is reentrant for the owning thread and serializes other threads and processes. Composite workflows (e.g. `aikito add skill <name> --from <path> --sync`) acquire the lock at the outermost command entrypoint and hold it continuously across canonical import, template refresh, and project sync without releasing or deadlocking.
+Verified by: `tests/test_skill_state.py::test_writer_lock_reentrancy`, `tests/test_bundled_skills.py::test_writer_lock_serializes_threads`, `tests/test_add.py::test_add_skill_with_sync_holds_outer_writer_lock`.
 
 ### INV-LOCK-03: Dry-Run Exclusion `[current]` {: #inv-lock-03 }
 
 Dry-run commands (`aikito sync --dry-run`, `aikito sync project --dry-run`, `aikito sync global --dry-run`) MUST NOT acquire or create the `writer.lock` file. Dry-run runs purely in read-only analysis mode and leaves the lock file and filesystem completely unmutated.
-Verified by: `tests/test_skill_runtime.py`, `tests/test_cli.py::test_dry_run_zero_write_and_no_lock`, `tests/test_cli.py::test_global_dry_run_zero_write_filesystem_snapshot`.
+Verified by: `tests/test_bundled_skills.py::test_cli_sync_global_dry_run_does_not_acquire_or_create_lock`, `tests/test_cli.py::test_global_dry_run_zero_write_filesystem_snapshot`.
 
 ### INV-RES-01: Segment Boundaries Match Commit Units `[current]` {: #inv-res-01 }
 
 Batch synchronization results are partitioned into explicit segments (`skills`, `legacy_compat`) corresponding directly to independent atomic commit units. Failure in one segment (e.g. memory or instructions sync in legacy compat) does NOT overwrite, mask, or downgrade the committed success of another segment (e.g. skills sync).
-Verified by: `tests/test_project_sync.py::test_segmented_project_sync_execution_result_skill_success_legacy_failure`.
+Verified by: `tests/test_project_sync.py::test_segmented_execution_result_isolates_memory_failure`, `tests/test_project_sync.py::test_segmented_execution_result_isolates_instruction_failure`.
 
 ### INV-RES-02: Overall Success Conjunction `[current]` {: #inv-res-02 }
 
 Overall execution result `is_success` is the logical conjunction of all active segments. If any segment fails or reports conflicts, `is_success` is False, but per-segment applied operations, conflict lists, and state progressions remain accurately preserved for caller inspection and reporting.
-Verified by: `tests/test_project_sync.py::test_segmented_project_sync_execution_result_overall_failure_with_skill_applied`.
+Verified by: `tests/test_project_sync.py::test_segmented_execution_result_isolates_memory_failure`, `tests/test_project_sync.py::test_segmented_execution_result_isolates_instruction_failure`.
 
 ---
 

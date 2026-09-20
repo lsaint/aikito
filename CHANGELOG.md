@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Converged `classify_project_skill_state()` to a thin read-only wrapper around `inspect_skill_target()` and `plan_single_skill()`, eliminating redundant heuristic state classification.
 - Held `SkillWriterLock` during bundled skill and init template refreshes, preventing race conditions with concurrent operations.
 - Aligned synchronization output and diagnostic reports to distinguish logical resource counts, agent consumers, and physical target operations.
+- Made `SkillWriterLock` thread-aware and kept composite `add skill --sync` workflows under one outer writer lock.
+- Deduplicated Agent targets by physical filesystem identity, including symlink aliases and case-insensitive paths, and unified Doctor target inspection with synchronization.
 
 ## [1.44.0] - 2026-09-19
 

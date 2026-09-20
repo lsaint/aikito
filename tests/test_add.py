@@ -21,6 +21,7 @@ from aikito.add import (
 )
 from aikito.compat import is_windows
 from aikito.init import init_project, init_workspace
+from aikito.skill_state import SkillWriterLock
 from aikito.templating import load_agents_template
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -101,6 +102,31 @@ class TestAikitoAddSkill(unittest.TestCase):
         with skills_toml.open("rb") as f:
             data = tomllib.load(f)
         self.assertIn("code-formatter", data.get("skills", []))
+
+    def test_add_skill_with_sync_holds_outer_writer_lock(self) -> None:
+        source = self.home / "external-skill"
+        source.mkdir()
+        (source / "SKILL.md").write_text(
+            "---\nname: external-skill\ndescription: Test\n---\n",
+            encoding="utf-8",
+        )
+        observed_depths: list[int] = []
+
+        def sync_while_locked(*args, **kwargs) -> bool:
+            observed_depths.append(SkillWriterLock._lock_depth)
+            return True
+
+        with patch("aikito.cli.sync_global_resources", side_effect=sync_while_locked):
+            success = add_skill(
+                self.aikito_dir,
+                self.home,
+                from_source=source,
+                sync=True,
+            )
+
+        self.assertTrue(success)
+        self.assertEqual(observed_depths, [1])
+        self.assertEqual(SkillWriterLock._lock_depth, 0)
 
     def test_add_skill_duplicate_rejected(self) -> None:
         add_skill(self.aikito_dir, self.home, name="test-skill")

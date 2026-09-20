@@ -28,7 +28,9 @@ from .agents import (
     AGENT_INSTALL_MARKERS as AGENT_INSTALL_MARKERS,
     Agent,
     AgentRegistry,
+    AgentRegistryError,
     is_agent_installed,
+    load_agent_document,
     resolve_targets,
 )
 from .compat import resolve_executable, secure_file_permissions
@@ -311,64 +313,19 @@ def _resolve_home_path(home: Path, value: Any, field: str, agent: str) -> Path:
     return home / value
 
 
-def _resolve_project_path(value: Any, field: str, agent: str) -> Path:
-    if not isinstance(value, str) or not value:
-        raise MCPConfigError(f"Agent '{agent}' requires a string '{field}'")
-    path = Path(value)
-    if path.is_absolute() or path == Path(".") or ".." in path.parts:
-        raise MCPConfigError(
-            f"Agent '{agent}' requires a safe relative '{field}', got: {value}"
-        )
-    return path
-
-
 def load_agents(aikito_dir: Path, home: Path) -> dict[str, AgentDefinition]:
     """Load the agent registry from agents.toml (the single source of truth)."""
-    if not aikito_dir.exists() or not aikito_dir.is_dir():
-        raise MCPConfigError(
-            f"Aikito workspace directory not found: {aikito_dir}. "
-            "Run 'aikito init workspace' to initialize."
-        )
-    config_path = aikito_dir / DEFAULT_AGENTS_CONFIG
-    if not config_path.exists():
-        raise MCPConfigError(
-            f"Agents config not found: {config_path}. "
-            "Run 'aikito init workspace' to initialize."
-        )
     try:
-        document = tomllib.loads(config_path.read_text(encoding="utf-8"))
-    except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError) as exc:
-        raise MCPConfigError(f"Invalid agents config {config_path}: {exc}") from exc
+        document = load_agent_document(aikito_dir)
+        registry = AgentRegistry.from_document(document, home)
+    except AgentRegistryError as exc:
+        raise MCPConfigError(str(exc)) from exc
 
-    agents = document.get("agents")
-    if not isinstance(agents, dict):
-        raise MCPConfigError(f"'agents' must be a table in {config_path}")
+    agents = document["agents"]
 
     definitions: dict[str, AgentDefinition] = {}
     for name, spec in agents.items():
-        if not isinstance(spec, dict):
-            raise MCPConfigError(f"Agent '{name}' must be a table")
-
-        instruction_value = spec.get("instruction_path")
-        instruction_path = (
-            _resolve_home_path(home, instruction_value, "instruction_path", name)
-            if instruction_value is not None
-            else None
-        )
-        project_instruction_value = spec.get("project_instruction_path")
-        project_instruction_path = (
-            _resolve_project_path(
-                project_instruction_value, "project_instruction_path", name
-            )
-            if project_instruction_value is not None
-            else None
-        )
-        skills_value = spec.get("skills_path")
-        skills_path = (
-            _resolve_home_path(home, skills_value, "skills_path", name)
-            if skills_value is not None
-            else None
-        )
+        base_agent = registry[name]
 
         mcp = spec.get("mcp")
         if mcp is None:
@@ -401,10 +358,10 @@ def load_agents(aikito_dir: Path, home: Path) -> dict[str, AgentDefinition]:
 
         definitions[name] = AgentDefinition(
             name=name,
-            display_name=str(spec.get("display_name", name)),
-            instruction_path=instruction_path,
-            project_instruction_path=project_instruction_path,
-            skills_path=skills_path,
+            display_name=base_agent.display_name,
+            instruction_path=base_agent.instruction_path,
+            project_instruction_path=base_agent.project_instruction_path,
+            skills_path=base_agent.skills_path,
             mcp_config_path=mcp_config_path,
             mcp_config_format=mcp_config_format,
             mcp_name_style=mcp_name_style,

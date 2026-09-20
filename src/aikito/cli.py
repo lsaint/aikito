@@ -71,7 +71,7 @@ from .memory import (
     resolve_memory_target_for_command,
     validate_memory_name,
 )
-from .agents import check_target_availability, resolve_targets
+from .agents import AgentRegistry, check_target_availability, resolve_targets
 from .mcp import (
     MCPConfigError,
     authenticate_mcp,
@@ -338,8 +338,13 @@ def sync_global_resources(
     ):
         apply_runtime_cleanup((legacy_grok_instructions,), dry_run)
 
-    instruction_targets = resolve_targets("global_instructions", aikito_dir, home)
-    skill_targets = resolve_targets("global_skills", aikito_dir, home)
+    registry = AgentRegistry(agents)
+    instruction_targets = resolve_targets(
+        "global_instructions", aikito_dir, home, registry=registry
+    )
+    skill_targets = resolve_targets(
+        "global_skills", aikito_dir, home, registry=registry
+    )
 
     instruction_results: list[bool] = []
     for target in instruction_targets:
