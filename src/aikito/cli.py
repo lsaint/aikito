@@ -56,7 +56,7 @@ from .project_sync import (
     build_project_sync_batch,
     sync_project,
 )
-from .skill_state import calculate_directory_fingerprint
+from .skill_state import SkillWriterLock, calculate_directory_fingerprint
 from .sync import (
     apply_runtime_cleanup,
     ensure_dir,
@@ -287,9 +287,15 @@ def sync_global_resources(
         print("[ERROR] Global synchronization aborted.", file=sys.stderr)
         return False
     try:
-        refreshed_bundled = set(
-            refresh_bundled_skills(aikito_dir, home, dry_run=dry_run)
-        )
+        if not dry_run:
+            with SkillWriterLock(home):
+                refreshed_bundled = set(
+                    refresh_bundled_skills(aikito_dir, home, dry_run=False)
+                )
+        else:
+            refreshed_bundled = set(
+                refresh_bundled_skills(aikito_dir, home, dry_run=True)
+            )
     except BundledSkillRefreshError as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
         return False

@@ -17,6 +17,7 @@ from typing import Optional
 
 from .bundled_skills import BundledSkillRefreshError, refresh_bundled_skills
 from .compat import safe_relative_path
+from .skill_state import SkillWriterLock
 from .mcp import MCPConfigError, collect_project_instruction_targets
 from .project import resolve_project_binding
 from .templating import (
@@ -187,7 +188,8 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
 
     if existing_workspace:
         try:
-            refresh_bundled_skills(target_dir, home)
+            with SkillWriterLock(home):
+                refresh_bundled_skills(target_dir, home)
         except BundledSkillRefreshError as exc:
             print(f"[ERROR] {exc}", file=sys.stderr)
             return False
