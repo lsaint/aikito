@@ -68,7 +68,6 @@ from .sync import (
     apply_runtime_cleanup,
     ensure_dir,
     sync_global_entry,
-    sync_resource,
 )
 from .sync_plan import capture_sync_plan
 from .memory import (

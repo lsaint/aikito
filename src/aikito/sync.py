@@ -22,7 +22,12 @@ def ensure_dir(path: Path) -> None:
 def sync_resource(
     source: Path, target: Path, mode: str = "link", dry_run: bool = False
 ) -> bool:
-    """Syncs source path to target path using specified mode ('link' or 'copy')."""
+    """Syncs source path to target path using specified mode ('link' or 'copy').
+
+    NOTE(Phase 5-6): Remaining callers are project_instructions and project_memory
+    in project_sync.py. Will be retired when those domains migrate to the unified
+    Target/Inspect/Plan/Execute model. Global skills no longer call this function.
+    """
     if not source.exists():
         print(f"[WARN] Source path does not exist: {source}", file=sys.stderr)
         return False
@@ -133,6 +138,10 @@ def sync_global_entry(
 
     Existing regular files and directories are never overwritten because they
     may contain unmanaged user resources.
+
+    NOTE(Phase 5): Remaining caller is global instructions in cli.py. Will be
+    retired when global instructions migrate to the unified Target/Inspect/Plan/Execute
+    model. Global skills no longer call this function.
     """
     if installed is None and home is not None:
         avail = check_agent_availability(agent_name, home, target_path=target)

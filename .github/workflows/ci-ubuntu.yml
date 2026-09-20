@@ -280,6 +280,17 @@ jobs:
           test -L ~/.agents/skills/durable-memory
           test -L ~/.claude/skills
           test -L ~/.gemini/antigravity-cli/skills
+          # Verify Phase 4 idempotency: repeat sync global must be NOOP (no writes / no recreations)
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync global | tee ${{ runner.temp }}/sync-global-repeat.out
+          grep -F "[SUCCESS] Global resources synced successfully" \
+            ${{ runner.temp }}/sync-global-repeat.out
+          ! grep -F "[LINK]" ${{ runner.temp }}/sync-global-repeat.out
+          ! grep -F "[UNLINK]" ${{ runner.temp }}/sync-global-repeat.out
+          test -L ~/.agents/skills/aikito
+          test -L ~/.agents/skills/durable-memory
+          test -L ~/.claude/skills
+          test -L ~/.gemini/antigravity-cli/skills
 
       - name: Refresh divergent bundled skills
         run: |

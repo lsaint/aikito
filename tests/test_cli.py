@@ -924,24 +924,32 @@ class GlobalSyncSafetyTest(unittest.TestCase):
         lock_file = self.root / ".aikito" / "state" / "project-skills" / "writer.lock"
         self.assertFalse(lock_file.exists())
 
-    def test_phase4_idempotency_fixture_records_current_behavior(self) -> None:
-        # Fixture documenting current recreation behavior vs. planned Phase 4 idempotency.
+    def test_phase4_idempotency_hard_assertions(self) -> None:
         (self.workspace / "skills.toml").write_text(
             'skills = ["stale"]\n', encoding="utf-8"
         )
         self._run_sync()
         target_link = self.runtime / "stale"
         self.assertTrue(target_link.is_symlink())
+        target_stat_before = target_link.lstat()
+        readlink_before = os.readlink(target_link)
 
-        # Under current implementation, sync_resource deletes and recreates symlink:
-        self._run_sync()
+        # Under Phase 4 unified link model, repeat sync is strictly idempotent (NOOP):
+        with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            self._run_sync()
+            out = stdout.getvalue()
+
         self.assertTrue(target_link.is_symlink())
-        # Planned Phase 4: Atomic idempotent sync without link recreation (mtime_ns/inode preserved).
-        # In current implementation, link is removed and recreated, so it is valid and points correctly.
-        self.assertEqual(
-            resolve_symlink_target(target_link),
-            (self.workspace / "skills" / "stale").resolve(),
-        )
+        target_stat_after = target_link.lstat()
+        readlink_after = os.readlink(target_link)
+
+        # Inode, mtime_ns, and raw readlink target must remain strictly identical
+        self.assertEqual(readlink_before, readlink_after)
+        self.assertEqual(target_stat_before.st_ino, target_stat_after.st_ino)
+        self.assertEqual(target_stat_before.st_mtime_ns, target_stat_after.st_mtime_ns)
+        # Ensure no recreation ([LINK] / [UNLINK]) was performed
+        self.assertNotIn("[LINK]", out)
+        self.assertNotIn("[UNLINK]", out)
 
 
 class InitSubcommandParserTest(unittest.TestCase):

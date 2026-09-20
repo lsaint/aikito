@@ -57,6 +57,16 @@ jobs:
           test -f "$HOME/.agents/skills/durable-memory/SKILL.md"
           test -L "$HOME/.claude/skills"
           test -L "$HOME/.gemini/antigravity-cli/skills"
+          # Verify Phase 4 idempotency: repeat sync global must be NOOP (no writes / no recreations)
+          AIKITO_DIR=$WS python3 -m aikito sync global | tee ${{ runner.temp }}/macos-sync-global-repeat.out
+          grep -F "[SUCCESS] Global resources synced successfully" \
+            ${{ runner.temp }}/macos-sync-global-repeat.out
+          ! grep -F "[LINK]" ${{ runner.temp }}/macos-sync-global-repeat.out
+          ! grep -F "[UNLINK]" ${{ runner.temp }}/macos-sync-global-repeat.out
+          test -L "$HOME/.agents/skills/aikito"
+          test -L "$HOME/.agents/skills/durable-memory"
+          test -L "$HOME/.claude/skills"
+          test -L "$HOME/.gemini/antigravity-cli/skills"
 
       - name: macOS CLI smoke - Link and Copy Modes
         run: |

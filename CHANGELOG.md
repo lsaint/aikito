@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Migrated global skills to the unified Target → Inspect → Plan → Execute model (Core Model Phase 4), introducing `GlobalSkillBatch`, three-tier planning (managed container `~/.agents/skills`, managed entries, and consumer links), and `GlobalSkillExecutionResult`.
+- Formalized global skill invariants `INV-GLB-01` through `INV-GLB-09` covering canonical ownership, link-only baseline avoidance, non-destructive container management, matching directory conflict preservation, cross-workspace isolation, and execution segmentation.
+- Serialized bundled skills refresh and global skill link application under a single outer `SkillWriterLock`, verifying canonical refresh completion before mutating runtime links.
+- Unified Doctor and status global skill health reporting to consume `GlobalSkillBatchPlan`, guaranteeing identical target, conflict, and NOOP evaluations across read-only and mutating commands.
+- Upgraded global skill idempotency assertions across repeat synchronizations to guarantee zero-write preservation of symlink inodes, `mtime_ns`, and targets.
+
+### Changed
+
+- Retired `sync_resource()` and `sync_global_entry()` invocations from global skills management, routing all destructive filesystem operations through the unified link executor (`apply_link_operation`).
+- Transitioned unexpected or external consumer symlinks from destructive silent relinking to explicit conflicts (`INV-GLB-05`).
+
 ## [1.44.2] - 2026-09-20
 
 ### Added

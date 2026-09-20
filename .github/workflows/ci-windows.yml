@@ -153,6 +153,14 @@ jobs:
           if (-not (Test-Path (Join-Path $HOME ".gemini\antigravity-cli\skills"))) {
             throw "Antigravity skills consumer link missing"
           }
+          # Verify Phase 4 idempotency: repeat sync global must be NOOP (no writes / no recreations)
+          $repeatOutput = python -m aikito sync global | Out-String
+          if ($repeatOutput -match "\[LINK\]" -or $repeatOutput -match "\[UNLINK\]") {
+            throw "Repeated global sync was not idempotent on Windows"
+          }
+          if ($repeatOutput -notmatch "Global resources synced successfully") {
+            throw "Repeated global sync did not report success"
+          }
           $aikitoSkill = Join-Path $wsDir "skills\aikito\SKILL.md"
           $memorySkill = Join-Path $wsDir "skills\durable-memory\SKILL.md"
           "customized aikito" | Set-Content $aikitoSkill
