@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.44.2] - 2026-09-20
+
+### Added
+
+- Added automated GitHub Actions release workflow (`release.yml`) orchestrating release gate validation, atomic tagging, GitHub release notes extraction, PyPI publishing, and downstream Homebrew tap dispatch.
+- Added `workflow_call` support to `publish-pypi.yml` for reusable CD pipeline execution.
+
 ## [1.44.1] - 2026-09-20
 
 ### Added
@@ -791,7 +798,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.44.1...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.44.2...HEAD
+[1.44.2]: https://github.com/lsaint/aikito/compare/v1.44.1...v1.44.2
 [1.44.1]: https://github.com/lsaint/aikito/compare/v1.44.0...v1.44.1
 [1.44.0]: https://github.com/lsaint/aikito/compare/v1.43.0...v1.44.0
 [1.43.0]: https://github.com/lsaint/aikito/compare/v1.42.0...v1.43.0
