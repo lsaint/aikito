@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.46.0] - 2026-09-21
+
 ### Added
 
 - Unified global and project instruction synchronization under the Target → Inspect → Plan → Execute architecture (Core Model Phase 5), introducing `InstructionBatch`, `InstructionPlan`, and `InstructionExecutionResult`.
@@ -827,7 +829,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.45.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.46.0...HEAD
+[1.46.0]: https://github.com/lsaint/aikito/compare/v1.45.0...v1.46.0
 [1.45.0]: https://github.com/lsaint/aikito/compare/v1.44.2...v1.45.0
 [1.44.2]: https://github.com/lsaint/aikito/compare/v1.44.1...v1.44.2
 [1.44.1]: https://github.com/lsaint/aikito/compare/v1.44.0...v1.44.1
