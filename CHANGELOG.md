@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.47.0] - 2026-09-21
+
 ### Added
 
 - Migrated project memory runtime visibility (`.agents/memory/` links for workspace memory references and project `notes/`) to the unified Target → Inspect → Plan → Execute model (Core Model Phase 6), introducing `MemoryResource`, `MemoryBatch`, `MemoryPlan`, and `MemoryExecutionResult`.
@@ -20,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Deleted `LegacySyncResult` dataclass and removed `legacy_results` from `ProjectSyncExecutionResult`.
 - Deleted obsolete preflight helpers `_ProjectSyncInputs`, `_resolve_project_sync_inputs()`, and `collect_project_prepare_errors()` from `project_runtime.py`.
 - Replaced unconditional overwrite of unmanaged files/directories at memory target paths with safe `CONFLICT` preservation (`INV-MEM-07`).
+
+### Fixed
+
+- Validated state store root directory and raised actionable errors on validation failure during `SkillWriterLock.acquire()`.
+- Hardened multi-threaded skill writer lock serialization tests against thread scheduling latency and ensured guaranteed thread cleanup.
 
 ## [1.46.0] - 2026-09-21
 
@@ -843,7 +850,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.46.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.47.0...HEAD
+[1.47.0]: https://github.com/lsaint/aikito/compare/v1.46.0...v1.47.0
 [1.46.0]: https://github.com/lsaint/aikito/compare/v1.45.0...v1.46.0
 [1.45.0]: https://github.com/lsaint/aikito/compare/v1.44.2...v1.45.0
 [1.44.2]: https://github.com/lsaint/aikito/compare/v1.44.1...v1.44.2
