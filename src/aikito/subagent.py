@@ -6,12 +6,22 @@ import re
 import shutil
 import sys
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from collections.abc import Mapping, Sequence
 
-from .mcp import is_agent_installed
+from .agents import is_agent_installed
+from .config_runtime import (
+    ConfigCollisionError,
+    ConfigOperation,
+    ConfigTarget,
+    FileMutationPlan,
+    FileSnapshot,
+    aggregate_file_plans,
+    capture_file_snapshot,
+)
 
 
 DEFAULT_AGENTS_CONFIG = Path("agents.toml")
@@ -93,6 +103,39 @@ class PlanItem:
     action: str  # OK, CREATE, UPDATE, CONFLICT, ORPHAN, SKIP, ERROR
     reason: str
     rendered_content: str = ""
+
+
+@dataclass(frozen=True)
+class SubagentPlan:
+    """Immutable, fully-evaluated synchronization plan for Subagents."""
+
+    operations: tuple[ConfigOperation, ...]
+    file_plans: tuple[FileMutationPlan, ...]
+    agent_configs: Mapping[str, AgentSubagentConfig] = field(default_factory=dict)
+
+    @property
+    def can_apply(self) -> bool:
+        return not any(
+            (op.action == "CONFLICT" and not op.is_authorized)
+            or op.action == "ERROR"
+            for op in self.operations
+        )
+
+    @property
+    def changes_count(self) -> int:
+        return sum(
+            1
+            for op in self.operations
+            if op.action in ("CREATE", "UPDATE", "REMOVE") and op.is_authorized
+        )
+
+    @property
+    def conflicts_count(self) -> int:
+        return sum(
+            1
+            for op in self.operations
+            if op.action == "CONFLICT" and not op.is_authorized
+        )
 
 
 def get_marker_text(subagent_name: str) -> str:
@@ -734,14 +777,29 @@ def get_target_subagent_path(
     return agent_config.config_path / f"{subagent_name}{ext}"
 
 
-def build_plan(
+def build_subagent_plan(
     aikito_dir: Path,
     home: Path,
     allow_empty: bool = False,
     gate_installed: bool = True,
-) -> tuple[list[PlanItem], dict[str, AgentSubagentConfig]]:
+    force_targets: Sequence[str] | None = None,
+    prune: bool = False,
+) -> SubagentPlan:
     subagent_configs, all_agent_names = load_all_agents(aikito_dir, home)
     subagent_defs = load_subagent_definitions(aikito_dir, allow_empty=allow_empty)
+
+    authorized_force: set[str] = set()
+    if force_targets is not None:
+        if not force_targets:
+            raise SubagentConfigError(
+                "--force requires explicit <agent>/<subagent> target(s), e.g. --force claude-code/verifier"
+            )
+        for ft in force_targets:
+            if "/" not in ft or len(ft.split("/")) != 2:
+                raise SubagentConfigError(
+                    f"Invalid --force target '{ft}'. Must be in format <agent>/<subagent>"
+                )
+            authorized_force.add(ft.strip())
 
     # Check that referenced agents exist in agents.toml with subagents config
     for sub_name, definition in subagent_defs.items():
@@ -751,57 +809,79 @@ def build_plan(
                     f"Subagent '{sub_name}' targets agent '{ag_name}', but '{ag_name}' has no [agents.{ag_name}.subagents] configuration in agents.toml"
                 )
 
-    plan: list[PlanItem] = []
+    operations: list[ConfigOperation] = []
 
     # Handle agents without subagents config (SKIP)
     for ag_name in sorted(all_agent_names):
         if ag_name not in subagent_configs:
-            plan.append(
-                PlanItem(
-                    agent_name=ag_name,
-                    subagent_name="*",
-                    target_path=Path(""),
+            target = ConfigTarget(
+                path=Path(""),
+                logical_identity="*",
+                agent=ag_name,
+            )
+            operations.append(
+                ConfigOperation(
+                    target=target,
                     action="SKIP",
                     reason="Agent has no subagents section in agents.toml",
                 )
             )
 
-    for agent_name, agent_config in subagent_configs.items():
+    for agent_name, agent_config in sorted(subagent_configs.items()):
         if gate_installed and is_agent_installed(agent_name, home) is False:
             has_subagents = False
             for sub_name, definition in sorted(subagent_defs.items()):
                 if agent_name in definition.agents:
                     has_subagents = True
                     target_path = get_target_subagent_path(agent_config, sub_name)
-                    plan.append(
-                        PlanItem(
-                            agent_name=agent_name,
-                            subagent_name=sub_name,
-                            target_path=target_path,
+                    key_path = (
+                        ("subagent", sub_name)
+                        if agent_config.config_format == "dsh_cordis_subagent"
+                        else ()
+                    )
+                    target = ConfigTarget(
+                        path=target_path,
+                        logical_identity=sub_name,
+                        key_path=key_path,
+                        format=agent_config.config_format,
+                        agent=agent_name,
+                    )
+                    operations.append(
+                        ConfigOperation(
+                            target=target,
                             action="SKIP",
                             reason=f"Agent '{agent_name}' is not installed on this host",
                         )
                     )
             if not has_subagents:
-                plan.append(
-                    PlanItem(
-                        agent_name=agent_name,
-                        subagent_name="*",
-                        target_path=agent_config.config_path,
+                target = ConfigTarget(
+                    path=agent_config.config_path,
+                    logical_identity="*",
+                    format=agent_config.config_format,
+                    agent=agent_name,
+                )
+                operations.append(
+                    ConfigOperation(
+                        target=target,
                         action="SKIP",
                         reason=f"Agent '{agent_name}' is not installed on this host",
                     )
                 )
             continue
+
         if (
             agent_config.requires_path is not None
             and not agent_config.requires_path.exists()
         ):
-            plan.append(
-                PlanItem(
-                    agent_name=agent_name,
-                    subagent_name="*",
-                    target_path=agent_config.config_path,
+            target = ConfigTarget(
+                path=agent_config.config_path,
+                logical_identity="*",
+                format=agent_config.config_format,
+                agent=agent_name,
+            )
+            operations.append(
+                ConfigOperation(
+                    target=target,
                     action="SKIP",
                     reason=f"Optional subagent capability is not installed at {agent_config.requires_path}",
                 )
@@ -811,13 +891,18 @@ def build_plan(
         if agent_name == "codex":
             enabled, msg = check_codex_enabled(home)
             if not enabled:
-                plan.append(
-                    PlanItem(
-                        agent_name=agent_name,
-                        subagent_name="*",
-                        target_path=agent_config.config_path,
+                target = ConfigTarget(
+                    path=agent_config.config_path,
+                    logical_identity="*",
+                    format=agent_config.config_format,
+                    agent=agent_name,
+                )
+                operations.append(
+                    ConfigOperation(
+                        target=target,
                         action="ERROR",
                         reason=msg,
+                        is_authorized=False,
                     )
                 )
 
@@ -836,77 +921,88 @@ def build_plan(
                 if agent_name not in definition.agents:
                     continue
                 defined_subagents_for_agent.add(sub_name)
+                target = ConfigTarget(
+                    path=patch_file,
+                    logical_identity=sub_name,
+                    key_path=("subagent", sub_name),
+                    format=agent_config.config_format,
+                    agent=agent_name,
+                )
                 try:
                     rendered = render_subagent(definition, agent_config)
                 except SubagentConfigError as exc:
-                    plan.append(
-                        PlanItem(
-                            agent_name=agent_name,
-                            subagent_name=sub_name,
-                            target_path=patch_file,
+                    operations.append(
+                        ConfigOperation(
+                            target=target,
                             action="ERROR",
                             reason=str(exc),
+                            is_authorized=False,
                         )
                     )
                     continue
 
                 existing_block = get_dsh_cordis_subagent_item(patch_text, sub_name)
+                force_id = f"{agent_name}/{sub_name}"
+                is_force_auth = force_id in authorized_force
+
                 if existing_block is None:
-                    plan.append(
-                        PlanItem(
-                            agent_name=agent_name,
-                            subagent_name=sub_name,
-                            target_path=patch_file,
+                    operations.append(
+                        ConfigOperation(
+                            target=target,
                             action="CREATE",
                             reason="Subagent plugin item does not exist in cordis.patch.yml",
-                            rendered_content=rendered,
+                            rendered_payload=rendered,
                         )
                     )
                 elif has_aikito_marker_text(existing_block):
                     if existing_block.strip() == rendered.strip():
-                        plan.append(
-                            PlanItem(
-                                agent_name=agent_name,
-                                subagent_name=sub_name,
-                                target_path=patch_file,
-                                action="OK",
+                        operations.append(
+                            ConfigOperation(
+                                target=target,
+                                action="NOOP",
                                 reason="Up to date",
-                                rendered_content=rendered,
+                                rendered_payload=rendered,
                             )
                         )
                     else:
-                        plan.append(
-                            PlanItem(
-                                agent_name=agent_name,
-                                subagent_name=sub_name,
-                                target_path=patch_file,
+                        operations.append(
+                            ConfigOperation(
+                                target=target,
                                 action="UPDATE",
                                 reason="Subagent configuration changed in cordis.patch.yml",
-                                rendered_content=rendered,
+                                rendered_payload=rendered,
                             )
                         )
                 else:
-                    plan.append(
-                        PlanItem(
-                            agent_name=agent_name,
-                            subagent_name=sub_name,
-                            target_path=patch_file,
-                            action="CONFLICT",
+                    operations.append(
+                        ConfigOperation(
+                            target=target,
+                            action="CONFLICT" if not is_force_auth else "UPDATE",
                             reason="Target plugin item exists without Aikito marker",
-                            rendered_content=rendered,
+                            requires_force=True,
+                            force_identity=force_id,
+                            is_authorized=is_force_auth,
+                            rendered_payload=rendered,
                         )
                     )
 
             # Detect orphans in cordis.patch.yml
             for managed_name in get_all_dsh_cordis_subagents(patch_text):
                 if managed_name not in defined_subagents_for_agent:
-                    plan.append(
-                        PlanItem(
-                            agent_name=agent_name,
-                            subagent_name=managed_name,
-                            target_path=patch_file,
-                            action="ORPHAN",
+                    target = ConfigTarget(
+                        path=patch_file,
+                        logical_identity=managed_name,
+                        key_path=("subagent", managed_name),
+                        format=agent_config.config_format,
+                        agent=agent_name,
+                    )
+                    operations.append(
+                        ConfigOperation(
+                            target=target,
+                            action="REMOVE" if prune else "ORPHAN",
                             reason="Managed subagent in cordis.patch.yml is no longer defined in subagents.toml",
+                            requires_prune=True,
+                            is_authorized=prune,
                         )
                     )
             continue
@@ -918,30 +1014,37 @@ def build_plan(
 
             defined_subagents_for_agent.add(sub_name)
             target_path = get_target_subagent_path(agent_config, sub_name)
+            target = ConfigTarget(
+                path=target_path,
+                logical_identity=sub_name,
+                key_path=(),
+                format=agent_config.config_format,
+                agent=agent_name,
+            )
 
             try:
                 rendered = render_subagent(definition, agent_config)
             except SubagentConfigError as exc:
-                plan.append(
-                    PlanItem(
-                        agent_name=agent_name,
-                        subagent_name=sub_name,
-                        target_path=target_path,
+                operations.append(
+                    ConfigOperation(
+                        target=target,
                         action="ERROR",
                         reason=str(exc),
+                        is_authorized=False,
                     )
                 )
                 continue
 
+            force_id = f"{agent_name}/{sub_name}"
+            is_force_auth = force_id in authorized_force
+
             if not target_path.exists():
-                plan.append(
-                    PlanItem(
-                        agent_name=agent_name,
-                        subagent_name=sub_name,
-                        target_path=target_path,
+                operations.append(
+                    ConfigOperation(
+                        target=target,
                         action="CREATE",
                         reason="Target file does not exist",
-                        rendered_content=rendered,
+                        rendered_payload=rendered,
                     )
                 )
             else:
@@ -950,36 +1053,33 @@ def build_plan(
                         encoding="utf-8", errors="replace"
                     )
                     if current_content == rendered:
-                        plan.append(
-                            PlanItem(
-                                agent_name=agent_name,
-                                subagent_name=sub_name,
-                                target_path=target_path,
-                                action="OK",
+                        operations.append(
+                            ConfigOperation(
+                                target=target,
+                                action="NOOP",
                                 reason="Up to date",
-                                rendered_content=rendered,
+                                rendered_payload=rendered,
                             )
                         )
                     else:
-                        plan.append(
-                            PlanItem(
-                                agent_name=agent_name,
-                                subagent_name=sub_name,
-                                target_path=target_path,
+                        operations.append(
+                            ConfigOperation(
+                                target=target,
                                 action="UPDATE",
                                 reason="Content changed",
-                                rendered_content=rendered,
+                                rendered_payload=rendered,
                             )
                         )
                 else:
-                    plan.append(
-                        PlanItem(
-                            agent_name=agent_name,
-                            subagent_name=sub_name,
-                            target_path=target_path,
-                            action="CONFLICT",
+                    operations.append(
+                        ConfigOperation(
+                            target=target,
+                            action="CONFLICT" if not is_force_auth else "UPDATE",
                             reason="Target file exists without Aikito marker",
-                            rendered_content=rendered,
+                            requires_force=True,
+                            force_identity=force_id,
+                            is_authorized=is_force_auth,
+                            rendered_payload=rendered,
                         )
                     )
 
@@ -994,13 +1094,20 @@ def build_plan(
                             sub_name not in defined_subagents_for_agent
                             and has_aikito_marker(agent_md)
                         ):
-                            plan.append(
-                                PlanItem(
-                                    agent_name=agent_name,
-                                    subagent_name=sub_name,
-                                    target_path=agent_md,
-                                    action="ORPHAN",
-                                    reason="Managed subagent file is no longer defined in subagents.toml",
+                            target = ConfigTarget(
+                                path=agent_md,
+                                logical_identity=sub_name,
+                                key_path=(),
+                                format=agent_config.config_format,
+                                agent=agent_name,
+                            )
+                            operations.append(
+                                ConfigOperation(
+                                    target=target,
+                                    action="REMOVE" if prune else "ORPHAN",
+                                    reason="Managed subagent directory is no longer defined in subagents.toml",
+                                    requires_prune=True,
+                                    is_authorized=prune,
                                 )
                             )
             else:
@@ -1011,17 +1118,67 @@ def build_plan(
                             sub_name not in defined_subagents_for_agent
                             and has_aikito_marker(item)
                         ):
-                            plan.append(
-                                PlanItem(
-                                    agent_name=agent_name,
-                                    subagent_name=sub_name,
-                                    target_path=item,
-                                    action="ORPHAN",
+                            target = ConfigTarget(
+                                path=item,
+                                logical_identity=sub_name,
+                                key_path=(),
+                                format=agent_config.config_format,
+                                agent=agent_name,
+                            )
+                            operations.append(
+                                ConfigOperation(
+                                    target=target,
+                                    action="REMOVE" if prune else "ORPHAN",
                                     reason="Managed subagent file is no longer defined in subagents.toml",
+                                    requires_prune=True,
+                                    is_authorized=prune,
                                 )
                             )
 
-    return plan, subagent_configs
+    valid_ops = [
+        op
+        for op in operations
+        if str(op.target.path) and op.target.path != Path("") and op.action != "SKIP"
+    ]
+    file_plans = aggregate_file_plans(valid_ops)
+
+    return SubagentPlan(
+        operations=tuple(operations),
+        file_plans=tuple(file_plans),
+        agent_configs=subagent_configs,
+    )
+
+
+def build_plan(
+    aikito_dir: Path,
+    home: Path,
+    allow_empty: bool = False,
+    gate_installed: bool = True,
+    force_targets: Sequence[str] | None = None,
+    prune: bool = False,
+) -> tuple[list[PlanItem], dict[str, AgentSubagentConfig]]:
+    subagent_plan = build_subagent_plan(
+        aikito_dir=aikito_dir,
+        home=home,
+        allow_empty=allow_empty,
+        gate_installed=gate_installed,
+        force_targets=force_targets,
+        prune=prune,
+    )
+    legacy_plan: list[PlanItem] = []
+    for op in subagent_plan.operations:
+        action = "OK" if op.action == "NOOP" else op.action
+        legacy_plan.append(
+            PlanItem(
+                agent_name=op.target.agent,
+                subagent_name=op.target.logical_identity,
+                target_path=op.target.path,
+                action=action,
+                reason=op.reason,
+                rendered_content=op.rendered_payload or "",
+            )
+        )
+    return legacy_plan, dict(subagent_plan.agent_configs)
 
 
 def _backup_file(home: Path, agent_name: str, target_path: Path) -> Path | None:
