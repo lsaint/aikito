@@ -18,7 +18,7 @@ import tomllib
 from collections import defaultdict
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -2109,36 +2109,6 @@ def redact_mcp_entry(entry: dict[str, Any]) -> dict[str, Any]:
 _read_entry = read_entry
 
 
-def evaluate_spec_status(spec: AgentSpec) -> str:
-    """
-    Evaluates synchronization status for a single AgentSpec.
-    Returns one of: 'OK', 'MISSING', 'DRIFT', 'ERROR', 'SKIP'.
-    """
-    if not spec.enabled or not _agent_detected(spec):
-        return "SKIP"
-    if not spec.config_path.exists():
-        return "MISSING"
-
-    try:
-        content = spec.config_path.read_text(encoding="utf-8")
-        current = read_entry(spec, content)
-        if _entry_matches_desired(spec, current):
-            return "OK"
-        if current is None:
-            return "MISSING"
-        return "DRIFT"
-    except (
-        tomllib.TOMLDecodeError,
-        UnicodeDecodeError,
-        PermissionError,
-        ValueError,
-        OSError,
-    ):
-        return "ERROR"
-    except Exception:
-        return "ERROR"
-
-
 def _entry_matches_desired(spec: AgentSpec, current: dict[str, Any] | None) -> bool:
     if current is None:
         return False
@@ -2537,8 +2507,15 @@ class MCPFilePlan:
     sensitive: bool
     pre_image: FileSnapshot
     operations: tuple[MCPOperation, ...] = ()
-    orig_content: str | None = None
-    final_content: str | None = None
+    orig_content: str | None = field(default=None, repr=False)
+    final_content: str | None = field(default=None, repr=False)
+
+    def __repr__(self) -> str:
+        return (
+            f"MCPFilePlan(path={self.path!r}, physical_identity={self.physical_identity!r}, "
+            f"format={self.format!r}, sensitive={self.sensitive!r}, "
+            f"pre_image={self.pre_image!r}, operations={self.operations!r})"
+        )
 
     @property
     def will_mutate(self) -> bool:
@@ -2569,7 +2546,13 @@ class MCPPlan:
     operations: tuple[MCPOperation, ...]
     file_plans: tuple[MCPFilePlan, ...]
     state_snapshot_hash: str
-    specs: tuple[AgentSpec, ...] = ()
+    specs: tuple[AgentSpec, ...] = field(default=(), repr=False)
+
+    def __repr__(self) -> str:
+        return (
+            f"MCPPlan(operations={self.operations!r}, file_plans={self.file_plans!r}, "
+            f"state_snapshot_hash={self.state_snapshot_hash!r})"
+        )
 
     @property
     def can_apply(self) -> bool:
@@ -2835,18 +2818,6 @@ def build_mcp_plan(
                 all_operations.append(op)
                 continue
 
-            if spec.missing_credential_env:
-                op = MCPOperation(
-                    target=config_target,
-                    action="SKIP",
-                    reason=f"Requires missing environment variable: {spec.missing_credential_env}",
-                    spec=spec,
-                    is_authorized=True,
-                )
-                group_ops.append(op)
-                all_operations.append(op)
-                continue
-
             try:
                 current = _read_entry(spec, current_text) if file_existed else None
             except Exception as exc:
@@ -2882,6 +2853,20 @@ def build_mcp_plan(
                 auth_command=spec.auth_command,
                 raw_desired=spec.desired,
             )
+
+            if spec.missing_credential_env:
+                op = MCPOperation(
+                    target=config_target,
+                    action="SKIP",
+                    reason=f"Requires missing environment variable: {spec.missing_credential_env}",
+                    observed=observed,
+                    desired=desired_entry,
+                    spec=spec,
+                    is_authorized=True,
+                )
+                group_ops.append(op)
+                all_operations.append(op)
+                continue
 
             if _entry_matches_desired(spec, current):
                 op = MCPOperation(
@@ -2971,6 +2956,61 @@ def build_mcp_plan(
         state_snapshot_hash=state_snapshot_hash,
         specs=tuple(raw_specs),
     )
+
+
+def _map_operation_to_status(op: MCPOperation) -> str:
+    """Map pure MCPOperation action to user-facing inspection status."""
+    if op.action == "NOOP":
+        return "OK"
+    elif op.action == "CREATE":
+        return "MISSING"
+    elif op.action == "UPDATE":
+        return "UPDATE"
+    elif op.action == "CONFLICT":
+        return "DRIFT"
+    elif op.action == "SKIP":
+        if op.spec and op.spec.missing_credential_env:
+            if op.observed and op.observed.exists and op.observed.raw_entry is not None:
+                if _entry_matches_desired(op.spec, op.observed.raw_entry):
+                    return "OK"
+                return "DRIFT"
+        return "SKIP"
+    elif op.action == "ERROR":
+        return "ERROR"
+    return op.action
+
+
+def evaluate_spec_status(
+    spec: AgentSpec,
+    state: dict[str, Any] | None = None,
+    home: Path | None = None,
+    plan: MCPPlan | None = None,
+) -> str:
+    """Evaluates synchronization status for a single AgentSpec via pure MCP planning.
+
+    Guarantees status, diff, and Doctor share the exact same decision engine as sync.
+    Returns one of: 'OK', 'MISSING', 'UPDATE', 'DRIFT', 'ERROR', 'SKIP'.
+    """
+    if plan is not None:
+        for op in plan.operations:
+            if op.target.agent == spec.agent and op.target.logical_identity == spec.server:
+                return _map_operation_to_status(op)
+
+    effective_home = home or spec.home
+    if effective_home is None:
+        effective_home = Path.home()
+
+    try:
+        single_plan = build_mcp_plan(
+            aikito_dir=effective_home,
+            home=effective_home,
+            specs=[spec],
+        )
+        if single_plan.operations:
+            return _map_operation_to_status(single_plan.operations[0])
+        return "SKIP"
+    except Exception:
+        return "ERROR"
 
 
 @dataclass(frozen=True)

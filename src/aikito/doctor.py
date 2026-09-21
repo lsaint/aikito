@@ -52,6 +52,7 @@ from .mcp import (
     MCPConfigError,
     _load_document,
     _parse_jsonc,
+    build_mcp_plan,
     evaluate_spec_status,
     is_agent_installed,
     load_agent_specs,
@@ -1061,12 +1062,17 @@ def check_drift(aikito_dir: Path, home: Path) -> DoctorSection:
         findings.append(_fail(f"Cannot load MCP specs: {exc}"))
         return DoctorSection(name="Drift", findings=findings)
 
+    try:
+        plan = build_mcp_plan(aikito_dir, home, specs=specs)
+    except Exception:
+        plan = None
+
     drift_count = 0
     checked = 0
     for spec in specs:
         if not spec.enabled:
             continue
-        st = evaluate_spec_status(spec)
+        st = evaluate_spec_status(spec, home=home, plan=plan)
         if st == "SKIP":
             continue
         checked += 1
@@ -1085,10 +1091,18 @@ def check_drift(aikito_dir: Path, home: Path) -> DoctorSection:
             else:
                 findings.append(
                     _fail(
-                        f"{spec.agent} × {spec.server}: managed MCP config differs",
-                        "aikito sync mcp",
+                        f"{spec.agent} × {spec.server}: managed MCP config differs (unmanaged modification)",
+                        "aikito sync mcp --force",
                     )
                 )
+        elif st == "UPDATE":
+            drift_count += 1
+            findings.append(
+                _fail(
+                    f"{spec.agent} × {spec.server}: managed MCP config differs",
+                    "aikito sync mcp",
+                )
+            )
         elif st == "MISSING":
             if spec.missing_credential_env:
                 findings.append(

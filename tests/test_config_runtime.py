@@ -210,3 +210,71 @@ class ConfigRuntimeTests(unittest.TestCase):
 
         with self.assertRaises(StaleConfigPlanError):
             fp.validate_precondition()
+
+    def test_file_snapshot_detects_symlink_replacement_of_regular_file(self) -> None:
+        """Replacing a regular file with a symlink of identical content triggers stale invalidation (INV-CFG-04)."""
+        content = '{"identical": true}'
+        cfg_file = self.root / "config.json"
+        cfg_file.write_text(content, encoding="utf-8")
+
+        snapshot = capture_file_snapshot(cfg_file, format="json")
+        self.assertFalse(snapshot.is_symlink)
+
+        # Replace cfg_file with a symlink to another file having identical content
+        other_file = self.root / "other.json"
+        other_file.write_text(content, encoding="utf-8")
+        cfg_file.unlink()
+        safe_symlink(other_file, cfg_file)
+
+        valid, msg = snapshot.validate_precondition()
+        self.assertFalse(valid)
+        self.assertIn("type changed", msg)
+
+    def test_aggregate_file_plans_detects_whole_file_collision(self) -> None:
+        """Two mutating whole-file operations targeting the same file collide (INV-CFG-03)."""
+        cfg_file = self.root / "agent.md"
+        cfg_file.write_text("# prompt", encoding="utf-8")
+
+        target1 = ConfigTarget(
+            path=cfg_file,
+            logical_identity="sub1",
+            key_path=(),
+            format="markdown",
+        )
+        target2 = ConfigTarget(
+            path=cfg_file,
+            logical_identity="sub2",
+            key_path=(),
+            format="markdown",
+        )
+
+        op1 = ConfigOperation(target=target1, action="UPDATE")
+        op2 = ConfigOperation(target=target2, action="UPDATE")
+
+        with self.assertRaises(ConfigCollisionError) as ctx:
+            aggregate_file_plans([op1, op2])
+        self.assertIn("whole-file", str(ctx.exception))
+
+    def test_aggregate_file_plans_detects_whole_file_and_section_collision(self) -> None:
+        """A mutating whole-file operation and a section-level operation in the same file collide (INV-CFG-03)."""
+        cfg_file = self.root / "config.toml"
+        cfg_file.write_text("[section]\n", encoding="utf-8")
+
+        target_whole = ConfigTarget(
+            path=cfg_file,
+            logical_identity="whole",
+            key_path=(),
+            format="toml",
+        )
+        target_section = ConfigTarget(
+            path=cfg_file,
+            logical_identity="section",
+            key_path=("section",),
+            format="toml",
+        )
+
+        op_whole = ConfigOperation(target=target_whole, action="UPDATE")
+        op_sec = ConfigOperation(target=target_section, action="UPDATE")
+
+        with self.assertRaises(ConfigCollisionError):
+            aggregate_file_plans([op_whole, op_sec])

@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .compat import get_physical_path, is_windows
+from .compat import get_physical_path, is_directory_case_sensitive, is_windows
 
 
 class ConfigCollisionError(Exception):
@@ -35,7 +35,7 @@ def resolve_physical_identity(path: Path) -> str:
 
     Uses get_physical_path to resolve symlinks and actual path casing. If the path does not exist,
     resolves its deepest existing ancestor and appends remaining relative segments.
-    On case-insensitive operating systems (Windows and macOS), the identity is normalized to lowercase.
+    On case-insensitive filesystems (probed dynamically), the identity is normalized to lowercase.
     """
     try:
         resolved = get_physical_path(path)
@@ -43,7 +43,13 @@ def resolve_physical_identity(path: Path) -> str:
         resolved = path.resolve()
 
     norm = resolved.as_posix()
-    if is_windows() or sys.platform == "darwin":
+    probe = resolved if resolved.is_dir() else resolved.parent
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+
+    if probe.exists() and not is_directory_case_sensitive(probe):
+        norm = norm.lower()
+    elif not probe.exists() and is_windows():
         norm = norm.lower()
     return norm
 
@@ -75,27 +81,64 @@ class FileSnapshot:
     size_bytes: int = 0
     format: str = ""
     sensitive: bool = False
+    is_symlink: bool = False
+    symlink_target: str | None = None
+    is_file: bool = False
+    is_dir: bool = False
 
     def validate_precondition(self, current_path: Path | None = None) -> tuple[bool, str]:
         """Validate whether current disk state matches this frozen pre-image."""
         target = current_path or self.path
-        if not target.exists():
+        target_lexists = os.path.lexists(target)
+        if not target_lexists:
             if self.exists:
                 return False, f"File '{target}' existed at plan time but is now missing"
             return True, ""
         if not self.exists:
             return False, f"File '{target}' was missing at plan time but now exists"
-        try:
-            current_bytes = target.read_bytes()
-            current_hash = hashlib.sha256(current_bytes).hexdigest()
-            if current_hash != self.content_hash:
+
+        # Check symlink state
+        target_is_symlink = target.is_symlink()
+        if target_is_symlink != self.is_symlink:
+            expected_type = "symlink" if self.is_symlink else "regular file/entry"
+            actual_type = "symlink" if target_is_symlink else "regular file/entry"
+            return (
+                False,
+                f"File '{target}' type changed: expected {expected_type}, found {actual_type}",
+            )
+
+        if target_is_symlink:
+            try:
+                target_symlink_dest = os.readlink(target)
+            except OSError as e:
+                return False, f"Cannot read symlink '{target}': {e}"
+            if target_symlink_dest != self.symlink_target:
                 return (
                     False,
-                    f"File '{target}' content has been modified externally since plan generation",
+                    f"Symlink '{target}' target changed from '{self.symlink_target}' to '{target_symlink_dest}'",
                 )
-            return True, ""
-        except OSError as e:
-            return False, f"Cannot read file '{target}' for precondition validation: {e}"
+
+        # Check directory vs file entry type
+        if target.is_dir() != self.is_dir:
+            return (
+                False,
+                f"File '{target}' entry type changed from plan snapshot",
+            )
+
+        # Check content hash for readable targets
+        if self.content_hash is not None:
+            try:
+                current_bytes = target.read_bytes()
+                current_hash = hashlib.sha256(current_bytes).hexdigest()
+                if current_hash != self.content_hash:
+                    return (
+                        False,
+                        f"File '{target}' content has been modified externally since plan generation",
+                    )
+            except OSError as e:
+                return False, f"Cannot read file '{target}' for precondition validation: {e}"
+
+        return True, ""
 
 
 def capture_file_snapshot(
@@ -103,7 +146,7 @@ def capture_file_snapshot(
 ) -> FileSnapshot:
     """Capture current file state as a frozen FileSnapshot."""
     phys_id = resolve_physical_identity(path)
-    if not path.exists():
+    if not os.path.lexists(path):
         return FileSnapshot(
             path=path,
             physical_identity=phys_id,
@@ -112,17 +155,39 @@ def capture_file_snapshot(
             size_bytes=0,
             format=format,
             sensitive=sensitive,
+            is_symlink=False,
+            symlink_target=None,
+            is_file=False,
+            is_dir=False,
         )
-    raw_bytes = path.read_bytes()
-    content_hash = hashlib.sha256(raw_bytes).hexdigest()
+
+    is_symlink = path.is_symlink()
+    symlink_target = os.readlink(path) if is_symlink else None
+    is_dir = path.is_dir() and not is_symlink
+    is_file = path.is_file() and not is_symlink
+
+    content_hash = None
+    size_bytes = 0
+    if path.exists() and not is_dir:
+        try:
+            raw_bytes = path.read_bytes()
+            content_hash = hashlib.sha256(raw_bytes).hexdigest()
+            size_bytes = len(raw_bytes)
+        except OSError:
+            pass
+
     return FileSnapshot(
         path=path,
         physical_identity=phys_id,
         exists=True,
         content_hash=content_hash,
-        size_bytes=len(raw_bytes),
+        size_bytes=size_bytes,
         format=format,
         sensitive=sensitive,
+        is_symlink=is_symlink,
+        symlink_target=symlink_target,
+        is_file=is_file,
+        is_dir=is_dir,
     )
 
 
@@ -211,24 +276,32 @@ def aggregate_file_plans(
         # Check sensitive flag aggregation
         is_sensitive = any(op.target.sensitive for op in ops)
 
-        # Check duplicate logical key collisions
+        # Check duplicate logical key and whole-file collisions (INV-CFG-03)
         seen_keys: dict[tuple[str, ...], ConfigOperation] = {}
+        mutating = {"CREATE", "UPDATE", "REMOVE"}
         for op in ops:
-            # Whole-file operations have empty key_path
-            if op.target.key_path:
-                key = op.target.key_path
-                if key in seen_keys:
-                    prev_op = seen_keys[key]
-                    # If either operation modifies the key, it is a collision
-                    mutating = {"CREATE", "UPDATE", "REMOVE"}
-                    if op.action in mutating or prev_op.action in mutating:
-                        raise ConfigCollisionError(
-                            f"Duplicate logical key {key} in physical file '{canonical_path}': "
-                            f"conflicting operations '{prev_op.target.logical_identity}' ({prev_op.action}) "
-                            f"and '{op.target.logical_identity}' ({op.action})"
-                        )
-                else:
-                    seen_keys[key] = op
+            key = op.target.key_path
+            if key in seen_keys:
+                prev_op = seen_keys[key]
+                # If either operation modifies the target, it is a collision
+                if op.action in mutating or prev_op.action in mutating:
+                    target_desc = "whole-file" if not key else f"logical key {key}"
+                    raise ConfigCollisionError(
+                        f"Duplicate {target_desc} collision in physical file '{canonical_path}': "
+                        f"conflicting operations '{prev_op.target.logical_identity}' ({prev_op.action}) "
+                        f"and '{op.target.logical_identity}' ({op.action})"
+                    )
+            else:
+                seen_keys[key] = op
+
+            # If there is a whole-file operation and also section-level operations, conflict if mutating
+            if () in seen_keys and len(seen_keys) > 1:
+                whole_op = seen_keys[()]
+                if op.action in mutating or whole_op.action in mutating:
+                    raise ConfigCollisionError(
+                        f"Conflicting whole-file and section-level operations in physical file '{canonical_path}': "
+                        f"'{whole_op.target.logical_identity}' ({whole_op.action})"
+                    )
 
         # Resolve or capture snapshot
         if phys_id in snapshots:

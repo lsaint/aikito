@@ -25,6 +25,7 @@ from aikito.mcp import (
     MCPExecutionResult,
     MCPPlan,
     build_mcp_plan,
+    evaluate_spec_status,
     execute_mcp_plan,
     sync_mcp_configs,
     sync_remove_mcp_from_agents,
@@ -671,6 +672,77 @@ agents = ["claude"]
         data_after = json.loads(claude_file.read_text(encoding="utf-8"))
         self.assertNotIn("drifted", data_after.get("mcpServers", {}))
 
+    def test_plan_and_file_plan_repr_redaction(self) -> None:
+        """Verify that repr(plan) and repr(file_plan) do not leak secrets or raw content (INV-MCP-05)."""
+        secret_token = "SUPER_SECRET_TOKEN_XYZ_12345"
+        (self.mcps_dir / "secret_server.toml").write_text(
+            f'transport = "remote"\nurl = "https://api.example.com?token={secret_token}"\nagents = ["claude"]\n',
+            encoding="utf-8",
+        )
+        plan = build_mcp_plan(aikito_dir=self.ws, home=self.home)
+        plan_repr = repr(plan)
+        self.assertNotIn(secret_token, plan_repr)
+
+        for fp in plan.file_plans:
+            fp_repr = repr(fp)
+            self.assertNotIn(secret_token, fp_repr)
+
+    def test_evaluate_spec_status_planned_update_vs_drift(self) -> None:
+        """evaluate_spec_status distinguishes planned UPDATE from external DRIFT using state."""
+        (self.mcps_dir / "myserver.toml").write_text(
+            'transport = "remote"\nurl = "https://v1.example.com"\nagents = ["claude"]\n',
+            encoding="utf-8",
+        )
+        ok = sync_mcp_configs(aikito_dir=self.ws, home=self.home)
+        self.assertTrue(ok)
+
+        # Initial status is OK
+        specs_v1 = build_mcp_plan(aikito_dir=self.ws, home=self.home).specs
+        spec_v1 = next(s for s in specs_v1 if s.server == "myserver")
+        self.assertEqual(evaluate_spec_status(spec_v1, home=self.home), "OK")
+
+        # Now canonical is updated to v2 (workspace definition changed)
+        (self.mcps_dir / "myserver.toml").write_text(
+            'transport = "remote"\nurl = "https://v2.example.com"\nagents = ["claude"]\n',
+            encoding="utf-8",
+        )
+        specs_v2 = build_mcp_plan(aikito_dir=self.ws, home=self.home).specs
+        spec_v2 = next(s for s in specs_v2 if s.server == "myserver")
+
+        # Disk has v1, matching state file managed fingerprint, but differs from canonical desired
+        # This is a planned UPDATE, not DRIFT!
+        self.assertEqual(evaluate_spec_status(spec_v2, home=self.home), "UPDATE")
+
+        # Now tamper with disk externally (unmanaged edit)
+        claude_file = self.home / ".claude.json"
+        data = json.loads(claude_file.read_text(encoding="utf-8"))
+        data["mcpServers"]["myserver"]["url"] = "https://tampered.example.com"
+        claude_file.write_text(json.dumps(data), encoding="utf-8")
+
+        # Disk no longer matches state file managed fingerprint -> DRIFT
+        self.assertEqual(evaluate_spec_status(spec_v2, home=self.home), "DRIFT")
+
+    def test_evaluate_spec_status_missing_credential_env_is_skip(self) -> None:
+        """evaluate_spec_status and build_mcp_plan agree that missing credentials yields SKIP, not MISSING."""
+        spec = AgentSpec(
+            agent="claude",
+            server="authserver",
+            config_path=self.home / ".claude.json",
+            config_format="claude_json",
+            target_name="authserver",
+            desired={"url": "https://auth.example.com"},
+            missing_credential_env="AUTH_TOKEN",
+            home=self.home,
+        )
+
+        plan = build_mcp_plan(aikito_dir=self.ws, home=self.home, specs=[spec])
+        self.assertEqual(len(plan.operations), 1)
+        self.assertEqual(plan.operations[0].action, "SKIP")
+
+        status = evaluate_spec_status(spec, home=self.home)
+        self.assertEqual(status, "SKIP")
+
 
 if __name__ == "__main__":
     unittest.main()
+

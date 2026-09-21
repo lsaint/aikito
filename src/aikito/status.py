@@ -130,7 +130,7 @@ def collect_mcp_details(
                 agent_name=spec.agent,
                 agent_display_name=definition.display_name,
                 source="managed",
-                status=evaluate_spec_status(spec),
+                status=evaluate_spec_status(spec, home=home),
                 config_path=spec.config_path,
                 config_format=spec.config_format,
                 entry=redact_mcp_entry(current) if current is not None else None,
@@ -474,12 +474,12 @@ def collect_agent_status_rows(
                 has_error = False
 
                 for spec in agent_mcp_specs:
-                    st = evaluate_spec_status(spec)
+                    st = evaluate_spec_status(spec, home=home)
                     if st == "OK":
                         ok_mcp += 1
                     elif st == "SKIP":
                         skip_mcp += 1
-                    elif st == "DRIFT":
+                    elif st in ("DRIFT", "UPDATE"):
                         has_drift = True
                     elif st == "MISSING":
                         has_missing = True
@@ -702,7 +702,7 @@ def collect_mcp_matrix(
             servers[srv_name] = {}
 
         if spec.agent in agents_dict:
-            st = evaluate_spec_status(spec)
+            st = evaluate_spec_status(spec, home=home)
         else:
             st = "SKIP"
 

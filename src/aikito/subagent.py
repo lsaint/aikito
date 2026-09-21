@@ -1158,7 +1158,55 @@ def build_subagent_plan(
         for op in operations
         if str(op.target.path) and op.target.path != Path("") and op.action != "SKIP"
     ]
-    file_plans = aggregate_file_plans(valid_ops)
+    raw_file_plans = aggregate_file_plans(valid_ops)
+
+    # Compute and freeze final_content for each FileMutationPlan at plan time (INV-CFG-02)
+    file_plans: list[FileMutationPlan] = []
+    for fp in raw_file_plans:
+        if fp.format == "dsh_cordis_subagent":
+            curr_text = fp.path.read_text(encoding="utf-8") if fp.path.is_file() else ""
+            new_text = curr_text
+            for op in fp.operations:
+                if not op.is_authorized:
+                    continue
+                if op.action in ("CREATE", "UPDATE"):
+                    new_text = update_dsh_cordis_subagent(
+                        new_text, op.target.logical_identity, op.rendered_payload or ""
+                    )
+                elif op.action in ("REMOVE", "ORPHAN"):
+                    new_text = remove_dsh_cordis_subagent(
+                        new_text, op.target.logical_identity
+                    )
+            file_plans.append(
+                FileMutationPlan(
+                    path=fp.path,
+                    physical_identity=fp.physical_identity,
+                    format=fp.format,
+                    sensitive=fp.sensitive,
+                    pre_image=fp.pre_image,
+                    operations=fp.operations,
+                    final_content=new_text,
+                )
+            )
+        else:
+            final_content = None
+            for op in fp.operations:
+                if op.is_authorized:
+                    if op.action in ("CREATE", "UPDATE"):
+                        final_content = op.rendered_payload or ""
+                    elif op.action in ("REMOVE", "ORPHAN"):
+                        final_content = None
+            file_plans.append(
+                FileMutationPlan(
+                    path=fp.path,
+                    physical_identity=fp.physical_identity,
+                    format=fp.format,
+                    sensitive=fp.sensitive,
+                    pre_image=fp.pre_image,
+                    operations=fp.operations,
+                    final_content=final_content,
+                )
+            )
 
     return SubagentPlan(
         operations=tuple(operations),
@@ -1261,39 +1309,36 @@ def execute_subagent_plan(
 
         try:
             if fp.format == "dsh_cordis_subagent":
-                # Single read of current file text
-                curr_text = fp.path.read_text(encoding="utf-8") if fp.path.is_file() else ""
-                new_text = curr_text
-                # Aggregate in-memory modifications
-                for op in fp.operations:
-                    if not op.is_authorized:
-                        continue
-                    if op.action in ("CREATE", "UPDATE"):
-                        new_text = update_dsh_cordis_subagent(
-                            new_text, op.target.logical_identity, op.rendered_payload or ""
-                        )
-                        applied_count += 1
-                    elif op.action in ("REMOVE", "ORPHAN"):
-                        new_text = remove_dsh_cordis_subagent(
-                            new_text, op.target.logical_identity
-                        )
-                        applied_count += 1
-
-                if new_text != curr_text:
+                # Precondition check passed; write frozen final_content without re-reading or re-planning
+                if fp.final_content is not None:
                     if fp.path.is_file():
-                        _backup_file(home, "dsh", fp.path)
-                    _write_file_atomic(fp.path, new_text)
+                        curr_text = fp.path.read_text(encoding="utf-8")
+                        if curr_text != fp.final_content:
+                            _backup_file(home, "dsh", fp.path)
+                            _write_file_atomic(fp.path, fp.final_content)
+                    else:
+                        _write_file_atomic(fp.path, fp.final_content)
+                applied_count += sum(
+                    1
+                    for op in fp.operations
+                    if op.is_authorized and op.action in ("CREATE", "UPDATE", "REMOVE", "ORPHAN")
+                )
 
             else:
                 for op in fp.operations:
                     if not op.is_authorized:
                         continue
+                    content_to_write = (
+                        fp.final_content
+                        if fp.final_content is not None
+                        else (op.rendered_payload or "")
+                    )
                     if op.action == "CREATE":
-                        _write_file_atomic(fp.path, op.rendered_payload or "")
+                        _write_file_atomic(fp.path, content_to_write)
                         applied_count += 1
                     elif op.action == "UPDATE":
                         _backup_file(home, op.target.agent, fp.path)
-                        _write_file_atomic(fp.path, op.rendered_payload or "")
+                        _write_file_atomic(fp.path, content_to_write)
                         applied_count += 1
                     elif op.action in ("REMOVE", "ORPHAN"):
                         _backup_file(home, op.target.agent, fp.path)
@@ -1333,27 +1378,29 @@ def sync_subagent_configs(
     dry_run: bool = False,
     force_targets: list[str] | None = None,
     prune: bool = False,
+    plan: SubagentPlan | None = None,
 ) -> bool:
-    normalized_force: set[str] = set()
-    if force_targets is not None:
-        if not force_targets:
-            raise SubagentConfigError(
-                "--force requires explicit <agent>/<subagent> target(s), e.g. --force claude-code/verifier"
-            )
-        for ft in force_targets:
-            if "/" not in ft or len(ft.split("/")) != 2:
+    if plan is None:
+        normalized_force: set[str] = set()
+        if force_targets is not None:
+            if not force_targets:
                 raise SubagentConfigError(
-                    f"Invalid --force target '{ft}'. Must be in format <agent>/<subagent>"
+                    "--force requires explicit <agent>/<subagent> target(s), e.g. --force claude-code/verifier"
                 )
-            normalized_force.add(ft.strip())
+            for ft in force_targets:
+                if "/" not in ft or len(ft.split("/")) != 2:
+                    raise SubagentConfigError(
+                        f"Invalid --force target '{ft}'. Must be in format <agent>/<subagent>"
+                    )
+                normalized_force.add(ft.strip())
 
-    plan = build_subagent_plan(
-        aikito_dir=aikito_dir,
-        home=home,
-        allow_empty=True,
-        force_targets=force_targets,
-        prune=prune,
-    )
+        plan = build_subagent_plan(
+            aikito_dir=aikito_dir,
+            home=home,
+            allow_empty=True,
+            force_targets=force_targets,
+            prune=prune,
+        )
 
     has_errors = any(op.action == "ERROR" for op in plan.operations)
     has_unforced_conflicts = any(

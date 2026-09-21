@@ -82,6 +82,7 @@ from .instructions import (
 from .mcp import (
     MCPConfigError,
     authenticate_mcp,
+    build_mcp_plan,
     load_agents,
     sync_mcp_configs,
 )
@@ -130,6 +131,7 @@ from .status import (
 )
 from .subagent import (
     SubagentConfigError,
+    build_subagent_plan,
     sync_subagent_configs,
 )
 from .compat import (
@@ -601,6 +603,8 @@ def _run_workspace_sync(
     dry_run: bool,
     cached_project_batches: Optional[dict[str, tuple[ProjectSyncBatch, dict]]] = None,
     canonical_snapshots: Optional[dict[str, str]] = None,
+    cached_subagent_plan: Optional[list[Any]] = None,
+    cached_mcp_plan: Optional[list[Any]] = None,
 ) -> bool:
     """Run all workspace sync scopes without terminating the process."""
     mode_str = " (dry run)" if dry_run else ""
@@ -642,10 +646,19 @@ def _run_workspace_sync(
     # 2. Subagent sync (host-gated)
     print("[INFO] --- [2/4] Subagents ---")
     try:
+        sub_plan = None
+        if not dry_run and cached_subagent_plan is not None and cached_subagent_plan[0] is not None:
+            sub_plan = cached_subagent_plan[0]
+        elif dry_run:
+            sub_plan = build_subagent_plan(aikito_dir=aikito_dir, home=home, allow_empty=True)
+            if cached_subagent_plan is not None:
+                cached_subagent_plan[0] = sub_plan
+
         sub_ok = sync_subagent_configs(
             aikito_dir=aikito_dir,
             home=home,
             dry_run=dry_run,
+            plan=sub_plan,
         )
         if not sub_ok:
             overall_success = False
@@ -659,10 +672,19 @@ def _run_workspace_sync(
     # 3. MCP sync (host-gated, tolerant of missing credentials)
     print("[INFO] --- [3/4] MCP Configurations ---")
     try:
+        m_plan = None
+        if not dry_run and cached_mcp_plan is not None and cached_mcp_plan[0] is not None:
+            m_plan = cached_mcp_plan[0]
+        elif dry_run:
+            m_plan = build_mcp_plan(aikito_dir=aikito_dir, home=home)
+            if cached_mcp_plan is not None:
+                cached_mcp_plan[0] = m_plan
+
         mcp_ok = sync_mcp_configs(
             aikito_dir=aikito_dir,
             home=home,
             dry_run=dry_run,
+            plan=m_plan,
         )
         if not mcp_ok:
             overall_success = False
@@ -812,6 +834,8 @@ def cmd_sync_all(args: argparse.Namespace) -> None:
 
     cached_project_batches: dict[str, tuple[ProjectSyncBatch, dict]] = {}
     canonical_snapshots: dict[str, str] = {}
+    cached_subagent_plan: list[Any] = [None]
+    cached_mcp_plan: list[Any] = [None]
 
     def _call_workspace_sync(is_dry_run: bool) -> bool:
         return _run_workspace_sync(
@@ -820,11 +844,15 @@ def cmd_sync_all(args: argparse.Namespace) -> None:
             dry_run=is_dry_run,
             cached_project_batches=cached_project_batches,
             canonical_snapshots=canonical_snapshots,
+            cached_subagent_plan=cached_subagent_plan,
+            cached_mcp_plan=cached_mcp_plan,
         )
 
     plan = capture_sync_plan(
         lambda: _call_workspace_sync(is_dry_run=True),
         skill_batches_fn=lambda: [b for b, _ in cached_project_batches.values()],
+        subagent_plan_fn=lambda: cached_subagent_plan[0],
+        mcp_plan_fn=lambda: cached_mcp_plan[0],
     )
     print(plan.render(verbose=verbose))
     if not plan.can_apply:

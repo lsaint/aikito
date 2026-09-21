@@ -3,6 +3,7 @@ import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 from aikito.doctor import (
@@ -1079,6 +1080,43 @@ agents = ["claude-code"]
         self.assertFalse(
             any(finding.fix_hint == "aikito sync mcp" for finding in warnings)
         )
+
+    def test_check_drift_distinguishes_update_and_drift_hints(self) -> None:
+        spec_update = AgentSpec(
+            agent="claude",
+            server="srv1",
+            config_path=self.home / ".claude.json",
+            config_format="claude_json",
+            target_name="srv1",
+            desired={"url": "https://v2.com"},
+        )
+        spec_drift = AgentSpec(
+            agent="claude",
+            server="srv2",
+            config_path=self.home / ".claude.json",
+            config_format="claude_json",
+            target_name="srv2",
+            desired={"url": "https://v1.com"},
+        )
+
+        def eval_status(spec: AgentSpec, **kwargs: Any) -> str:
+            return "UPDATE" if spec.server == "srv1" else "DRIFT"
+
+        with (
+            patch("aikito.doctor.load_agent_specs", return_value=[spec_update, spec_drift]),
+            patch("aikito.doctor.evaluate_spec_status", side_effect=eval_status),
+            patch("aikito.doctor.build_plan", return_value=([], {})),
+        ):
+            section = check_drift(self.aikito_dir, self.home)
+
+        failures = [f for f in section.findings if f.status == "FAIL"]
+        self.assertEqual(len(failures), 2)
+        f_update = next(f for f in failures if "srv1" in f.message)
+        f_drift = next(f for f in failures if "srv2" in f.message)
+
+        # UPDATE suggests normal sync; DRIFT suggests --force
+        self.assertEqual(f_update.fix_hint, "aikito sync mcp")
+        self.assertEqual(f_drift.fix_hint, "aikito sync mcp --force")
 
 
 # ---------------------------------------------------------------------------

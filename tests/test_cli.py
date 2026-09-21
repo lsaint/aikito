@@ -370,6 +370,35 @@ skills_path = ".agents/skills"
             "Full workspace sync completed successfully", mock_stdout.getvalue()
         )
 
+    def test_cmd_sync_all_caches_subagent_and_mcp_plans_across_preview_and_apply(self) -> None:
+        subagent_plan_calls = []
+        mcp_plan_calls = []
+
+        real_build_sub = AIKITO_CLI.build_subagent_plan
+        real_build_mcp = AIKITO_CLI.build_mcp_plan
+
+        def track_sub_plan(*args: Any, **kwargs: Any) -> Any:
+            subagent_plan_calls.append(len(subagent_plan_calls))
+            return real_build_sub(*args, **kwargs)
+
+        def track_mcp_plan(*args: Any, **kwargs: Any) -> Any:
+            mcp_plan_calls.append(len(mcp_plan_calls))
+            return real_build_mcp(*args, **kwargs)
+
+        with (
+            patch("sys.stdout", new_callable=io.StringIO),
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("pathlib.Path.home", return_value=self.home),
+            patch.object(AIKITO_CLI, "build_subagent_plan", side_effect=track_sub_plan),
+            patch.object(AIKITO_CLI, "build_mcp_plan", side_effect=track_mcp_plan),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["sync"])
+            args.func(args)
+
+        # Verified: build_subagent_plan and build_mcp_plan were called exactly once during preview, and cached during apply!
+        self.assertEqual(len(subagent_plan_calls), 1)
+        self.assertEqual(len(mcp_plan_calls), 1)
+
     def test_cmd_sync_all_propagates_internal_type_error(self) -> None:
         def raise_type_error(*_args: Any, **_kwargs: Any) -> bool:
             raise TypeError("Real internal type mismatch")

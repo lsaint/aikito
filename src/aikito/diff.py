@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .mcp import (
+    build_mcp_plan,
     evaluate_spec_status,
     load_agent_specs,
     read_entry,
@@ -47,9 +48,15 @@ def _redacted_only_diff(actual_label: str, expected_label: str) -> str:
 def collect_drift_diffs(aikito_dir: Path, home: Path) -> list[tuple[str, str]]:
     """Return display labels and redacted unified diffs for every drifted resource."""
     results: list[tuple[str, str]] = []
+    try:
+        specs = load_agent_specs(aikito_dir, home)
+        plan = build_mcp_plan(aikito_dir, home, specs=specs)
+    except Exception:
+        specs = load_agent_specs(aikito_dir, home)
+        plan = None
 
-    for spec in load_agent_specs(aikito_dir, home):
-        if evaluate_spec_status(spec) != "DRIFT":
+    for spec in specs:
+        if evaluate_spec_status(spec, home=home, plan=plan) not in ("DRIFT", "UPDATE"):
             continue
         current = read_entry(spec, spec.config_path.read_text(encoding="utf-8"))
         if current is None:

@@ -338,6 +338,45 @@ jobs:
           python -m aikito add mcp win-imported --from $extMcpJson --force
           python -m aikito rm mcp win-imported
           if (Test-Path $winImportedFile) { throw "Win imported MCP toml was not deleted after rm" }
+
+          # Phase 7 Subagent and MCP runtime synchronization smoke tests on Windows
+          python -m aikito add subagent win-p7-sub --description "Windows Phase 7 subagent"
+          $winP7SubFile = Join-Path $wsDir "subagents\win-p7-sub.md"
+          if (-not (Test-Path $winP7SubFile)) { throw "Windows Phase 7 subagent file missing" }
+          python -m aikito sync subagents
+          $claudeSubTarget = Join-Path $claudeDir "agents\win-p7-sub.md"
+          if (-not (Test-Path $claudeSubTarget)) { throw "Windows synchronized subagent target missing" }
+          # Repeat sync is NOOP idempotency
+          $subRepeat = python -m aikito sync subagents | Out-String
+          if ($subRepeat -notmatch "0 files modified") { throw "Repeated subagent sync was not NOOP on Windows" }
+
+          python -m aikito add mcp win-p7-mcp --url "https://example.com/win-p7"
+          $winP7McpToml = Join-Path $wsDir "mcps\win-p7-mcp.toml"
+          if (-not (Test-Path $winP7McpToml)) { throw "Windows Phase 7 MCP toml missing" }
+          python -m aikito sync mcp
+          if (-not (Select-String -Path $codexConfig -Pattern "win_p7_mcp" -Quiet)) {
+            throw "Windows synchronized MCP not written to codex config"
+          }
+          # Repeat sync is NOOP idempotency
+          $mcpRepeat = python -m aikito sync mcp | Out-String
+          if ($mcpRepeat -notmatch "already synchronized") { throw "Repeated MCP sync was not NOOP on Windows" }
+
+          # Runtime drift blocks without --force
+          $codexContent = Get-Content -Raw -Path $codexConfig
+          $codexTampered = $codexContent.Replace("https://example.com/win-p7", "https://example.com/tampered")
+          Set-Content -Path $codexConfig -Value $codexTampered
+          $mcpDrift = python -m aikito sync mcp 2>&1 | Out-String
+          if ($LASTEXITCODE -eq 0) { throw "Expected MCP sync to fail on runtime drift" }
+          if ($mcpDrift -notmatch "\[CONFLICT\]") { throw "MCP runtime drift was not detected on Windows" }
+
+          # Desired Absent removal via unified engine
+          python -m aikito rm mcp win-p7-mcp --force --sync
+          if (Test-Path $winP7McpToml) { throw "Windows Phase 7 MCP toml was not deleted" }
+          if (Select-String -Path $codexConfig -Pattern "win_p7_mcp" -Quiet) {
+            throw "Windows Phase 7 MCP was not removed from codex config"
+          }
+          python -m aikito rm subagent win-p7-sub --sync
+          if (Test-Path $claudeSubTarget) { throw "Windows Phase 7 subagent target was not cleaned up" }
           $globalNote = Join-Path $wsDir "memory\notes\windows-memory.md"
           @("# Windows Memory") | Set-Content $globalNote
           $projectNote = Join-Path $wsDir "projects\example\memory\notes\windows-project-memory.md"
