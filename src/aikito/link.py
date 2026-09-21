@@ -629,6 +629,15 @@ def apply_link_operation(
     canonical = op.canonical_path
 
     if op.action == "SHARED_PATH":
+        if dry_run:
+            if op.target_kind == "consumer_link":
+                print(f"[OK] {op.resource_name} skills: shared path {target}")
+            elif op.target_kind == "instruction_link":
+                print(f"[OK] {op.resource_name} instructions: shared path {target}")
+            elif verbose:
+                print(f"[OK] shared path {target}")
+            return LinkExecutionResult(operation=op, success=True, applied=False)
+
         # Preflight: target must not be a symlink
         if target.is_symlink():
             return LinkExecutionResult(

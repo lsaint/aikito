@@ -613,11 +613,20 @@ def sync_project(
         for err in batch.legacy_preflight_errors:
             print(f"[ERROR] {err}", file=sys.stderr)
         for op in batch.skill_plan.operations:
-            if op.finding and op.finding not in batch.legacy_preflight_errors:
+            if op.action == "CONFLICT":
+                print(f"[CONFLICT] {op.reason}", file=sys.stderr)
+            elif op.finding and op.finding not in batch.legacy_preflight_errors:
                 print(f"[ERROR] {op.finding}", file=sys.stderr)
         if batch.instruction_plan is not None:
             for op in batch.instruction_plan.operations:
-                if op.finding and op.finding not in batch.legacy_preflight_errors:
+                if op.action == "CONFLICT":
+                    prefix = (
+                        f"[CONFLICT] {op.resource_name} instructions:"
+                        if op.resource_name
+                        else "[CONFLICT]"
+                    )
+                    print(f"{prefix} {op.reason}", file=sys.stderr)
+                elif op.finding and op.finding not in batch.legacy_preflight_errors:
                     print(f"[ERROR] {op.finding}", file=sys.stderr)
         print("[ERROR] Project synchronization aborted.", file=sys.stderr)
         return False

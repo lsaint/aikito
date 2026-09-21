@@ -55,7 +55,7 @@ class InstructionBatchAndPlanTests(TestCase):
         self.proj_dir = self.ws / "projects" / "demo"
         self.proj_dir.mkdir(parents=True)
         (self.proj_dir / "agent.toml").write_text(
-            f'name = "demo"\npaths = ["{self.co}"]\nskills = []\n',
+            f'name = "demo"\npaths = ["{self.co.as_posix()}"]\nskills = []\n',
             encoding="utf-8",
         )
         self.proj_agents_md = self.proj_dir / "AGENTS.md"

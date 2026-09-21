@@ -7,11 +7,17 @@ into command handlers; keeping them here keeps the entry thin and importable.
 
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 from pathlib import Path
 
-from .compat import require_symlink_support, safe_symlink
+from .compat import (
+    _resolve_symlink_target,
+    get_physical_path,
+    require_symlink_support,
+    safe_symlink,
+)
 
 
 def ensure_dir(path: Path) -> None:
@@ -47,6 +53,15 @@ def sync_resource(
     # Gate symlink capability before any destructive operation
     if mode == "link":
         require_symlink_support()
+        if target.is_symlink():
+            try:
+                resolved = _resolve_symlink_target(target)
+                if resolved is not None and os.path.normcase(
+                    str(get_physical_path(resolved))
+                ) == os.path.normcase(str(get_physical_path(source))):
+                    return True
+            except (OSError, ValueError):
+                pass
 
     # Remove existing target if needed (symlink, file, or directory)
     if target.is_symlink() or target.exists():

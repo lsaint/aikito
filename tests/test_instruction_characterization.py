@@ -162,7 +162,7 @@ class ProjectInstructionCharacterizationTests(TestCase):
         proj_dir = self.ws / "projects" / "demo"
         proj_dir.mkdir(parents=True)
         (proj_dir / "agent.toml").write_text(
-            f'name = "demo"\npaths = ["{self.co}"]\nskills = []\n',
+            f'name = "demo"\npaths = ["{self.co.as_posix()}"]\nskills = []\n',
             encoding="utf-8",
         )
         self.proj_agents_md = proj_dir / "AGENTS.md"
@@ -290,7 +290,7 @@ class ProjectInstructionCharacterizationTests(TestCase):
         co2.mkdir()
         proj_dir = self.ws / "projects" / "demo"
         (proj_dir / "agent.toml").write_text(
-            f'name = "demo"\npaths = ["{self.co}", "{co2}"]\nskills = []\n',
+            f'name = "demo"\npaths = ["{self.co.as_posix()}", "{co2.as_posix()}"]\nskills = []\n',
             encoding="utf-8",
         )
 
