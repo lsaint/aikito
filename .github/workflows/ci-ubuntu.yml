@@ -487,7 +487,7 @@ jobs:
           # 3. Subagent unmanaged conflict and scoped --force (INV-SUB-02)
           printf "unmanaged agent prompt without marker\n" > ~/.claude/agents/p7-conflict.md
           AIKITO_DIR="$WS" python3 -m aikito add subagent p7-conflict --description "Conflicting subagent"
-          ! AIKITO_DIR="$WS" python3 -m aikito sync subagents 2> ${{ runner.temp }}/sub-conflict.err
+          ! AIKITO_DIR="$WS" python3 -m aikito sync subagents > ${{ runner.temp }}/sub-conflict.err 2>&1
           grep -F "[CONFLICT]" ${{ runner.temp }}/sub-conflict.err
           test "$(cat ~/.claude/agents/p7-conflict.md)" = "unmanaged agent prompt without marker"
           AIKITO_DIR="$WS" python3 -m aikito sync subagents --force claude-code/p7-conflict
@@ -506,7 +506,7 @@ jobs:
           AIKITO_DIR="$WS" python3 -m aikito add mcp p7-mcp-1 --url "https://example.com/p7-1"
           AIKITO_DIR="$WS" python3 -m aikito add mcp p7-mcp-2 --url "https://example.com/p7-2"
           AIKITO_DIR="$WS" python3 -m aikito sync mcp --dry-run | tee ${{ runner.temp }}/mcp-dryrun.out
-          grep -F "Planned MCP configuration changes:" ${{ runner.temp }}/mcp-dryrun.out
+          grep -F "[DRY-RUN] codex/p7-mcp-1: would create entry" ${{ runner.temp }}/mcp-dryrun.out
           if [ -f ~/.codex/config.toml ]; then
             ! grep -q "p7_mcp_1" ~/.codex/config.toml
             ! grep -q "p7_mcp_2" ~/.codex/config.toml
