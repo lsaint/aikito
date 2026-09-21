@@ -43,11 +43,11 @@ Configuration files containing sensitive credentials or marked as sensitive (e.g
 
 *Targeted tests*: `tests/test_mcp_plan.py`, `tests/test_mcp.py`
 
-### INV-MCP-07: Unified Desired-Absent Model for MCP Removal via Shared Executor `[planned]` {: #inv-mcp-07 }
+### INV-MCP-07: Unified Desired-Absent Model for MCP Removal via Shared Executor `[current]` {: #inv-mcp-07 }
 
 `aikito rm mcp <name> --sync` operates by planning the target server as `Desired Absent` (`REMOVE` operation) through the unified MCP Planner and Executor. Removal reuses the same file aggregation, backup, and state commit transaction engine rather than maintaining a separate runtime deletion code path.
 
-*Targeted tests*: `tests/test_mcp.py`
+*Targeted tests*: `tests/test_mcp_plan.py`, `tests/test_remove.py`, `tests/test_mcp.py`
 
 ### INV-MCP-08: Preservation of Recovery Materials and Explicit recovery_required on Rollback Failure `[current]` {: #inv-mcp-08 }
 

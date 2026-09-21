@@ -27,6 +27,7 @@ from aikito.mcp import (
     build_mcp_plan,
     execute_mcp_plan,
     sync_mcp_configs,
+    sync_remove_mcp_from_agents,
 )
 
 
@@ -582,6 +583,93 @@ agents = ["claude"]
         self.assertEqual(len(result.backups_created), 1)
         backup_path = result.backups_created[0]
         self.assertTrue(backup_path.exists())
+
+    def test_sync_remove_mcp_aggregates_same_file_and_preserves_unmanaged(self) -> None:
+        """Removing multiple servers from the same file executes via Desired Absent in a single pass (INV-MCP-07)."""
+        claude_file = self.home / ".claude.json"
+        # Two servers to create and sync
+        (self.mcps_dir / "srv1.toml").write_text(
+            'transport = "remote"\nurl = "https://srv1.com"\nagents = ["claude"]\n',
+            encoding="utf-8",
+        )
+        (self.mcps_dir / "srv2.toml").write_text(
+            'transport = "remote"\nurl = "https://srv2.com"\nagents = ["claude"]\n',
+            encoding="utf-8",
+        )
+        sync_mcp_configs(aikito_dir=self.ws, home=self.home)
+
+        # Inject an unmanaged third server into .claude.json
+        data = json.loads(claude_file.read_text(encoding="utf-8"))
+        data["mcpServers"]["unmanaged"] = {"url": "https://unmanaged.com"}
+        claude_file.write_text(json.dumps(data), encoding="utf-8")
+
+        # Now remove srv1 and srv2 using sync_remove_mcp_from_agents
+        specs = [
+            AgentSpec(
+                agent="claude",
+                server="srv1",
+                config_path=claude_file,
+                config_format="claude_json",
+                target_name="srv1",
+                desired={},
+            ),
+            AgentSpec(
+                agent="claude",
+                server="srv2",
+                config_path=claude_file,
+                config_format="claude_json",
+                target_name="srv2",
+                desired={},
+            ),
+        ]
+        ok = sync_remove_mcp_from_agents(home=self.home, specs=specs)
+        self.assertTrue(ok)
+
+        # Verify srv1 and srv2 are removed, unmanaged is retained intact
+        data_after = json.loads(claude_file.read_text(encoding="utf-8"))
+        self.assertNotIn("srv1", data_after.get("mcpServers", {}))
+        self.assertNotIn("srv2", data_after.get("mcpServers", {}))
+        self.assertIn("unmanaged", data_after.get("mcpServers", {}))
+
+        # Verify state file entries for srv1 and srv2 are removed
+        state_path = self.home / STATE_FILE
+        state_data = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertNotIn("claude:srv1", state_data["entries"])
+        self.assertNotIn("claude:srv2", state_data["entries"])
+
+    def test_sync_remove_mcp_conflict_blocks_without_force(self) -> None:
+        """Removing an externally mutated server conflicts and aborts unless force=True (INV-MCP-07)."""
+        claude_file = self.home / ".claude.json"
+        (self.mcps_dir / "drifted.toml").write_text(
+            'transport = "remote"\nurl = "https://orig.com"\nagents = ["claude"]\n',
+            encoding="utf-8",
+        )
+        sync_mcp_configs(aikito_dir=self.ws, home=self.home)
+
+        # Mutate the server entry externally
+        data = json.loads(claude_file.read_text(encoding="utf-8"))
+        data["mcpServers"]["drifted"]["url"] = "https://tampered.com"
+        claude_file.write_text(json.dumps(data), encoding="utf-8")
+
+        spec = AgentSpec(
+            agent="claude",
+            server="drifted",
+            config_path=claude_file,
+            config_format="claude_json",
+            target_name="drifted",
+            desired={},
+        )
+
+        out_lines: list[str] = []
+        ok = sync_remove_mcp_from_agents(home=self.home, specs=[spec], output=out_lines.append, force=False)
+        self.assertFalse(ok)
+        self.assertTrue(any("[CONFLICT]" in line for line in out_lines))
+
+        # With force=True, it succeeds
+        ok_forced = sync_remove_mcp_from_agents(home=self.home, specs=[spec], force=True)
+        self.assertTrue(ok_forced)
+        data_after = json.loads(claude_file.read_text(encoding="utf-8"))
+        self.assertNotIn("drifted", data_after.get("mcpServers", {}))
 
 
 if __name__ == "__main__":

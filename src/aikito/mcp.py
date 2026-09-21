@@ -3314,9 +3314,11 @@ def sync_mcp_configs(
     home: Path,
     dry_run: bool = False,
     force: bool = False,
+    plan: MCPPlan | None = None,
     output: Callable[[str], None] = print,
 ) -> bool:
-    plan = build_mcp_plan(aikito_dir, home, force=force)
+    if plan is None:
+        plan = build_mcp_plan(aikito_dir, home, force=force)
 
     # Output inspection results
     for op in plan.operations:
@@ -3376,67 +3378,21 @@ def sync_remove_mcp_from_agents(
     output: Callable[[str], None] = print,
     force: bool = False,
 ) -> bool:
-    state = _load_state(home)
-    entries = state["entries"]
-    success = True
-    conflicted_state_keys: set[str] = set()
-
-    for spec in specs:
-        if not spec.enabled:
-            continue
-        if not _agent_detected(spec):
-            continue
-        if not spec.config_path.exists():
-            continue
-
-        text = spec.config_path.read_text(encoding="utf-8")
-        current = _read_entry(spec, text)
-        if current is None:
-            entries.pop(spec.state_key, None)
-            continue
-
-        previous = entries.get(spec.state_key, {})
-        managed_fingerprint = previous.get("fingerprint")
-        current_fingerprint = _fingerprint(current) if current is not None else None
-
-        safe_to_remove = force or (
-            managed_fingerprint is not None
-            and current_fingerprint == managed_fingerprint
-        )
-        if not safe_to_remove:
-            output(
-                f"[CONFLICT] {spec.agent}/{spec.server}: existing config was not "
-                "last written by aikito; review it or rerun with --force"
-            )
-            success = False
-            conflicted_state_keys.add(spec.state_key)
-            continue
-
-        backup = (
-            None
-            if spec.contains_secret or spec.config_format == "claude_json"
-            else _backup_config(home, spec)
-        )
-        updated = _remove_entry(spec, text)
-        _atomic_write(
-            spec.config_path, updated, secure_permissions=spec.contains_secret
-        )
-        entries.pop(spec.state_key, None)
-        output(f"[SYNC] {spec.agent}/{spec.server}: removed from {spec.config_path}")
-        if backup:
-            output(f"[BACKUP] {backup}")
-
-    for spec in specs:
-        if spec.state_key in conflicted_state_keys:
-            continue
-        server_key_suffix = f":{spec.server}"
-        to_del = [
-            k
-            for k in entries
-            if k.endswith(server_key_suffix) and k not in conflicted_state_keys
-        ]
-        for k in to_del:
-            entries.pop(k, None)
-
-    _save_state(home, state)
-    return success
+    server_names = {s.server for s in specs}
+    plan = build_mcp_plan(
+        aikito_dir=home,
+        home=home,
+        specs=specs,
+        desired_absent_servers=server_names,
+        force=force,
+    )
+    if not plan.can_apply:
+        for op in plan.operations:
+            if op.action == "CONFLICT" and not op.is_authorized:
+                output(
+                    f"[CONFLICT] {op.target.agent}/{op.target.logical_identity}: existing config was not "
+                    "last written by aikito; review it or rerun with --force"
+                )
+        return False
+    result = execute_mcp_plan(plan, home, output=output)
+    return result.success
