@@ -16,6 +16,11 @@ from typing import Any, Mapping
 from .compat import check_case_collision, safe_relative_path
 from .conflict import collect_resource_conflicts
 from .init import project_sync_validation_error
+from .instructions import (
+    InstructionPlan,
+    build_project_instruction_batch,
+    plan_instructions,
+)
 from .mcp import collect_project_instruction_targets
 from .project import (
     RuntimeCleanupPlan,
@@ -60,6 +65,7 @@ class ProjectSyncBatch:
     legacy_preflight_errors: tuple[str, ...]
     can_apply: bool
     config_cas: CandidatePathCAS | None = None
+    instruction_plan: InstructionPlan | None = None
 
 
 @dataclass(frozen=True)
@@ -347,7 +353,24 @@ def build_project_sync_batch(
         extra_findings=extra_findings,
     )
 
-    can_apply = plan.can_apply and not extra_findings
+    instruction_plan: InstructionPlan | None = None
+    if project_instructions.is_file():
+        inst_batch = build_project_instruction_batch(
+            workspace_root,
+            project_name,
+            checkout=active_checkouts,
+            home=home,
+            offline_checkouts=offline_checkouts,
+        )
+        instruction_plan = plan_instructions(inst_batch, home)
+        for conflict_op in instruction_plan.conflicts:
+            extra_findings.append(conflict_op.finding or conflict_op.reason)
+
+    can_apply = (
+        plan.can_apply
+        and (instruction_plan is None or instruction_plan.can_apply)
+        and not extra_findings
+    )
 
     return ProjectSyncBatch(
         workspace_root=workspace_root,
@@ -359,6 +382,7 @@ def build_project_sync_batch(
         legacy_preflight_errors=tuple(extra_findings),
         can_apply=can_apply,
         config_cas=config_cas,
+        instruction_plan=instruction_plan,
     )
 
 
@@ -587,6 +611,10 @@ def sync_project(
         for op in batch.skill_plan.operations:
             if op.finding and op.finding not in batch.legacy_preflight_errors:
                 print(f"[ERROR] {op.finding}", file=sys.stderr)
+        if batch.instruction_plan is not None:
+            for op in batch.instruction_plan.operations:
+                if op.finding and op.finding not in batch.legacy_preflight_errors:
+                    print(f"[ERROR] {op.finding}", file=sys.stderr)
         print("[ERROR] Project synchronization aborted.", file=sys.stderr)
         return False
 

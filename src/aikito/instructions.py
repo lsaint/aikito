@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,6 +35,7 @@ class InstructionBatch:
     stale_targets: tuple[Target, ...] = ()
     checkout: Path | None = None
     project_name: str | None = None
+    offline_checkouts: tuple[Path, ...] = ()
 
     @property
     def resource_count(self) -> int:
@@ -148,24 +150,65 @@ def build_global_instruction_batch(
 def build_project_instruction_batch(
     workspace_root: Path,
     project_name: str,
-    checkout: Path,
+    checkout: Path | Sequence[Path],
     home: Path,
     *,
     registry: AgentRegistry | None = None,
     is_offline: bool = False,
+    offline_checkouts: Sequence[Path] = (),
 ) -> InstructionBatch:
-    """Build an InstructionBatch for a project checkout."""
+    """Build an InstructionBatch for project checkout(s)."""
     if registry is None:
         registry = AgentRegistry.load(workspace_root, home)
     canonical = workspace_root / "projects" / project_name / "AGENTS.md"
-    targets = resolve_targets(
-        "project_instructions",
-        workspace_root,
-        home,
-        project_path=checkout,
-        project_name=project_name,
-        registry=registry,
-    )
+
+    active_cos: tuple[Path, ...]
+    if isinstance(checkout, Path):
+        active_cos = (checkout,)
+    else:
+        active_cos = tuple(checkout)
+
+    offline_cos = tuple(offline_checkouts)
+    all_targets: list[Target] = []
+    stale: list[Target] = []
+
+    for co in active_cos:
+        targets = resolve_targets(
+            "project_instructions",
+            workspace_root,
+            home,
+            project_path=co,
+            project_name=project_name,
+            registry=registry,
+        )
+        all_targets.extend(targets)
+
+        if not is_offline:
+            legacy_agents = co / ".agents" / "AGENTS.md"
+            target_paths = {t.path.resolve(strict=False) for t in targets}
+            if legacy_agents.resolve(strict=False) not in target_paths:
+                if legacy_agents.is_symlink() or legacy_agents.exists():
+                    stale.append(
+                        Target(
+                            kind="instruction_link",
+                            scope="project",
+                            path=legacy_agents,
+                            canonical_source=canonical,
+                            consumers=(),
+                            consumer_display_names=("Legacy .agents",),
+                        )
+                    )
+
+    for off_co in offline_cos:
+        off_targets = resolve_targets(
+            "project_instructions",
+            workspace_root,
+            home,
+            project_path=off_co,
+            project_name=project_name,
+            registry=registry,
+        )
+        all_targets.extend(off_targets)
 
     enabled = False
     if canonical.is_file():
@@ -175,31 +218,19 @@ def build_project_instruction_batch(
         except OSError:
             enabled = False
 
-    stale: list[Target] = []
-    if not is_offline:
-        legacy_agents = checkout / ".agents" / "AGENTS.md"
-        target_paths = {t.path.resolve(strict=False) for t in targets}
-        if legacy_agents.resolve(strict=False) not in target_paths:
-            if legacy_agents.is_symlink() or legacy_agents.exists():
-                stale.append(
-                    Target(
-                        kind="instruction_link",
-                        scope="project",
-                        path=legacy_agents,
-                        canonical_source=canonical,
-                        consumers=(),
-                        consumer_display_names=("Legacy .agents",),
-                    )
-                )
+    first_checkout = (
+        active_cos[0] if active_cos else (offline_cos[0] if offline_cos else None)
+    )
 
     return InstructionBatch(
         scope="project",
         canonical_source=canonical,
-        targets=targets,
+        targets=tuple(all_targets),
         enabled=enabled,
         stale_targets=tuple(stale),
-        checkout=checkout,
+        checkout=first_checkout,
         project_name=project_name,
+        offline_checkouts=offline_cos,
     )
 
 
@@ -238,6 +269,28 @@ def plan_instructions(
     desired_mode = "link" if batch.enabled else "absent"
 
     for target in batch.targets:
+        target_offline = any(
+            target.path == off or target.path.is_relative_to(off)
+            for off in batch.offline_checkouts
+        )
+        if target_offline:
+            operations.append(
+                LinkOperation(
+                    action="SKIP",
+                    rule_id="INV-INST-11",
+                    target_path=target.path,
+                    canonical_path=batch.canonical_source,
+                    reason=f"Checkout is offline: {target.path}",
+                    expected_representation="missing",
+                    desired_representation="link",
+                    target_kind="instruction_link",
+                    resource_name="/".join(target.consumer_display_names)
+                    or target.path.name,
+                    is_authorized=True,
+                )
+            )
+            continue
+
         is_same_obj = target.is_same_object and not target.path.is_symlink()
         observed = inspect_link_target(
             target.path,

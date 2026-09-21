@@ -13,6 +13,7 @@ from aikito.instructions import (
     execute_instruction_plan,
     plan_instructions,
 )
+from aikito.project_sync import build_project_sync_batch
 
 
 class InstructionBatchAndPlanTests(TestCase):
@@ -237,3 +238,54 @@ class InstructionBatchAndPlanTests(TestCase):
         # Verify nothing was written
         codex_target = self.home / ".codex" / "AGENTS.md"
         self.assertFalse(codex_target.exists())
+
+    def test_multi_checkout_and_offline_batch_planning(self) -> None:
+        co2 = self.root / "checkout2"
+        co2.mkdir()
+        offline_co = self.root / "offline_checkout"
+
+        batch = build_project_instruction_batch(
+            self.ws,
+            "demo",
+            checkout=[self.co, co2],
+            home=self.home,
+            offline_checkouts=[offline_co],
+        )
+        self.assertEqual(len(batch.targets), 6)  # 2 targets * 3 checkouts
+
+        plan = plan_instructions(batch, self.home)
+        self.assertTrue(plan.can_apply)
+        self.assertEqual(plan.planned_change_count, 4)
+        self.assertEqual(plan.skip_count, 2)
+        offline_ops = [
+            op
+            for op in plan.operations
+            if offline_co in op.target_path.parents or op.target_path == offline_co
+        ]
+        self.assertEqual(len(offline_ops), 2)
+        self.assertTrue(
+            all(
+                op.action == "SKIP" and op.rule_id == "INV-INST-11"
+                for op in offline_ops
+            )
+        )
+
+    def test_build_project_sync_batch_blocks_on_instruction_conflict(self) -> None:
+        conflict_file = self.co / "AGENTS.md"
+        conflict_file.write_text("existing unmanaged content", encoding="utf-8")
+
+        data = {
+            "name": "demo",
+            "paths": [str(self.co)],
+            "skills": [],
+        }
+        batch = build_project_sync_batch(self.ws, self.home, "demo", data)
+        self.assertFalse(batch.can_apply)
+        self.assertIsNotNone(batch.instruction_plan)
+        self.assertTrue(batch.instruction_plan.has_conflicts)
+        self.assertTrue(
+            any(
+                "Pre-existing regular instruction file" in err
+                for err in batch.legacy_preflight_errors
+            )
+        )
