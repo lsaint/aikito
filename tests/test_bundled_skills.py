@@ -12,6 +12,7 @@ from aikito.bundled_skills import (
     print_bundled_skill_notice,
     refresh_bundled_skills,
 )
+from aikito.instructions import InstructionExecutionResult
 from aikito.skill_state import SkillWriterLock, get_skill_state_dir
 from aikito.templating import BUNDLED_SKILL_NAMES, bundled_skill_path
 
@@ -227,10 +228,15 @@ class BundledSkillWriterLockTest(unittest.TestCase):
             encoding="utf-8",
         )
 
-        # Mock sync_global_entry for instructions to fail
+        # Mock execute_instruction_plan for instructions to fail
+        mock_instruction_res = InstructionExecutionResult(
+            operations=(), success=False, error_message="mock instruction failure"
+        )
         with (
             patch("aikito.cli.get_agents_dir", return_value=self.home / ".agents"),
-            patch("aikito.cli.sync_global_entry", return_value=False),
+            patch(
+                "aikito.cli.execute_instruction_plan", return_value=mock_instruction_res
+            ),
         ):
             res = sync_global_resources(self.workspace, self.home, dry_run=False)
             self.assertFalse(res.success)

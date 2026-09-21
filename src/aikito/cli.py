@@ -64,10 +64,7 @@ from .project_sync import (
     sync_project,
 )
 from .skill_state import SkillWriterLock, calculate_directory_fingerprint
-from .sync import (
-    apply_runtime_cleanup,
-    sync_global_entry,
-)
+from .sync import sync_global_entry as sync_global_entry  # noqa: F401
 from .sync_plan import capture_sync_plan
 from .memory import (
     MemoryTargetConflictError,
@@ -76,7 +73,13 @@ from .memory import (
     resolve_memory_target_for_command,
     validate_memory_name,
 )
-from .agents import AgentRegistry, check_target_availability, resolve_targets
+from .agents import AgentRegistry
+from .instructions import (
+    InstructionExecutionResult,
+    build_global_instruction_batch,
+    execute_instruction_plan,
+    plan_instructions,
+)
 from .mcp import (
     MCPConfigError,
     authenticate_mcp,
@@ -194,9 +197,20 @@ class GlobalSyncResult:
 
     success: bool
     skill_result: Optional[GlobalSkillExecutionResult] = None
-    instruction_success: bool = True
+    instruction_result: Optional[InstructionExecutionResult] = None
+    instruction_success: bool = (
+        True  # DEPRECATED: derive from instruction_result.success
+    )
     refreshed_bundled: tuple[str, ...] = ()
     error_message: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.instruction_result is not None:
+            object.__setattr__(
+                self, "instruction_success", self.instruction_result.success
+            )
+            if not self.instruction_result.success:
+                object.__setattr__(self, "success", False)
 
     def __bool__(self) -> bool:
         return self.success
@@ -375,40 +389,39 @@ def sync_global_resources(
             error_message=f"Global instruction file not found: {global_instruction_source}",
         )
 
-    legacy_grok_instructions = Path.home() / ".grok" / "AGENTS.md"
-    if (
-        "grok" in agents
-        and legacy_grok_instructions.is_symlink()
-        and legacy_grok_instructions.resolve(strict=False)
-        == global_instruction_source.resolve(strict=False)
-    ):
-        apply_runtime_cleanup((legacy_grok_instructions,), dry_run)
-    instruction_targets = resolve_targets(
-        "global_instructions", aikito_dir, home, registry=registry
+    instruction_batch = build_global_instruction_batch(
+        aikito_dir, home, registry=registry
     )
+    instruction_plan = plan_instructions(instruction_batch, home)
 
-    instruction_results: list[bool] = []
-    for target in instruction_targets:
-        if target.is_same_object:
+    if instruction_plan.conflicts:
+        for op in instruction_plan.conflicts:
             print(
-                f"[OK] {'/'.join(target.consumer_display_names)} instructions: shared path {target.path}"
+                f"[CONFLICT] {op.resource_name} instructions: {op.target_path} is not a symlink; "
+                f"move or merge it manually, then run 'aikito sync global' again.",
+                file=sys.stderr,
             )
-            instruction_results.append(True)
-        else:
-            avail = check_target_availability(target, home)
-            instruction_results.append(
-                sync_global_entry(
-                    target.canonical_source,
-                    target.path,
-                    "/".join(target.consumer_display_names),
-                    "instructions",
-                    dry_run,
-                    installed=avail.is_installed,
-                    home=home,
-                )
-            )
+        print(
+            "[ERROR] Global skills were synced successfully, but one or more Agent "
+            "instruction runtime targets have conflicts.",
+            file=sys.stderr,
+        )
+        instruction_res = InstructionExecutionResult(
+            operations=instruction_plan.operations,
+            success=False,
+            conflict_count=len(instruction_plan.conflicts),
+            error_message="Instruction targets have conflicts.",
+        )
+        return GlobalSyncResult(
+            success=False,
+            skill_result=skill_res,
+            instruction_result=instruction_res,
+            refreshed_bundled=refreshed,
+            error_message="Instruction targets have conflicts.",
+        )
 
-    if not all(instruction_results):
+    instruction_res = execute_instruction_plan(instruction_plan, home, dry_run=dry_run)
+    if not instruction_res.success:
         print(
             "[ERROR] Global skills were synced successfully, but one or more Agent "
             "instruction runtime targets have conflicts.",
@@ -417,9 +430,10 @@ def sync_global_resources(
         return GlobalSyncResult(
             success=False,
             skill_result=skill_res,
+            instruction_result=instruction_res,
             refreshed_bundled=refreshed,
-            instruction_success=False,
-            error_message="Instruction targets have conflicts.",
+            error_message=instruction_res.error_message
+            or "Instruction targets have conflicts.",
         )
 
     skill_consumer_count = sum(len(t.consumers) for t in batch.consumers)
@@ -431,8 +445,8 @@ def sync_global_resources(
     return GlobalSyncResult(
         success=True,
         skill_result=skill_res,
+        instruction_result=instruction_res,
         refreshed_bundled=refreshed,
-        instruction_success=True,
     )
 
 
