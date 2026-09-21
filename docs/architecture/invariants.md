@@ -46,6 +46,9 @@ Each Rule ID is permanent. The table below maps every prefix to its canonical do
 | `INV-GLB-*` | Global Skills | [invariants-skills.md](invariants-skills.md) |
 | `INV-INST-*` | Instructions | [invariants-instructions.md](invariants-instructions.md) |
 | `INV-MEM-*` | Memory runtime visibility | [invariants-memory.md](invariants-memory.md) |
+| `INV-CFG-*` | Structured config & file aggregation | [invariants-config.md](invariants-config.md) |
+| `INV-SUB-*` | Subagents runtime configuration | [invariants-subagents.md](invariants-subagents.md) |
+| `INV-MCP-*` | MCP servers runtime configuration | [invariants-mcp.md](invariants-mcp.md) |
 | `INV-AUTH-*` | Authorization | [invariants-execution.md](invariants-execution.md) |
 | `INV-TX-*` | Selection transactions | [invariants-execution.md](invariants-execution.md) |
 | `INV-PEND-*` | Pending journals | [invariants-execution.md](invariants-execution.md) |
@@ -53,8 +56,6 @@ Each Rule ID is permanent. The table below maps every prefix to its canonical do
 | `INV-LOCK-*` | Writer locking | [invariants-execution.md](invariants-execution.md) |
 | `INV-RES-*` | Result segmentation | [invariants-execution.md](invariants-execution.md) |
 | `INV-API-*` | Public Python API | [invariants-api.md](invariants-api.md) |
-
-Phase 7 will extend this registry with `INV-MCP-*` and `INV-SUB-*` prefixes.
 
 ---
 
@@ -67,6 +68,9 @@ Phase 7 will extend this registry with `INV-MCP-*` and `INV-SUB-*` prefixes.
 | [invariants-skills.md](invariants-skills.md) | Project Skills and Global Skills contract and state tables |
 | [invariants-instructions.md](invariants-instructions.md) | Global and Project Instructions rules and state transitions |
 | [invariants-memory.md](invariants-memory.md) | Memory Runtime invariants and state table |
+| [invariants-config.md](invariants-config.md) | Common structured configuration targets, file aggregation, pre-images, and stale plan invalidation |
+| [invariants-subagents.md](invariants-subagents.md) | Subagent prompt rendering, ownership markers, explicit force, prune, and availability |
+| [invariants-mcp.md](invariants-mcp.md) | MCP server state management, fingerprints, same-file merge, sensitive config, and transaction recovery |
 | [invariants-execution.md](invariants-execution.md) | Authorization, transactions, journals, recovery, locks, results |
 | [invariants-api.md](invariants-api.md) | Public Python API invariants |
 | [migration-inventory.md](migration-inventory.md) | Temporary Core Model migration tracker (not a permanent contract) |

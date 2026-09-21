@@ -71,6 +71,9 @@ nav:
           - Skills: architecture/invariants-skills.md
           - Instructions: architecture/invariants-instructions.md
           - Memory Runtime: architecture/invariants-memory.md
+          - Structured Config: architecture/invariants-config.md
+          - Subagents: architecture/invariants-subagents.md
+          - MCP Servers: architecture/invariants-mcp.md
           - Execution & Recovery: architecture/invariants-execution.md
           - Python API: architecture/invariants-api.md
           - Migration Inventory: architecture/migration-inventory.md
