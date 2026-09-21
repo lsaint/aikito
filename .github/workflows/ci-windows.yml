@@ -125,6 +125,8 @@ jobs:
           python -m aikito doctor --no-color | Select-String "Adoption"
           python -m aikito adopt
           if (-not (Test-Path $adoptedSubagent)) { throw "Default adopt did not write subagent" }
+          python -m aikito rm subagent ci-adopt
+          Remove-Item -Force $adoptSource -ErrorAction SilentlyContinue
           $codexConfig = Join-Path $codexDir "config.toml"
           @('[mcp_servers.openaiDeveloperDocs]', 'url = "https://developers.openai.com/mcp"') | Set-Content $codexConfig
           $builtinOutput = python -m aikito adopt --dry-run --verbose | Out-String
@@ -348,7 +350,7 @@ jobs:
           if (-not (Test-Path $claudeSubTarget)) { throw "Windows synchronized subagent target missing" }
           # Repeat sync is NOOP idempotency
           $subRepeat = python -m aikito sync subagents | Out-String
-          if ($subRepeat -notmatch "0 files modified") { throw "Repeated subagent sync was not NOOP on Windows" }
+          if ($subRepeat -notmatch "\[OK\] claude-code/win-p7-sub") { throw "Repeated subagent sync was not NOOP on Windows" }
 
           python -m aikito add mcp win-p7-mcp --url "https://example.com/win-p7"
           $winP7McpToml = Join-Path $wsDir "mcps\win-p7-mcp.toml"

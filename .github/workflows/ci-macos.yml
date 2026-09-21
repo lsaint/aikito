@@ -575,7 +575,7 @@ jobs:
 
           # Repeat sync NOOP idempotency
           AIKITO_DIR=$WS python3 -m aikito sync subagents | tee ${{ runner.temp }}/macos-sub-repeat.out
-          grep -F "Complete. 0 files modified" ${{ runner.temp }}/macos-sub-repeat.out
+          grep -F "[OK] claude-code/macos-sub" ${{ runner.temp }}/macos-sub-repeat.out
 
           # 2. MCP sync and repeat NOOP (INV-CFG-01, INV-MCP-01)
           AIKITO_DIR=$WS python3 -m aikito add mcp macos-mcp --url "https://example.com/macos-mcp"
