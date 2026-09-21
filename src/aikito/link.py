@@ -305,16 +305,21 @@ def _plan_link_target_impl(
                 is_authorized=False,
             )
 
-        # Consumer link parent availability check
+        # Consumer / instruction link parent availability check
         requires_parent = False
-        if observed.target_kind == "consumer_link":
+        if observed.target_kind in ("consumer_link", "instruction_link"):
             parent = target_path.parent
             p_exists = parent_exists if parent_exists is not None else parent.exists()
             if not p_exists:
+                rule_skip = (
+                    "INV-INST-07"
+                    if observed.target_kind == "instruction_link"
+                    else "INV-GLB-05"
+                )
                 if availability_status == "not_installed":
                     return LinkOperation(
                         action="SKIP",
-                        rule_id="INV-GLB-05",
+                        rule_id=rule_skip,
                         target_path=target_path,
                         canonical_path=canonical,
                         reason=f"{resource_name} not detected: {parent}"
@@ -327,7 +332,7 @@ def _plan_link_target_impl(
                 if availability_status == "unknown":
                     return LinkOperation(
                         action="SKIP",
-                        rule_id="INV-GLB-05",
+                        rule_id=rule_skip,
                         target_path=target_path,
                         canonical_path=canonical,
                         reason=f"Agent installation unknown; parent directory does not exist: {parent}",
@@ -626,10 +631,15 @@ def apply_link_operation(
         if op.action == "SHARED_PATH":
             if op.target_kind == "consumer_link":
                 print(f"[OK] {op.resource_name} skills: shared path {target}")
+            elif op.target_kind == "instruction_link":
+                print(f"[OK] {op.resource_name} instructions: shared path {target}")
             elif verbose:
                 print(f"[OK] shared path {target}")
         elif op.target_kind == "consumer_link":
             print(f"[OK] {op.resource_name} skills: {target} -> {canonical}")
+        elif op.target_kind == "instruction_link":
+            if verbose or op.reason:
+                print(f"[OK] {op.resource_name} instructions: {target} -> {canonical}")
         return LinkExecutionResult(operation=op, success=True, applied=False)
 
     if op.action == "SKIP":
@@ -696,6 +706,10 @@ def apply_link_operation(
                 print(
                     f"[DRY RUN LINK] {op.resource_name} skills: {target} -> {canonical}"
                 )
+            elif op.target_kind == "instruction_link":
+                print(
+                    f"[DRY RUN LINK] {op.resource_name} instructions: {target} -> {canonical}"
+                )
             else:
                 print(f"[DRY RUN LINK] {canonical} -> {target}")
             return LinkExecutionResult(operation=op, success=True, applied=False)
@@ -723,6 +737,13 @@ def apply_link_operation(
                 applied=False,
                 error_message=f"Preflight failed: managed container {canonical} is not a valid directory (stale plan)",
             )
+        if op.target_kind == "instruction_link" and not canonical.is_file():
+            return LinkExecutionResult(
+                operation=op,
+                success=False,
+                applied=False,
+                error_message=f"Preflight failed: canonical instruction source is not a file: {canonical} (stale plan)",
+            )
 
         # Preflight: verify container identity for managed entry
         if op.target_kind == "managed_entry":
@@ -736,7 +757,10 @@ def apply_link_operation(
                 )
 
         # Preflight: verify consumer parent availability
-        if op.target_kind == "consumer_link" and not op.requires_parent_creation:
+        if (
+            op.target_kind in ("consumer_link", "instruction_link")
+            and not op.requires_parent_creation
+        ):
             if not target.parent.exists():
                 return LinkExecutionResult(
                     operation=op,
@@ -766,6 +790,10 @@ def apply_link_operation(
                 )
             if op.target_kind == "consumer_link":
                 print(f"[LINK] {op.resource_name} skills: {target} -> {canonical}")
+            elif op.target_kind == "instruction_link":
+                print(
+                    f"[LINK] {op.resource_name} instructions: {target} -> {canonical}"
+                )
             else:
                 print(f"[LINK] {target} -> {canonical}")
             return LinkExecutionResult(operation=op, success=True, applied=True)

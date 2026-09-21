@@ -1,0 +1,239 @@
+"""Unit tests for instruction batching, pure planning, and plan execution."""
+
+from __future__ import annotations
+
+import tempfile
+from pathlib import Path
+from unittest import TestCase
+
+from aikito.compat import safe_symlink
+from aikito.instructions import (
+    build_global_instruction_batch,
+    build_project_instruction_batch,
+    execute_instruction_plan,
+    plan_instructions,
+)
+
+
+class InstructionBatchAndPlanTests(TestCase):
+    def setUp(self) -> None:
+        self.td = tempfile.TemporaryDirectory()
+        self.root = Path(self.td.name)
+        self.home = self.root / "home"
+        self.ws = self.root / "workspace"
+        self.co = self.root / "checkout"
+        self.home.mkdir()
+        self.ws.mkdir()
+        self.co.mkdir()
+
+        (self.home / ".codex").mkdir(parents=True)
+        (self.home / ".claude").mkdir(parents=True)
+        (self.home / ".agents" / "skills").mkdir(parents=True)
+
+        (self.ws / "agents.toml").write_text(
+            "[agents.codex]\n"
+            'display_name = "Codex"\n'
+            'instruction_path = ".codex/AGENTS.md"\n'
+            'project_instruction_path = "AGENTS.md"\n'
+            'skills_path = ".agents/skills"\n'
+            "[agents.claude-code]\n"
+            'display_name = "Claude Code"\n'
+            'instruction_path = ".claude/CLAUDE.md"\n'
+            'project_instruction_path = ".claude/CLAUDE.md"\n'
+            'skills_path = ".claude/skills"\n',
+            encoding="utf-8",
+        )
+
+        (self.ws / "global").mkdir()
+        self.global_agents_md = self.ws / "global" / "AGENTS.md"
+        self.global_agents_md.write_text("# Global instructions\n", encoding="utf-8")
+
+        self.proj_dir = self.ws / "projects" / "demo"
+        self.proj_dir.mkdir(parents=True)
+        (self.proj_dir / "agent.toml").write_text(
+            f'name = "demo"\npaths = ["{self.co}"]\nskills = []\n',
+            encoding="utf-8",
+        )
+        self.proj_agents_md = self.proj_dir / "AGENTS.md"
+        self.proj_agents_md.write_text("# Project instructions\n", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.td.cleanup()
+
+    def test_build_global_instruction_batch_attributes(self) -> None:
+        batch = build_global_instruction_batch(self.ws, self.home)
+        self.assertEqual(batch.scope, "global")
+        self.assertEqual(batch.canonical_source, self.global_agents_md)
+        self.assertTrue(batch.enabled)
+        self.assertEqual(batch.resource_count, 1)
+        self.assertEqual(batch.target_count, 2)
+        self.assertEqual(batch.consumer_count, 2)
+
+    def test_build_project_instruction_batch_enabled_and_disabled(self) -> None:
+        # Non-empty canonical: enabled
+        batch = build_project_instruction_batch(self.ws, "demo", self.co, self.home)
+        self.assertEqual(batch.scope, "project")
+        self.assertTrue(batch.enabled)
+        self.assertEqual(batch.target_count, 2)
+
+        # Empty canonical: disabled
+        self.proj_agents_md.write_text("", encoding="utf-8")
+        batch_empty = build_project_instruction_batch(
+            self.ws, "demo", self.co, self.home
+        )
+        self.assertFalse(batch_empty.enabled)
+
+    def test_plan_global_instructions_missing_source_causes_conflict(self) -> None:
+        self.global_agents_md.unlink()
+        batch = build_global_instruction_batch(self.ws, self.home)
+        plan = plan_instructions(batch, self.home)
+        self.assertFalse(plan.can_apply)
+        self.assertTrue(plan.has_conflicts)
+        self.assertTrue(all(op.rule_id == "INV-TR-02" for op in plan.conflicts))
+
+    def test_plan_global_instructions_create_and_noop(self) -> None:
+        batch = build_global_instruction_batch(self.ws, self.home)
+        plan = plan_instructions(batch, self.home)
+        self.assertTrue(plan.can_apply)
+        self.assertEqual(plan.planned_change_count, 2)
+        self.assertTrue(all(op.action == "CREATE" for op in plan.operations))
+
+        # Execute plan
+        res = execute_instruction_plan(plan, self.home)
+        self.assertTrue(res.success)
+        self.assertEqual(res.applied_count, 2)
+
+        # Plan again: should be NOOP
+        plan2 = plan_instructions(batch, self.home)
+        self.assertTrue(plan2.can_apply)
+        self.assertEqual(plan2.planned_change_count, 0)
+        self.assertEqual(plan2.noop_count, 2)
+
+    def test_plan_global_instructions_regular_file_conflict(self) -> None:
+        target_file = self.home / ".codex" / "AGENTS.md"
+        target_file.write_text("local file", encoding="utf-8")
+
+        batch = build_global_instruction_batch(self.ws, self.home)
+        plan = plan_instructions(batch, self.home)
+        self.assertFalse(plan.can_apply)
+        conflicts = [op for op in plan.conflicts if op.target_path == target_file]
+        self.assertEqual(len(conflicts), 1)
+        self.assertEqual(conflicts[0].rule_id, "INV-INST-03")
+
+    def test_plan_global_instructions_wrong_symlink_conflict(self) -> None:
+        target_link = self.home / ".codex" / "AGENTS.md"
+        other = self.root / "other.md"
+        other.write_text("other", encoding="utf-8")
+        safe_symlink(other, target_link)
+
+        batch = build_global_instruction_batch(self.ws, self.home)
+        plan = plan_instructions(batch, self.home)
+        self.assertFalse(plan.can_apply)
+        conflicts = [op for op in plan.conflicts if op.target_path == target_link]
+        self.assertEqual(len(conflicts), 1)
+        self.assertEqual(conflicts[0].rule_id, "INV-INST-06")
+
+    def test_plan_project_instructions_empty_unlinks_exact_owned(self) -> None:
+        # First create the link
+        target_link = self.co / "AGENTS.md"
+        safe_symlink(self.proj_agents_md.resolve(), target_link)
+
+        # Empty the canonical instructions
+        self.proj_agents_md.write_text("", encoding="utf-8")
+        batch = build_project_instruction_batch(self.ws, "demo", self.co, self.home)
+        self.assertFalse(batch.enabled)
+
+        plan = plan_instructions(batch, self.home)
+        self.assertTrue(plan.can_apply)
+        unlink_ops = [op for op in plan.operations if op.target_path == target_link]
+        self.assertEqual(len(unlink_ops), 1)
+        self.assertEqual(unlink_ops[0].action, "UNLINK")
+        self.assertEqual(unlink_ops[0].rule_id, "INV-INST-08")
+
+        # Execute unlink
+        res = execute_instruction_plan(plan, self.home)
+        self.assertTrue(res.success)
+        self.assertFalse(target_link.exists())
+        self.assertFalse(target_link.is_symlink())
+
+    def test_plan_project_instructions_empty_preserves_regular_file(self) -> None:
+        regular_file = self.co / "AGENTS.md"
+        regular_file.write_text("user content", encoding="utf-8")
+
+        self.proj_agents_md.write_text("", encoding="utf-8")
+        batch = build_project_instruction_batch(self.ws, "demo", self.co, self.home)
+
+        plan = plan_instructions(batch, self.home)
+        self.assertTrue(plan.can_apply)
+        file_ops = [op for op in plan.operations if op.target_path == regular_file]
+        self.assertEqual(len(file_ops), 1)
+        self.assertEqual(file_ops[0].action, "NOOP")
+        self.assertEqual(file_ops[0].rule_id, "INV-INST-10")
+
+        # Execute: file remains untouched
+        res = execute_instruction_plan(plan, self.home)
+        self.assertTrue(res.success)
+        self.assertTrue(regular_file.is_file())
+        self.assertEqual(regular_file.read_text(encoding="utf-8"), "user content")
+
+    def test_plan_project_instructions_empty_preserves_foreign_symlink(self) -> None:
+        foreign_target = self.root / "foreign.md"
+        foreign_target.write_text("foreign", encoding="utf-8")
+        target_link = self.co / "AGENTS.md"
+        safe_symlink(foreign_target, target_link)
+
+        self.proj_agents_md.write_text("", encoding="utf-8")
+        batch = build_project_instruction_batch(self.ws, "demo", self.co, self.home)
+
+        plan = plan_instructions(batch, self.home)
+        self.assertTrue(plan.can_apply)
+        link_ops = [op for op in plan.operations if op.target_path == target_link]
+        self.assertEqual(len(link_ops), 1)
+        self.assertEqual(link_ops[0].action, "NOOP")
+        self.assertEqual(link_ops[0].rule_id, "INV-INST-08")
+
+        # Execute: foreign link remains untouched
+        res = execute_instruction_plan(plan, self.home)
+        self.assertTrue(res.success)
+        self.assertTrue(target_link.is_symlink())
+        self.assertEqual(target_link.resolve(strict=False), foreign_target.resolve())
+
+    def test_legacy_agents_instruction_target_unlinked_when_exact_owned(self) -> None:
+        legacy_path = self.co / ".agents" / "AGENTS.md"
+        legacy_path.parent.mkdir(parents=True, exist_ok=True)
+        safe_symlink(self.proj_agents_md.resolve(), legacy_path)
+
+        batch = build_project_instruction_batch(self.ws, "demo", self.co, self.home)
+        self.assertTrue(any(t.path == legacy_path for t in batch.stale_targets))
+
+        plan = plan_instructions(batch, self.home)
+        stale_ops = [op for op in plan.operations if op.target_path == legacy_path]
+        self.assertEqual(len(stale_ops), 1)
+        self.assertEqual(stale_ops[0].action, "UNLINK")
+        self.assertEqual(stale_ops[0].rule_id, "INV-INST-09")
+
+        res = execute_instruction_plan(plan, self.home)
+        self.assertTrue(res.success)
+        self.assertFalse(legacy_path.exists())
+
+    def test_offline_checkout_instructions_planned_as_skip(self) -> None:
+        batch = build_project_instruction_batch(
+            self.ws, "demo", self.co, self.home, is_offline=True
+        )
+        plan = plan_instructions(batch, self.home, is_offline=True)
+        self.assertTrue(plan.can_apply)
+        self.assertEqual(plan.skip_count, 2)
+        self.assertTrue(all(op.rule_id == "INV-INST-11" for op in plan.operations))
+
+    def test_execute_dry_run_zero_writes(self) -> None:
+        batch = build_global_instruction_batch(self.ws, self.home)
+        plan = plan_instructions(batch, self.home)
+        self.assertEqual(plan.planned_change_count, 2)
+
+        res = execute_instruction_plan(plan, self.home, dry_run=True)
+        self.assertTrue(res.success)
+        self.assertEqual(res.applied_count, 0)
+
+        # Verify nothing was written
+        codex_target = self.home / ".codex" / "AGENTS.md"
+        self.assertFalse(codex_target.exists())
