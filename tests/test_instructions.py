@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 from unittest import TestCase
@@ -289,3 +290,84 @@ class InstructionBatchAndPlanTests(TestCase):
                 for err in batch.legacy_preflight_errors
             )
         )
+
+    def test_global_instructions_repeated_sync_is_noop_and_preserves_mtime(
+        self,
+    ) -> None:
+        batch = build_global_instruction_batch(self.ws, self.home)
+        plan1 = plan_instructions(batch, self.home)
+        res1 = execute_instruction_plan(plan1, self.home)
+        self.assertTrue(res1.success)
+        self.assertGreater(res1.applied_count, 0)
+
+        target_file = self.home / ".codex" / "AGENTS.md"
+        self.assertTrue(target_file.is_symlink())
+        mtime_before = target_file.lstat().st_mtime_ns
+        readlink_before = os.readlink(target_file)
+
+        # Second sync
+        plan2 = plan_instructions(batch, self.home)
+        self.assertEqual(plan2.planned_change_count, 0)
+        self.assertGreater(plan2.noop_count, 0)
+        res2 = execute_instruction_plan(plan2, self.home)
+        self.assertTrue(res2.success)
+        self.assertEqual(res2.applied_count, 0)
+
+        self.assertEqual(target_file.lstat().st_mtime_ns, mtime_before)
+        self.assertEqual(os.readlink(target_file), readlink_before)
+
+    def test_project_instructions_repeated_sync_is_noop_and_preserves_mtime(
+        self,
+    ) -> None:
+        batch = build_project_instruction_batch(self.ws, "demo", self.co, self.home)
+        plan1 = plan_instructions(batch, self.home)
+        res1 = execute_instruction_plan(plan1, self.home)
+        self.assertTrue(res1.success)
+        self.assertGreater(res1.applied_count, 0)
+
+        target_file = self.co / "AGENTS.md"
+        self.assertTrue(target_file.is_symlink())
+        mtime_before = target_file.lstat().st_mtime_ns
+        readlink_before = os.readlink(target_file)
+
+        # Second sync
+        plan2 = plan_instructions(batch, self.home)
+        self.assertEqual(plan2.planned_change_count, 0)
+        self.assertGreater(plan2.noop_count, 0)
+        res2 = execute_instruction_plan(plan2, self.home)
+        self.assertTrue(res2.success)
+        self.assertEqual(res2.applied_count, 0)
+
+        self.assertEqual(target_file.lstat().st_mtime_ns, mtime_before)
+        self.assertEqual(os.readlink(target_file), readlink_before)
+
+    def test_empty_canonical_cleanup_repeated_sync_is_noop(self) -> None:
+        self.proj_agents_md.write_text("", encoding="utf-8")
+        target_link = self.co / "AGENTS.md"
+        safe_symlink(self.proj_agents_md.resolve(), target_link)
+
+        batch = build_project_instruction_batch(self.ws, "demo", self.co, self.home)
+        plan1 = plan_instructions(batch, self.home)
+        res1 = execute_instruction_plan(plan1, self.home)
+        self.assertTrue(res1.success)
+        self.assertEqual(res1.applied_count, 1)
+        self.assertFalse(target_link.exists())
+
+        # Second sync with empty canonical
+        plan2 = plan_instructions(batch, self.home)
+        self.assertEqual(plan2.planned_change_count, 0)
+        res2 = execute_instruction_plan(plan2, self.home)
+        self.assertTrue(res2.success)
+        self.assertEqual(res2.applied_count, 0)
+
+    def test_project_dry_run_with_empty_canonical_does_not_unlink(self) -> None:
+        self.proj_agents_md.write_text("", encoding="utf-8")
+        target_link = self.co / "AGENTS.md"
+        safe_symlink(self.proj_agents_md.resolve(), target_link)
+
+        batch = build_project_instruction_batch(self.ws, "demo", self.co, self.home)
+        plan = plan_instructions(batch, self.home)
+        res = execute_instruction_plan(plan, self.home, dry_run=True)
+        self.assertTrue(res.success)
+        self.assertEqual(res.applied_count, 0)
+        self.assertTrue(target_link.is_symlink())

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Unified global and project instruction synchronization under the Target → Inspect → Plan → Execute architecture (Core Model Phase 5), introducing `InstructionBatch`, `InstructionPlan`, and `InstructionExecutionResult`.
+- Formalized instruction engineering invariants `INV-INST-01` through `INV-INST-15` covering pure link-only semantics, exact canonical ownership, same-object non-management, multi-agent consumer deduplication, empty canonical cleanup, and segmented execution results.
+- Added multi-agent instruction target deduplication via `resolve_targets("global_instructions")` and `resolve_targets("project_instructions")`, collapsing shared agent instruction targets (such as `AGENTS.md`) into a single physical link operation while preserving consumer tracking.
+- Added structured instruction execution results to `GlobalSyncResult.instruction_result` and `ProjectSyncExecutionResult.instruction_result`, isolating instruction failures from skills and memory.
+- Unified Doctor, status, project summary, and `Project.prepare()` to rely on a single canonical instruction inspection and planning layer, removing duplicate symlink classification paths.
+
+### Changed
+
+- Replaced ad-hoc `sync_global_entry()` and `sync_project_instruction()` in core sync workflows with atomic link operations (`LinkOperation`), retaining legacy helpers solely for backward compatibility.
+- Empty project canonical `AGENTS.md` safely removes only exact owned symlinks, strictly preserving project-owned regular files and unmanaged symlinks.
+- Legacy Grok instruction paths and `.agents/AGENTS.md` cleanup are fully integrated into `InstructionPlan` and require exact canonical ownership proof.
+
 ## [1.45.0] - 2026-09-21
 
 ### Added

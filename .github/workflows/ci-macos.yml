@@ -57,6 +57,8 @@ jobs:
           test -f "$HOME/.agents/skills/durable-memory/SKILL.md"
           test -L "$HOME/.claude/skills"
           test -L "$HOME/.gemini/antigravity-cli/skills"
+          test -L "$HOME/.claude/CLAUDE.md"
+          test -L "$HOME/.codex/AGENTS.md"
           # Verify Phase 4 idempotency: repeat sync global must be NOOP (no writes / no recreations)
           AIKITO_DIR=$WS python3 -m aikito sync global | tee ${{ runner.temp }}/macos-sync-global-repeat.out
           grep -F "[SUCCESS] Global resources synced successfully" \
@@ -67,6 +69,8 @@ jobs:
           test -L "$HOME/.agents/skills/durable-memory"
           test -L "$HOME/.claude/skills"
           test -L "$HOME/.gemini/antigravity-cli/skills"
+          test -L "$HOME/.claude/CLAUDE.md"
+          test -L "$HOME/.codex/AGENTS.md"
 
       - name: macOS CLI smoke - Global Skills Safety and Migration (Phase 4 Invariants)
         run: |
@@ -91,6 +95,35 @@ jobs:
           grep -F "[CONFLICT]" ${{ runner.temp }}/macos-wrong-consumer.err
           grep -F "Target preserved:" ${{ runner.temp }}/macos-wrong-consumer.err
           test "$(readlink "$LEGACY_HOME/.claude/skills")" = "${{ runner.temp }}/macos-ext-consumer"
+
+      - name: macOS CLI smoke - Global and project instructions safety (Phase 5 Invariants)
+        run: |
+          WS=${{ runner.temp }}/macos-ws
+          INST_HOME=${{ runner.temp }}/macos-inst-home
+          mkdir -p "$INST_HOME/.claude" "$INST_HOME/.codex"
+          mkdir -p ${{ runner.temp }}/macos-ext-inst
+          ln -s "${{ runner.temp }}/macos-ext-inst" "$INST_HOME/.claude/CLAUDE.md"
+          ! HOME="$INST_HOME" AIKITO_DIR=$WS python3 -m aikito sync global 2> ${{ runner.temp }}/macos-wrong-inst.err
+          grep -F "[CONFLICT]" ${{ runner.temp }}/macos-wrong-inst.err
+          test "$(readlink "$INST_HOME/.claude/CLAUDE.md")" = "${{ runner.temp }}/macos-ext-inst"
+
+          # Project instructions empty canonical cleanup
+          PROJ_DIR=${{ runner.temp }}/macos-inst-proj
+          mkdir -p "$PROJ_DIR/.claude"
+          AIKITO_DIR=$WS python3 -m aikito init project macos-inst "$PROJ_DIR"
+          printf "# Mac Instructions\n" > "$WS/projects/macos-inst/AGENTS.md"
+          AIKITO_DIR=$WS python3 -m aikito sync project macos-inst
+          test -L "$PROJ_DIR/AGENTS.md"
+          test -L "$PROJ_DIR/.claude/CLAUDE.md"
+
+          # Empty canonical cleanup
+          printf "" > "$WS/projects/macos-inst/AGENTS.md"
+          echo "custom user content" > "$PROJ_DIR/CUSTOM.md"
+          AIKITO_DIR=$WS python3 -m aikito sync project macos-inst
+          test ! -e "$PROJ_DIR/AGENTS.md"
+          test ! -e "$PROJ_DIR/.claude/CLAUDE.md"
+          test -f "$PROJ_DIR/CUSTOM.md"
+          rm -rf "$PROJ_DIR" "$WS/projects/macos-inst"
 
       - name: macOS CLI smoke - Link and Copy Modes
         run: |

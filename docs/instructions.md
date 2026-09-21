@@ -61,10 +61,24 @@ Synchronization validates the plan before writing. With nonempty instructions,
 Aikito links each registered agent's configured instruction path to the canonical
 file.
 
+If multiple agents declare the same physical instruction path (e.g. `AGENTS.md`),
+Aikito resolves and plans exactly one physical target link while tracking all
+declaring consumer agents, avoiding redundant writes and ensuring idempotent
+symlink management.
+
 If the target repository already contains an unmanaged instruction file,
 synchronization stops and reports a conflict. Review the
 [conflict guide](troubleshooting.md#existing-files-conflict) to adopt or merge
 the existing file before continuing.
+
+### Empty canonical instructions lifecycle
+
+When you clear a project's canonical `AGENTS.md` (leaving it empty or with only
+whitespace), synchronization detects instructions as disabled:
+
+- Any symlinks that strictly point to this project's canonical file are safely unlinked.
+- Pre-existing regular files or foreign symlinks are strictly preserved as project-owned.
+- Re-populating canonical instructions with content resumes active synchronization and re-establishes the links.
 
 ## Verify the connection and agent reading
 

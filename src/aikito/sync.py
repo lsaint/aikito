@@ -24,9 +24,10 @@ def sync_resource(
 ) -> bool:
     """Syncs source path to target path using specified mode ('link' or 'copy').
 
-    NOTE(Phase 5-6): Remaining callers are project_instructions and project_memory
-    in project_sync.py. Will be retired when those domains migrate to the unified
-    Target/Inspect/Plan/Execute model. Global skills no longer call this function.
+    NOTE(Phase 6): Remaining caller is project memory in project_sync.py.
+    Will be retired in Phase 6 when memory migrates to the unified model.
+    Instructions and skills no longer call this function.
+    (remaining caller = project memory; removal = Phase 6)
     """
     if not source.exists():
         print(f"[WARN] Source path does not exist: {source}", file=sys.stderr)
@@ -97,7 +98,11 @@ def apply_runtime_cleanup(paths: tuple[Path, ...], dry_run: bool) -> None:
 
 
 def sync_project_instruction(source: Path, target: Path, dry_run: bool) -> bool:
-    """Create a project instruction link without replacing existing content."""
+    """Create a project instruction link without replacing existing content.
+
+    NOTE(Phase 5): Retained only for backward compatibility with historical tests.
+    All Aikito internal workflows have migrated to InstructionPlan and execute_instruction_plan.
+    """
     expected = source.resolve(strict=False)
     if target.is_symlink():
         if target.resolve(strict=False) == expected:
@@ -139,9 +144,8 @@ def sync_global_entry(
     Existing regular files and directories are never overwritten because they
     may contain unmanaged user resources.
 
-    NOTE(Phase 5): Remaining caller is global instructions in cli.py. Will be
-    retired when global instructions migrate to the unified Target/Inspect/Plan/Execute
-    model. Global skills no longer call this function.
+    NOTE(Phase 5): Retained only for backward compatibility with historical tests.
+    All Aikito internal workflows have migrated to InstructionPlan and execute_instruction_plan.
     """
     if installed is None and home is not None:
         avail = check_agent_availability(agent_name, home, target_path=target)

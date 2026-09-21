@@ -153,6 +153,12 @@ jobs:
           if (-not (Test-Path (Join-Path $HOME ".gemini\antigravity-cli\skills"))) {
             throw "Antigravity skills consumer link missing"
           }
+          if (-not (Test-Path (Join-Path $HOME ".claude\CLAUDE.md"))) {
+            throw "Claude instructions consumer link missing"
+          }
+          if (-not (Test-Path (Join-Path $HOME ".codex\AGENTS.md"))) {
+            throw "Codex instructions consumer link missing"
+          }
           # Verify Phase 4 idempotency: repeat sync global must be NOOP (no writes / no recreations)
           $repeatOutput = python -m aikito sync global | Out-String
           if ($repeatOutput -match "\[LINK\]" -or $repeatOutput -match "\[UNLINK\]") {
@@ -160,6 +166,12 @@ jobs:
           }
           if ($repeatOutput -notmatch "Global resources synced successfully") {
             throw "Repeated global sync did not report success"
+          }
+          if (-not (Test-Path (Join-Path $HOME ".claude\CLAUDE.md"))) {
+            throw "Claude instructions consumer link missing after repeat"
+          }
+          if (-not (Test-Path (Join-Path $HOME ".codex\AGENTS.md"))) {
+            throw "Codex instructions consumer link missing after repeat"
           }
 
           # Verify Phase 4 dry-run zero write snapshot
