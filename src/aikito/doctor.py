@@ -72,6 +72,7 @@ from .status import collect_subagents_matrix
 from .subagent import (
     SubagentConfigError,
     build_plan,
+    build_subagent_plan,
     load_subagent_definitions,
     validate_platform_opts,
 )
@@ -1117,48 +1118,69 @@ def check_drift(aikito_dir: Path, home: Path) -> DoctorSection:
         findings.append(_ok("No managed MCP entries to check"))
 
     try:
-        subagent_plan, _ = build_plan(aikito_dir, home, allow_empty=True)
+        plan_out = build_plan(aikito_dir, home, allow_empty=True)
+        subagent_ops = (
+            plan_out.operations
+            if hasattr(plan_out, "operations")
+            else (plan_out[0] if isinstance(plan_out, tuple) else plan_out)
+        )
     except SubagentConfigError as exc:
         findings.append(_fail(f"Cannot build subagent synchronization plan: {exc}"))
         return DoctorSection(name="Drift", findings=findings)
 
     subagent_checked = 0
     subagent_issues = 0
-    for item in subagent_plan:
-        if item.action in ("SKIP", "ORPHAN") or item.subagent_name == "*":
+    for op in subagent_ops:
+        action = getattr(op, "action", "")
+        if action in ("SKIP", "ORPHAN"):
             continue
+        subagent_name = getattr(op, "subagent_name", None)
+        if subagent_name is None and hasattr(op, "target"):
+            subagent_name = op.target.logical_identity
+        if subagent_name == "*":
+            continue
+
+        agent_name = getattr(op, "agent_name", None)
+        if agent_name is None and hasattr(op, "target"):
+            agent_name = op.target.agent
+        target_path = getattr(op, "target_path", None)
+        if target_path is None and hasattr(op, "target"):
+            target_path = op.target.path
+
+        reason = getattr(op, "reason", "")
         subagent_checked += 1
-        target = _home_rel(item.target_path, home)
-        if item.action == "CREATE":
+        target = _home_rel(target_path, home) if target_path else ""
+        target_key = f"{agent_name}/{subagent_name}"
+        if action == "CREATE":
             subagent_issues += 1
             findings.append(
                 _fail(
-                    f"{item.agent_name}/{item.subagent_name}: managed subagent missing ({target})",
+                    f"{target_key}: managed subagent missing ({target})",
                     "aikito sync subagents",
                 )
             )
-        elif item.action in ("UPDATE", "FORCE UPDATE"):
+        elif action in ("UPDATE", "FORCE UPDATE"):
             subagent_issues += 1
             findings.append(
                 _fail(
-                    f"{item.agent_name}/{item.subagent_name}: managed subagent drift ({target})",
+                    f"{target_key}: managed subagent drift ({target})",
                     "aikito sync subagents",
                 )
             )
-        elif item.action == "CONFLICT":
+        elif action == "CONFLICT":
             subagent_issues += 1
             findings.append(
                 _fail(
-                    f"{item.agent_name}/{item.subagent_name}: unmanaged target conflict ({target})",
-                    f"aikito sync subagents --force {item.agent_name}/{item.subagent_name}",
+                    f"{target_key}: unmanaged target conflict ({target})",
+                    f"aikito sync subagents --force {target_key}",
                 )
             )
-        elif item.action == "ERROR":
+        elif action == "ERROR":
             subagent_issues += 1
             findings.append(
                 _fail(
-                    f"{item.agent_name}/{item.subagent_name}: {item.reason}",
-                    "Review subagents.toml and the target agent configuration",
+                    f"{target_key}: {reason}",
+                    f"Check subagents/{subagent_name}.md",
                 )
             )
 

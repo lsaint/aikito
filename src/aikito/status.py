@@ -39,7 +39,7 @@ from .render import (
     StatusReportData,
     SubagentRow,
 )
-from .subagent import SubagentConfigError, build_plan
+from .subagent import SubagentConfigError, build_subagent_plan
 
 
 @dataclass(frozen=True)
@@ -219,9 +219,10 @@ def collect_subagent_details(
     agent_configs, all_agent_names = load_all_agents(aikito_dir, home)
     subagent_defs = load_subagent_definitions(aikito_dir, allow_empty=True)
     try:
-        plan_items, _ = build_plan(aikito_dir, home, allow_empty=True)
+        subagent_plan = build_subagent_plan(aikito_dir, home, allow_empty=True)
+        plan_ops = subagent_plan.operations
     except SubagentConfigError:
-        plan_items = []
+        plan_ops = ()
 
     subagent_names = sorted(subagent_defs.keys())
     subagent_name = (
@@ -236,7 +237,7 @@ def collect_subagent_details(
     )
 
     plan_map: dict[tuple[str, str], Any] = {
-        (item.subagent_name, item.agent_name): item for item in plan_items
+        (op.target.logical_identity, op.target.agent): op for op in plan_ops
     }
 
     rows: list[SubagentDetailRow] = []
@@ -253,25 +254,25 @@ def collect_subagent_details(
             if ag_key not in sub_def.agents and not (subagent_name and agent_name):
                 continue
 
-            plan_item = plan_map.get((name, ag_key))
+            plan_op = plan_map.get((name, ag_key))
             if ag_key not in sub_def.agents:
                 status = "NOT_TARGETED"
                 ext = FORMAT_EXTENSIONS.get(ag_cfg.config_format, ".md")
                 target_path = ag_cfg.config_path / f"{name}{ext}"
-            elif plan_item:
-                if plan_item.action == "OK":
+            elif plan_op:
+                if plan_op.action in ("OK", "NOOP"):
                     status = "OK"
-                elif plan_item.action in ("UPDATE", "FORCE UPDATE"):
+                elif plan_op.action in ("UPDATE", "FORCE UPDATE"):
                     status = "DRIFT"
-                elif plan_item.action == "CREATE":
+                elif plan_op.action == "CREATE":
                     status = "MISSING"
-                elif plan_item.action == "CONFLICT":
+                elif plan_op.action == "CONFLICT":
                     status = "CONFLICT"
-                elif plan_item.action == "SKIP":
+                elif plan_op.action == "SKIP":
                     status = "SKIP"
                 else:
-                    status = plan_item.action
-                target_path = plan_item.target_path
+                    status = plan_op.action
+                target_path = plan_op.target.path
             else:
                 status = "MISSING"
                 ext = FORMAT_EXTENSIONS.get(ag_cfg.config_format, ".md")
@@ -378,9 +379,13 @@ def collect_agent_status_rows(
         agent_issues += 1
 
     try:
-        subagent_plan, subagent_configs = build_plan(aikito_dir, home, allow_empty=True)
+        subagent_plan = build_subagent_plan(aikito_dir, home, allow_empty=True)
+        subagent_ops = subagent_plan.operations
+        subagent_configs = dict(subagent_plan.agent_configs)
     except SubagentConfigError:
-        subagent_plan, subagent_configs = [], {}
+        subagent_plan = None
+        subagent_ops = ()
+        subagent_configs = {}
         agent_issues += 1
 
     # Unique enabled MCP servers
@@ -389,7 +394,7 @@ def collect_agent_status_rows(
 
     # Unique active subagents
     active_subagents = set(
-        item.subagent_name for item in subagent_plan if item.action != "SKIP"
+        op.target.logical_identity for op in subagent_ops if op.action != "SKIP"
     )
     total_subagents_count = len(active_subagents)
 
@@ -500,13 +505,13 @@ def collect_agent_status_rows(
 
         # 4. Subagent Status
         subagent_status = "SKIP"
-        agent_subagent_items = [
-            i for i in subagent_plan if i.agent_name in (name, definition.display_name)
+        agent_subagent_ops = [
+            op for op in subagent_ops if op.target.agent in (name, definition.display_name)
         ]
-        active_items = [i for i in agent_subagent_items if i.action != "SKIP"]
-        if active_items:
+        active_ops = [op for op in agent_subagent_ops if op.action != "SKIP"]
+        if active_ops:
             subagent_status = _summarize_subagent_status(
-                [item.action for item in active_items]
+                ["OK" if op.action == "NOOP" else op.action for op in active_ops]
             )
             if not subagent_status.startswith("OK"):
                 agent_issues += 1
@@ -740,23 +745,24 @@ def collect_subagents_matrix(
     aikito_dir: Path, home: Path
 ) -> tuple[list[SubagentRow], list[OrphanSubagentFile], list[str]]:
     try:
-        plan_items, _ = build_plan(aikito_dir=aikito_dir, home=home, allow_empty=True)
+        subagent_plan = build_subagent_plan(aikito_dir=aikito_dir, home=home, allow_empty=True)
+        plan_ops = subagent_plan.operations
     except SubagentConfigError:
-        plan_items = []
+        plan_ops = ()
     agents_dict = load_agents(aikito_dir, home)
     agent_names = [a.display_name for a in agents_dict.values()]
 
     subagents_map: dict[str, dict[str, str]] = {}
     orphan_files: list[OrphanSubagentFile] = []
 
-    for item in plan_items:
-        ag_def = agents_dict.get(item.agent_name)
-        ag_display = ag_def.display_name if ag_def else item.agent_name
+    for op in plan_ops:
+        ag_def = agents_dict.get(op.target.agent)
+        ag_display = ag_def.display_name if ag_def else op.target.agent
 
-        if item.action == "ORPHAN":
-            rel_path = str(item.target_path)
+        if op.action in ("ORPHAN", "REMOVE"):
+            rel_path = str(op.target.path)
             try:
-                rel_path = f"~/{item.target_path.relative_to(home)}"
+                rel_path = f"~/{op.target.path.relative_to(home)}"
             except ValueError:
                 pass
             orphan_files.append(
@@ -764,20 +770,20 @@ def collect_subagents_matrix(
             )
             continue
 
-        if item.subagent_name == "*":
+        if op.target.logical_identity == "*":
             continue
 
-        sub_name = item.subagent_name
+        sub_name = op.target.logical_identity
         if sub_name not in subagents_map:
             subagents_map[sub_name] = {}
 
-        if item.action in ("CREATE", "UPDATE", "FORCE UPDATE"):
+        if op.action in ("CREATE", "UPDATE"):
             subagents_map[sub_name][ag_display] = "MISSING"
-        elif item.action == "CONFLICT":
+        elif op.action == "CONFLICT":
             subagents_map[sub_name][ag_display] = "CONFLICT"
-        elif item.action == "OK":
+        elif op.action in ("OK", "NOOP"):
             subagents_map[sub_name][ag_display] = "OK"
-        elif item.action == "SKIP":
+        elif op.action == "SKIP":
             subagents_map[sub_name][ag_display] = "SKIP"
 
     for sub_name, st_dict in subagents_map.items():
