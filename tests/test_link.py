@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import os
 import shutil
 import tempfile
 from pathlib import Path
 from unittest import TestCase
 
 from aikito.link import (
-    LinkOperation,
     ObservedLink,
     inspect_link_target,
     plan_link_target,

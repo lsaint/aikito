@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.45.0] - 2026-09-21
+
 ### Added
 
 - Migrated global skills to the unified Target → Inspect → Plan → Execute model (Core Model Phase 4), introducing `GlobalSkillBatch`, three-tier planning (managed container `~/.agents/skills`, managed entries, and consumer links), and `GlobalSkillExecutionResult`.
@@ -811,7 +813,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.44.2...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.45.0...HEAD
+[1.45.0]: https://github.com/lsaint/aikito/compare/v1.44.2...v1.45.0
 [1.44.2]: https://github.com/lsaint/aikito/compare/v1.44.1...v1.44.2
 [1.44.1]: https://github.com/lsaint/aikito/compare/v1.44.0...v1.44.1
 [1.44.0]: https://github.com/lsaint/aikito/compare/v1.43.0...v1.44.0

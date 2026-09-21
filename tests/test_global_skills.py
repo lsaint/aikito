@@ -10,11 +10,8 @@ from unittest.mock import patch
 
 from aikito.agents import Agent, AgentAvailability, AgentRegistry
 from aikito.global_skills import (
-    GlobalSkillBatch,
-    GlobalSkillBatchPlan,
     build_global_skill_batch,
     execute_global_skills,
-    load_global_skills_list,
     plan_global_skills,
 )
 
@@ -47,12 +44,18 @@ class GlobalSkillBatchTest(TestCase):
         self.registry = AgentRegistry(
             {
                 "codex": Agent("codex", "Codex", skills_path=self.agents_skills),
-                "opencode": Agent("opencode", "OpenCode", skills_path=self.agents_skills),
-                "github-copilot": Agent("github-copilot", "Copilot", skills_path=self.agents_skills),
+                "opencode": Agent(
+                    "opencode", "OpenCode", skills_path=self.agents_skills
+                ),
+                "github-copilot": Agent(
+                    "github-copilot", "Copilot", skills_path=self.agents_skills
+                ),
                 "dsh": Agent("dsh", "DeepSeek", skills_path=self.agents_skills),
                 "grok": Agent("grok", "Grok", skills_path=self.agents_skills),
                 "pi": Agent("pi", "Pi", skills_path=self.agents_skills),
-                "claude-code": Agent("claude-code", "Claude Code", skills_path=self.claude_skills),
+                "claude-code": Agent(
+                    "claude-code", "Claude Code", skills_path=self.claude_skills
+                ),
                 "agy": Agent("agy", "Antigravity", skills_path=self.agy_skills),
             }
         )
@@ -130,7 +133,11 @@ class GlobalSkillBatchTest(TestCase):
         self.assertEqual(len(batch.stale_entries), 2)
 
         plan = plan_global_skills(batch, self.home)
-        stale_ops = {op.target_path.name: op for op in plan.entry_ops if op.desired_representation == "absent"}
+        stale_ops = {
+            op.target_path.name: op
+            for op in plan.entry_ops
+            if op.desired_representation == "absent"
+        }
 
         # Stale owned link should be UNLINK
         self.assertEqual(stale_ops["stale-skill"].action, "UNLINK")
@@ -188,9 +195,7 @@ class GlobalSkillBatchTest(TestCase):
         for s in ("skill-a", "skill-b"):
             entry_link = self.agents_skills / s
             self.assertTrue(entry_link.is_symlink())
-            self.assertEqual(
-                entry_link.resolve(), (self.skills_dir / s).resolve()
-            )
+            self.assertEqual(entry_link.resolve(), (self.skills_dir / s).resolve())
 
     def test_plan_bundled_refresh_consistency_when_canonical_missing(self) -> None:
         # Canonical skill does not exist in workspace, but is in refreshed_bundled
@@ -254,7 +259,9 @@ class GlobalSkillBatchTest(TestCase):
         self.assertFalse(self.claude_skills.parent.exists())
         self.assertFalse(self.claude_skills.exists())
 
-    def test_execute_consumer_links_conflict_on_external_symlink_does_not_relink(self) -> None:
+    def test_execute_consumer_links_conflict_on_external_symlink_does_not_relink(
+        self,
+    ) -> None:
         self.agents_skills.mkdir(parents=True)
         self.claude_skills.parent.mkdir(parents=True, exist_ok=True)
         external = self.root / "external-skills"
@@ -276,8 +283,12 @@ class GlobalSkillBatchTest(TestCase):
 
     def test_execute_global_skills_deterministic_pipeline(self) -> None:
         (self.skills_dir / "my-skill").mkdir()
-        (self.skills_dir / "my-skill" / "SKILL.md").write_text("# My Skill", encoding="utf-8")
-        (self.workspace / "skills.toml").write_text('skills = ["my-skill"]\n', encoding="utf-8")
+        (self.skills_dir / "my-skill" / "SKILL.md").write_text(
+            "# My Skill", encoding="utf-8"
+        )
+        (self.workspace / "skills.toml").write_text(
+            'skills = ["my-skill"]\n', encoding="utf-8"
+        )
         self.claude_skills.parent.mkdir(parents=True, exist_ok=True)
 
         batch = build_global_skill_batch(
@@ -299,7 +310,9 @@ class GlobalSkillBatchTest(TestCase):
 
     def test_execute_global_skills_result_metrics(self) -> None:
         (self.skills_dir / "my-skill").mkdir()
-        (self.skills_dir / "my-skill" / "SKILL.md").write_text("# My Skill", encoding="utf-8")
+        (self.skills_dir / "my-skill" / "SKILL.md").write_text(
+            "# My Skill", encoding="utf-8"
+        )
         self.claude_skills.parent.mkdir(parents=True, exist_ok=True)
 
         batch = build_global_skill_batch(
@@ -350,15 +363,24 @@ class GlobalSkillBatchTest(TestCase):
         self.assertIn(f"Target preserved: {target_link}", entry_op.reason)
         self.assertIn(str(self.skills_dir / "my-skill"), entry_op.reason)
         self.assertIn(str(ws_b_skill), entry_op.reason)
-        self.assertIn("Other workspace or unmanaged skill symlink will not be overwritten automatically", entry_op.reason)
-        self.assertIn("inspect manually, then run 'aikito sync global' again", entry_op.reason)
+        self.assertIn(
+            "Other workspace or unmanaged skill symlink will not be overwritten automatically",
+            entry_op.reason,
+        )
+        self.assertIn(
+            "inspect manually, then run 'aikito sync global' again", entry_op.reason
+        )
 
         # Execution must fail and original link must be preserved
         res = execute_global_skills(plan_b)
         self.assertFalse(res.success)
-        self.assertEqual(target_link.resolve(), (self.skills_dir / "my-skill").resolve())
+        self.assertEqual(
+            target_link.resolve(), (self.skills_dir / "my-skill").resolve()
+        )
 
-    def test_legacy_container_subpath_and_external_and_other_workspace_blocked(self) -> None:
+    def test_legacy_container_subpath_and_external_and_other_workspace_blocked(
+        self,
+    ) -> None:
         self.agents_skills.parent.mkdir(parents=True, exist_ok=True)
 
         # 1. Points to subpath of current workspace skills
@@ -374,7 +396,9 @@ class GlobalSkillBatchTest(TestCase):
         plan = plan_global_skills(batch, self.home)
         self.assertEqual(plan.container_op.action, "CONFLICT")
         self.assertEqual(plan.container_op.rule_id, "INV-GLB-04")
-        self.assertIn("points to a subpath instead of skills root", plan.container_op.reason)
+        self.assertIn(
+            "points to a subpath instead of skills root", plan.container_op.reason
+        )
         self.assertFalse(plan.can_apply)
 
         # 2. Points to other workspace skills root
@@ -446,5 +470,3 @@ class GlobalSkillBatchTest(TestCase):
         res_d = execute_global_skills(plan)
         self.assertFalse(res_d.success)
         self.assertIn("consumer parent directory missing", str(res_d.error_message))
-
-

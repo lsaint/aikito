@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Container, Sequence
+from typing import Container, Sequence
 
 from .agents import AgentRegistry, Target, check_target_availability, resolve_targets
 from .link import (
@@ -95,7 +94,9 @@ class GlobalSkillBatchPlan:
 
     @property
     def can_apply(self) -> bool:
-        return not self.has_conflicts and all(op.is_authorized for op in self.all_operations)
+        return not self.has_conflicts and all(
+            op.is_authorized for op in self.all_operations
+        )
 
     @property
     def planned_change_count(self) -> int:
@@ -226,9 +227,7 @@ def plan_global_skills(
         is_legacy_container=is_legacy,
     )
 
-    is_migrating_container = (
-        container_op.action in ("MIGRATE_CONTAINER",)
-    )
+    is_migrating_container = container_op.action in ("MIGRATE_CONTAINER",)
 
     # 2. Plan Selected Entries
     entry_ops: list[LinkOperation] = []
@@ -245,10 +244,14 @@ def plan_global_skills(
                 canonical_valid = True
             elif not canonical_path.exists():
                 canonical_valid = False
-                canonical_error = f"Canonical skill source does not exist: {canonical_path}"
+                canonical_error = (
+                    f"Canonical skill source does not exist: {canonical_path}"
+                )
             elif not canonical_path.is_dir():
                 canonical_valid = False
-                canonical_error = f"Canonical skill source is not a directory: {canonical_path}"
+                canonical_error = (
+                    f"Canonical skill source is not a directory: {canonical_path}"
+                )
 
         if is_migrating_container:
             # Container migration will remove the legacy symlink and initialize a clean
@@ -331,8 +334,6 @@ def plan_global_skills(
     )
 
 
-
-
 def execute_global_skills(
     plan: GlobalSkillBatchPlan,
     *,
@@ -348,7 +349,11 @@ def execute_global_skills(
     results.append(res)
     if not res.success:
         return _build_execution_result(
-            plan, results, success=False, refreshed_bundled=refreshed_bundled, error_message=res.error_message
+            plan,
+            results,
+            success=False,
+            refreshed_bundled=refreshed_bundled,
+            error_message=res.error_message,
         )
 
     # 2. Stale cleanups first
@@ -358,7 +363,11 @@ def execute_global_skills(
         results.append(res)
         if not res.success:
             return _build_execution_result(
-                plan, results, success=False, refreshed_bundled=refreshed_bundled, error_message=res.error_message
+                plan,
+                results,
+                success=False,
+                refreshed_bundled=refreshed_bundled,
+                error_message=res.error_message,
             )
 
     # 3. Selected entry operations
@@ -368,7 +377,11 @@ def execute_global_skills(
         results.append(res)
         if not res.success:
             return _build_execution_result(
-                plan, results, success=False, refreshed_bundled=refreshed_bundled, error_message=res.error_message
+                plan,
+                results,
+                success=False,
+                refreshed_bundled=refreshed_bundled,
+                error_message=res.error_message,
             )
 
     # 4. Consumer link operations
@@ -377,7 +390,11 @@ def execute_global_skills(
         results.append(res)
         if not res.success:
             return _build_execution_result(
-                plan, results, success=False, refreshed_bundled=refreshed_bundled, error_message=res.error_message
+                plan,
+                results,
+                success=False,
+                refreshed_bundled=refreshed_bundled,
+                error_message=res.error_message,
             )
 
     return _build_execution_result(

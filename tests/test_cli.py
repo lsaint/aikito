@@ -963,9 +963,10 @@ class GlobalSyncSafetyTest(unittest.TestCase):
         )
         (self.workspace / "skills" / "stale").mkdir(parents=True, exist_ok=True)
 
-        with patch("sys.stdout", new_callable=io.StringIO) as stdout, patch(
-            "sys.stderr", new_callable=io.StringIO
-        ) as stderr:
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as stdout,
+            patch("sys.stderr", new_callable=io.StringIO) as stderr,
+        ):
             self._run_sync()
             out = stdout.getvalue()
             err = stderr.getvalue()
@@ -982,7 +983,9 @@ class GlobalSyncSafetyTest(unittest.TestCase):
             stale_link.resolve(), (self.workspace / "skills" / "stale").resolve()
         )
 
-    def test_bundled_skill_deleted_canonical_dry_run_and_real_consistency_e2e(self) -> None:
+    def test_bundled_skill_deleted_canonical_dry_run_and_real_consistency_e2e(
+        self,
+    ) -> None:
         # Configure a bundled skill in skills.toml and remove its canonical directory
         (self.workspace / "skills.toml").write_text(
             'skills = ["aikito"]\n', encoding="utf-8"
@@ -993,9 +996,10 @@ class GlobalSyncSafetyTest(unittest.TestCase):
         self.assertFalse(aikito_canonical.exists())
 
         # Dry-run should succeed without conflict
-        with patch("sys.stdout", new_callable=io.StringIO) as stdout, patch(
-            "sys.stderr", new_callable=io.StringIO
-        ) as stderr:
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as stdout,
+            patch("sys.stderr", new_callable=io.StringIO) as stderr,
+        ):
             self._run_sync("--dry-run")
             dry_err = stderr.getvalue()
             dry_out = stdout.getvalue()
@@ -1005,12 +1009,12 @@ class GlobalSyncSafetyTest(unittest.TestCase):
         self.assertIn("[DRY RUN LINK]", dry_out)
 
         # Real sync should refresh canonical and succeed
-        with patch("sys.stdout", new_callable=io.StringIO) as stdout, patch(
-            "sys.stderr", new_callable=io.StringIO
-        ) as stderr:
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as stdout,
+            patch("sys.stderr", new_callable=io.StringIO) as stderr,
+        ):
             self._run_sync()
             real_err = stderr.getvalue()
-            real_out = stdout.getvalue()
 
         self.assertNotIn("[CONFLICT]", real_err)
         self.assertNotIn("aborted", real_err)
@@ -1060,7 +1064,9 @@ class GlobalSyncSafetyTest(unittest.TestCase):
         self._run_sync()
         target_link = self.runtime / "stale"
         self.assertTrue(target_link.is_symlink())
-        self.assertEqual(target_link.resolve(), (self.workspace / "skills" / "stale").resolve())
+        self.assertEqual(
+            target_link.resolve(), (self.workspace / "skills" / "stale").resolve()
+        )
 
         # Setup WS B
         ws_b = self.root / "ws_b"
@@ -1087,12 +1093,14 @@ class GlobalSyncSafetyTest(unittest.TestCase):
         err = stderr.getvalue()
         self.assertIn("[CONFLICT]", err)
         self.assertIn(f"Target preserved: {target_link}", err)
-        self.assertIn("Other workspace or unmanaged skill symlink will not be overwritten automatically", err)
+        self.assertIn(
+            "Other workspace or unmanaged skill symlink will not be overwritten automatically",
+            err,
+        )
         # Verify original target link from WS A was not touched
-        self.assertEqual(target_link.resolve(), (self.workspace / "skills" / "stale").resolve())
-
-
-
+        self.assertEqual(
+            target_link.resolve(), (self.workspace / "skills" / "stale").resolve()
+        )
 
 
 class InitSubcommandParserTest(unittest.TestCase):

@@ -8,7 +8,6 @@ command module imports the other.
 from __future__ import annotations
 
 import os
-import sys
 from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
@@ -35,7 +34,9 @@ class ObservedLink:
     link_points_to_canonical: bool = False
     is_same_object: bool = False
     target_lstat: Any = None
-    target_kind: str = "managed_entry"  # "managed_entry", "consumer_link", "managed_container"
+    target_kind: str = (
+        "managed_entry"  # "managed_entry", "consumer_link", "managed_container"
+    )
     scope: str = "project"  # "global", "project"
 
 
@@ -175,22 +176,17 @@ def _plan_link_target_impl(
                     is_authorized=True,
                 )
             dest = (
-                observed.raw_link_target
-                or observed.resolved_link_target
-                or "unknown"
+                observed.raw_link_target or observed.resolved_link_target or "unknown"
             )
             is_sub = False
             if canonical is not None:
                 try:
                     dest_resolved = Path(dest).resolve(strict=False)
                     canon_resolved = canonical.resolve(strict=False)
-                    is_sub = (
-                        dest_resolved != canon_resolved
-                        and (
-                            dest_resolved.is_relative_to(canon_resolved)
-                            if hasattr(Path, "is_relative_to")
-                            else str(dest_resolved).startswith(str(canon_resolved) + os.sep)
-                        )
+                    is_sub = dest_resolved != canon_resolved and (
+                        dest_resolved.is_relative_to(canon_resolved)
+                        if hasattr(Path, "is_relative_to")
+                        else str(dest_resolved).startswith(str(canon_resolved) + os.sep)
                     )
                 except Exception:
                     is_sub = False
@@ -287,13 +283,10 @@ def _plan_link_target_impl(
                     desired_representation="link",
                     is_authorized=False,
                 )
-            err = (
-                observed.canonical_error
-                or (
-                    f"Canonical skill '{resource_name}' is missing or unreadable"
-                    if resource_name
-                    else "Canonical source is missing or unreadable"
-                )
+            err = observed.canonical_error or (
+                f"Canonical skill '{resource_name}' is missing or unreadable"
+                if resource_name
+                else "Canonical source is missing or unreadable"
             )
             return LinkOperation(
                 action="CONFLICT",
@@ -374,9 +367,7 @@ def _plan_link_target_impl(
                     is_authorized=True,
                 )
             dest = (
-                observed.raw_link_target
-                or observed.resolved_link_target
-                or "unknown"
+                observed.raw_link_target or observed.resolved_link_target or "unknown"
             )
             if observed.target_kind == "consumer_link":
                 rule = "INV-GLB-05"
@@ -482,11 +473,7 @@ def _plan_link_target_impl(
                 desired_representation="absent",
                 is_authorized=True,
             )
-        dest = (
-            observed.raw_link_target
-            or observed.resolved_link_target
-            or "unknown"
-        )
+        dest = observed.raw_link_target or observed.resolved_link_target or "unknown"
         if observed.scope == "global":
             return LinkOperation(
                 action="CONFLICT",
@@ -665,9 +652,9 @@ def apply_link_operation(
             )
         resolved = _resolve_symlink_target(target)
         if canonical is not None and resolved is not None:
-            if os.path.normcase(str(resolved.resolve(strict=False))) != os.path.normcase(
-                str(canonical.resolve(strict=False))
-            ):
+            if os.path.normcase(
+                str(resolved.resolve(strict=False))
+            ) != os.path.normcase(str(canonical.resolve(strict=False))):
                 return LinkExecutionResult(
                     operation=op,
                     success=False,
@@ -705,7 +692,9 @@ def apply_link_operation(
         require_symlink_support()
         if dry_run:
             if op.target_kind == "consumer_link":
-                print(f"[DRY RUN LINK] {op.resource_name} skills: {target} -> {canonical}")
+                print(
+                    f"[DRY RUN LINK] {op.resource_name} skills: {target} -> {canonical}"
+                )
             else:
                 print(f"[DRY RUN LINK] {canonical} -> {target}")
             return LinkExecutionResult(operation=op, success=True, applied=False)
@@ -806,10 +795,17 @@ def apply_link_operation(
         owned = False
         if canonical is not None:
             canon_norm = os.path.normcase(str(canonical.resolve(strict=False)))
-            if resolved is not None and os.path.normcase(str(resolved.resolve(strict=False))) == canon_norm:
+            if (
+                resolved is not None
+                and os.path.normcase(str(resolved.resolve(strict=False))) == canon_norm
+            ):
                 owned = True
             elif raw_val:
-                raw_path = target.parent / raw_val if not os.path.isabs(raw_val) else Path(raw_val)
+                raw_path = (
+                    target.parent / raw_val
+                    if not os.path.isabs(raw_val)
+                    else Path(raw_val)
+                )
                 if os.path.normcase(str(raw_path.resolve(strict=False))) == canon_norm:
                     owned = True
         if not owned:

@@ -576,7 +576,9 @@ skills_path = ".claude/skills"
             )
         )
 
-    def test_doctor_and_sync_dry_run_parity_on_unmanaged_directory_and_wrong_link(self) -> None:
+    def test_doctor_and_sync_dry_run_parity_on_unmanaged_directory_and_wrong_link(
+        self,
+    ) -> None:
         container = self.home / ".agents" / "skills"
         container.mkdir(parents=True)
         # Create unmanaged directory inside container (INV-GLB-03)
@@ -591,20 +593,38 @@ skills_path = ".claude/skills"
         # 1. Doctor explanation
         section = check_symlinks(self.aikito_dir, self.home)
         fail_findings = [f for f in section.findings if f.status == "FAIL"]
-        self.assertTrue(any("Claude Code skills" in f.message and "unauthorized destination" in f.message for f in fail_findings))
+        self.assertTrue(
+            any(
+                "Claude Code skills" in f.message
+                and "unauthorized destination" in f.message
+                for f in fail_findings
+            )
+        )
 
         orphans = check_orphans(self.aikito_dir, self.home)
         orphan_fails = [f for f in orphans.findings if f.status == "FAIL"]
-        self.assertTrue(any("unmanaged-dir" in f.message and "unmanaged item" in f.message for f in orphan_fails))
+        self.assertTrue(
+            any(
+                "unmanaged-dir" in f.message and "unmanaged item" in f.message
+                for f in orphan_fails
+            )
+        )
 
         # 2. Plan / dry-run explanation
         from aikito.global_skills import build_global_skill_batch, plan_global_skills
-        batch = build_global_skill_batch(self.aikito_dir, self.home, skills=["my-skill"], container_path=container)
+
+        batch = build_global_skill_batch(
+            self.aikito_dir, self.home, skills=["my-skill"], container_path=container
+        )
         plan = plan_global_skills(batch, self.home, dry_run=True)
         consumer_conflicts = [op for op in plan.consumer_ops if op.action == "CONFLICT"]
-        self.assertTrue(any("unauthorized destination" in op.reason for op in consumer_conflicts))
+        self.assertTrue(
+            any("unauthorized destination" in op.reason for op in consumer_conflicts)
+        )
         entry_conflicts = [op for op in plan.entry_ops if op.action == "CONFLICT"]
-        self.assertTrue(any("unmanaged-dir" in str(op.target_path) for op in entry_conflicts))
+        self.assertTrue(
+            any("unmanaged-dir" in str(op.target_path) for op in entry_conflicts)
+        )
 
     def test_shared_same_object_instruction_target_is_not_rechecked(self) -> None:
         shared = self.home / ".shared" / "AGENTS.md"

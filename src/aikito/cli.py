@@ -66,7 +66,6 @@ from .project_sync import (
 from .skill_state import SkillWriterLock, calculate_directory_fingerprint
 from .sync import (
     apply_runtime_cleanup,
-    ensure_dir,
     sync_global_entry,
 )
 from .sync_plan import capture_sync_plan
@@ -88,8 +87,6 @@ from .templating import TemplateError, detect_existing_agents
 from .project import (
     append_candidate_path_to_config,
     collect_project_summaries,
-    find_selected_runtime_conflicts,
-    plan_runtime_cleanup,
     resolve_project_binding,
 )
 
@@ -295,17 +292,11 @@ def sync_global_resources(
         batch, home, dry_run=dry_run, refreshed_bundled=outdated_bundled
     )
 
-    all_conflicts = [
-        op
-        for op in plan.all_operations
-        if op.action == "CONFLICT"
-    ]
+    all_conflicts = [op for op in plan.all_operations if op.action == "CONFLICT"]
     if all_conflicts:
         for op in all_conflicts:
             prefix = (
-                "[ERROR]"
-                if op.rule_id in ("INV-TR-02", "INV-TR-04")
-                else "[CONFLICT]"
+                "[ERROR]" if op.rule_id in ("INV-TR-02", "INV-TR-04") else "[CONFLICT]"
             )
             print(f"{prefix} {op.reason}", file=sys.stderr)
         print("[ERROR] Global synchronization aborted.", file=sys.stderr)
@@ -352,9 +343,7 @@ def sync_global_resources(
             return GlobalSyncResult(success=False, error_message=str(exc))
     else:
         try:
-            refreshed = tuple(
-                refresh_bundled_skills(aikito_dir, home, dry_run=True)
-            )
+            refreshed = tuple(refresh_bundled_skills(aikito_dir, home, dry_run=True))
         except BundledSkillRefreshError as exc:
             print(f"[ERROR] {exc}", file=sys.stderr)
             return GlobalSyncResult(success=False, error_message=str(exc))

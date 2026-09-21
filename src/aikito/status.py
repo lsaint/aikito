@@ -12,7 +12,7 @@ from typing import Any
 
 from .agents import AgentRegistry
 from .global_skills import build_global_skill_batch, plan_global_skills
-from .link import SymlinkVerdict, classify_symlink, symlink_verdict_to_status
+from .link import classify_symlink, symlink_verdict_to_status
 from .mcp import (
     MCPConfigError,
     evaluate_spec_status,
@@ -423,8 +423,7 @@ def collect_agent_status_rows(
                     ok_skills = sum(
                         1
                         for op in global_skill_plan.entry_ops
-                        if op.desired_representation == "link"
-                        and op.action == "NOOP"
+                        if op.desired_representation == "link" and op.action == "NOOP"
                     )
                     if ok_skills == total_global_skills and total_global_skills > 0:
                         skills_status = f"OK ({total_global_skills})"

@@ -243,7 +243,6 @@ class BundledSkillWriterLockTest(unittest.TestCase):
             self.assertTrue(container.is_dir())
             self.assertTrue((container / "aikito").is_symlink())
 
-
     def test_init_existing_workspace_holds_writer_lock(self) -> None:
         from aikito.init import init_workspace
 
