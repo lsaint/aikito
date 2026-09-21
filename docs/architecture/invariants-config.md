@@ -31,7 +31,7 @@ Every physical configuration target planned for mutation captures a frozen pre-i
 
 *Targeted tests*: `tests/test_config_runtime.py`, `tests/test_config_characterization.py`, `tests/test_subagent.py`, `tests/test_mcp.py`
 
-### INV-CFG-05: Preservation of Unmanaged Configuration Content and Format Semantics `[planned]` {: #inv-cfg-05 }
+### INV-CFG-05: Preservation of Unmanaged Configuration Content and Format Semantics `[current]` {: #inv-cfg-05 }
 
 Format handlers must preserve all unmanaged sections, user comments, formatting whitespace, and unrelated configuration blocks within shared configuration files (such as YAML patches, JSON, JSONC, and TOML). Aikito only modifies nodes specifically owned and managed by Aikito. Whole-file replacement is restricted to dedicated, single-resource agent files where the entire file is proven to be owned by Aikito.
 

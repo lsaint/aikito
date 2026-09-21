@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Migrated subagent configuration and MCP server configuration engines to the structured configuration model (Core Model Phase 7), introducing `SubagentPlan`, `SubagentFilePlan`, `SubagentExecutionResult`, `MCPPlan`, `MCPFilePlan`, and `MCPExecutionResult`.
+- Formalized structured configuration invariants `INV-CFG-01` through `INV-CFG-05`, subagent invariants `INV-SUB-01` through `INV-SUB-06`, and MCP invariants `INV-MCP-01` through `INV-MCP-08`.
+- Multi-resource same-file aggregation: Multiple subagents in DSH `cordis.patch.yml` and multiple MCP servers in shared agent configuration files (e.g. `~/.claude.json`, `.config/opencode/opencode.jsonc`, `~/.codex/config.toml`) are chained and merged in-memory from a single pre-image and written exactly once, eliminating overwrites and race conditions.
+- Stale plan detection: Runtime configuration file or state store modifications between preview/planning and execution halt execution without mutating files or state (`INV-CFG-04`, `INV-MCP-04`).
+- Scoped subagent `--force`: `--force <agent>/<subagent>` authorizes overwriting only the specific targeted subagent file or block rather than granting broad file-level overwrite permissions (`INV-SUB-02`).
+- Prune safety: `aikito sync subagents --prune` strictly prunes only subagent definitions containing an Aikito ownership marker, preserving unmanaged agent definitions (`INV-SUB-03`).
+- MCP Desired Absent removal: `aikito rm mcp <name> --sync` operates via the unified MCP Planner and Executor (`Desired Absent`), reusing transactional file aggregation, backup, and state commit consistency (`INV-MCP-07`).
+- Display redaction: Sensitive credential tokens and headers are redacted across all MCP plan previews, table displays, error outputs, and structured views (`INV-MCP-05`).
+- Rollback and recovery assurance: If an error occurs during runtime file rollback or state recovery, backup files are strictly preserved and `recovery_required=True` provides clear manual recovery steps (`INV-MCP-08`).
+
+### Changed
+
+- Retired direct per-item write loops in `subagent.py` and `mcp.py` in favor of structured transactional executors (`execute_subagent_plan`, `execute_mcp_plan`).
+- Subagent availability checks in `subagent.py` now reuse the canonical registry from `agents.py` rather than importing from `mcp.py`.
+- Unified status, diff, and Doctor to evaluate subagent and MCP configuration state through unified inspection and plans.
+
 ## [1.47.0] - 2026-09-21
 
 ### Added

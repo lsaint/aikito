@@ -26,7 +26,15 @@ aikito edit subagent verifier
 
 Managed files are updated from the canonical definition. An existing file
 without an Aikito marker is treated as unmanaged and will not be overwritten by
-default.
+default. To overwrite a specific unmanaged target after review, specify its target key:
+
+```bash
+aikito sync subagents --force <agent>/<subagent>
+```
+
+Passing `--force` with a specific `<agent>/<subagent>` authorizes overwriting only that target, preventing accidental overwrite of other conflicting files.
+
+Shared agent configuration files (such as DeepSeek Harness `cordis.patch.yml`) merge multiple subagent definitions in memory and perform a single write, preserving other unmanaged sections and custom tool definitions.
 
 Example `aikito show subagents` output from a configured workspace:
 
@@ -79,7 +87,7 @@ aikito rm subagent reviewer --sync
 ```
 
 If a definition was removed without `--sync`, `aikito status` may report a managed orphan.
-Run `aikito sync subagents --prune` to clean up orphaned definitions across agents.
+Run `aikito sync subagents --prune` to clean up orphaned definitions across agents. Pruning strictly deletes only definitions containing an Aikito ownership marker; pre-existing unmanaged definitions are never deleted.
 
 See [Architecture](architecture.md) for Agent capability boundaries and
 [Safety model](safety.md) before forcing any target.

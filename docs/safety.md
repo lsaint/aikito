@@ -113,6 +113,12 @@ review is useful.
 - Conflicting instruction sources require user judgment.
 - Explicit force or prune options are strictly scoped to reviewed targets ([INV-AUTH-02](architecture/invariants-execution.md#inv-auth-02));
   `--force` never authorizes overwriting instructions or memory ([INV-AUTH-05](architecture/invariants-execution.md#inv-auth-05), [INV-MEM-07](architecture/invariants-memory.md#inv-mem-07)).
+- Unmanaged subagent definition files and unmanaged MCP server blocks are preserved by default; synchronization reports a conflict rather than silently overwriting them.
+- Subagent `--force <agent>/<subagent>` strictly authorizes only the specified agent/subagent target ([INV-SUB-02](architecture/invariants-subagents.md#inv-sub-02)), preventing broad file-level overwrite permissions.
+- Subagent `--prune` deletes only managed orphan definitions carrying an Aikito ownership marker ([INV-SUB-03](architecture/invariants-subagents.md#inv-sub-03)); pre-existing unmanaged definitions are never deleted.
+- MCP server configuration drift (where runtime configuration differs from the recorded managed fingerprint in `.local/state/aikito/mcp-state.json`) evaluates to a conflict by default ([INV-MCP-01](architecture/invariants-mcp.md#inv-mcp-01)); `--force` explicitly authorizes overwriting only the specific drifted server node.
+- Multiple MCP servers targeting the same physical configuration file (e.g. `~/.claude.json`, `.config/opencode/opencode.jsonc`) are merged in memory and written once, preserving unmanaged sibling servers, comments, and other non-MCP configurations ([INV-MCP-02](architecture/invariants-mcp.md#inv-mcp-02)).
+- Runtime write or state promotion failures automatically trigger atomic rollback of modified runtime configuration files; if rollback cannot be completed cleanly, created backups are strictly preserved and `recovery_required=True` outputs explicit recovery instructions for manual inspection ([INV-MCP-08](architecture/invariants-mcp.md#inv-mcp-08)).
 - For formal verification rules and state transition tables, see the
   [Engineering Invariants](architecture/invariants.md).
 
@@ -121,6 +127,9 @@ review is useful.
 Canonical MCP configuration should contain environment-variable references,
 not plaintext credentials. Adoption converts recognized secrets to references,
 but users must still inspect imported configuration before committing it.
+
+- Sensitive credential tokens, authorization headers, and environment variables are redacted in all plan summaries, CLI outputs, error messages, and public structured views ([INV-MCP-05](architecture/invariants-mcp.md#inv-mcp-05)).
+- Configuration files containing sensitive credentials or marked as sensitive suppress standard whole-file backups to prevent plaintext secrets leaking into backup directories, and enforce secure filesystem permissions (`0600` on POSIX, restricted ACLs on Windows) ([INV-MCP-06](architecture/invariants-mcp.md#inv-mcp-06)).
 
 ## Platform Support and Constraints
 

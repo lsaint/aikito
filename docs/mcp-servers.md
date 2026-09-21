@@ -20,7 +20,14 @@ aikito sync mcp --dry-run
 aikito show mcp
 ```
 
-The preview shows planned writes and conflicts without applying them.
+The preview inspects the current state of agent configurations against recorded managed fingerprints in `.local/state/aikito/mcp-state.json`. It shows planned creates, updates, and conflicts without applying any filesystem changes.
+
+If runtime configuration files or the state store are modified after planning, the plan becomes stale and execution halts cleanly to avoid race conditions.
+
+When applying changes with `aikito sync mcp`:
+- **Same-File Aggregation**: Multiple servers targeting the same physical file (e.g. `~/.claude.json` or `.config/opencode/opencode.jsonc`) are chained and merged in memory from a frozen pre-image and written once. Comments and unmanaged sibling servers are preserved.
+- **Drift Protection**: If a managed entry was modified outside Aikito, it evaluates to `CONFLICT` instead of being overwritten silently. Pass `--force` to authorize overwriting the drifted server entry.
+- **Transactional Rollback**: Backups are created for all eligible non-sensitive targets before writing. If any file write or state commit fails, modified runtime files are rolled back to their pre-mutation states. If rollback cannot complete cleanly, backups are strictly preserved and `recovery_required=True` displays exact manual recovery guidance.
 
 ## Apply and Verify
 
@@ -166,3 +173,5 @@ Add `--sync` to immediately unregister and remove the server configuration from 
 ```bash
 aikito rm mcp <name> --sync
 ```
+
+Adding `--sync` plans the removed server as absent (`Desired Absent`) and executes removal through the same transactional engine. Multiple server removals from the same configuration file are merged and written once, unmanaged sibling servers are preserved, and managed state records in `.local/state/aikito/mcp-state.json` are cleanly unlinked. If any agent config encounters an unmanaged conflict, the command safely aborts and preserves the canonical file.
