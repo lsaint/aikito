@@ -951,6 +951,75 @@ class GlobalSyncSafetyTest(unittest.TestCase):
         self.assertNotIn("[LINK]", out)
         self.assertNotIn("[UNLINK]", out)
 
+    def test_legacy_top_level_container_migration_e2e(self) -> None:
+        # Legacy container setup: .agents/skills is a symlink to workspace skills
+        self.runtime.parent.mkdir(parents=True, exist_ok=True)
+        if self.runtime.exists():
+            shutil.rmtree(self.runtime)
+        self.runtime.symlink_to(self.workspace / "skills")
+
+        (self.workspace / "skills.toml").write_text(
+            'skills = ["stale"]\n', encoding="utf-8"
+        )
+        (self.workspace / "skills" / "stale").mkdir(parents=True, exist_ok=True)
+
+        with patch("sys.stdout", new_callable=io.StringIO) as stdout, patch(
+            "sys.stderr", new_callable=io.StringIO
+        ) as stderr:
+            self._run_sync()
+            out = stdout.getvalue()
+            err = stderr.getvalue()
+
+        self.assertNotIn("[CONFLICT]", err)
+        self.assertNotIn("aborted", err)
+        self.assertIn("Replacing old top-level symlink at", out)
+        self.assertIn("[LINK]", out)
+        self.assertTrue(self.runtime.is_dir())
+        self.assertFalse(self.runtime.is_symlink())
+        stale_link = self.runtime / "stale"
+        self.assertTrue(stale_link.is_symlink())
+        self.assertEqual(
+            stale_link.resolve(), (self.workspace / "skills" / "stale").resolve()
+        )
+
+    def test_bundled_skill_deleted_canonical_dry_run_and_real_consistency_e2e(self) -> None:
+        # Configure a bundled skill in skills.toml and remove its canonical directory
+        (self.workspace / "skills.toml").write_text(
+            'skills = ["aikito"]\n', encoding="utf-8"
+        )
+        aikito_canonical = self.workspace / "skills" / "aikito"
+        if aikito_canonical.exists():
+            shutil.rmtree(aikito_canonical)
+        self.assertFalse(aikito_canonical.exists())
+
+        # Dry-run should succeed without conflict
+        with patch("sys.stdout", new_callable=io.StringIO) as stdout, patch(
+            "sys.stderr", new_callable=io.StringIO
+        ) as stderr:
+            self._run_sync("--dry-run")
+            dry_err = stderr.getvalue()
+            dry_out = stdout.getvalue()
+
+        self.assertNotIn("[CONFLICT]", dry_err)
+        self.assertNotIn("aborted", dry_err)
+        self.assertIn("[DRY RUN LINK]", dry_out)
+
+        # Real sync should refresh canonical and succeed
+        with patch("sys.stdout", new_callable=io.StringIO) as stdout, patch(
+            "sys.stderr", new_callable=io.StringIO
+        ) as stderr:
+            self._run_sync()
+            real_err = stderr.getvalue()
+            real_out = stdout.getvalue()
+
+        self.assertNotIn("[CONFLICT]", real_err)
+        self.assertNotIn("aborted", real_err)
+        self.assertTrue(aikito_canonical.is_dir())
+        aikito_link = self.runtime / "aikito"
+        self.assertTrue(aikito_link.is_symlink())
+        self.assertEqual(aikito_link.resolve(), aikito_canonical.resolve())
+
+
 
 class InitSubcommandParserTest(unittest.TestCase):
     def test_init_workspace_and_project_subcommands(self) -> None:

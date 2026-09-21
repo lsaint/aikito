@@ -324,6 +324,8 @@ def sync_global_resources(
                         "move or merge it manually, then run 'aikito sync global' again.",
                         file=sys.stderr,
                     )
+            elif op.rule_id in ("INV-TR-02", "INV-TR-04"):
+                print(f"[ERROR] {op.reason}", file=sys.stderr)
             else:
                 print(f"[CONFLICT] Unmanaged global skill item: {op.target_path}", file=sys.stderr)
         print("[ERROR] Global synchronization aborted.", file=sys.stderr)

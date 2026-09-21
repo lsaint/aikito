@@ -6,7 +6,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Container, Sequence
 
 from .agents import AgentRegistry, Target, check_target_availability, resolve_targets
 from .link import (
@@ -207,10 +207,10 @@ def plan_global_skills(
     home: Path,
     *,
     dry_run: bool = False,
-    refreshed_bundled: set[str] | None = None,
+    refreshed_bundled: Container[str] | None = None,
 ) -> GlobalSkillBatchPlan:
     """Pure planning function producing GlobalSkillBatchPlan from a GlobalSkillBatch."""
-    refreshed = refreshed_bundled or set()
+    refreshed = set(refreshed_bundled or ())
 
     # 1. Plan Container
     is_legacy = batch.container.path.is_symlink()
@@ -226,6 +226,10 @@ def plan_global_skills(
         is_legacy_container=is_legacy,
     )
 
+    is_migrating_container = (
+        container_op.action in ("MIGRATE_CONTAINER",)
+    )
+
     # 2. Plan Selected Entries
     entry_ops: list[LinkOperation] = []
     for entry in batch.selected_entries:
@@ -234,8 +238,10 @@ def plan_global_skills(
         canonical_error = None
 
         if canonical_path is not None:
-            # Check canonical source validity
-            if dry_run and entry.path.name in refreshed and not canonical_path.exists():
+            # Check canonical source validity.
+            # If the skill is pending bundled refresh, its canonical source will be
+            # generated before link apply (under writer lock); valid for both dry-run and real sync.
+            if entry.path.name in refreshed and not canonical_path.exists():
                 canonical_valid = True
             elif not canonical_path.exists():
                 canonical_valid = False
@@ -244,14 +250,32 @@ def plan_global_skills(
                 canonical_valid = False
                 canonical_error = f"Canonical skill source is not a directory: {canonical_path}"
 
-        obs = inspect_link_target(
-            entry.path,
-            canonical_path,
-            canonical_valid=canonical_valid,
-            canonical_error=canonical_error,
-            target_kind="managed_entry",
-            scope="global",
-        )
+        if is_migrating_container:
+            # Container migration will remove the legacy symlink and initialize a clean
+            # real directory; managed entries inside will therefore be missing prior to link apply.
+            obs = ObservedLink(
+                target_path=entry.path,
+                entry_type="missing",
+                expected_canonical=canonical_path,
+                canonical_valid=canonical_valid,
+                canonical_error=canonical_error,
+                raw_link_target=None,
+                resolved_link_target=None,
+                link_points_to_canonical=False,
+                is_same_object=False,
+                target_lstat=None,
+                target_kind="managed_entry",
+                scope="global",
+            )
+        else:
+            obs = inspect_link_target(
+                entry.path,
+                canonical_path,
+                canonical_valid=canonical_valid,
+                canonical_error=canonical_error,
+                target_kind="managed_entry",
+                scope="global",
+            )
         op = plan_link_target(
             obs,
             desired_mode="link",

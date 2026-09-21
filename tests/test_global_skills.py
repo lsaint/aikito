@@ -175,6 +175,53 @@ class GlobalSkillBatchTest(TestCase):
         self.assertEqual(plan.container_op.action, "MIGRATE_CONTAINER")
         self.assertEqual(plan.container_op.rule_id, "INV-GLB-04")
         self.assertTrue(plan.container_op.is_authorized)
+        self.assertFalse(plan.has_conflicts)
+        self.assertTrue(plan.can_apply)
+        self.assertEqual(len(plan.entry_ops), 2)
+        for op in plan.entry_ops:
+            self.assertEqual(op.action, "CREATE")
+            self.assertEqual(op.rule_id, "INV-TR-01")
+
+        # Verify execution successfully migrates container and links entries
+        res = execute_global_skills(plan)
+        self.assertTrue(res.success)
+        self.assertTrue(self.agents_skills.is_dir())
+        self.assertFalse(self.agents_skills.is_symlink())
+        for s in ("skill-a", "skill-b"):
+            entry_link = self.agents_skills / s
+            self.assertTrue(entry_link.is_symlink())
+            self.assertEqual(
+                entry_link.resolve(), (self.skills_dir / s).resolve()
+            )
+
+    def test_plan_bundled_refresh_consistency_when_canonical_missing(self) -> None:
+        # Canonical skill does not exist in workspace, but is in refreshed_bundled
+        missing_skill = "aikito"
+        batch = build_global_skill_batch(
+            self.workspace,
+            self.home,
+            skills=[missing_skill],
+            registry=self.registry,
+            container_path=self.agents_skills,
+        )
+        self.agents_skills.mkdir(parents=True, exist_ok=True)
+
+        plan_dry = plan_global_skills(
+            batch, self.home, dry_run=True, refreshed_bundled={missing_skill}
+        )
+        plan_real = plan_global_skills(
+            batch, self.home, dry_run=False, refreshed_bundled={missing_skill}
+        )
+
+        self.assertFalse(plan_dry.has_conflicts)
+        self.assertFalse(plan_real.has_conflicts)
+        self.assertTrue(plan_dry.can_apply)
+        self.assertTrue(plan_real.can_apply)
+
+        dry_actions = [op.action for op in plan_dry.entry_ops]
+        real_actions = [op.action for op in plan_real.entry_ops]
+        self.assertEqual(dry_actions, real_actions)
+        self.assertEqual(dry_actions, ["CREATE"])
 
     def test_execute_consumer_links_creates_link(self) -> None:
         self.agents_skills.mkdir(parents=True)
