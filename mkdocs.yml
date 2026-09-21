@@ -65,7 +65,15 @@ nav:
       - CLI Reference: cli-reference.md
       - Python API Reference: python-api.md
       - Safety Model: safety.md
-      - Engineering Invariants: architecture/invariants.md
+      - Engineering Invariants:
+          - Overview: architecture/invariants.md
+          - Ownership & Binding: architecture/invariants-ownership.md
+          - Skills: architecture/invariants-skills.md
+          - Instructions: architecture/invariants-instructions.md
+          - Memory Runtime: architecture/invariants-memory.md
+          - Execution & Recovery: architecture/invariants-execution.md
+          - Python API: architecture/invariants-api.md
+          - Migration Inventory: architecture/migration-inventory.md
   - About:
       - Comparison: comparison.md
       - Why Memory Needs a Maintainer: programming-agent-memory.md

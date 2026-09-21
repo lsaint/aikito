@@ -254,5 +254,5 @@ except ProjectPrepareConflictError as e:
     `Project.prepare()` accepts no `--force` parameter and does not reuse
     CLI force authorization. For manual project synchronisation or force
     overwrites use `aikito sync project <name> --force`. See
-    [Engineering Invariants](architecture/invariants.md#inv-api-05)
+    [Engineering Invariants](architecture/invariants-api.md#inv-api-05)
     for the API invariant specification.

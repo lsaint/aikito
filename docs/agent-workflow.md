@@ -146,7 +146,7 @@ For global Memory:
 > duplication, scope, and obsolete knowledge.
 
 Complete-scope maintenance may consume substantial model usage. See
-[Proactive Scope Maintenance](durable-memory.md#proactive-scope-maintenance)
+[Proactive Scope Maintenance](durable-memory.md#review-a-complete-scope)
 before running it on a large scope.
 
 ## Review Before Publishing
