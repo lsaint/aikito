@@ -31,7 +31,6 @@ from .agents import (
     AgentRegistryError,
     is_agent_installed,
     load_agent_document,
-    resolve_targets,
 )
 from .compat import resolve_executable, secure_file_permissions
 
@@ -372,26 +371,6 @@ def load_agents(aikito_dir: Path, home: Path) -> dict[str, AgentDefinition]:
         )
 
     return definitions
-
-
-def collect_project_instruction_targets(
-    aikito_dir: Path,
-    project_path: Path,
-    home: Path,
-    *,
-    active_only: bool = False,
-) -> dict[Path, tuple[str, ...]]:
-    """Group agent-native project instruction targets by runtime path."""
-    agents = load_agents(aikito_dir, home)
-    targets = resolve_targets(
-        "project_instructions",
-        aikito_dir,
-        home,
-        project_path=project_path,
-        active_only=active_only,
-        registry=AgentRegistry(agents),
-    )
-    return {t.path: tuple(sorted(t.consumer_display_names)) for t in targets}
 
 
 def _target_name(name_style: str, server_name: str) -> str:

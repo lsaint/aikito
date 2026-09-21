@@ -12,7 +12,10 @@ from typing import Any
 
 from .agents import AgentRegistry
 from .global_skills import build_global_skill_batch, plan_global_skills
-from .link import classify_symlink, symlink_verdict_to_status
+from .instructions import (
+    build_global_instruction_batch,
+    plan_instructions,
+)
 from .mcp import (
     MCPConfigError,
     evaluate_spec_status,
@@ -331,7 +334,27 @@ def collect_agent_status_rows(
     aikito_dir: Path, home: Path
 ) -> tuple[list[AgentStatusRow], int, int, int]:
     agents_dict = load_agents(aikito_dir, home)
-    global_instruction_source = aikito_dir / "global" / "AGENTS.md"
+    instruction_batch = build_global_instruction_batch(
+        aikito_dir, home, registry=AgentRegistry(agents_dict)
+    )
+    instruction_plan = plan_instructions(instruction_batch, home)
+
+    instruction_target_status: dict[Path, str] = {}
+    for op in instruction_plan.operations:
+        if op.action in ("NOOP", "SHARED_PATH"):
+            st = "OK"
+        elif op.action == "CREATE":
+            st = "MISSING"
+        elif op.action == "CONFLICT":
+            st = "CONFLICT"
+        elif op.action == "SKIP":
+            st = "SKIP"
+        elif op.action == "UNLINK":
+            st = "DRIFT"
+        else:
+            st = op.action
+        instruction_target_status[op.target_path] = st
+
     global_skills = _get_skills_list(aikito_dir)
     total_global_skills = len(global_skills)
 
@@ -375,14 +398,11 @@ def collect_agent_status_rows(
         # 1. Instructions Status
         instructions_status = "SKIP"
         if definition.instruction_path is not None:
-            target = definition.instruction_path
-            if not target.parent.exists():
-                instructions_status = "SKIP"
-            else:
-                verdict = classify_symlink(target, global_instruction_source)
-                instructions_status = symlink_verdict_to_status(verdict)
-                if instructions_status != "OK":
-                    agent_issues += 1
+            instructions_status = instruction_target_status.get(
+                definition.instruction_path, "SKIP"
+            )
+            if instructions_status not in ("OK", "SKIP"):
+                agent_issues += 1
 
         # 2. Skills Status
         skills_status = "SKIP"

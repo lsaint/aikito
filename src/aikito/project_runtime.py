@@ -219,6 +219,10 @@ class Project:
             for op in batch.skill_plan.operations:
                 if op.finding and op.finding not in errors:
                     errors.append(op.finding)
+            if batch.instruction_plan:
+                for op in batch.instruction_plan.operations:
+                    if op.finding and op.finding not in errors:
+                        errors.append(op.finding)
             raise ProjectPrepareConflictError(
                 self.name, tuple(errors or ["Project preparation conflict detected"])
             )

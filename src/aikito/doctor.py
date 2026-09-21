@@ -40,11 +40,14 @@ from .agents import (
     AGENT_INSTALL_MARKERS,
     AgentRegistry,
     check_target_availability,
-    resolve_targets,
+)
+from .instructions import (
+    build_global_instruction_batch,
+    plan_instructions,
 )
 from .diagnostics import Finding, FindingAction
 from .global_skills import build_global_skill_batch, plan_global_skills
-from .link import SymlinkVerdict, classify_symlink
+from .link import classify_symlink  # noqa: F401
 from .mcp import (
     MCPConfigError,
     _load_document,
@@ -157,64 +160,76 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
         findings.append(_fail(f"Cannot load agents.toml: {exc}"))
         return DoctorSection(name="Symlinks", findings=findings)
 
-    global_instruction_source = aikito_dir / "global" / "AGENTS.md"
     agents_skills_dir = home / ".agents" / "skills"
 
     registry = AgentRegistry(agents)
 
     # 1a. Per-target instruction symlinks
+    instruction_batch = build_global_instruction_batch(
+        aikito_dir, home, registry=registry
+    )
+    instruction_plan = plan_instructions(instruction_batch, home)
+
     inst_fail_count = 0
     instr_total = 0
     instr_target_total = 0
-    instruction_targets = resolve_targets(
-        "global_instructions", aikito_dir, home, registry=registry
-    )
-    for target in instruction_targets:
+
+    formal_target_paths = {
+        t.path.resolve(strict=False): t for t in instruction_batch.targets
+    }
+
+    for target in instruction_batch.targets:
         avail = check_target_availability(target, home)
         if not avail.is_installed:
-            continue  # agent not installed — not a symlink issue
+            continue
         instr_total += len(target.consumers)
         instr_target_total += 1
-        if target.is_same_object:
-            continue
-        verdict = classify_symlink(target.path, global_instruction_source)
-        display = _home_rel(target.path, home)
-        display_name = "/".join(target.consumer_display_names)
-        if verdict == SymlinkVerdict.OK:
-            pass
 
-        elif verdict == SymlinkVerdict.DANGLING:
-            inst_fail_count += 1
-            findings.append(
-                _fail(
-                    f"{display_name}: dangling symlink ({display})",
-                    "aikito sync global",
-                )
-            )
-        elif verdict == SymlinkVerdict.WRONG_TARGET:
-            inst_fail_count += 1
-            findings.append(
-                _fail(
-                    f"{display_name}: points elsewhere ({display})",
-                    "aikito sync global",
-                )
-            )
-        elif verdict == SymlinkVerdict.NOT_SYMLINK:
-            inst_fail_count += 1
-            findings.append(
-                _fail(
-                    f"{display_name}: not a symlink ({display})",
-                    "aikito sync global",
-                )
-            )
-        elif verdict == SymlinkVerdict.MISSING:
-            inst_fail_count += 1
+    for op in instruction_plan.operations:
+        resolved_op_path = op.target_path.resolve(strict=False)
+        if resolved_op_path not in formal_target_paths:
+            continue
+        target = formal_target_paths[resolved_op_path]
+        avail = check_target_availability(target, home)
+        if not avail.is_installed:
+            continue
+        if op.action in ("NOOP", "SHARED_PATH", "SKIP"):
+            continue
+
+        display = _home_rel(op.target_path, home)
+        display_name = op.resource_name
+        inst_fail_count += 1
+
+        if op.action == "CREATE":
             findings.append(
                 _fail(
                     f"{display_name}: missing ({display})",
                     "aikito sync global",
                 )
             )
+        elif op.action == "CONFLICT":
+            if op.expected_representation == "symlink":
+                if op.target_path.is_symlink() and not op.target_path.exists():
+                    findings.append(
+                        _fail(
+                            f"{display_name}: dangling symlink ({display})",
+                            "aikito sync global",
+                        )
+                    )
+                else:
+                    findings.append(
+                        _fail(
+                            f"{display_name}: points elsewhere ({display})",
+                            "aikito sync global",
+                        )
+                    )
+            else:
+                findings.append(
+                    _fail(
+                        f"{display_name}: not a symlink ({display})",
+                        "aikito sync global",
+                    )
+                )
 
     if instr_total > 0 and inst_fail_count == 0:
         findings.append(

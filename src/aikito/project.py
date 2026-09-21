@@ -7,8 +7,9 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from .agents import resolve_targets
 from .compat import _resolve_symlink_target, safe_relative_path
-from .mcp import MCPConfigError, collect_project_instruction_targets
+from .mcp import MCPConfigError
 from .skill_plan import SkillOperation, SkillTarget, plan_single_skill
 from .skill_runtime import ObservedSkill, inspect_skill_target
 
@@ -626,38 +627,49 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
                 agents_dir = project_path / ".agents"
                 statuses: list[str] = []
                 try:
-                    instruction_targets = collect_project_instruction_targets(
-                        aikito_dir, project_path, home, active_only=True
+                    targets = resolve_targets(
+                        "project_instructions",
+                        aikito_dir,
+                        home,
+                        project_path=project_path,
+                        project_name=project_dir.name,
+                        active_only=True,
                     )
                 except MCPConfigError:
                     # An unreadable agent registry is reported by doctor, not here.
-                    instruction_targets = {}
+                    targets = ()
                 if instructions_status == "OK":
-                    for target, agent_names in instruction_targets.items():
-                        status = _link_status(target, instructions)
+                    for t in targets:
+                        status = (
+                            "OK"
+                            if t.is_same_object
+                            else _link_status(t.path, instructions)
+                        )
                         statuses.append(status)
                         details.append(
                             ProjectResourceDetail(
-                                f"Instructions ({', '.join(agent_names)}){p_tag}",
+                                f"Instructions ({', '.join(t.consumer_display_names)}){p_tag}",
                                 instructions,
-                                target,
+                                t.path,
                                 status,
-                                _link_issue(target, instructions, status),
+                                ""
+                                if status == "OK"
+                                else _link_issue(t.path, instructions, status),
                             )
                         )
                 elif instructions_status == "EMPTY":
-                    for target, agent_names in instruction_targets.items():
-                        if target.is_symlink() and target.resolve(
+                    for t in targets:
+                        if t.path.is_symlink() and t.path.resolve(
                             strict=False
                         ) == instructions.resolve(strict=False):
                             statuses.append("DRIFT")
                             details.append(
                                 ProjectResourceDetail(
-                                    f"Instructions ({', '.join(agent_names)}){p_tag}",
+                                    f"Instructions ({', '.join(t.consumer_display_names)}){p_tag}",
                                     instructions,
-                                    target,
+                                    t.path,
                                     "DRIFT",
-                                    f"Empty canonical instructions no longer require {target}",
+                                    f"Empty canonical instructions no longer require {t.path}",
                                 )
                             )
                     project_agents_md = project_path / "AGENTS.md"
