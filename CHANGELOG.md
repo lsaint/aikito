@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Migrated project memory runtime visibility (`.agents/memory/` links for workspace memory references and project `notes/`) to the unified Target → Inspect → Plan → Execute model (Core Model Phase 6), introducing `MemoryResource`, `MemoryBatch`, `MemoryPlan`, and `MemoryExecutionResult`.
+- Formalized project memory engineering invariants `INV-MEM-01` through `INV-MEM-12` covering pure link-only semantics, canonical notes source precedence, exact canonical ownership, conflict preservation of unmanaged files and external symlinks, and segmented execution results.
+- Added structured memory execution results to `ProjectSyncExecutionResult.memory_result`, fully isolating memory synchronization outcomes from skills and instructions.
+- Unified project diagnostics, project summary, status rows, and `Project.prepare()` to evaluate memory link status through `MemoryPlan`, eliminating diverging symlink status heuristics.
+
+### Changed
+
+- Retired and deleted legacy synchronization primitives `sync_resource()` and `apply_runtime_cleanup()`, routing all project memory filesystem modifications through the unified link executor.
+- Deleted `LegacySyncResult` dataclass and removed `legacy_results` from `ProjectSyncExecutionResult`.
+- Deleted obsolete preflight helpers `_ProjectSyncInputs`, `_resolve_project_sync_inputs()`, and `collect_project_prepare_errors()` from `project_runtime.py`.
+- Replaced unconditional overwrite of unmanaged files/directories at memory target paths with safe `CONFLICT` preservation (`INV-MEM-07`).
+
 ## [1.46.0] - 2026-09-21
 
 ### Added
