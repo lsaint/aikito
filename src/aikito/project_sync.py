@@ -23,6 +23,11 @@ from .instructions import (
     execute_instruction_plan,
     plan_instructions,
 )
+from .memory_runtime import (
+    MemoryPlan,
+    build_project_memory_batch,
+    plan_project_memory,
+)
 from .project import (
     RuntimeCleanupPlan,
     append_candidate_path_to_config,
@@ -66,6 +71,7 @@ class ProjectSyncBatch:
     can_apply: bool
     config_cas: CandidatePathCAS | None = None
     instruction_plan: InstructionPlan | None = None
+    memory_plan: MemoryPlan | None = None
 
 
 @dataclass(frozen=True)
@@ -368,9 +374,23 @@ def build_project_sync_batch(
         for conflict_op in instruction_plan.conflicts:
             extra_findings.append(conflict_op.finding or conflict_op.reason)
 
+    mem_batch = build_project_memory_batch(
+        workspace_root,
+        project_name,
+        data,
+        active_checkouts=active_checkouts,
+        offline_checkouts=offline_checkouts,
+    )
+    memory_plan = plan_project_memory(mem_batch)
+    for conflict_op in memory_plan.conflicts:
+        finding = conflict_op.finding or conflict_op.reason
+        if finding and finding not in extra_findings:
+            extra_findings.append(finding)
+
     can_apply = (
         plan.can_apply
         and (instruction_plan is None or instruction_plan.can_apply)
+        and memory_plan.can_apply
         and not extra_findings
     )
 
@@ -385,6 +405,7 @@ def build_project_sync_batch(
         can_apply=can_apply,
         config_cas=config_cas,
         instruction_plan=instruction_plan,
+        memory_plan=memory_plan,
     )
 
 

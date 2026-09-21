@@ -223,6 +223,10 @@ class Project:
                 for op in batch.instruction_plan.operations:
                     if op.finding and op.finding not in errors:
                         errors.append(op.finding)
+            if batch.memory_plan:
+                for op in batch.memory_plan.operations:
+                    if op.finding and op.finding not in errors:
+                        errors.append(op.finding)
             raise ProjectPrepareConflictError(
                 self.name, tuple(errors or ["Project preparation conflict detected"])
             )

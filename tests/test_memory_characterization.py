@@ -191,14 +191,10 @@ class ProjectMemoryCharacterizationTests(TestCase):
         self.assertTrue(old_target.is_symlink())
         self.assertEqual(old_target.resolve(), (self.ws_mem / "other.md").resolve())
 
-    def test_baseline_selected_memory_target_regular_file_overwritten_by_legacy(
+    def test_selected_memory_target_regular_file_causes_conflict(
         self,
     ) -> None:
-        """Characterize 1.46.0 baseline gap: sync_resource unlinks pre-existing regular file.
-
-        Under Phase 6 target model (INV-MEM-07), this unmanaged regular file must be
-        preserved and result in a CONFLICT.
-        """
+        """Verify INV-MEM-07: pre-existing regular file at target raises CONFLICT and is preserved."""
         (self.ws_mem / "shared").mkdir()
         self._set_project_memory(["shared"])
 
@@ -207,20 +203,16 @@ class ProjectMemoryCharacterizationTests(TestCase):
         conflict_file = runtime_mem / "shared"
         conflict_file.write_text("# Local file\n", encoding="utf-8")
 
-        # In 1.46.0 baseline, sync_resource unlinks the regular file and replaces it with symlink
         success = sync_project(self.ws, self.home, "demo")
-        self.assertTrue(success)
-        self.assertTrue(conflict_file.is_symlink())
-        self.assertEqual(conflict_file.resolve(), (self.ws_mem / "shared").resolve())
+        self.assertFalse(success)
+        self.assertTrue(conflict_file.is_file())
+        self.assertFalse(conflict_file.is_symlink())
+        self.assertEqual(conflict_file.read_text(encoding="utf-8"), "# Local file\n")
 
-    def test_baseline_selected_memory_target_external_symlink_overwritten_by_legacy(
+    def test_selected_memory_target_external_symlink_causes_conflict(
         self,
     ) -> None:
-        """Characterize 1.46.0 baseline gap: sync_resource unlinks external symlink.
-
-        Under Phase 6 target model (INV-MEM-07), this external symlink must be
-        preserved and result in a CONFLICT.
-        """
+        """Verify INV-MEM-07: pre-existing external symlink at target raises CONFLICT and is preserved."""
         (self.ws_mem / "shared").mkdir()
         self._set_project_memory(["shared"])
 
@@ -232,18 +224,13 @@ class ProjectMemoryCharacterizationTests(TestCase):
         conflict_link = runtime_mem / "shared"
         safe_symlink(external_path, conflict_link)
 
-        # In 1.46.0 baseline, sync_resource unlinks the external link and replaces it
         success = sync_project(self.ws, self.home, "demo")
-        self.assertTrue(success)
+        self.assertFalse(success)
         self.assertTrue(conflict_link.is_symlink())
-        self.assertEqual(conflict_link.resolve(), (self.ws_mem / "shared").resolve())
+        self.assertEqual(conflict_link.resolve(), external_path.resolve())
 
-    def test_baseline_project_prepare_succeeds_under_legacy_overwrite(self) -> None:
-        """Characterize 1.46.0 baseline: prepare() succeeds because sync_resource overwrote file.
-
-        Under Phase 6 target model (INV-MEM-07, INV-MEM-12), prepare() will raise
-        ProjectPrepareConflictError.
-        """
+    def test_project_prepare_raises_on_memory_conflict(self) -> None:
+        """Verify INV-MEM-07, INV-MEM-12: prepare() raises ProjectPrepareConflictError on conflict."""
         (self.ws_mem / "shared").mkdir()
         self._set_project_memory(["shared"])
 
@@ -253,9 +240,11 @@ class ProjectMemoryCharacterizationTests(TestCase):
         conflict_file.write_text("# Blocking file\n", encoding="utf-8")
 
         proj = Project.load("demo", self.ws, self.home)
-        prepared = proj.prepare("codex")
-        self.assertEqual(prepared.name, "demo")
-        self.assertTrue(conflict_file.is_symlink())
+        with self.assertRaises(ProjectPrepareConflictError) as ctx:
+            proj.prepare("codex")
+        self.assertEqual(ctx.exception.project_name, "demo")
+        # Ensure file was not overwritten
+        self.assertTrue(conflict_file.is_file())
 
     def test_project_prepare_raises_on_missing_memory_source(self) -> None:
         self._set_project_memory(["missing_source.md"])

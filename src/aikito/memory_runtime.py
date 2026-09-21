@@ -367,25 +367,20 @@ def plan_project_memory(
                     if entry_name in desired_top_names:
                         continue
 
-                    # Stale entry detected. Evaluate exact ownership candidates.
-                    candidates: list[Path] = []
-                    if entry_name == "notes":
-                        candidates.append(
-                            batch.workspace_root
-                            / "projects"
-                            / batch.project_name
-                            / "memory"
-                            / "notes"
+                    # Stale entry detected. Evaluate exact ownership candidates (INV-MEM-05, INV-MEM-06).
+                    proj_mem_root = (
+                        batch.workspace_root
+                        / "projects"
+                        / batch.project_name
+                        / "memory"
+                    )
+                    if not proj_mem_root.exists():
+                        proj_mem_root = (
+                            batch.workspace_root / "memory" / batch.project_name
                         )
-                        candidates.append(
-                            batch.workspace_root
-                            / "memory"
-                            / batch.project_name
-                            / "notes"
-                        )
-                        if "notes" in batch.selected_references:
-                            candidates.append(batch.workspace_root / "memory" / "notes")
-                    else:
+
+                    candidates: list[Path] = [proj_mem_root / entry_name]
+                    if entry_name != "notes" or "notes" in batch.selected_references:
                         candidates.append(batch.workspace_root / "memory" / entry_name)
 
                     obs_stale = inspect_link_target(
