@@ -102,8 +102,13 @@ review is useful.
 - Managed-entry fingerprints expose local drift.
 - Copied project skill drift is shown by `aikito diff` and blocks project sync
   unless the user supplies `--force` after review ([INV-AUTH-01](architecture/invariants.md#inv-auth-01)).
+- Instructions operate strictly in link mode without copy baselines ([INV-INST-01](architecture/invariants.md#inv-inst-01));
+  unexpected global instruction symlinks cause conflicts rather than automatic relinking ([INV-INST-06](architecture/invariants.md#inv-inst-06)).
+- When project instructions are empty/disabled, only exact owned symlinks are unlinked ([INV-INST-08](architecture/invariants.md#inv-inst-08));
+  pre-existing regular files at instruction targets are strictly preserved as project-owned ([INV-INST-10](architecture/invariants.md#inv-inst-10)).
 - Conflicting instruction sources require user judgment.
-- Explicit force or prune options are strictly scoped to reviewed targets ([INV-AUTH-02](architecture/invariants.md#inv-auth-02)).
+- Explicit force or prune options are strictly scoped to reviewed targets ([INV-AUTH-02](architecture/invariants.md#inv-auth-02));
+  `--force` never authorizes overwriting instructions ([INV-AUTH-05](architecture/invariants.md#inv-auth-05)).
 - For formal verification rules and state transition tables, see the
   [Engineering Invariants](architecture/invariants.md).
 
