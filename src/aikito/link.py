@@ -16,6 +16,7 @@ from typing import Any
 from .compat import (
     _resolve_symlink_target,
     get_physical_path,
+    is_same_target_location,
     require_symlink_support,
     safe_symlink,
 )
@@ -251,7 +252,7 @@ def _plan_link_target_impl(
         )
 
     # 2. Same-object disposition
-    if observed.is_same_object:
+    if observed.is_same_object and observed.entry_type != "symlink":
         return LinkOperation(
             action="SHARED_PATH",
             rule_id="INV-GLB-06",
@@ -259,7 +260,7 @@ def _plan_link_target_impl(
             canonical_path=canonical,
             reason=f"Target path is the same physical object as canonical container; no link required{res_label}",
             expected_representation=observed.entry_type,
-            desired_representation="link",
+            desired_representation=observed.entry_type,
             is_same_object=True,
             is_authorized=True,
         )
@@ -627,15 +628,118 @@ def apply_link_operation(
     target = op.target_path
     canonical = op.canonical_path
 
-    if op.action in ("NOOP", "SHARED_PATH"):
-        if op.action == "SHARED_PATH":
-            if op.target_kind == "consumer_link":
-                print(f"[OK] {op.resource_name} skills: shared path {target}")
-            elif op.target_kind == "instruction_link":
-                print(f"[OK] {op.resource_name} instructions: shared path {target}")
-            elif verbose:
-                print(f"[OK] shared path {target}")
-        elif op.target_kind == "consumer_link":
+    if op.action == "SHARED_PATH":
+        # Preflight: target must not be a symlink
+        if target.is_symlink():
+            return LinkExecutionResult(
+                operation=op,
+                success=False,
+                applied=False,
+                error_message=f"Preflight failed: shared path {target} is a symlink (stale plan)",
+            )
+        # Preflight: canonical must exist
+        if canonical is None or not canonical.exists():
+            return LinkExecutionResult(
+                operation=op,
+                success=False,
+                applied=False,
+                error_message=f"Preflight failed: canonical source does not exist: {canonical} (stale plan)",
+            )
+        # Preflight: target must still match canonical location
+        if not target.exists() or not is_same_target_location(target, canonical):
+            return LinkExecutionResult(
+                operation=op,
+                success=False,
+                applied=False,
+                error_message=f"Preflight failed: shared path {target} no longer matches canonical {canonical} (stale plan)",
+            )
+        if op.target_kind == "consumer_link":
+            print(f"[OK] {op.resource_name} skills: shared path {target}")
+        elif op.target_kind == "instruction_link":
+            print(f"[OK] {op.resource_name} instructions: shared path {target}")
+        elif verbose:
+            print(f"[OK] shared path {target}")
+        return LinkExecutionResult(operation=op, success=True, applied=False)
+
+    if op.action == "NOOP":
+        # Preflight: re-verify target entry against plan expectations
+        if op.desired_representation == "link":
+            if not target.is_symlink():
+                return LinkExecutionResult(
+                    operation=op,
+                    success=False,
+                    applied=False,
+                    error_message=f"Preflight failed: target is no longer a symlink: {target} (stale plan)",
+                )
+            resolved = _resolve_symlink_target(target)
+            raw_val = ""
+            try:
+                raw_val = os.readlink(target)
+            except OSError:
+                pass
+            owned = False
+            if canonical is not None:
+                canon_norm = os.path.normcase(str(get_physical_path(canonical)))
+                if (
+                    resolved is not None
+                    and os.path.normcase(str(get_physical_path(resolved))) == canon_norm
+                ):
+                    owned = True
+                elif raw_val:
+                    raw_path = (
+                        target.parent / raw_val
+                        if not os.path.isabs(raw_val)
+                        else Path(raw_val)
+                    )
+                    if os.path.normcase(str(get_physical_path(raw_path))) == canon_norm:
+                        owned = True
+            if not owned:
+                return LinkExecutionResult(
+                    operation=op,
+                    success=False,
+                    applied=False,
+                    error_message=f"Preflight failed: symlink {target} no longer points to canonical {canonical} (stale plan)",
+                )
+        elif op.desired_representation == "dir":
+            if not (target.is_dir() and not target.is_symlink()):
+                kind_str = (
+                    "managed container"
+                    if op.target_kind in ("managed_container", "container_link")
+                    or "container" in op.reason.lower()
+                    else "target"
+                )
+                return LinkExecutionResult(
+                    operation=op,
+                    success=False,
+                    applied=False,
+                    error_message=f"Preflight failed: {kind_str} is no longer a directory: {target} (stale plan)",
+                )
+        elif op.expected_representation == "missing":
+            if target.is_symlink() or target.exists():
+                return LinkExecutionResult(
+                    operation=op,
+                    success=False,
+                    applied=False,
+                    error_message=f"Preflight failed: expected {target} to be missing but entry exists (stale plan)",
+                )
+        elif op.expected_representation == "file":
+            if not (target.is_file() and not target.is_symlink()):
+                return LinkExecutionResult(
+                    operation=op,
+                    success=False,
+                    applied=False,
+                    error_message=f"Preflight failed: expected {target} to be a regular file: {target} (stale plan)",
+                )
+        elif op.expected_representation == "symlink":
+            if not target.is_symlink():
+                return LinkExecutionResult(
+                    operation=op,
+                    success=False,
+                    applied=False,
+                    error_message=f"Preflight failed: expected {target} to be a symlink (stale plan)",
+                )
+
+        if op.target_kind == "consumer_link":
             print(f"[OK] {op.resource_name} skills: {target} -> {canonical}")
         elif op.target_kind == "instruction_link":
             if verbose or op.reason:

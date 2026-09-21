@@ -7,8 +7,10 @@ import tempfile
 from pathlib import Path
 from unittest import TestCase
 
+from aikito.agents import Target
 from aikito.compat import safe_symlink
 from aikito.instructions import (
+    InstructionBatch,
     build_global_instruction_batch,
     build_project_instruction_batch,
     execute_instruction_plan,
@@ -371,3 +373,198 @@ class InstructionBatchAndPlanTests(TestCase):
         self.assertTrue(res.success)
         self.assertEqual(res.applied_count, 0)
         self.assertTrue(target_link.is_symlink())
+
+    def test_legacy_agents_instruction_target_unlinked_when_formal_target_also_points_to_canonical(
+        self,
+    ) -> None:
+        # Both formal AGENTS.md and legacy .agents/AGENTS.md point to canonical
+        formal_target = self.co / "AGENTS.md"
+        safe_symlink(self.proj_agents_md.resolve(), formal_target)
+
+        legacy_path = self.co / ".agents" / "AGENTS.md"
+        legacy_path.parent.mkdir(parents=True, exist_ok=True)
+        safe_symlink(self.proj_agents_md.resolve(), legacy_path)
+
+        batch = build_project_instruction_batch(self.ws, "demo", self.co, self.home)
+        self.assertTrue(any(t.path == legacy_path for t in batch.stale_targets))
+
+        plan = plan_instructions(batch, self.home)
+        formal_ops = [op for op in plan.operations if op.target_path == formal_target]
+        stale_ops = [op for op in plan.operations if op.target_path == legacy_path]
+
+        self.assertEqual(len(formal_ops), 1)
+        self.assertEqual(formal_ops[0].action, "NOOP")
+        self.assertEqual(len(stale_ops), 1)
+        self.assertEqual(stale_ops[0].action, "UNLINK")
+        self.assertEqual(stale_ops[0].rule_id, "INV-INST-09")
+
+        res = execute_instruction_plan(plan, self.home)
+        self.assertTrue(res.success)
+        self.assertFalse(legacy_path.exists())
+        self.assertTrue(formal_target.is_symlink())
+
+    def test_stale_plan_rejected_when_canonical_cleared_after_planning(self) -> None:
+        batch = build_project_instruction_batch(self.ws, "demo", self.co, self.home)
+        plan = plan_instructions(batch, self.home)
+        self.assertTrue(plan.can_apply)
+        self.assertGreater(plan.planned_change_count, 0)
+
+        # Clear canonical between plan and execute
+        self.proj_agents_md.write_text("", encoding="utf-8")
+
+        res = execute_instruction_plan(plan, self.home)
+        self.assertFalse(res.success)
+        self.assertIn("stale plan", res.error_message or "")
+
+        # Target should not have been created
+        self.assertFalse((self.co / "AGENTS.md").exists())
+
+    def test_apply_project_sync_batch_blocks_skill_writes_on_instruction_conflict(
+        self,
+    ) -> None:
+        from aikito.project_sync import apply_project_sync_batch
+
+        # Create a skill in workspace
+        skill_dir = self.ws / "skills" / "demo-skill"
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text("# Demo Skill\n", encoding="utf-8")
+
+        # Conflict on instruction target
+        conflict_file = self.co / "AGENTS.md"
+        conflict_file.write_text("existing unmanaged content", encoding="utf-8")
+
+        data = {
+            "name": "demo",
+            "paths": [str(self.co)],
+            "skills": ["demo-skill"],
+        }
+        batch = build_project_sync_batch(self.ws, self.home, "demo", data)
+        self.assertFalse(batch.can_apply)
+
+        # Apply must fail without writing skills
+        result = apply_project_sync_batch(batch, data, self.home)
+        self.assertFalse(result.is_success)
+        self.assertEqual(len(result.applied_ops), 0)
+
+        # Verify no skill was written
+        skill_runtime = self.co / ".agents" / "skills" / "demo-skill"
+        self.assertFalse(skill_runtime.exists())
+
+        # Skill segment must reflect zero failed operations (skills were not executed)
+        self.assertEqual(len(result.failed_ops), 0)
+        self.assertTrue(result.skill_result.is_success)
+        self.assertIsNotNone(result.instruction_result)
+        self.assertFalse(result.instruction_result.success)
+        self.assertGreater(result.instruction_result.conflict_count, 0)
+
+    def test_noop_plan_fails_preflight_if_target_replaced_with_external_symlink(
+        self,
+    ) -> None:
+        target = self.co / "AGENTS.md"
+        safe_symlink(self.proj_agents_md.resolve(), target)
+
+        batch = build_project_instruction_batch(self.ws, "demo", self.co, self.home)
+        plan = plan_instructions(batch, self.home)
+        self.assertTrue(plan.can_apply)
+        self.assertEqual(plan.noop_count, 1)
+
+        # Before execution: replace valid canonical symlink with external symlink
+        external_file = self.root / "external.md"
+        external_file.write_text("external content", encoding="utf-8")
+        target.unlink()
+        safe_symlink(external_file, target)
+
+        res = execute_instruction_plan(plan, self.home)
+        self.assertFalse(res.success)
+        self.assertIn("stale plan", res.error_message or "")
+
+    def test_shared_path_fails_preflight_if_target_replaced_with_symlink(self) -> None:
+        # Same-object target: target path is the canonical file
+        batch = InstructionBatch(
+            scope="project",
+            canonical_source=self.proj_agents_md,
+            targets=(
+                Target(
+                    kind="instruction_link",
+                    scope="project",
+                    path=self.proj_agents_md,
+                    canonical_source=self.proj_agents_md,
+                    consumers=("test",),
+                    consumer_display_names=("Test",),
+                ),
+            ),
+            enabled=True,
+        )
+        plan = plan_instructions(batch, self.home)
+        self.assertEqual(plan.same_object_count, 1)
+
+        # Before execution: replace canonical file with a symlink
+        self.proj_agents_md.unlink()
+        external_file = self.root / "external.md"
+        external_file.write_text("external content", encoding="utf-8")
+        safe_symlink(external_file, self.proj_agents_md)
+
+        res = execute_instruction_plan(plan, self.home)
+        self.assertFalse(res.success)
+        self.assertIn("stale plan", res.error_message or "")
+
+    def test_build_project_instruction_batch_deduplicates_symlink_alias_checkouts(
+        self,
+    ) -> None:
+        # Create a symlink alias to the same checkout directory
+        alias_co = self.root / "checkout-alias"
+        safe_symlink(self.co.resolve(), alias_co)
+
+        batch = build_project_instruction_batch(
+            self.ws, "demo", checkout=[self.co, alias_co], home=self.home
+        )
+        single_batch = build_project_instruction_batch(
+            self.ws, "demo", checkout=self.co, home=self.home
+        )
+        # Should deduplicate targets across checkout aliases so count equals single checkout
+        self.assertEqual(len(batch.targets), len(single_batch.targets))
+        self.assertEqual(len(batch.targets), 2)
+
+    def test_case_insensitive_legacy_agents_instruction_target_not_unlinked(
+        self,
+    ) -> None:
+        from unittest.mock import patch
+
+        formal_target = self.co / ".agents" / "agents.md"
+        formal_target.parent.mkdir(parents=True, exist_ok=True)
+        safe_symlink(self.proj_agents_md.resolve(), formal_target)
+
+        # Configure agent with lowercase instruction target
+        (self.ws / "agents.toml").write_text(
+            "[agents.codex]\n"
+            'display_name = "Codex"\n'
+            'project_instruction_path = ".agents/agents.md"\n',
+            encoding="utf-8",
+        )
+
+        with patch("aikito.compat.is_directory_case_sensitive", return_value=False):
+            batch = build_project_instruction_batch(self.ws, "demo", self.co, self.home)
+            # .agents/AGENTS.md must be recognized as the formal target and not treated as stale
+            self.assertFalse(
+                any(t.path.name.upper() == "AGENTS.MD" for t in batch.stale_targets)
+            )
+
+            plan = plan_instructions(batch, self.home)
+            res = execute_instruction_plan(plan, self.home)
+            self.assertTrue(res.success)
+            self.assertTrue(formal_target.is_symlink())
+
+    def test_case_insensitive_global_grok_legacy_target_not_unlinked_when_formal(
+        self,
+    ) -> None:
+        from unittest.mock import patch
+
+        (self.ws / "agents.toml").write_text(
+            "[agents.grok]\n"
+            'display_name = "Grok"\n'
+            'instruction_path = ".grok/agents.md"\n',
+            encoding="utf-8",
+        )
+        with patch("aikito.compat.is_directory_case_sensitive", return_value=False):
+            batch = build_global_instruction_batch(self.ws, self.home)
+            self.assertEqual(len(batch.stale_targets), 0)

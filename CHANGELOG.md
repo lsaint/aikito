@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Replaced ad-hoc `sync_global_entry()` and `sync_project_instruction()` in core sync workflows with atomic link operations (`LinkOperation`), retaining legacy helpers solely for backward compatibility.
+- Replaced and removed ad-hoc `sync_global_entry()` and `sync_project_instruction()` in favor of atomic link operations (`LinkOperation`).
 - Empty project canonical `AGENTS.md` safely removes only exact owned symlinks, strictly preserving project-owned regular files and unmanaged symlinks.
 - Legacy Grok instruction paths and `.agents/AGENTS.md` cleanup are fully integrated into `InstructionPlan` and require exact canonical ownership proof.
 

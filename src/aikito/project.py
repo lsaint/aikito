@@ -7,9 +7,8 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from .agents import resolve_targets
+from .instructions import build_project_instruction_batch, plan_instructions
 from .compat import _resolve_symlink_target, safe_relative_path
-from .mcp import MCPConfigError
 from .skill_plan import SkillOperation, SkillTarget, plan_single_skill
 from .skill_runtime import ObservedSkill, inspect_skill_target
 
@@ -627,62 +626,72 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
                 agents_dir = project_path / ".agents"
                 statuses: list[str] = []
                 try:
-                    targets = resolve_targets(
-                        "project_instructions",
+                    inst_batch = build_project_instruction_batch(
                         aikito_dir,
-                        home,
-                        project_path=project_path,
-                        project_name=project_dir.name,
-                        active_only=True,
+                        project_dir.name,
+                        checkout=project_path,
+                        home=home,
                     )
-                except MCPConfigError:
-                    # An unreadable agent registry is reported by doctor, not here.
-                    targets = ()
-                if instructions_status == "OK":
-                    for t in targets:
-                        status = (
-                            "OK"
-                            if t.is_same_object
-                            else _link_status(t.path, instructions)
-                        )
-                        statuses.append(status)
-                        details.append(
-                            ProjectResourceDetail(
-                                f"Instructions ({', '.join(t.consumer_display_names)}){p_tag}",
-                                instructions,
-                                t.path,
-                                status,
-                                ""
-                                if status == "OK"
-                                else _link_issue(t.path, instructions, status),
-                            )
-                        )
-                elif instructions_status == "EMPTY":
-                    for t in targets:
-                        if t.path.is_symlink() and t.path.resolve(
-                            strict=False
-                        ) == instructions.resolve(strict=False):
-                            statuses.append("DRIFT")
+                    inst_plan = plan_instructions(inst_batch, home)
+                except Exception:
+                    inst_plan = None
+
+                if inst_plan is not None:
+                    if instructions_status == "OK":
+                        for op in inst_plan.operations:
+                            if op.action in ("NOOP", "SHARED_PATH"):
+                                status = "OK"
+                                issue = ""
+                            elif op.action == "CREATE":
+                                status = "MISSING"
+                                issue = f"Missing {op.target_path}"
+                            elif op.action == "CONFLICT":
+                                status = "CONFLICT"
+                                issue = (
+                                    op.finding
+                                    or f"Expected {op.target_path} to link to {instructions}"
+                                )
+                            elif op.action == "SKIP":
+                                status = "SKIP"
+                                issue = op.reason or ""
+                            else:
+                                status = op.action
+                                issue = op.reason or ""
+                            statuses.append(status)
                             details.append(
                                 ProjectResourceDetail(
-                                    f"Instructions ({', '.join(t.consumer_display_names)}){p_tag}",
+                                    f"Instructions ({op.resource_name}){p_tag}",
                                     instructions,
-                                    t.path,
-                                    "DRIFT",
-                                    f"Empty canonical instructions no longer require {t.path}",
+                                    op.target_path,
+                                    status,
+                                    issue,
                                 )
                             )
-                    project_agents_md = project_path / "AGENTS.md"
-                    if project_agents_md.exists() and not (
-                        project_agents_md.is_symlink()
-                        and project_agents_md.resolve(strict=False)
-                        == instructions.resolve(strict=False)
-                    ):
-                        tag_str = f" in {active_entry.label}" if multi_active else ""
-                        instructions_notices.append(
-                            f"Project-owned AGENTS.md detected{tag_str}: {project_agents_md} "
-                            "(not managed because canonical instructions are empty)"
-                        )
+                    elif instructions_status == "EMPTY":
+                        for op in inst_plan.operations:
+                            if op.action == "UNLINK":
+                                statuses.append("DRIFT")
+                                details.append(
+                                    ProjectResourceDetail(
+                                        f"Instructions ({op.resource_name}){p_tag}",
+                                        instructions,
+                                        op.target_path,
+                                        "DRIFT",
+                                        f"Empty canonical instructions no longer require {op.target_path}",
+                                    )
+                                )
+                            elif (
+                                op.action == "NOOP"
+                                and op.expected_representation == "file"
+                                and op.target_path.name == "AGENTS.md"
+                            ):
+                                tag_str = (
+                                    f" in {active_entry.label}" if multi_active else ""
+                                )
+                                instructions_notices.append(
+                                    f"Project-owned AGENTS.md detected{tag_str}: {op.target_path} "
+                                    "(not managed because canonical instructions are empty)"
+                                )
 
                 skills_runtime = agents_dir / "skills"
                 selected_skills = set(skill_names)

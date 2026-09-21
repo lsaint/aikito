@@ -116,13 +116,26 @@ jobs:
           test -L "$PROJ_DIR/AGENTS.md"
           test -L "$PROJ_DIR/.claude/CLAUDE.md"
 
-          # Empty canonical cleanup
+          # Empty canonical cleanup (INV-INST-08)
           printf "" > "$WS/projects/macos-inst/AGENTS.md"
-          echo "custom user content" > "$PROJ_DIR/CUSTOM.md"
           AIKITO_DIR=$WS python3 -m aikito sync project macos-inst
           test ! -e "$PROJ_DIR/AGENTS.md"
           test ! -e "$PROJ_DIR/.claude/CLAUDE.md"
-          test -f "$PROJ_DIR/CUSTOM.md"
+
+          # Project-owned regular file at instruction target is preserved under empty canonical (INV-INST-10)
+          printf "project-owned instruction content\n" > "$PROJ_DIR/AGENTS.md"
+          AIKITO_DIR=$WS python3 -m aikito sync project macos-inst
+          test -f "$PROJ_DIR/AGENTS.md"
+          test ! -L "$PROJ_DIR/AGENTS.md"
+          test "$(cat "$PROJ_DIR/AGENTS.md")" = "project-owned instruction content"
+
+          # Regular file at instruction target causes conflict when canonical is enabled (INV-INST-03)
+          printf "# Enabled Instructions\n" > "$WS/projects/macos-inst/AGENTS.md"
+          ! AIKITO_DIR=$WS python3 -m aikito sync project macos-inst 2> ${{ runner.temp }}/macos-reg-inst-conflict.err
+          grep -F "[CONFLICT]" ${{ runner.temp }}/macos-reg-inst-conflict.err
+          test -f "$PROJ_DIR/AGENTS.md"
+          test ! -L "$PROJ_DIR/AGENTS.md"
+          test "$(cat "$PROJ_DIR/AGENTS.md")" = "project-owned instruction content"
           rm -rf "$PROJ_DIR" "$WS/projects/macos-inst"
 
       - name: macOS CLI smoke - Link and Copy Modes

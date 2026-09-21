@@ -599,6 +599,27 @@ def is_directory_case_sensitive(path: Path) -> bool:
     return True
 
 
+def is_same_target_location(p1: Path, p2: Path) -> bool:
+    """Check if two target paths refer to the same physical file location without resolving target's own symlink."""
+    try:
+        p1_dir = get_physical_path(p1.parent)
+        p2_dir = get_physical_path(p2.parent)
+        probe = p1_dir
+        while not probe.exists() and probe != probe.parent:
+            probe = probe.parent
+        case_sensitive = (
+            is_directory_case_sensitive(probe) if probe.exists() else not is_windows()
+        )
+        if not case_sensitive:
+            return (
+                str(p1_dir).casefold() == str(p2_dir).casefold()
+                and p1.name.casefold() == p2.name.casefold()
+            )
+        return p1_dir == p2_dir and p1.name == p2.name
+    except Exception:
+        return str(p1).casefold() == str(p2).casefold()
+
+
 def check_case_collision(
     names: Sequence[str], dir_path: Path
 ) -> tuple[str, str] | None:

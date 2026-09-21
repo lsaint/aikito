@@ -64,7 +64,6 @@ from .project_sync import (
     sync_project,
 )
 from .skill_state import SkillWriterLock, calculate_directory_fingerprint
-from .sync import sync_global_entry as sync_global_entry  # noqa: F401
 from .sync_plan import capture_sync_plan
 from .memory import (
     MemoryTargetConflictError,
@@ -306,6 +305,11 @@ def sync_global_resources(
         batch, home, dry_run=dry_run, refreshed_bundled=outdated_bundled
     )
 
+    instruction_batch = build_global_instruction_batch(
+        aikito_dir, home, registry=registry
+    )
+    instruction_plan = plan_instructions(instruction_batch, home)
+
     all_conflicts = [op for op in plan.all_operations if op.action == "CONFLICT"]
     if all_conflicts:
         for op in all_conflicts:
@@ -381,26 +385,38 @@ def sync_global_resources(
             f"[ERROR] Global instruction file not found: {global_instruction_source}",
             file=sys.stderr,
         )
+        instruction_res = InstructionExecutionResult(
+            operations=instruction_plan.operations,
+            success=False,
+            conflict_count=len(instruction_plan.conflicts),
+            error_message=f"Global instruction file not found: {global_instruction_source}",
+        )
         return GlobalSyncResult(
             success=False,
             skill_result=skill_res,
+            instruction_result=instruction_res,
             refreshed_bundled=refreshed,
             instruction_success=False,
             error_message=f"Global instruction file not found: {global_instruction_source}",
         )
 
-    instruction_batch = build_global_instruction_batch(
-        aikito_dir, home, registry=registry
-    )
-    instruction_plan = plan_instructions(instruction_batch, home)
-
     if instruction_plan.conflicts:
         for op in instruction_plan.conflicts:
-            print(
-                f"[CONFLICT] {op.resource_name} instructions: {op.target_path} is not a symlink; "
-                f"move or merge it manually, then run 'aikito sync global' again.",
-                file=sys.stderr,
-            )
+            if op.rule_id == "INV-TR-02":
+                print(
+                    f"[ERROR] Global instruction file not found: {global_instruction_source}",
+                    file=sys.stderr,
+                )
+            else:
+                prefix = (
+                    f"[CONFLICT] {op.resource_name} instructions:"
+                    if op.resource_name
+                    else "[CONFLICT]"
+                )
+                print(
+                    f"{prefix} {op.reason}",
+                    file=sys.stderr,
+                )
         print(
             "[ERROR] Global skills were synced successfully, but one or more Agent "
             "instruction runtime targets have conflicts.",

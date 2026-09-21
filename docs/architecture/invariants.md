@@ -132,66 +132,66 @@ In a stable configuration where all managed entries and consumer links point to 
 Bundled skill refresh and global skill runtime link application share the outermost `SkillWriterLock(home)`. Refresh outcomes must match plan expectations before runtime application proceeds; preflight failure halts execution without silent replanning.
 
 ### INV-GLB-11: Global Result Segmentation `[current]` {: #inv-glb-11 }
+ 
+Global synchronization results are strictly segmented. Failure during subsequent global instructions linking cannot corrupt, downgrade, or rewrite the recorded success of applied global skills.
 
-Global synchronization results are strictly segmented. Failure during subsequent legacy global instructions linking cannot corrupt, downgrade, or rewrite the recorded success of applied global skills.
-
-### INV-INST-01: Instruction Link-Only Contract `[planned]` {: #inv-inst-01 }
+### INV-INST-01: Instruction Link-Only Contract `[current]` {: #inv-inst-01 }
 
 Instructions (both global and project scoped) operate exclusively in link mode (`mode="link"`). There is no copy mode, no baseline fingerprint record ($B$), no content state store, and no directory copy lifecycle. Ownership is derived exclusively from the live directory entry and canonical target verification.
 
-### INV-INST-02: Exact Canonical Destination for Instruction Symlinks `[planned]` {: #inv-inst-02 }
+### INV-INST-02: Exact Canonical Destination for Instruction Symlinks `[current]` {: #inv-inst-02 }
 
 An instruction symlink target (global or project) is owned by Aikito if and only if its literal target resolves to the exact canonical instruction file (`<workspace>/global/AGENTS.md` or `<workspace>/projects/<project>/AGENTS.md`). Symlinks pointing to other workspaces, other projects, or external paths evaluate to `FOREIGN` / `UNKNOWN` and cause `CONFLICT`.
 
-### INV-INST-03: Rejection of Content-Matching Pseudo-Ownership `[planned]` {: #inv-inst-03 }
+### INV-INST-03: Rejection of Content-Matching Pseudo-Ownership `[current]` {: #inv-inst-03 }
 
 Pre-existing regular files or directories at instruction targets evaluate to `CONFLICT` and are strictly preserved, even if their byte content matches canonical instructions. Aikito never overwrites, adopts, or unlinks regular files based on matching content.
 
-### INV-INST-04: Shared Instruction Target Deduplication `[planned]` {: #inv-inst-04 }
+### INV-INST-04: Shared Instruction Target Deduplication `[current]` {: #inv-inst-04 }
 
 Multiple Agent platforms specifying identical instruction target paths within a scope (e.g. multiple agents referencing `AGENTS.md` in a checkout or host path) are deduplicated into a single physical `Target`. The target is inspected, planned, and executed exactly once per synchronization run.
 
-### INV-INST-05: Same-Object Disposition (`SHARED_PATH`) `[planned]` {: #inv-inst-05 }
+### INV-INST-05: Same-Object Disposition (`SHARED_PATH`) `[current]` {: #inv-inst-05 }
 
 When an Agent instruction target resolves to the same physical object as canonical instructions (`Target.is_same_object`), it receives read-only disposition `SHARED_PATH`. It is excluded from Executor write operations and creates no filesystem mutations.
 
-### INV-INST-06: Global Instruction Symlink Conflict Protection (Breaking Change) `[planned]` {: #inv-inst-06 }
+### INV-INST-06: Global Instruction Symlink Conflict Protection (Breaking Change) `[current]` {: #inv-inst-06 }
 
 If a global instruction target exists as a symlink pointing to an unexpected destination or external path, Aikito halts with `CONFLICT` and preserves the target. Automatic unlinking and relinking (`[RELINK]`) is eliminated.
 
-### INV-INST-07: Project Instruction Enabled State Transitions `[planned]` {: #inv-inst-07 }
+### INV-INST-07: Project Instruction Enabled State Transitions `[current]` {: #inv-inst-07 }
 
 When project canonical `AGENTS.md` is non-empty, instructions are enabled. Missing targets transition to `CREATE`, exact symlinks to `NOOP`, wrong/external symlinks or regular files to `CONFLICT`.
 
-### INV-INST-08: Project Empty Canonical Owned Link Cleanup `[planned]` {: #inv-inst-08 }
+### INV-INST-08: Project Empty Canonical Owned Link Cleanup `[current]` {: #inv-inst-08 }
 
 When project canonical `AGENTS.md` is empty, instructions are disabled. Aikito plans `UNLINK` only for symlinks that prove exact ownership to the project's canonical `AGENTS.md` (including broken symlinks pointing to it). All foreign symlinks, unmanaged links, regular files, and directories are strictly preserved.
 
-### INV-INST-09: Legacy Instruction Stale Entry Cleanup `[planned]` {: #inv-inst-09 }
+### INV-INST-09: Legacy Instruction Stale Entry Cleanup `[current]` {: #inv-inst-09 }
 
 Legacy paths (such as `~/.grok/AGENTS.md` or `<checkout>/.agents/AGENTS.md`) are planned for `UNLINK` if and only if they are symlinks pointing specifically to current canonical instructions. If currently configured by an Agent in `agents.toml`, they are treated as formal targets and not stale cleanup.
 
-### INV-INST-10: Project-Owned File Preservation Under Empty Canonical `[planned]` {: #inv-inst-10 }
+### INV-INST-10: Project-Owned File Preservation Under Empty Canonical `[current]` {: #inv-inst-10 }
 
 If a project checkout contains a regular file at the instruction target when canonical is empty, the file is strictly preserved (`PRESERVE`) and a diagnostic notice is emitted. Aikito never deletes project-owned instruction files.
 
-### INV-INST-11: Multi-Checkout and Offline Instruction Scope `[planned]` {: #inv-inst-11 }
+### INV-INST-11: Multi-Checkout and Offline Instruction Scope `[current]` {: #inv-inst-11 }
 
 In multi-checkout projects, active checkouts generate distinct physical instruction targets frozen at Plan build time. Offline candidate paths are planned as `OFFLINE` / `SKIP` and generate zero filesystem operations. Explicit checkout paths follow CAS validation.
 
-### INV-INST-12: Idempotent Convergence for Instructions `[planned]` {: #inv-inst-12 }
+### INV-INST-12: Idempotent Convergence for Instructions `[current]` {: #inv-inst-12 }
 
 In a stable configuration where all instruction links point to their canonical targets (or are cleanly absent for empty canonicals), subsequent synchronizations evaluate completely to `NOOP` or `SHARED_PATH`. Symlink destinations, `mtime_ns`, and inode numbers remain unmodified.
 
-### INV-INST-13: Dry-Run Zero Mutation Guarantee for Instructions `[planned]` {: #inv-inst-13 }
+### INV-INST-13: Dry-Run Zero Mutation Guarantee for Instructions `[current]` {: #inv-inst-13 }
 
 `aikito sync global --dry-run` and `aikito sync project --dry-run` guarantee zero filesystem mutations across home, checkout, workspace, and config files for instruction targets.
 
-### INV-INST-14: Instruction Result Segmentation `[planned]` {: #inv-inst-14 }
+### INV-INST-14: Instruction Result Segmentation `[current]` {: #inv-inst-14 }
 
 Instruction synchronization outcomes are isolated into structured execution results (`instruction_result`). Instruction failure or conflicts cannot invalidate or downgrade committed skill results, and subsequent memory failures cannot invalidate committed instruction results.
 
-### INV-INST-15: `Project.prepare` Instruction Contract `[planned]` {: #inv-inst-15 }
+### INV-INST-15: `Project.prepare` Instruction Contract `[current]` {: #inv-inst-15 }
 
 `Project.prepare(agent, path=None)` prepares project instructions using the unified instruction engine without expanding permissions. It does not accept `--force`, does not synchronize global instructions, and emits `ProjectPrepareConflictError` on instruction conflicts.
 
@@ -487,7 +487,7 @@ Verified by: `tests/test_bundled_skills.py::test_cli_sync_global_dry_run_does_no
 
 ### INV-RES-01: Segment Boundaries Match Commit Units `[current]` {: #inv-res-01 }
 
-Batch synchronization results are partitioned into explicit segments (`skills`, `legacy_compat`) corresponding directly to independent atomic commit units. Failure in one segment (e.g. memory or instructions sync in legacy compat) does NOT overwrite, mask, or downgrade the committed success of another segment (e.g. skills sync).
+Batch synchronization results are partitioned into explicit segments (`skills`, `instructions`, `legacy_compat` for memory) corresponding directly to independent atomic commit units. Failure in one segment (e.g. memory sync in legacy compat) does NOT overwrite, mask, or downgrade the committed success of another segment (e.g. skills or instructions sync).
 Verified by: `tests/test_project_sync.py::test_segmented_execution_result_isolates_memory_failure`, `tests/test_project_sync.py::test_segmented_execution_result_isolates_instruction_failure`.
 
 ### INV-RES-02: Overall Success Conjunction `[current]` {: #inv-res-02 }
@@ -580,7 +580,7 @@ Every subsystem scheduled for migration into the structured Plan / Executor engi
 | `cli.py::cmd_sync_all` | Workspace config, `agents.toml`, all projects, global resources, agent runtimes | Runtime global symlinks, project checkouts, MCP configs, subagents | Symlink pointing within workspace canonical roots; copy matching | None (delegates to subsystem sync handlers) | First runs complete `--dry-run` preview pass; if safe (`plan.can_apply` and not dry-run), immediately executes without interactive prompt | Partial failure leaves processed items intact; no rollback across subsystems | Unified Coordinator | Replaced when all underlying resource subsystems (project, global, MCP, subagent) migrate to unified Plan/Executor |
 | `cli.py::cmd_global_sync` | Workspace `skills/`, `global/AGENTS.md`, `agents.toml` | Agent runtime instruction symlinks and global skills | Symlinks resolving to exact canonical paths (`canonical_root / name`); shared target deduplication via `resolve_targets` | None (link-only, no baseline tracking) | Read-only simulation (`--dry-run`); zero writes to home directory, workspace, or lock files | Structured Plan/Executor validation; outermost `SkillWriterLock` | Global Skill Plan/Executor (Phase 4) | Replaced in Phase 4 for global skills; global instructions migrated in Phase 5 |
 | `cli.py::cmd_project_sync` | Project `agent.toml`, `AGENTS.md`, workspace skills, memory | Project checkout `.agents/skills/`, `.agents/memory/`, instructions | Symlink resolving to exact canonical roots; copy management records | `.aikito/state/project-skills/` records | Read-only preview (`[DRY RUN CLEANUP]`, `[DRY RUN LINK]`, `[DRY RUN COPY]`) | Atomic compare-and-swap (CAS) plan preflight; rollback and crash recovery journals | Project Plan/Executor | Replaced when structured Executor handles project sync |
-| `sync.py::sync_resource`, `apply_runtime_cleanup`, `sync_global_entry`; `compat.py::safe_symlink` | Source filesystem item, target filesystem item | Target symlink or copied directory tree; unlinks stale entries | `is_symlink_pointing_to` verifies exact canonical target path (`canonical_root / name`); `safe_symlink` creates link via `symlink_to()` with rollback and OS error handling | None | `dry_run=True` checks existence/paths and prints preview without filesystem mutation | Direct filesystem operations; rollback on safe link creation; no tempfile atomic swap | Core Primitives (Project & Global) | Global skills ceased in Phase 4; instructions migrated to unified Link Plan/Executor in Phase 5; remaining caller: project memory (Phase 6) |
+| `sync.py::sync_resource`; `compat.py::safe_symlink` | Source filesystem item, target filesystem item | Target symlink or copied directory tree; unlinks stale entries | `is_symlink_pointing_to` verifies exact canonical target path (`canonical_root / name`); `safe_symlink` creates link via `symlink_to()` with rollback and OS error handling | None | `dry_run=True` checks existence/paths and prints preview without filesystem mutation | Direct filesystem operations; rollback on safe link creation; no tempfile atomic swap | Core Primitives (Project & Global) | Global skills ceased in Phase 4; instructions migrated to unified Link Plan/Executor in Phase 5; remaining caller: project memory (Phase 6) |
 | `project.py::classify_project_skill_state` | Canonical skill directory, runtime checkout skill entry, project skill state records | None (pure query/classification functions, zero state mutation, no recovery pass) | Exact canonical destination check via `inspect_skill_target` + `plan_single_skill` | Reads `.aikito/state/project-skills/` documents via `inspect_skill_target`; writes nothing | Purely functional / read-only | Non-destructive query; exempt from recovery pass | Thin Planner Wrapper (`skill_plan.py`) | Legacy heuristic eliminated in Phase 3; delegates directly to `inspect_skill_target` and `plan_single_skill` with explicit state mapping table |
 | `project_runtime.py::Project.prepare`, `sync_project_path`, `_resolve_project_sync_inputs` | Workspace config, `agents.toml`, project `agent.toml`, checkout directories | Checkout instructions, skills, memory | Symlink targets, copy directory comparisons | None | Supported via `dry_run` parameter in internal helpers | Validates conflicts before modifying persistent resources; write failure raises `ProjectPrepareConflictError` | Project Executor | Replaced when `prepare` delegates to structured project Plan/Executor |
 | `mcp.py::sync_mcp_configs`, `sync_remove_mcp_from_agents`, `remove.py::remove_mcp` | Workspace `mcps/*.toml`, agent configuration files, `.local/state/aikito/mcp-state.json` | Agent configuration files (merged blocks), workspace `mcps/*.toml` on remove, updates `.local/state/aikito/mcp-state.json`, creates backup files | Recorded server entries in `.local/state/aikito/mcp-state.json` | `.local/state/aikito/mcp-state.json` (tracks applied server hashes per agent config) | Full read-only merge simulation; prints diff/actions without touching files or state | Timestamped backups created prior to writing; atomic state promotion via temporary state file and `os.replace`; restores backup on failure | Phase 7 (MCP Engine) | Replaced when MCP engine adopts unified Plan/Executor model |

@@ -217,6 +217,42 @@ jobs:
           $projectDir = Join-Path $env:RUNNER_TEMP "example-project"
           New-Item -ItemType Directory -Force -Path $projectDir | Out-Null
           python -m aikito init project example "$projectDir"
+
+          # Phase 5 Project instructions smoke tests on Windows
+          $winInstCanonical = Join-Path $wsDir "projects\example\AGENTS.md"
+          $winInstTarget = Join-Path $projectDir "AGENTS.md"
+          # 1. Non-empty canonical creates instruction link
+          Set-Content -Path $winInstCanonical -Value "# Windows Project Instructions"
+          python -m aikito sync project example
+          if (-not (Test-Path $winInstTarget)) {
+            throw "Project instruction link missing on Windows"
+          }
+          # 2. Repeated sync is idempotent
+          $repeatProjOutput = python -m aikito sync project example | Out-String
+          if ($repeatProjOutput -match "\[LINK\]" -or $repeatProjOutput -match "\[UNLINK\]") {
+            throw "Repeated project instruction sync was not idempotent on Windows"
+          }
+          # 3. Empty canonical removes exact owned symlink (INV-INST-08)
+          Set-Content -Path $winInstCanonical -Value ""
+          python -m aikito sync project example
+          if (Test-Path $winInstTarget) {
+            throw "Empty canonical did not unlink owned instruction symlink on Windows"
+          }
+          # 4. Project-owned regular file at instruction target is preserved under empty canonical (INV-INST-10)
+          Set-Content -Path $winInstTarget -Value "user regular instruction file"
+          python -m aikito sync project example
+          if (-not (Test-Path $winInstTarget)) {
+            throw "Project-owned regular instruction file was deleted under empty canonical on Windows"
+          }
+          # 5. Regular file at instruction target causes conflict when canonical is enabled (INV-INST-03)
+          Set-Content -Path $winInstCanonical -Value "# Enabled Instructions Again"
+          $conflictOutput = python -m aikito sync project example 2>&1 | Out-String
+          if ($conflictOutput -notmatch "\[CONFLICT\]") {
+            throw "Pre-existing regular file at instruction target did not cause CONFLICT on Windows"
+          }
+          Remove-Item -Force $winInstTarget
+          # Re-sync to leave clean link for remainder of test
+          python -m aikito sync project example
           $extSkillDir = Join-Path $env:RUNNER_TEMP "external-windows-skill"
           New-Item -ItemType Directory -Force -Path $extSkillDir | Out-Null
           @("---", "name: win-imported-skill", "description: Windows imported skill", "---", "", "# Windows Skill") | Set-Content (Join-Path $extSkillDir "SKILL.md")

@@ -396,9 +396,46 @@ def apply_project_sync_batch(
     dry_run: bool = False,
 ) -> ProjectSyncExecutionResult:
     """Execute skill plan and compatible instruction/memory synchronizations."""
+    if not batch.can_apply and not dry_run:
+        err_msg = (
+            batch.legacy_preflight_errors[0]
+            if batch.legacy_preflight_errors
+            else "Project sync batch contains unresolved conflicts; cannot apply."
+        )
+        skill_failed_ops = (
+            tuple(op for op in batch.skill_plan.operations if op.finding)
+            if not batch.skill_plan.can_apply
+            else ()
+        )
+        skill_err = err_msg if not batch.skill_plan.can_apply else None
+        skill_res = SkillExecutionResult(
+            applied_ops=(),
+            skipped_ops=(),
+            failed_ops=skill_failed_ops,
+            rolled_back_ops=(),
+            recovery_required=False,
+            content_changes=0,
+            state_only_changes=0,
+            error_message=skill_err,
+        )
+        instruction_res = None
+        if batch.instruction_plan is not None:
+            instruction_res = InstructionExecutionResult(
+                operations=batch.instruction_plan.operations,
+                success=batch.instruction_plan.can_apply,
+                conflict_count=len(batch.instruction_plan.conflicts),
+                error_message=err_msg if not batch.instruction_plan.can_apply else None,
+            )
+        return ProjectSyncExecutionResult(
+            skill_result=skill_res,
+            instruction_result=instruction_res,
+            legacy_results=(),
+            error_message=err_msg,
+        )
+
     # 1. Apply SkillPlan
     skill_result = execute_skill_plan(batch.skill_plan, home, dry_run=dry_run)
-    if not skill_result.is_success or not batch.can_apply:
+    if not skill_result.is_success:
         return ProjectSyncExecutionResult(
             skill_result=skill_result,
             legacy_results=(),

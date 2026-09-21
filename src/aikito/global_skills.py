@@ -310,13 +310,29 @@ def plan_global_skills(
         avail = check_target_availability(c_target, home)
         parent_exists = c_target.path.parent.exists()
 
-        obs = inspect_link_target(
-            c_target.path,
-            c_target.canonical_source,
-            target_kind="consumer_link",
-            scope="global",
-            is_same_object=c_target.is_same_object,
-        )
+        if is_migrating_container and c_target.path == batch.container.path:
+            obs = ObservedLink(
+                target_path=c_target.path,
+                entry_type="dir",
+                expected_canonical=c_target.canonical_source,
+                canonical_valid=True,
+                canonical_error=None,
+                raw_link_target=None,
+                resolved_link_target=None,
+                link_points_to_canonical=True,
+                is_same_object=True,
+                target_lstat=None,
+                target_kind="consumer_link",
+                scope="global",
+            )
+        else:
+            obs = inspect_link_target(
+                c_target.path,
+                c_target.canonical_source,
+                target_kind="consumer_link",
+                scope="global",
+                is_same_object=c_target.is_same_object,
+            )
         op = plan_link_target(
             obs,
             desired_mode="link",

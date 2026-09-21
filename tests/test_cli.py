@@ -15,7 +15,6 @@ from aikito import cli as AIKITO_CLI
 from aikito.compat import resolve_symlink_target
 from aikito.init import init_project
 from aikito.status import MCPRuntimeRow
-from aikito.sync import sync_project_instruction
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -127,99 +126,6 @@ class WorkspaceInitGuidanceTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Aikito templates directory is missing", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
-
-
-class GlobalEntrySyncTest(unittest.TestCase):
-    def setUp(self) -> None:
-        self.temporary_directory = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary_directory.name)
-        self.source = self.root / "source"
-        self.agent_dir = self.root / ".agent"
-        self.target = self.agent_dir / "skills"
-        self.source.mkdir()
-        self.agent_dir.mkdir()
-
-    def tearDown(self) -> None:
-        self.temporary_directory.cleanup()
-
-    def test_creates_and_preserves_expected_link(self) -> None:
-        self.assertTrue(
-            AIKITO_CLI.sync_global_entry(
-                self.source, self.target, "Test Agent", "skills"
-            )
-        )
-        self.assertEqual(self.target.resolve(), self.source.resolve())
-        self.assertTrue(
-            AIKITO_CLI.sync_global_entry(
-                self.source, self.target, "Test Agent", "skills"
-            )
-        )
-
-    def test_regular_directory_is_reported_as_conflict(self) -> None:
-        self.target.mkdir()
-
-        self.assertFalse(
-            AIKITO_CLI.sync_global_entry(
-                self.source, self.target, "Test Agent", "skills"
-            )
-        )
-        self.assertTrue(self.target.is_dir())
-
-    def test_installed_agent_missing_parent_directory_is_created(self) -> None:
-        target = self.root / ".grok" / "rules" / "aikito.md"
-
-        result = AIKITO_CLI.sync_global_entry(
-            self.source, target, "Grok Build", "instructions", installed=True
-        )
-
-        self.assertTrue(result)
-        self.assertEqual(target.resolve(), self.source.resolve())
-
-    def test_dry_run_does_not_create_installed_agent_parent_directory(self) -> None:
-        target = self.root / ".grok" / "rules" / "aikito.md"
-
-        result = AIKITO_CLI.sync_global_entry(
-            self.source,
-            target,
-            "Grok Build",
-            "instructions",
-            dry_run=True,
-            installed=True,
-        )
-
-        self.assertTrue(result)
-        self.assertFalse((self.root / ".grok").exists())
-
-    def test_uninstalled_agent_missing_parent_directory_is_skipped(self) -> None:
-        target = self.root / ".grok" / "rules" / "aikito.md"
-
-        result = AIKITO_CLI.sync_global_entry(
-            self.source, target, "Grok Build", "instructions", installed=False
-        )
-
-        self.assertTrue(result)
-        self.assertFalse((self.root / ".grok").exists())
-
-    def test_sync_global_entry_fails_when_symlinks_unavailable(self) -> None:
-        (self.source / "SKILL.md").write_text("# Skill", encoding="utf-8")
-        target = self.root / ".agent" / "skills"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with patch("aikito.compat.can_symlink", return_value=False):
-            with patch("sys.stderr"):
-                with self.assertRaises(SystemExit) as cm:
-                    AIKITO_CLI.sync_global_entry(
-                        self.source, target, "Test Agent", "skills"
-                    )
-                self.assertEqual(cm.exception.code, 1)
-
-    def test_sync_project_instruction_conflict_protection(self) -> None:
-        source = self.root / "AGENTS.md"
-        source.write_text("# Instructions", encoding="utf-8")
-        target = self.root / "proj" / "AGENTS.md"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("# Custom Instructions", encoding="utf-8")
-        self.assertFalse(sync_project_instruction(source, target, dry_run=False))
-        self.assertEqual(target.read_text(encoding="utf-8"), "# Custom Instructions")
 
 
 class SyncSubcommandParserTest(unittest.TestCase):
@@ -1101,6 +1007,53 @@ class GlobalSyncSafetyTest(unittest.TestCase):
         self.assertEqual(
             target_link.resolve(), (self.workspace / "skills" / "stale").resolve()
         )
+
+    def test_global_instruction_wrong_symlink_cli_output(self) -> None:
+        from aikito.agents import Agent
+
+        # Create global instructions source
+        (self.workspace / "global").mkdir(parents=True, exist_ok=True)
+        global_agents = self.workspace / "global" / "AGENTS.md"
+        global_agents.write_text("# Global Instructions\n", encoding="utf-8")
+
+        # Configure an agent pointing to a wrong/external symlink
+        codex_dir = self.root / ".codex"
+        codex_dir.mkdir(parents=True, exist_ok=True)
+        wrong_symlink = codex_dir / "AGENTS.md"
+        external_file = self.root / "external.md"
+        external_file.write_text("external content\n", encoding="utf-8")
+        wrong_symlink.symlink_to(external_file)
+
+        fake_registry = {
+            "codex": Agent(
+                "codex",
+                "Codex",
+                instruction_path=wrong_symlink,
+            )
+        }
+
+        with (
+            patch.object(AIKITO_CLI, "load_agents", return_value=fake_registry),
+            patch.object(
+                AIKITO_CLI, "get_agents_dir", return_value=self.root / ".agents"
+            ),
+            patch("sys.stderr", new_callable=io.StringIO) as stderr,
+            self.assertRaises(SystemExit) as cm,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["sync", "global"])
+            with patch.object(
+                AIKITO_CLI, "get_aikito_dir", return_value=self.workspace
+            ):
+                args.func(args)
+
+        self.assertEqual(cm.exception.code, 1)
+        err = stderr.getvalue()
+        # Verify CLI output renders op.reason directly and does not falsely claim "is not a symlink"
+        self.assertIn("[CONFLICT] Codex instructions:", err)
+        self.assertIn("Symbolic link points to unauthorized destination", err)
+        self.assertNotIn("is not a symlink", err)
+        # Verify the wrong symlink is preserved
+        self.assertTrue(wrong_symlink.is_symlink())
 
 
 class InitSubcommandParserTest(unittest.TestCase):

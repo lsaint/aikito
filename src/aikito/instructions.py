@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .agents import AgentRegistry, Target, check_target_availability, resolve_targets
+from .compat import is_same_target_location
 from .link import (
     LinkOperation,
     apply_link_operation,
@@ -124,8 +125,8 @@ def build_global_instruction_batch(
     # Legacy grok path (~/.grok/AGENTS.md)
     if "grok" in registry:
         legacy_grok = home / ".grok" / "AGENTS.md"
-        target_paths = {t.path.resolve(strict=False) for t in targets}
-        if legacy_grok.resolve(strict=False) not in target_paths:
+        is_formal = any(is_same_target_location(t.path, legacy_grok) for t in targets)
+        if not is_formal:
             if legacy_grok.is_symlink() or legacy_grok.exists():
                 stale.append(
                     Target(
@@ -172,6 +173,34 @@ def build_project_instruction_batch(
     all_targets: list[Target] = []
     stale: list[Target] = []
 
+    def _add_target(t: Target) -> None:
+        for i, existing in enumerate(all_targets):
+            if is_same_target_location(t.path, existing.path):
+                merged_consumers = tuple(
+                    dict.fromkeys(existing.consumers + t.consumers)
+                )
+                merged_display = tuple(
+                    dict.fromkeys(
+                        existing.consumer_display_names + t.consumer_display_names
+                    )
+                )
+                all_targets[i] = Target(
+                    kind=existing.kind,
+                    scope=existing.scope,
+                    path=existing.path,
+                    canonical_source=existing.canonical_source,
+                    consumers=merged_consumers,
+                    consumer_display_names=merged_display,
+                )
+                return
+        all_targets.append(t)
+
+    def _add_stale(st: Target) -> None:
+        if not any(
+            is_same_target_location(st.path, existing.path) for existing in stale
+        ):
+            stale.append(st)
+
     for co in active_cos:
         targets = resolve_targets(
             "project_instructions",
@@ -181,14 +210,17 @@ def build_project_instruction_batch(
             project_name=project_name,
             registry=registry,
         )
-        all_targets.extend(targets)
+        for t in targets:
+            _add_target(t)
 
         if not is_offline:
             legacy_agents = co / ".agents" / "AGENTS.md"
-            target_paths = {t.path.resolve(strict=False) for t in targets}
-            if legacy_agents.resolve(strict=False) not in target_paths:
+            is_formal = any(
+                is_same_target_location(t.path, legacy_agents) for t in all_targets
+            )
+            if not is_formal:
                 if legacy_agents.is_symlink() or legacy_agents.exists():
-                    stale.append(
+                    _add_stale(
                         Target(
                             kind="instruction_link",
                             scope="project",
@@ -208,7 +240,8 @@ def build_project_instruction_batch(
             project_name=project_name,
             registry=registry,
         )
-        all_targets.extend(off_targets)
+        for t in off_targets:
+            _add_target(t)
 
     enabled = False
     if canonical.is_file():
@@ -593,6 +626,23 @@ def execute_instruction_plan(
                 success=False,
                 error_message=f"Preflight failed: canonical instruction file not found: {plan.batch.canonical_source} (stale plan)",
             )
+        if plan.batch.scope == "project":
+            try:
+                curr_content = plan.batch.canonical_source.read_text(
+                    encoding="utf-8", errors="replace"
+                ).strip()
+                if not curr_content:
+                    return InstructionExecutionResult(
+                        operations=plan.operations,
+                        success=False,
+                        error_message=f"Preflight failed: canonical instruction file changed from non-empty to empty: {plan.batch.canonical_source} (stale plan)",
+                    )
+            except OSError as exc:
+                return InstructionExecutionResult(
+                    operations=plan.operations,
+                    success=False,
+                    error_message=f"Preflight failed: could not read canonical instruction file: {exc}",
+                )
     else:
         if plan.batch.canonical_source.is_file():
             try:
