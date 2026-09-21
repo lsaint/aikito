@@ -389,7 +389,13 @@ class SkillWriterLock:
                 self._instance_depth += 1
                 return
 
-            validate_state_store_root(self.home, create_if_missing=True)
+            state_dir, error = validate_state_store_root(
+                self.home, create_if_missing=True
+            )
+            if error:
+                raise RuntimeError(
+                    f"Failed to validate state store root {state_dir}: {error}"
+                )
             if is_reparse_point(self.lock_path):
                 raise RuntimeError(
                     f"Writer lock file is a reparse point or symlink: {self.lock_path}"
