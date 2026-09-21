@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .instructions import build_project_instruction_batch, plan_instructions
+from .memory_runtime import build_project_memory_batch, plan_project_memory
 from .compat import _resolve_symlink_target, safe_relative_path
 from .skill_plan import SkillOperation, SkillTarget, plan_single_skill
 from .skill_runtime import ObservedSkill, inspect_skill_target
@@ -762,42 +763,37 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
 
                 project_memory = project_dir / "memory"
                 memory_runtime = agents_dir / "memory"
-                expected_memory: dict[str, Path] = {
-                    Path(reference).parts[0]: aikito_dir / "memory" / reference
-                    for reference in memory_refs
-                    if Path(reference).parts
-                }
-                if (project_memory / "notes").is_dir():
-                    expected_memory["notes"] = project_memory / "notes"
+                mem_batch = build_project_memory_batch(
+                    aikito_dir,
+                    project_dir.name,
+                    {"memory": memory_refs},
+                    active_checkouts=[active_entry.resolved_path],
+                )
+                mem_plan = plan_project_memory(mem_batch)
+
                 memory_statuses: list[str] = []
                 memory_issues: list[str] = []
-                for name, source in sorted(expected_memory.items()):
-                    target = memory_runtime / name
-                    status = _link_status(target, source)
-                    memory_statuses.append(status)
-                    issue = _link_issue(target, source, status)
-                    if issue:
-                        memory_issues.append(f"{name}: {issue}")
-                memory_cleanup = plan_runtime_cleanup(
-                    memory_runtime,
-                    set(expected_memory),
-                    (aikito_dir / "memory", project_memory),
-                    allow_matching_copies=False,
+                for op in mem_plan.operations:
+                    prefix = f"{op.resource_name}: " if op.resource_name else ""
+                    if op.action in ("NOOP", "SHARED_PATH"):
+                        memory_statuses.append("OK")
+                    elif op.action == "CREATE":
+                        memory_statuses.append("MISSING")
+                        memory_issues.append(f"{prefix}target is missing")
+                    elif op.action == "UNLINK":
+                        memory_statuses.append("DRIFT")
+                        memory_issues.append(f"Stale managed memory: {op.target_path}")
+                    elif op.action == "CONFLICT":
+                        memory_statuses.append("CONFLICT")
+                        memory_issues.append(f"{prefix}{op.finding or op.reason}")
+                    elif op.action == "SKIP":
+                        memory_statuses.append("SKIP")
+
+                memory_status = (
+                    _aggregate_runtime_status(memory_statuses)
+                    if memory_statuses
+                    else "OK"
                 )
-                if memory_cleanup.conflicts:
-                    memory_status = "CONFLICT"
-                    memory_issues.extend(
-                        f"Unmanaged runtime entry: {path}"
-                        for path in memory_cleanup.conflicts
-                    )
-                elif memory_cleanup.cleanup:
-                    memory_status = "DRIFT"
-                    memory_issues.extend(
-                        f"Stale managed memory: {path}"
-                        for path in memory_cleanup.cleanup
-                    )
-                else:
-                    memory_status = _aggregate_runtime_status(memory_statuses)
                 statuses.append(memory_status)
                 details.append(
                     ProjectResourceDetail(

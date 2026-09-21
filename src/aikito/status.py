@@ -27,6 +27,7 @@ from .mcp import (
     redact_mcp_entry,
 )
 from .memory import extract_note_title
+from .memory_runtime import build_project_memory_batch, plan_project_memory
 from .project import resolve_project_binding
 from .render import (
     AgentStatusRow,
@@ -603,17 +604,27 @@ def collect_memory_status_rows(
                     if binding and binding.active_entries:
                         active_statuses = []
                         for entry in binding.active_entries:
-                            proj_agents_mem = entry.resolved_path / ".agents" / "memory"
-                            if proj_agents_mem.is_symlink():
-                                active_statuses.append("OK")
-                            elif proj_agents_mem.is_dir():
-                                notes_link = proj_agents_mem / "notes"
-                                if notes_link.is_symlink():
-                                    active_statuses.append("OK")
-                                else:
-                                    active_statuses.append("CONFLICT")
-                            else:
+                            mem_batch = build_project_memory_batch(
+                                aikito_dir,
+                                proj_folder.name,
+                                toml_data,
+                                active_checkouts=[entry.resolved_path],
+                            )
+                            mem_plan = plan_project_memory(mem_batch)
+                            entry_statuses = []
+                            for op in mem_plan.operations:
+                                if op.action in ("NOOP", "SHARED_PATH"):
+                                    entry_statuses.append("OK")
+                                elif op.action == "CREATE":
+                                    entry_statuses.append("MISSING")
+                                elif op.action in ("UNLINK", "CONFLICT"):
+                                    entry_statuses.append("CONFLICT")
+                            if "CONFLICT" in entry_statuses:
+                                active_statuses.append("CONFLICT")
+                            elif "MISSING" in entry_statuses:
                                 active_statuses.append("MISSING")
+                            else:
+                                active_statuses.append("OK")
                         if "CONFLICT" in active_statuses:
                             p_link_status = "CONFLICT"
                             mem_issues += 1
