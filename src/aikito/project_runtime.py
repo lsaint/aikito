@@ -17,15 +17,10 @@ from typing import Any
 
 from .compat import can_symlink, safe_relative_path
 from .conflict import collect_resource_conflicts
-from .init import project_sync_validation_error
 from .mcp import MCPConfigError, load_agents
 from .project import (
-    RuntimeCleanupPlan,
     _resolve_project_path,
     append_candidate_path_to_config,
-    collect_single_project_skill_states,
-    find_selected_runtime_conflicts,
-    plan_runtime_cleanup,
     resolve_project_binding,
 )
 from .project_sync import apply_project_sync_batch, build_project_sync_batch
@@ -311,155 +306,6 @@ def _validate_project_config(config_path: Path, config: dict[str, Any]) -> None:
         raise InvalidProjectConfigError(
             f"Project paths must contain non-empty strings in {config_path}"
         )
-
-
-@dataclass(frozen=True)
-class _ProjectSyncInputs:
-    skills: list[str]
-    memory_files: list[str]
-    sync_mode: str
-    agents_dir: Path
-    agents_skills_dir: Path
-    agents_memory_dir: Path
-    proj_mem_source: Path
-    skill_cleanup: RuntimeCleanupPlan
-    memory_cleanup: RuntimeCleanupPlan
-    cleanup_conflicts: tuple[Path, ...]
-
-
-def _resolve_project_sync_inputs(
-    aikito_dir: Path,
-    project_name: str,
-    project_path: Path,
-    data: dict[str, Any],
-) -> _ProjectSyncInputs:
-    skills = [str(name) for name in data.get("skills", [])]
-    memory_files = [str(name) for name in data.get("memory", [])]
-    sync_mode = str(data.get("sync_mode", "link")).lower()
-
-    agents_dir = project_path / ".agents"
-    agents_skills_dir = agents_dir / "skills"
-    agents_memory_dir = agents_dir / "memory"
-
-    proj_mem_source = aikito_dir / "projects" / project_name / "memory"
-    if not proj_mem_source.exists():
-        proj_mem_source = aikito_dir / "memory" / project_name
-
-    selected_skills = set(skills)
-    selected_memory = {Path(name).parts[0] for name in memory_files if Path(name).parts}
-    if (proj_mem_source / "notes").is_dir():
-        selected_memory.add("notes")
-
-    skill_cleanup = plan_runtime_cleanup(
-        agents_skills_dir,
-        selected_skills,
-        (aikito_dir / "skills",),
-        allow_matching_copies=False,
-    )
-    memory_cleanup = plan_runtime_cleanup(
-        agents_memory_dir,
-        selected_memory,
-        (aikito_dir / "memory", aikito_dir / "projects" / project_name / "memory"),
-        allow_matching_copies=False,
-    )
-    selected_skill_conflicts = find_selected_runtime_conflicts(
-        agents_skills_dir,
-        selected_skills,
-        aikito_dir / "skills",
-        allow_drifted_copies=sync_mode == "copy",
-    )
-    cleanup_conflicts = (*memory_cleanup.conflicts, *selected_skill_conflicts)
-
-    return _ProjectSyncInputs(
-        skills=skills,
-        memory_files=memory_files,
-        sync_mode=sync_mode,
-        agents_dir=agents_dir,
-        agents_skills_dir=agents_skills_dir,
-        agents_memory_dir=agents_memory_dir,
-        proj_mem_source=proj_mem_source,
-        skill_cleanup=skill_cleanup,
-        memory_cleanup=memory_cleanup,
-        cleanup_conflicts=cleanup_conflicts,
-    )
-
-
-def collect_project_prepare_errors(
-    aikito_dir: Path,
-    project_name: str,
-    project_path: Path,
-    data: dict[str, Any],
-    home: Path,
-    *,
-    force: bool = False,
-) -> list[str]:
-    """Return every conflict before any persistent project resource is changed."""
-    errors: list[str] = []
-    validation_error = project_sync_validation_error(
-        aikito_dir, project_name, project_path, home
-    )
-    if validation_error:
-        errors.append(validation_error)
-
-    inputs = _resolve_project_sync_inputs(aikito_dir, project_name, project_path, data)
-    errors.extend(
-        f"Project skill source does not exist: {aikito_dir / 'skills' / skill_name}"
-        for skill_name in inputs.skills
-        if not (aikito_dir / "skills" / skill_name).is_dir()
-    )
-    errors.extend(
-        f"Project memory source does not exist: {aikito_dir / 'memory' / memory_file}"
-        for memory_file in inputs.memory_files
-        if not (aikito_dir / "memory" / memory_file).exists()
-    )
-    errors.extend(
-        f"Unmanaged project runtime item: {path}" for path in inputs.cleanup_conflicts
-    )
-
-    # Pre-check project-scoped resources for Git conflict markers
-    resource_paths: list[Path] = []
-    agent_toml = aikito_dir / "projects" / project_name / "agent.toml"
-    if agent_toml.is_file():
-        resource_paths.append(agent_toml)
-    project_instructions = aikito_dir / "projects" / project_name / "AGENTS.md"
-    if project_instructions.is_file():
-        resource_paths.append(project_instructions)
-    for skill_name in inputs.skills:
-        skill_dir = aikito_dir / "skills" / skill_name
-        if skill_dir.is_dir():
-            resource_paths.append(skill_dir)
-    if inputs.proj_mem_source.is_dir():
-        notes_dir = inputs.proj_mem_source / "notes"
-        if notes_dir.is_dir():
-            resource_paths.append(notes_dir)
-    for memory_file in inputs.memory_files:
-        mem_file_path = aikito_dir / "memory" / memory_file
-        if mem_file_path.exists():
-            resource_paths.append(mem_file_path)
-
-    errors.extend(collect_resource_conflicts(resource_paths, home))
-
-    if inputs.sync_mode == "copy":
-        states = collect_single_project_skill_states(
-            aikito_dir, project_name, project_path, inputs.skills
-        )
-        conflicts = [state for state in states if state.status == "CONFLICT"]
-        drifted = [state for state in states if state.status == "DRIFT"]
-        errors.extend(
-            f"Project skill {project_name}/{state.skill_name}: {state.reason}"
-            for state in conflicts
-        )
-        if drifted and not force:
-            errors.extend(
-                f"Project skill {project_name}/{state.skill_name} drifted "
-                f"at {state.runtime_path}"
-                for state in drifted
-            )
-            errors.append(
-                "Copied project skills contain drift. Run 'aikito diff' "
-                "and reconcile changes, or use --force after review."
-            )
-    return errors
 
 
 def sync_project_path(
