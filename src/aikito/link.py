@@ -15,6 +15,7 @@ from typing import Any
 
 from .compat import (
     _resolve_symlink_target,
+    get_physical_path,
     require_symlink_support,
     safe_symlink,
 )
@@ -95,10 +96,8 @@ def inspect_link_target(
             if resolved_link_target is not None:
                 try:
                     if os.path.normcase(
-                        str(resolved_link_target.resolve(strict=False))
-                    ) == os.path.normcase(
-                        str(expected_canonical.resolve(strict=False))
-                    ):
+                        str(get_physical_path(resolved_link_target))
+                    ) == os.path.normcase(str(get_physical_path(expected_canonical))):
                         link_points_to_canonical = True
                 except (ValueError, OSError):
                     pass
@@ -106,10 +105,8 @@ def inspect_link_target(
             if not link_points_to_canonical and raw_link_target is not None:
                 try:
                     if os.path.normcase(
-                        str(raw_link_target.resolve(strict=False))
-                    ) == os.path.normcase(
-                        str(expected_canonical.resolve(strict=False))
-                    ):
+                        str(get_physical_path(raw_link_target))
+                    ) == os.path.normcase(str(get_physical_path(expected_canonical))):
                         link_points_to_canonical = True
                 except (ValueError, OSError):
                     pass
@@ -181,12 +178,16 @@ def _plan_link_target_impl(
             is_sub = False
             if canonical is not None:
                 try:
-                    dest_resolved = Path(dest).resolve(strict=False)
-                    canon_resolved = canonical.resolve(strict=False)
-                    is_sub = dest_resolved != canon_resolved and (
-                        dest_resolved.is_relative_to(canon_resolved)
-                        if hasattr(Path, "is_relative_to")
-                        else str(dest_resolved).startswith(str(canon_resolved) + os.sep)
+                    dest_resolved = get_physical_path(Path(dest))
+                    canon_resolved = get_physical_path(canonical)
+                    dest_str = os.path.normcase(str(dest_resolved))
+                    canon_str = os.path.normcase(str(canon_resolved))
+                    is_sub = dest_str != canon_str and (
+                        dest_str.startswith(canon_str + os.sep)
+                        or (
+                            hasattr(dest_resolved, "is_relative_to")
+                            and dest_resolved.is_relative_to(canon_resolved)
+                        )
                     )
                 except Exception:
                     is_sub = False
@@ -652,9 +653,9 @@ def apply_link_operation(
             )
         resolved = _resolve_symlink_target(target)
         if canonical is not None and resolved is not None:
-            if os.path.normcase(
-                str(resolved.resolve(strict=False))
-            ) != os.path.normcase(str(canonical.resolve(strict=False))):
+            if os.path.normcase(str(get_physical_path(resolved))) != os.path.normcase(
+                str(get_physical_path(canonical))
+            ):
                 return LinkExecutionResult(
                     operation=op,
                     success=False,
@@ -794,10 +795,10 @@ def apply_link_operation(
         resolved = _resolve_symlink_target(target)
         owned = False
         if canonical is not None:
-            canon_norm = os.path.normcase(str(canonical.resolve(strict=False)))
+            canon_norm = os.path.normcase(str(get_physical_path(canonical)))
             if (
                 resolved is not None
-                and os.path.normcase(str(resolved.resolve(strict=False))) == canon_norm
+                and os.path.normcase(str(get_physical_path(resolved))) == canon_norm
             ):
                 owned = True
             elif raw_val:
@@ -806,7 +807,7 @@ def apply_link_operation(
                     if not os.path.isabs(raw_val)
                     else Path(raw_val)
                 )
-                if os.path.normcase(str(raw_path.resolve(strict=False))) == canon_norm:
+                if os.path.normcase(str(get_physical_path(raw_path))) == canon_norm:
                     owned = True
         if not owned:
             return LinkExecutionResult(
