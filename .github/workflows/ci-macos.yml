@@ -23,8 +23,13 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
       - name: Install test dependencies
-        run: python -m pip install pytest
+        run: uv pip install --system pytest
 
       - name: Run macOS unit tests
         run: python -m pytest

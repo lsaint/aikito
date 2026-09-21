@@ -15,10 +15,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
 
       - name: Install documentation dependencies
-        run: python -m pip install -r requirements-docs.txt
+        run: uv pip install --system -r requirements-docs.txt
 
       - name: Build documentation
         run: mkdocs build --strict
@@ -43,8 +47,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
       - name: Install test dependencies
-        run: python -m pip install pytest
+        run: uv pip install --system pytest
 
       - name: Run unit tests
         run: python -m pytest
@@ -62,9 +71,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
       - name: Build and verify public site
         run: |
-          python -m pip install -r requirements-docs.txt
+          uv pip install --system -r requirements-docs.txt
           mkdocs build --strict
           test -f site/index.html
           test -f site/guide/index.html
