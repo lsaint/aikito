@@ -8,6 +8,7 @@ from typing import Any
 from unittest import TestCase
 from unittest.mock import patch
 
+from aikito.instructions import InstructionExecutionResult
 from aikito.project_sync import (
     apply_project_sync_batch,
     build_project_sync_batch,
@@ -248,8 +249,14 @@ class ProjectSyncBatchTests(TestCase):
             batch = build_project_sync_batch(ws, home, "demo", data)
             self.assertTrue(batch.can_apply)
 
+            mock_inst_res = InstructionExecutionResult(
+                operations=(),
+                success=False,
+                error_message="Failed to synchronize project instructions",
+            )
             with patch(
-                "aikito.project_sync.sync_project_instruction", return_value=False
+                "aikito.project_sync.execute_instruction_plan",
+                return_value=mock_inst_res,
             ):
                 res = apply_project_sync_batch(batch, data, home, dry_run=False)
 
@@ -264,7 +271,8 @@ class ProjectSyncBatchTests(TestCase):
             self.assertEqual(res.failed_ops, ())
             # Verify the skill copy was actually created on disk
             self.assertTrue((co / ".agents" / "skills" / "my-skill").is_dir())
-            # Legacy segment recorded failure
-            self.assertEqual(len(res.legacy_results), 1)
-            self.assertEqual(res.legacy_results[0].resource_kind, "instructions")
-            self.assertFalse(res.legacy_results[0].success)
+            # Instruction segment recorded failure directly
+            self.assertIsNotNone(res.instruction_result)
+            self.assertFalse(res.instruction_result.success)
+            # Legacy results only holds memory (none configured here)
+            self.assertEqual(len(res.legacy_results), 0)

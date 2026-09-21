@@ -17,11 +17,12 @@ from .compat import check_case_collision, safe_relative_path
 from .conflict import collect_resource_conflicts
 from .init import project_sync_validation_error
 from .instructions import (
+    InstructionExecutionResult,
     InstructionPlan,
     build_project_instruction_batch,
+    execute_instruction_plan,
     plan_instructions,
 )
-from .mcp import collect_project_instruction_targets
 from .project import (
     RuntimeCleanupPlan,
     append_candidate_path_to_config,
@@ -47,7 +48,6 @@ from .skill_state import load_project_skill_state
 from .sync import (
     apply_runtime_cleanup,
     ensure_dir,
-    sync_project_instruction,
     sync_resource,
 )
 
@@ -82,6 +82,7 @@ class ProjectSyncExecutionResult:
     """Segmented execution outcome for a project sync batch."""
 
     skill_result: SkillExecutionResult
+    instruction_result: InstructionExecutionResult | None = None
     legacy_results: tuple[LegacySyncResult, ...] = ()
     error_message: str | None = None
 
@@ -89,6 +90,7 @@ class ProjectSyncExecutionResult:
     def is_success(self) -> bool:
         return (
             self.skill_result.is_success
+            and (self.instruction_result is None or self.instruction_result.success)
             and all(r.success for r in self.legacy_results)
             and self.error_message is None
         )
@@ -403,7 +405,22 @@ def apply_project_sync_batch(
             error_message=skill_result.error_message,
         )
 
-    # 2. Execute memory cleanup and synchronizations across active checkouts
+    # 2. Apply InstructionPlan
+    instruction_result: InstructionExecutionResult | None = None
+    if batch.instruction_plan is not None:
+        instruction_result = execute_instruction_plan(
+            batch.instruction_plan, home, dry_run=dry_run
+        )
+        if not instruction_result.success:
+            return ProjectSyncExecutionResult(
+                skill_result=skill_result,
+                instruction_result=instruction_result,
+                legacy_results=(),
+                error_message=instruction_result.error_message
+                or "Failed to synchronize project instructions",
+            )
+
+    # 3. Execute memory cleanup and synchronizations across active checkouts
     workspace_root = batch.workspace_root
     project_name = batch.project_name
     memory_files = [str(m) for m in data.get("memory", [])]
@@ -443,6 +460,7 @@ def apply_project_sync_batch(
                 )
                 return ProjectSyncExecutionResult(
                     skill_result=skill_result,
+                    instruction_result=instruction_result,
                     legacy_results=tuple(legacy_results),
                     error_message=mem_err,
                 )
@@ -462,68 +480,17 @@ def apply_project_sync_batch(
                 )
                 return ProjectSyncExecutionResult(
                     skill_result=skill_result,
+                    instruction_result=instruction_result,
                     legacy_results=tuple(legacy_results),
                     error_message=notes_err,
                 )
 
-        # Sync instructions (AGENTS.md)
-        project_instructions = workspace_root / "projects" / project_name / "AGENTS.md"
-        if project_instructions.is_file():
-            all_instruction_targets = collect_project_instruction_targets(
-                workspace_root, checkout, home
-            )
-            instruction_targets = collect_project_instruction_targets(
-                workspace_root, checkout, home, active_only=True
-            )
-            instructions_enabled = bool(
-                project_instructions.read_text(
-                    encoding="utf-8", errors="replace"
-                ).strip()
-            )
-            possible_stale = {agents_dir / "AGENTS.md"}
-            if not instructions_enabled:
-                possible_stale.update(all_instruction_targets)
-            managed_stale = tuple(
-                sorted(
-                    t
-                    for t in possible_stale
-                    if t.is_symlink()
-                    and t.resolve(strict=False)
-                    == project_instructions.resolve(strict=False)
-                )
-            )
-            apply_runtime_cleanup(managed_stale, dry_run=dry_run)
-
-            if instructions_enabled:
-                for target, agent_names in instruction_targets.items():
-                    if not sync_project_instruction(
-                        project_instructions, target, dry_run
-                    ):
-                        inst_err = (
-                            f"Failed to synchronize project instructions to {target}"
-                        )
-                        legacy_results.append(
-                            LegacySyncResult(
-                                resource_kind="instructions",
-                                success=False,
-                                error_message=inst_err,
-                            )
-                        )
-                        return ProjectSyncExecutionResult(
-                            skill_result=skill_result,
-                            legacy_results=tuple(legacy_results),
-                            error_message=inst_err,
-                        )
-
     if memory_files or (proj_mem_source / "notes").is_dir():
         legacy_results.append(LegacySyncResult(resource_kind="memory", success=True))
-    if (workspace_root / "projects" / project_name / "AGENTS.md").is_file():
-        legacy_results.append(
-            LegacySyncResult(resource_kind="instructions", success=True)
-        )
 
     return ProjectSyncExecutionResult(
         skill_result=skill_result,
+        instruction_result=instruction_result,
         legacy_results=tuple(legacy_results),
     )
 
