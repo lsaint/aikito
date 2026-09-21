@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from typing import Any
 from unittest import TestCase
 from unittest.mock import patch
 
 from aikito.instructions import InstructionExecutionResult
+from aikito.memory_runtime import MemoryExecutionResult
 from aikito.project_sync import (
     apply_project_sync_batch,
     build_project_sync_batch,
@@ -184,18 +184,14 @@ class ProjectSyncBatchTests(TestCase):
             batch = build_project_sync_batch(ws, home, "demo", data)
             self.assertTrue(batch.can_apply)
 
-            # Invalidate sync_resource specifically when syncing memory
-            original_sync_resource = __import__(
-                "aikito.project_sync", fromlist=["sync_resource"]
-            ).sync_resource
-
-            def fail_memory_sync(source: Path, target: Path, **kwargs: Any) -> bool:
-                if "memory" in str(target):
-                    return False
-                return original_sync_resource(source, target, **kwargs)
+            mock_mem_res = MemoryExecutionResult(
+                operations=(),
+                success=False,
+                error_message="Failed to synchronize project memory",
+            )
 
             with patch(
-                "aikito.project_sync.sync_resource", side_effect=fail_memory_sync
+                "aikito.project_sync.execute_memory_plan", return_value=mock_mem_res
             ):
                 res = apply_project_sync_batch(batch, data, home, dry_run=False)
 
@@ -210,10 +206,9 @@ class ProjectSyncBatchTests(TestCase):
             self.assertEqual(res.failed_ops, ())
             # Verify the skill copy was actually created on disk
             self.assertTrue((co / ".agents" / "skills" / "my-skill").is_dir())
-            # Legacy segment recorded failure
-            self.assertEqual(len(res.legacy_results), 1)
-            self.assertEqual(res.legacy_results[0].resource_kind, "memory")
-            self.assertFalse(res.legacy_results[0].success)
+            # Memory segment recorded failure directly
+            self.assertIsNotNone(res.memory_result)
+            self.assertFalse(res.memory_result.success)
 
     def test_segmented_execution_result_isolates_instruction_failure(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -274,5 +269,5 @@ class ProjectSyncBatchTests(TestCase):
             # Instruction segment recorded failure directly
             self.assertIsNotNone(res.instruction_result)
             self.assertFalse(res.instruction_result.success)
-            # Legacy results only holds memory (none configured here)
-            self.assertEqual(len(res.legacy_results), 0)
+            # Memory segment was not executed
+            self.assertIsNone(res.memory_result)
