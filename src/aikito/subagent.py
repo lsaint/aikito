@@ -19,6 +19,7 @@ from .config_runtime import (
     ConfigTarget,
     FileMutationPlan,
     FileSnapshot,
+    StaleConfigPlanError,
     aggregate_file_plans,
     capture_file_snapshot,
 )
@@ -136,6 +137,23 @@ class SubagentPlan:
             for op in self.operations
             if op.action == "CONFLICT" and not op.is_authorized
         )
+
+
+@dataclass(frozen=True)
+class SubagentExecutionResult:
+    """Structured execution result of applying a SubagentPlan."""
+
+    success: bool
+    applied_count: int
+    noop_count: int
+    skipped_count: int
+    conflict_count: int
+    failed_count: int
+    failed_files: tuple[Path, ...] = ()
+    backup_warnings: tuple[str, ...] = ()
+    error_message: str | None = None
+    partial_completion: bool = False
+    recovery_required: bool = False
 
 
 def get_marker_text(subagent_name: str) -> str:
@@ -1198,6 +1216,117 @@ def _write_file_atomic(target_path: Path, content: str) -> None:
     tmp_path.replace(target_path)
 
 
+def execute_subagent_plan(
+    plan: SubagentPlan,
+    home: Path,
+) -> SubagentExecutionResult:
+    """Execute a SubagentPlan, aggregating mutations per physical file."""
+    if not plan.can_apply:
+        return SubagentExecutionResult(
+            success=False,
+            applied_count=0,
+            noop_count=sum(1 for op in plan.operations if op.action == "NOOP"),
+            skipped_count=sum(1 for op in plan.operations if op.action == "SKIP"),
+            conflict_count=plan.conflicts_count,
+            failed_count=0,
+            error_message="Subagent synchronization plan cannot be applied due to unhandled conflicts or errors.",
+        )
+
+    # First validate preconditions on all file plans
+    for fp in plan.file_plans:
+        if fp.has_mutations:
+            try:
+                fp.validate_precondition()
+            except StaleConfigPlanError as e:
+                return SubagentExecutionResult(
+                    success=False,
+                    applied_count=0,
+                    noop_count=sum(1 for op in plan.operations if op.action == "NOOP"),
+                    skipped_count=sum(1 for op in plan.operations if op.action == "SKIP"),
+                    conflict_count=0,
+                    failed_count=1,
+                    failed_files=(fp.path,),
+                    error_message=f"Plan is stale: {e}",
+                )
+
+    applied_count = 0
+    noop_count = sum(1 for op in plan.operations if op.action == "NOOP")
+    skipped_count = sum(1 for op in plan.operations if op.action == "SKIP")
+    failed_files: list[Path] = []
+    backup_warnings: list[str] = []
+
+    for fp in plan.file_plans:
+        if not fp.has_mutations:
+            continue
+
+        try:
+            if fp.format == "dsh_cordis_subagent":
+                # Single read of current file text
+                curr_text = fp.path.read_text(encoding="utf-8") if fp.path.is_file() else ""
+                new_text = curr_text
+                # Aggregate in-memory modifications
+                for op in fp.operations:
+                    if not op.is_authorized:
+                        continue
+                    if op.action in ("CREATE", "UPDATE"):
+                        new_text = update_dsh_cordis_subagent(
+                            new_text, op.target.logical_identity, op.rendered_payload or ""
+                        )
+                        applied_count += 1
+                    elif op.action in ("REMOVE", "ORPHAN"):
+                        new_text = remove_dsh_cordis_subagent(
+                            new_text, op.target.logical_identity
+                        )
+                        applied_count += 1
+
+                if new_text != curr_text:
+                    if fp.path.is_file():
+                        _backup_file(home, "dsh", fp.path)
+                    _write_file_atomic(fp.path, new_text)
+
+            else:
+                for op in fp.operations:
+                    if not op.is_authorized:
+                        continue
+                    if op.action == "CREATE":
+                        _write_file_atomic(fp.path, op.rendered_payload or "")
+                        applied_count += 1
+                    elif op.action == "UPDATE":
+                        _backup_file(home, op.target.agent, fp.path)
+                        _write_file_atomic(fp.path, op.rendered_payload or "")
+                        applied_count += 1
+                    elif op.action in ("REMOVE", "ORPHAN"):
+                        _backup_file(home, op.target.agent, fp.path)
+                        if fp.path.is_file():
+                            fp.path.unlink()
+                        applied_count += 1
+
+        except OSError as exc:
+            failed_files.append(fp.path)
+            return SubagentExecutionResult(
+                success=False,
+                applied_count=applied_count,
+                noop_count=noop_count,
+                skipped_count=skipped_count,
+                conflict_count=0,
+                failed_count=len(failed_files),
+                failed_files=tuple(failed_files),
+                backup_warnings=tuple(backup_warnings),
+                error_message=f"Failed writing configuration to '{fp.path}': {exc}",
+                partial_completion=applied_count > 0,
+            )
+
+    return SubagentExecutionResult(
+        success=True,
+        applied_count=applied_count,
+        noop_count=noop_count,
+        skipped_count=skipped_count,
+        conflict_count=0,
+        failed_count=0,
+        backup_warnings=tuple(backup_warnings),
+    )
+
+
 def sync_subagent_configs(
     aikito_dir: Path,
     home: Path,
@@ -1216,45 +1345,54 @@ def sync_subagent_configs(
                 raise SubagentConfigError(
                     f"Invalid --force target '{ft}'. Must be in format <agent>/<subagent>"
                 )
-            normalized_force.add(ft)
+            normalized_force.add(ft.strip())
 
-    plan, _ = build_plan(aikito_dir, home, allow_empty=True)
+    plan = build_subagent_plan(
+        aikito_dir=aikito_dir,
+        home=home,
+        allow_empty=True,
+        force_targets=force_targets,
+        prune=prune,
+    )
 
-    has_errors = any(item.action == "ERROR" for item in plan)
+    has_errors = any(op.action == "ERROR" for op in plan.operations)
     has_unforced_conflicts = any(
-        item.action == "CONFLICT"
-        and f"{item.agent_name}/{item.subagent_name}" not in normalized_force
-        for item in plan
+        op.action == "CONFLICT" and not op.is_authorized for op in plan.operations
     )
 
     print(f"[INFO] Subagent synchronization plan (dry_run={dry_run}):")
 
-    for item in plan:
-        target_key = f"{item.agent_name}/{item.subagent_name}"
-        if item.action == "SKIP":
-            print(f"  [SKIP] {item.agent_name} ({item.reason})")
-        elif item.action == "OK":
+    for op in plan.operations:
+        target_key = f"{op.target.agent}/{op.target.logical_identity}"
+        if op.action == "SKIP":
+            print(f"  [SKIP] {op.target.agent} ({op.reason})")
+        elif op.action == "NOOP":
             print(f"  [OK] {target_key}")
-        elif item.action == "CREATE":
-            print(f"  [CREATE] {target_key} -> {item.target_path}")
-        elif item.action == "UPDATE":
-            print(f"  [UPDATE] {target_key} -> {item.target_path}")
-        elif item.action == "CONFLICT":
-            if target_key in normalized_force:
-                print(f"  [FORCE UPDATE] {target_key} -> {item.target_path}")
+        elif op.action == "CREATE":
+            print(f"  [CREATE] {target_key} -> {op.target.path}")
+        elif op.action == "UPDATE":
+            if op.requires_force:
+                print(f"  [FORCE UPDATE] {target_key} -> {op.target.path}")
+            else:
+                print(f"  [UPDATE] {target_key} -> {op.target.path}")
+        elif op.action == "CONFLICT":
+            if op.is_authorized:
+                print(f"  [FORCE UPDATE] {target_key} -> {op.target.path}")
             else:
                 print(
-                    f"  [CONFLICT] {target_key} -> {item.target_path} ({item.reason}. Use --force {target_key} to overwrite)"
+                    f"  [CONFLICT] {target_key} -> {op.target.path} ({op.reason}. Use --force {target_key} to overwrite)"
                 )
-        elif item.action == "ORPHAN":
+        elif op.action == "REMOVE":
+            print(f"  [PRUNE] {target_key} -> {op.target.path}")
+        elif op.action == "ORPHAN":
             if prune:
-                print(f"  [PRUNE] {target_key} -> {item.target_path}")
+                print(f"  [PRUNE] {target_key} -> {op.target.path}")
             else:
                 print(
-                    f"  [ORPHAN] {target_key} -> {item.target_path} ({item.reason}. Use --prune to remove)"
+                    f"  [ORPHAN] {target_key} -> {op.target.path} ({op.reason}. Use --prune to remove)"
                 )
-        elif item.action == "ERROR":
-            print(f"  [ERROR] {target_key}: {item.reason}")
+        elif op.action == "ERROR":
+            print(f"  [ERROR] {target_key}: {op.reason}")
 
     if has_errors:
         print(
@@ -1274,47 +1412,10 @@ def sync_subagent_configs(
         print("[SUCCESS] Subagent synchronization plan completed (dry-run).")
         return True
 
-    # Perform physical file modifications only when there are no errors or unhandled conflicts
-    for item in plan:
-        target_key = f"{item.agent_name}/{item.subagent_name}"
-        if item.agent_name == "dsh" or item.target_path.name == "cordis.patch.yml":
-            if item.action in ("CREATE", "UPDATE") or (
-                item.action == "CONFLICT" and target_key in normalized_force
-            ):
-                if item.action == "UPDATE" or (
-                    item.action == "CONFLICT" and target_key in normalized_force
-                ):
-                    _backup_file(home, item.agent_name, item.target_path)
-                curr_text = (
-                    item.target_path.read_text(encoding="utf-8")
-                    if item.target_path.is_file()
-                    else ""
-                )
-                new_text = update_dsh_cordis_subagent(
-                    curr_text, item.subagent_name, item.rendered_content
-                )
-                _write_file_atomic(item.target_path, new_text)
-            elif item.action == "ORPHAN" and prune:
-                _backup_file(home, item.agent_name, item.target_path)
-                curr_text = (
-                    item.target_path.read_text(encoding="utf-8")
-                    if item.target_path.is_file()
-                    else ""
-                )
-                new_text = remove_dsh_cordis_subagent(curr_text, item.subagent_name)
-                _write_file_atomic(item.target_path, new_text)
-        else:
-            if item.action == "CREATE":
-                _write_file_atomic(item.target_path, item.rendered_content)
-            elif item.action == "UPDATE":
-                _backup_file(home, item.agent_name, item.target_path)
-                _write_file_atomic(item.target_path, item.rendered_content)
-            elif item.action == "CONFLICT" and target_key in normalized_force:
-                _backup_file(home, item.agent_name, item.target_path)
-                _write_file_atomic(item.target_path, item.rendered_content)
-            elif item.action == "ORPHAN" and prune:
-                _backup_file(home, item.agent_name, item.target_path)
-                item.target_path.unlink()
+    result = execute_subagent_plan(plan, home)
+    if not result.success:
+        print(f"[ERROR] Subagent synchronization failed: {result.error_message}", file=sys.stderr)
+        return False
 
     print("[SUCCESS] Subagent synchronization completed successfully.")
     return True

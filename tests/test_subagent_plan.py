@@ -16,9 +16,11 @@ from pathlib import Path
 
 from aikito.subagent import (
     SubagentConfigError,
+    SubagentExecutionResult,
     SubagentPlan,
     build_plan,
     build_subagent_plan,
+    execute_subagent_plan,
 )
 
 
@@ -191,3 +193,41 @@ config_format = "dsh_cordis_subagent"
         self.assertIsInstance(configs, dict)
         self.assertIn("claude-code", configs)
         self.assertTrue(any(item.subagent_name == "verifier" for item in items))
+
+    def test_execute_subagent_plan_creates_files_and_reports_result(self) -> None:
+        """INV-SUB-06: Execution returns structured SubagentExecutionResult and writes files."""
+        plan = build_subagent_plan(self.ws, self.home)
+        self.assertTrue(plan.can_apply)
+
+        res = execute_subagent_plan(plan, self.home)
+        self.assertIsInstance(res, SubagentExecutionResult)
+        self.assertTrue(res.success)
+        self.assertGreater(res.applied_count, 0)
+        self.assertEqual(res.failed_count, 0)
+        self.assertEqual(len(res.failed_files), 0)
+
+        # Check files created on disk
+        claude_target = self.home / ".claude" / "agents" / "verifier.md"
+        self.assertTrue(claude_target.exists())
+        self.assertIn("Verify all changes", claude_target.read_text(encoding="utf-8"))
+
+        dsh_target = self.home / ".dsh" / "cordis.patch.yml"
+        self.assertTrue(dsh_target.exists())
+        dsh_text = dsh_target.read_text(encoding="utf-8")
+        self.assertIn("aikito-subagent-verifier", dsh_text)
+        self.assertIn("aikito-subagent-reviewer", dsh_text)
+
+    def test_execute_subagent_plan_stale_detection(self) -> None:
+        """INV-CFG-04: External change between plan and execute halts with stale plan error."""
+        dsh_target = self.home / ".dsh" / "cordis.patch.yml"
+        dsh_target.write_text("initial: true\n", encoding="utf-8")
+
+        plan = build_subagent_plan(self.ws, self.home)
+
+        # External modification occurs before apply
+        dsh_target.write_text("tampered: true\n", encoding="utf-8")
+
+        res = execute_subagent_plan(plan, self.home)
+        self.assertFalse(res.success)
+        self.assertIn("stale", (res.error_message or "").lower())
+        self.assertIn(dsh_target, res.failed_files)

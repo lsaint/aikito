@@ -37,11 +37,11 @@ Subagent target resolution resolves agent installation and availability exclusiv
 
 *Targeted tests*: `tests/test_subagent_plan.py`, `tests/test_subagent.py`
 
-### INV-SUB-06: Subagent Execution Result Segmentation and Exact File Commit Alignment `[planned]` {: #inv-sub-06 }
+### INV-SUB-06: Subagent Execution Result Segmentation and Exact File Commit Alignment `[current]` {: #inv-sub-06 }
 
 Subagent sync execution returns a structured `SubagentExecutionResult` reflecting the exact operations applied, skipped, conflicted, or failed per physical file. If a file mutation fails, the result explicitly reports the failed file and partial completion state without masking errors as generic booleans.
 
-*Targeted tests*: `tests/test_subagent.py`
+*Targeted tests*: `tests/test_subagent_plan.py`, `tests/test_subagent.py`
 
 ---
 
