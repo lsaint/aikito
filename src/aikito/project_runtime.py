@@ -210,7 +210,7 @@ class Project:
             register_explicit_path=False,
         )
         if not batch.can_apply:
-            errors = list(batch.legacy_preflight_errors)
+            errors = list(batch.preflight_findings)
             for op in batch.skill_plan.operations:
                 if op.finding and op.finding not in errors:
                     errors.append(op.finding)
@@ -322,7 +322,7 @@ def sync_project_path(
         aikito_dir, home, project_name, data, explicit_path=project_path, force=False
     )
     if not batch.can_apply:
-        errs = list(batch.legacy_preflight_errors)
+        errs = list(batch.preflight_findings)
         for op in batch.skill_plan.operations:
             if op.finding and op.finding not in errs:
                 errs.append(op.finding)

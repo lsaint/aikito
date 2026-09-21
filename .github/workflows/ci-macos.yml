@@ -437,6 +437,59 @@ jobs:
           AIKITO_DIR=$WS python3 -m aikito sync project demo-copy --force
           grep -F "canonical copy content" "$copy_skill/SKILL.md"
 
+      - name: macOS CLI smoke - Project Memory Runtime, Idempotency, and Conflict Protection (Phase 6)
+        run: |
+          WS=${{ runner.temp }}/macos-ws
+          PROJ_MEM=${{ runner.temp }}/macos-proj-mem
+          mkdir -p "$PROJ_MEM"
+          AIKITO_DIR=$WS python3 -m aikito init project demo-mem "$PROJ_MEM"
+          mkdir -p "$WS/projects/demo-mem/memory/notes"
+          mkdir -p "$WS/memory"
+          printf "# Global Reference\n" > "$WS/memory/shared.md"
+          python3 -c "
+          from pathlib import Path
+          p = Path('$WS/projects/demo-mem/agent.toml')
+          p.write_text(p.read_text() + '\nmemory = [\"shared.md\"]\n')
+          "
+
+          # 1. Project sync creates canonical memory symlinks (INV-MEM-01, INV-MEM-03)
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-mem
+          test -L "$PROJ_MEM/.agents/memory/notes"
+          test -L "$PROJ_MEM/.agents/memory/shared.md"
+
+          # 2. Repeated sync is NOOP (INV-MEM-10)
+          OUT=$(AIKITO_DIR=$WS python3 -m aikito sync project demo-mem)
+          if echo "$OUT" | grep -q "\[LINK\]"; then exit 1; fi
+          if echo "$OUT" | grep -q "\[UNLINK\]"; then exit 1; fi
+
+          # 3. Target conflict protection preserves existing regular files (INV-MEM-07)
+          rm "$PROJ_MEM/.agents/memory/shared.md"
+          printf "unmanaged regular file\n" > "$PROJ_MEM/.agents/memory/shared.md"
+          if AIKITO_DIR=$WS python3 -m aikito sync project demo-mem 2> ${{ runner.temp }}/macos-mem-conflict.err; then
+            echo "Expected sync project to fail on regular file conflict"
+            exit 1
+          fi
+          grep -F "[CONFLICT]" ${{ runner.temp }}/macos-mem-conflict.err
+          test -f "$PROJ_MEM/.agents/memory/shared.md"
+          test ! -L "$PROJ_MEM/.agents/memory/shared.md"
+          test "$(cat "$PROJ_MEM/.agents/memory/shared.md")" = "unmanaged regular file"
+
+          # 4. Deselection unlinks exact owned link (INV-MEM-06)
+          rm "$PROJ_MEM/.agents/memory/shared.md"
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-mem
+          test -L "$PROJ_MEM/.agents/memory/shared.md"
+          python3 -c "
+          from pathlib import Path
+          p = Path('$WS/projects/demo-mem/agent.toml')
+          p.write_text(p.read_text().replace('\"shared.md\"', ''))
+          "
+          AIKITO_DIR=$WS python3 -m aikito sync project demo-mem | tee ${{ runner.temp }}/macos-mem-desel.out
+          grep -F "[CLEANUP]" ${{ runner.temp }}/macos-mem-desel.out
+          test ! -e "$PROJ_MEM/.agents/memory/shared.md"
+          test -L "$PROJ_MEM/.agents/memory/notes"
+
+          rm -rf "$PROJ_MEM" "$WS/projects/demo-mem"
+
       - name: macOS CLI smoke - Dry Run Non-Mutation Guarantee
         run: |
           WS=${{ runner.temp }}/macos-ws

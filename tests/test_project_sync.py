@@ -41,9 +41,9 @@ class ProjectSyncBatchTests(TestCase):
 
             batch = build_project_sync_batch(ws, home, "demo", data)
             self.assertFalse(batch.can_apply)
-            self.assertTrue(len(batch.legacy_preflight_errors) > 0)
+            self.assertTrue(len(batch.preflight_findings) > 0)
             self.assertTrue(
-                any("nonexistent-skill" in e for e in batch.legacy_preflight_errors)
+                any("nonexistent-skill" in e for e in batch.preflight_findings)
             )
 
     def test_successful_project_sync_applies_skills_and_memory(self) -> None:

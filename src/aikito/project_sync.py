@@ -61,7 +61,7 @@ class ProjectSyncBatch:
     active_checkouts: tuple[Path, ...]
     offline_checkouts: tuple[Path, ...]
     skill_plan: SkillPlan
-    legacy_preflight_errors: tuple[str, ...]
+    preflight_findings: tuple[str, ...]
     can_apply: bool
     config_cas: CandidatePathCAS | None = None
     instruction_plan: InstructionPlan | None = None
@@ -162,11 +162,6 @@ def build_project_sync_batch(
         skill_source = workspace_root / "skills" / skill_name
         if not skill_source.is_dir():
             errors.append(f"Project skill source does not exist: {skill_source}")
-
-    for mem_file in memory_files:
-        mem_source = workspace_root / "memory" / mem_file
-        if not mem_source.exists():
-            errors.append(f"Project memory source does not exist: {mem_source}")
 
     resource_paths: list[Path] = []
     agent_toml = workspace_root / "projects" / project_name / "agent.toml"
@@ -369,7 +364,7 @@ def build_project_sync_batch(
         active_checkouts=tuple(active_checkouts),
         offline_checkouts=tuple(offline_checkouts),
         skill_plan=plan,
-        legacy_preflight_errors=tuple(extra_findings),
+        preflight_findings=tuple(extra_findings),
         can_apply=can_apply,
         config_cas=config_cas,
         instruction_plan=instruction_plan,
@@ -387,8 +382,8 @@ def apply_project_sync_batch(
     """Execute skill plan and compatible instruction/memory synchronizations."""
     if not batch.can_apply and not dry_run:
         err_msg = (
-            batch.legacy_preflight_errors[0]
-            if batch.legacy_preflight_errors
+            batch.preflight_findings[0]
+            if batch.preflight_findings
             else "Project sync batch contains unresolved conflicts; cannot apply."
         )
         skill_failed_ops = (
@@ -553,12 +548,12 @@ def sync_project(
     )
 
     if not batch.can_apply:
-        for err in batch.legacy_preflight_errors:
+        for err in batch.preflight_findings:
             print(f"[ERROR] {err}", file=sys.stderr)
         for op in batch.skill_plan.operations:
             if op.action == "CONFLICT":
                 print(f"[CONFLICT] {op.reason}", file=sys.stderr)
-            elif op.finding and op.finding not in batch.legacy_preflight_errors:
+            elif op.finding and op.finding not in batch.preflight_findings:
                 print(f"[ERROR] {op.finding}", file=sys.stderr)
         if batch.instruction_plan is not None:
             for op in batch.instruction_plan.operations:
@@ -569,7 +564,18 @@ def sync_project(
                         else "[CONFLICT]"
                     )
                     print(f"{prefix} {op.reason}", file=sys.stderr)
-                elif op.finding and op.finding not in batch.legacy_preflight_errors:
+                elif op.finding and op.finding not in batch.preflight_findings:
+                    print(f"[ERROR] {op.finding}", file=sys.stderr)
+        if batch.memory_plan is not None:
+            for op in batch.memory_plan.operations:
+                if op.action == "CONFLICT":
+                    prefix = (
+                        f"[CONFLICT] {op.resource_name} memory:"
+                        if op.resource_name
+                        else "[CONFLICT]"
+                    )
+                    print(f"{prefix} {op.reason}", file=sys.stderr)
+                elif op.finding and op.finding not in batch.preflight_findings:
                     print(f"[ERROR] {op.finding}", file=sys.stderr)
         print("[ERROR] Project synchronization aborted.", file=sys.stderr)
         return False

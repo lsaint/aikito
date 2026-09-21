@@ -768,13 +768,10 @@ def _run_workspace_sync(
 
                 if not batch.can_apply:
                     overall_success = False
-                    for err in batch.legacy_preflight_errors:
+                    for err in batch.preflight_findings:
                         print(f"[ERROR] {err}", file=sys.stderr)
                     for op in batch.skill_plan.operations:
-                        if (
-                            op.finding
-                            and op.finding not in batch.legacy_preflight_errors
-                        ):
+                        if op.finding and op.finding not in batch.preflight_findings:
                             print(f"[ERROR] {op.finding}", file=sys.stderr)
                 else:
                     synced_active += 1

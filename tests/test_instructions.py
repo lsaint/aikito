@@ -289,7 +289,7 @@ class InstructionBatchAndPlanTests(TestCase):
         self.assertTrue(
             any(
                 "Pre-existing regular instruction file" in err
-                for err in batch.legacy_preflight_errors
+                for err in batch.preflight_findings
             )
         )
 

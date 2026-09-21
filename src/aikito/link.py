@@ -893,6 +893,16 @@ def apply_link_operation(
 
         try:
             if op.requires_parent_creation:
+                curr = target.parent
+                while not curr.exists() and curr != curr.parent:
+                    curr = curr.parent
+                if curr.is_symlink() and curr.name in (".agents", "memory", "skills"):
+                    return LinkExecutionResult(
+                        operation=op,
+                        success=False,
+                        applied=False,
+                        error_message=f"Preflight failed: parent directory is a symlink: {curr}",
+                    )
                 target.parent.mkdir(parents=True, exist_ok=True)
             if not safe_symlink(canonical, target):
                 return LinkExecutionResult(

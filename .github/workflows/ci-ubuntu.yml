@@ -444,6 +444,7 @@ jobs:
           rm "$PROJ_DIR/.agents/memory/shared.md"
           printf "unmanaged content\n" > "$PROJ_DIR/.agents/memory/shared.md"
           ! AIKITO_DIR="$WS" python3 -m aikito sync project mem-test 2> ${{ runner.temp }}/mem-conflict.err
+          grep -F "[CONFLICT]" ${{ runner.temp }}/mem-conflict.err
           grep -F "Unmanaged project runtime item:" ${{ runner.temp }}/mem-conflict.err
           test -f "$PROJ_DIR/.agents/memory/shared.md"
           test ! -L "$PROJ_DIR/.agents/memory/shared.md"
