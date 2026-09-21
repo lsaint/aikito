@@ -13,8 +13,6 @@ from aikito.global_skills import (
     GlobalSkillBatch,
     GlobalSkillBatchPlan,
     build_global_skill_batch,
-    execute_global_skill_consumers,
-    execute_global_skill_entries,
     execute_global_skills,
     load_global_skills_list,
     plan_global_skills,
@@ -232,8 +230,8 @@ class GlobalSkillBatchTest(TestCase):
         )
         plan = plan_global_skills(batch, self.home)
 
-        success, results = execute_global_skill_consumers(plan)
-        self.assertTrue(success)
+        res = execute_global_skills(plan)
+        self.assertTrue(res.success)
         self.assertTrue(self.claude_skills.is_symlink())
         self.assertEqual(self.claude_skills.resolve(), self.agents_skills.resolve())
 
@@ -251,8 +249,8 @@ class GlobalSkillBatchTest(TestCase):
         ):
             plan = plan_global_skills(batch, self.home)
 
-        success, results = execute_global_skill_consumers(plan)
-        self.assertTrue(success)
+        res = execute_global_skills(plan)
+        self.assertTrue(res.success)
         self.assertFalse(self.claude_skills.parent.exists())
         self.assertFalse(self.claude_skills.exists())
 
@@ -271,8 +269,8 @@ class GlobalSkillBatchTest(TestCase):
         # Plan detects conflict (INV-GLB-05)
         self.assertTrue(plan.has_conflicts)
         # If execution is attempted on conflicting op, it fails and does not unlink/relink
-        success, results = execute_global_skill_consumers(plan)
-        self.assertFalse(success)
+        res = execute_global_skills(plan)
+        self.assertFalse(res.success)
         self.assertTrue(self.claude_skills.is_symlink())
         self.assertEqual(self.claude_skills.resolve(), external.resolve())
 
@@ -321,4 +319,132 @@ class GlobalSkillBatchTest(TestCase):
         ok, ops = res
         self.assertTrue(ok)
         self.assertEqual(len(ops), len(res.operations))
+
+    def test_cross_workspace_ownership_conflict_does_not_adopt(self) -> None:
+        # Create second workspace with same skill name
+        ws_b = self.root / "aikito-b"
+        ws_b_skills = ws_b / "skills"
+        ws_b_skill = ws_b_skills / "my-skill"
+        ws_b_skill.mkdir(parents=True)
+        (ws_b_skill / "SKILL.md").write_text("# WS B Skill", encoding="utf-8")
+        (ws_b / "skills.toml").write_text('skills = ["my-skill"]\n', encoding="utf-8")
+
+        # First, workspace A owns the link in container
+        self.agents_skills.mkdir(parents=True, exist_ok=True)
+        (self.skills_dir / "my-skill").mkdir(parents=True, exist_ok=True)
+        target_link = self.agents_skills / "my-skill"
+        target_link.symlink_to(self.skills_dir / "my-skill")
+
+        # Now, plan for workspace B against the same target
+        batch_b = build_global_skill_batch(
+            ws_b, self.home, skills=["my-skill"], registry=self.registry
+        )
+        plan_b = plan_global_skills(batch_b, self.home)
+
+        self.assertTrue(plan_b.has_conflicts)
+        self.assertFalse(plan_b.can_apply)
+        entry_op = plan_b.entry_ops[0]
+        self.assertEqual(entry_op.action, "CONFLICT")
+        self.assertEqual(entry_op.rule_id, "INV-TR-05")
+        # Assert §8.3 elements in reason
+        self.assertIn(f"Target preserved: {target_link}", entry_op.reason)
+        self.assertIn(str(self.skills_dir / "my-skill"), entry_op.reason)
+        self.assertIn(str(ws_b_skill), entry_op.reason)
+        self.assertIn("Other workspace or unmanaged skill symlink will not be overwritten automatically", entry_op.reason)
+        self.assertIn("inspect manually, then run 'aikito sync global' again", entry_op.reason)
+
+        # Execution must fail and original link must be preserved
+        res = execute_global_skills(plan_b)
+        self.assertFalse(res.success)
+        self.assertEqual(target_link.resolve(), (self.skills_dir / "my-skill").resolve())
+
+    def test_legacy_container_subpath_and_external_and_other_workspace_blocked(self) -> None:
+        self.agents_skills.parent.mkdir(parents=True, exist_ok=True)
+
+        # 1. Points to subpath of current workspace skills
+        subpath = self.skills_dir / "subpath"
+        subpath.mkdir(parents=True, exist_ok=True)
+        if self.agents_skills.exists() or self.agents_skills.is_symlink():
+            self.agents_skills.unlink()
+        self.agents_skills.symlink_to(subpath)
+
+        batch = build_global_skill_batch(
+            self.workspace, self.home, registry=self.registry
+        )
+        plan = plan_global_skills(batch, self.home)
+        self.assertEqual(plan.container_op.action, "CONFLICT")
+        self.assertEqual(plan.container_op.rule_id, "INV-GLB-04")
+        self.assertIn("points to a subpath instead of skills root", plan.container_op.reason)
+        self.assertFalse(plan.can_apply)
+
+        # 2. Points to other workspace skills root
+        other_ws_skills = self.root / "other-aikito" / "skills"
+        other_ws_skills.mkdir(parents=True, exist_ok=True)
+        self.agents_skills.unlink()
+        self.agents_skills.symlink_to(other_ws_skills)
+
+        batch2 = build_global_skill_batch(
+            self.workspace, self.home, registry=self.registry
+        )
+        plan2 = plan_global_skills(batch2, self.home)
+        self.assertEqual(plan2.container_op.action, "CONFLICT")
+        self.assertEqual(plan2.container_op.rule_id, "INV-GLB-04")
+        self.assertIn("points outside current workspace", plan2.container_op.reason)
+        self.assertFalse(plan2.can_apply)
+
+        # 3. Points to external path
+        ext = self.root / "external-container"
+        ext.mkdir(parents=True, exist_ok=True)
+        self.agents_skills.unlink()
+        self.agents_skills.symlink_to(ext)
+
+        batch3 = build_global_skill_batch(
+            self.workspace, self.home, registry=self.registry
+        )
+        plan3 = plan_global_skills(batch3, self.home)
+        self.assertEqual(plan3.container_op.action, "CONFLICT")
+        self.assertEqual(plan3.container_op.rule_id, "INV-GLB-04")
+        self.assertIn("points outside current workspace", plan3.container_op.reason)
+        self.assertFalse(plan3.can_apply)
+
+    def test_stale_plan_preflight_rejection(self) -> None:
+        (self.skills_dir / "s-stale").mkdir(parents=True, exist_ok=True)
+        self.agents_skills.mkdir(parents=True, exist_ok=True)
+        self.claude_skills.parent.mkdir(parents=True, exist_ok=True)
+
+        batch = build_global_skill_batch(
+            self.workspace, self.home, skills=["s-stale"], registry=self.registry
+        )
+        plan = plan_global_skills(batch, self.home)
+        self.assertTrue(plan.can_apply)
+
+        # Scenario A: Target link appears externally before apply
+        target_entry = self.agents_skills / "s-stale"
+        target_entry.write_text("external collision", encoding="utf-8")
+        res_a = execute_global_skills(plan)
+        self.assertFalse(res_a.success)
+        self.assertIn("target already exists or changed", str(res_a.error_message))
+        target_entry.unlink()
+
+        # Scenario B: Container directory disappears before apply
+        shutil.rmtree(self.agents_skills)
+        res_b = execute_global_skills(plan)
+        self.assertFalse(res_b.success)
+        self.assertIn("managed container", str(res_b.error_message))
+        self.agents_skills.mkdir(parents=True, exist_ok=True)
+
+        # Scenario C: Canonical skill directory deleted before apply
+        shutil.rmtree(self.skills_dir / "s-stale")
+        res_c = execute_global_skills(plan)
+        self.assertFalse(res_c.success)
+        self.assertIn("canonical source does not exist", str(res_c.error_message))
+        self.assertIn("stale plan", str(res_c.error_message))
+        (self.skills_dir / "s-stale").mkdir(parents=True, exist_ok=True)
+
+        # Scenario D: Consumer parent directory disappears before apply
+        shutil.rmtree(self.claude_skills.parent)
+        res_d = execute_global_skills(plan)
+        self.assertFalse(res_d.success)
+        self.assertIn("consumer parent directory missing", str(res_d.error_message))
+
 

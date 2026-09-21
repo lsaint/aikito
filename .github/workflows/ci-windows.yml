@@ -161,6 +161,20 @@ jobs:
           if ($repeatOutput -notmatch "Global resources synced successfully") {
             throw "Repeated global sync did not report success"
           }
+
+          # Verify Phase 4 dry-run zero write snapshot
+          $dryHome = Join-Path $env:RUNNER_TEMP "win-dry-home"
+          New-Item -ItemType Directory -Force -Path $dryHome | Out-Null
+          $origHome = $env:HOME
+          $origProfile = $env:USERPROFILE
+          $env:HOME = $dryHome
+          $env:USERPROFILE = $dryHome
+          python -m aikito sync global --dry-run | Out-Null
+          if (Test-Path (Join-Path $dryHome ".agents")) {
+            throw "Dry-run created .agents container on Windows"
+          }
+          $env:HOME = $origHome
+          $env:USERPROFILE = $origProfile
           $aikitoSkill = Join-Path $wsDir "skills\aikito\SKILL.md"
           $memorySkill = Join-Path $wsDir "skills\durable-memory\SKILL.md"
           "customized aikito" | Set-Content $aikitoSkill

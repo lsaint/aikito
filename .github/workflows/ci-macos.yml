@@ -68,6 +68,30 @@ jobs:
           test -L "$HOME/.claude/skills"
           test -L "$HOME/.gemini/antigravity-cli/skills"
 
+      - name: macOS CLI smoke - Global Skills Safety and Migration (Phase 4 Invariants)
+        run: |
+          WS=${{ runner.temp }}/macos-ws
+          # 1. Legacy top-level container migration
+          LEGACY_HOME=${{ runner.temp }}/macos-legacy-home
+          mkdir -p "$LEGACY_HOME/.agents" "$LEGACY_HOME/.claude"
+          ln -s "$WS/skills" "$LEGACY_HOME/.agents/skills"
+          test -L "$LEGACY_HOME/.agents/skills"
+          HOME="$LEGACY_HOME" AIKITO_DIR=$WS python3 -m aikito sync global | tee ${{ runner.temp }}/macos-legacy-mig.out
+          grep -F "Replacing old top-level symlink" ${{ runner.temp }}/macos-legacy-mig.out
+          test -d "$LEGACY_HOME/.agents/skills"
+          test ! -L "$LEGACY_HOME/.agents/skills"
+          test -L "$LEGACY_HOME/.agents/skills/aikito"
+          test -L "$LEGACY_HOME/.agents/skills/durable-memory"
+
+          # 2. Wrong consumer symlink preservation and conflict
+          mkdir -p ${{ runner.temp }}/macos-ext-consumer
+          rm -f "$LEGACY_HOME/.claude/skills"
+          ln -s "${{ runner.temp }}/macos-ext-consumer" "$LEGACY_HOME/.claude/skills"
+          ! HOME="$LEGACY_HOME" AIKITO_DIR=$WS python3 -m aikito sync global 2> ${{ runner.temp }}/macos-wrong-consumer.err
+          grep -F "[CONFLICT]" ${{ runner.temp }}/macos-wrong-consumer.err
+          grep -F "Target preserved:" ${{ runner.temp }}/macos-wrong-consumer.err
+          test "$(readlink "$LEGACY_HOME/.claude/skills")" = "${{ runner.temp }}/macos-ext-consumer"
+
       - name: macOS CLI smoke - Link and Copy Modes
         run: |
           WS=${{ runner.temp }}/macos-ws

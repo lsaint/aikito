@@ -331,61 +331,6 @@ def plan_global_skills(
     )
 
 
-def execute_global_skill_entries(
-    plan: GlobalSkillBatchPlan,
-    *,
-    dry_run: bool = False,
-    verbose: bool = False,
-) -> tuple[bool, tuple[LinkExecutionResult, ...]]:
-    """Execute the container and managed entry operations of a GlobalSkillBatchPlan.
-
-    Executes container migration/creation first, followed by stale cleanup,
-    and finally selected link operations. Halts immediately upon any failure.
-    """
-    results: list[LinkExecutionResult] = []
-
-    # 1. Container operation
-    res = apply_link_operation(plan.container_op, dry_run=dry_run, verbose=verbose)
-    results.append(res)
-    if not res.success:
-        return False, tuple(results)
-
-    # 2. Stale cleanups first
-    stale_ops = [op for op in plan.entry_ops if op.desired_representation == "absent"]
-    for op in stale_ops:
-        res = apply_link_operation(op, dry_run=dry_run, verbose=verbose)
-        results.append(res)
-        if not res.success:
-            return False, tuple(results)
-
-    # 3. Selected entry operations
-    selected_ops = [op for op in plan.entry_ops if op.desired_representation == "link"]
-    for op in selected_ops:
-        res = apply_link_operation(op, dry_run=dry_run, verbose=verbose)
-        results.append(res)
-        if not res.success:
-            return False, tuple(results)
-
-    return True, tuple(results)
-
-
-def execute_global_skill_consumers(
-    plan: GlobalSkillBatchPlan,
-    *,
-    dry_run: bool = False,
-    verbose: bool = False,
-) -> tuple[bool, tuple[LinkExecutionResult, ...]]:
-    """Execute consumer link operations of a GlobalSkillBatchPlan.
-
-    Halts immediately upon any failure.
-    """
-    results: list[LinkExecutionResult] = []
-    for op in plan.consumer_ops:
-        res = apply_link_operation(op, dry_run=dry_run, verbose=verbose)
-        results.append(res)
-        if not res.success:
-            return False, tuple(results)
-    return True, tuple(results)
 
 
 def execute_global_skills(

@@ -302,32 +302,12 @@ def sync_global_resources(
     ]
     if all_conflicts:
         for op in all_conflicts:
-            if op.target_path == agents_skills_dir and plan.container_op.action == "CONFLICT":
-                print(
-                    f"[CONFLICT] Global skills path points outside Aikito: "
-                    f"{agents_skills_dir}",
-                    file=sys.stderr,
-                )
-            elif op.target_kind == "consumer_link":
-                if op.target_path.is_symlink():
-                    try:
-                        dest = os.readlink(op.target_path)
-                    except OSError:
-                        dest = "unknown"
-                    print(
-                        f"[CONFLICT] Unexpected consumer symlink destination for {op.resource_name}: {op.target_path} -> {dest}",
-                        file=sys.stderr,
-                    )
-                else:
-                    print(
-                        f"[CONFLICT] {op.resource_name} skills: {op.target_path} is not a symlink; "
-                        "move or merge it manually, then run 'aikito sync global' again.",
-                        file=sys.stderr,
-                    )
-            elif op.rule_id in ("INV-TR-02", "INV-TR-04"):
-                print(f"[ERROR] {op.reason}", file=sys.stderr)
-            else:
-                print(f"[CONFLICT] Unmanaged global skill item: {op.target_path}", file=sys.stderr)
+            prefix = (
+                "[ERROR]"
+                if op.rule_id in ("INV-TR-02", "INV-TR-04")
+                else "[CONFLICT]"
+            )
+            print(f"{prefix} {op.reason}", file=sys.stderr)
         print("[ERROR] Global synchronization aborted.", file=sys.stderr)
         return GlobalSyncResult(
             success=False,

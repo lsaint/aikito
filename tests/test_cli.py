@@ -1019,6 +1019,80 @@ class GlobalSyncSafetyTest(unittest.TestCase):
         self.assertTrue(aikito_link.is_symlink())
         self.assertEqual(aikito_link.resolve(), aikito_canonical.resolve())
 
+    def test_result_segmentation_skills_succeed_instructions_fail(self) -> None:
+        # Configure a valid skill
+        (self.workspace / "skills.toml").write_text(
+            'skills = ["stale"]\n', encoding="utf-8"
+        )
+        (self.workspace / "skills" / "stale").mkdir(parents=True, exist_ok=True)
+
+        # Remove global instruction source so instructions phase fails
+        instr_source = self.workspace / "global" / "AGENTS.md"
+        if instr_source.exists():
+            instr_source.unlink()
+        self.assertFalse(instr_source.exists())
+
+        with (
+            patch.object(AIKITO_CLI, "load_agents", return_value={}),
+            patch.object(
+                AIKITO_CLI, "get_agents_dir", return_value=self.root / ".agents"
+            ),
+        ):
+            result = AIKITO_CLI.sync_global_resources(self.workspace, self.root)
+        self.assertFalse(result.success)
+        self.assertFalse(bool(result))
+        self.assertFalse(result.instruction_success)
+        # Skills phase must be successfully applied and not rolled back
+        self.assertIsNotNone(result.skill_result)
+        self.assertTrue(result.skill_result.success)
+        stale_link = self.runtime / "stale"
+        self.assertTrue(stale_link.is_symlink())
+        self.assertEqual(
+            stale_link.resolve(), (self.workspace / "skills" / "stale").resolve()
+        )
+
+    def test_cross_workspace_sync_global_conflict_cli(self) -> None:
+        # WS A syncs 'stale' skill
+        (self.workspace / "skills.toml").write_text(
+            'skills = ["stale"]\n', encoding="utf-8"
+        )
+        (self.workspace / "skills" / "stale").mkdir(parents=True, exist_ok=True)
+        self._run_sync()
+        target_link = self.runtime / "stale"
+        self.assertTrue(target_link.is_symlink())
+        self.assertEqual(target_link.resolve(), (self.workspace / "skills" / "stale").resolve())
+
+        # Setup WS B
+        ws_b = self.root / "ws_b"
+        ws_b.mkdir()
+        (ws_b / "skills" / "stale").mkdir(parents=True, exist_ok=True)
+        (ws_b / "skills.toml").write_text('skills = ["stale"]\n', encoding="utf-8")
+        (ws_b / "global").mkdir()
+        (ws_b / "global" / "AGENTS.md").write_text("", encoding="utf-8")
+
+        # WS B attempts to sync global against same runtime
+        args = AIKITO_CLI.build_parser().parse_args(["sync", "global"])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=ws_b),
+            patch.object(
+                AIKITO_CLI, "get_agents_dir", return_value=self.root / ".agents"
+            ),
+            patch.object(AIKITO_CLI, "load_agents", return_value={}),
+            patch("sys.stderr", new_callable=io.StringIO) as stderr,
+            self.assertRaises(SystemExit) as cm,
+        ):
+            args.func(args)
+
+        self.assertEqual(cm.exception.code, 1)
+        err = stderr.getvalue()
+        self.assertIn("[CONFLICT]", err)
+        self.assertIn(f"Target preserved: {target_link}", err)
+        self.assertIn("Other workspace or unmanaged skill symlink will not be overwritten automatically", err)
+        # Verify original target link from WS A was not touched
+        self.assertEqual(target_link.resolve(), (self.workspace / "skills" / "stale").resolve())
+
+
+
 
 
 class InitSubcommandParserTest(unittest.TestCase):

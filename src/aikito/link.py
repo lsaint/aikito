@@ -174,13 +174,43 @@ def _plan_link_target_impl(
                     desired_representation="dir",
                     is_authorized=True,
                 )
+            dest = (
+                observed.raw_link_target
+                or observed.resolved_link_target
+                or "unknown"
+            )
+            is_sub = False
+            if canonical is not None:
+                try:
+                    dest_resolved = Path(dest).resolve(strict=False)
+                    canon_resolved = canonical.resolve(strict=False)
+                    is_sub = (
+                        dest_resolved != canon_resolved
+                        and (
+                            dest_resolved.is_relative_to(canon_resolved)
+                            if hasattr(Path, "is_relative_to")
+                            else str(dest_resolved).startswith(str(canon_resolved) + os.sep)
+                        )
+                    )
+                except Exception:
+                    is_sub = False
+            detail = (
+                "points to a subpath instead of skills root"
+                if is_sub
+                else "points outside current workspace"
+            )
             return LinkOperation(
                 action="CONFLICT",
                 rule_id="INV-GLB-04",
                 target_path=target_path,
                 canonical_path=canonical,
-                reason=f"Legacy container symlink points outside workspace: {target_path}",
-                finding=f"Legacy container symlink points outside workspace: {target_path}",
+                reason=(
+                    f"Target preserved: {target_path}. "
+                    f"Current legacy container symlink {detail}: {dest}, expected: {canonical}. "
+                    f"Legacy container migration only allows exact root link to current workspace skills; "
+                    f"inspect manually, then run 'aikito sync global' again."
+                ),
+                finding=f"Legacy container symlink {detail}: {target_path} -> {dest}",
                 expected_representation="symlink",
                 desired_representation="dir",
                 is_authorized=False,
@@ -212,7 +242,11 @@ def _plan_link_target_impl(
             rule_id="INV-GLB-04",
             target_path=target_path,
             canonical_path=canonical,
-            reason=f"Container path is an invalid entry type: {observed.entry_type}",
+            reason=(
+                f"Target preserved: {target_path}. "
+                f"Container path is an invalid entry type '{observed.entry_type}' (expected directory). "
+                f"Will not overwrite automatically; inspect manually, then run 'aikito sync global' again."
+            ),
             finding=f"Container path is invalid entry type: {target_path}",
             expected_representation=observed.entry_type,
             desired_representation="dir",
@@ -346,16 +380,34 @@ def _plan_link_target_impl(
             )
             if observed.target_kind == "consumer_link":
                 rule = "INV-GLB-05"
+                reason_msg = (
+                    f"Target preserved: {target_path}. "
+                    f"Symbolic link points to unauthorized destination: {dest} (expected {canonical}). "
+                    f"External or unexpected consumer symlink will not be overwritten automatically; "
+                    f"inspect manually, then run 'aikito sync global' again."
+                )
             elif has_state_record:
                 rule = "INV-TR-06"
+                reason_msg = (
+                    f"Target preserved: {target_path}. "
+                    f"Symbolic link points to unauthorized destination: {dest} (expected {canonical}). "
+                    f"Other workspace or unmanaged skill symlink will not be overwritten automatically; "
+                    f"inspect manually, then run 'aikito sync global' again."
+                )
             else:
                 rule = "INV-TR-05"
+                reason_msg = (
+                    f"Target preserved: {target_path}. "
+                    f"Symbolic link points to unauthorized destination: {dest} (expected {canonical}). "
+                    f"Other workspace or unmanaged skill symlink will not be overwritten automatically; "
+                    f"inspect manually, then run 'aikito sync global' again."
+                )
             return LinkOperation(
                 action="CONFLICT",
                 rule_id=rule,
                 target_path=target_path,
                 canonical_path=canonical,
-                reason=f"Symbolic link points to unauthorized destination: {dest}",
+                reason=reason_msg,
                 finding=f"Symbolic link points to unauthorized destination: {target_path} -> {dest}",
                 expected_representation="symlink",
                 desired_representation="link",
@@ -373,9 +425,18 @@ def _plan_link_target_impl(
                 rule_id=rule,
                 target_path=target_path,
                 canonical_path=canonical,
-                reason=f"Cannot switch copy to link for skill '{resource_name}': directory is drifted, unmanaged, or inactive"
-                if resource_name
-                else f"Target path is an unmanaged directory: {target_path}",
+                reason=(
+                    f"Target preserved: {target_path}. "
+                    f"Target is a regular directory (expected symlink to {canonical}). "
+                    f"Unmanaged or matching directory will not be overwritten automatically; "
+                    f"move or merge it manually, then run 'aikito sync global' again."
+                )
+                if observed.scope == "global"
+                else (
+                    f"Cannot switch copy to link for skill '{resource_name}': directory is drifted, unmanaged, or inactive"
+                    if resource_name
+                    else f"Target path is an unmanaged directory: {target_path}"
+                ),
                 finding=f"Cannot switch copy to link for skill '{resource_name}': {target_path} is not an unchanged active copy"
                 if resource_name
                 else f"Target path is an unmanaged directory: {target_path}",
@@ -389,9 +450,17 @@ def _plan_link_target_impl(
             rule_id="INV-TR-13",
             target_path=target_path,
             canonical_path=canonical,
-            reason=f"Unsupported target filesystem entry for skill '{resource_name}'"
-            if resource_name
-            else f"Unsupported target filesystem entry: {target_path}",
+            reason=(
+                f"Target preserved: {target_path}. "
+                f"Target is an unexpected entry type '{observed.entry_type}' (expected link to {canonical}). "
+                f"Will not overwrite automatically; inspect manually, then run 'aikito sync global' again."
+            )
+            if observed.scope == "global"
+            else (
+                f"Unsupported target filesystem entry for skill '{resource_name}'"
+                if resource_name
+                else f"Unsupported target filesystem entry: {target_path}"
+            ),
             finding=f"Unsupported target filesystem entry: {target_path}",
             expected_representation="unsupported",
             desired_representation="link",
@@ -424,7 +493,12 @@ def _plan_link_target_impl(
                 rule_id="INV-GLB-03",
                 target_path=target_path,
                 canonical_path=canonical,
-                reason=f"Unmanaged global skill item: {target_path}",
+                reason=(
+                    f"Target preserved: {target_path}. "
+                    f"Stale entry symlink destination: {dest}, expected: {canonical}. "
+                    f"Other workspace or unmanaged skill symlink will not be deleted automatically; "
+                    f"inspect manually, then run 'aikito sync global' again."
+                ),
                 finding=f"Unmanaged global skill item: {target_path}",
                 expected_representation="symlink",
                 desired_representation="absent",
@@ -451,8 +525,13 @@ def _plan_link_target_impl(
                 rule_id="INV-GLB-03",
                 target_path=target_path,
                 canonical_path=canonical,
-                reason=f"Unmanaged global skill item: {target_path}",
-                finding=f"Unmanaged global skill item: {target_path}",
+                reason=(
+                    f"Target preserved: {target_path}. "
+                    f"Stale target is a regular directory (expected symlink to {canonical}). "
+                    f"Matching directory is not owned by link-only global skills and will not be deleted; "
+                    f"inspect or remove manually, then run 'aikito sync global' again."
+                ),
+                finding=f"Stale target is a regular directory: {target_path}",
                 expected_representation="dir",
                 desired_representation="absent",
                 is_authorized=False,
@@ -488,7 +567,11 @@ def _plan_link_target_impl(
             rule_id="INV-GLB-03",
             target_path=target_path,
             canonical_path=canonical,
-            reason=f"Unmanaged global skill item: {target_path}",
+            reason=(
+                f"Target preserved: {target_path}. "
+                f"Stale target is an unexpected entry type '{observed.entry_type}'. "
+                f"Unmanaged item will not be deleted automatically; inspect manually, then run 'aikito sync global' again."
+            ),
             finding=f"Unmanaged global skill item: {target_path}",
             expected_representation=observed.entry_type,
             desired_representation="absent",
@@ -632,15 +715,53 @@ def apply_link_operation(
                 operation=op,
                 success=False,
                 applied=False,
-                error_message=f"Preflight failed: canonical source does not exist: {canonical}",
+                error_message=f"Preflight failed: canonical source does not exist: {canonical} (stale plan)",
             )
+        if op.target_kind == "managed_entry" and not canonical.is_dir():
+            return LinkExecutionResult(
+                operation=op,
+                success=False,
+                applied=False,
+                error_message=f"Preflight failed: canonical skill source is not a directory: {canonical} (stale plan)",
+            )
+        if op.target_kind == "consumer_link" and not (
+            canonical.is_dir() and not canonical.is_symlink()
+        ):
+            return LinkExecutionResult(
+                operation=op,
+                success=False,
+                applied=False,
+                error_message=f"Preflight failed: managed container {canonical} is not a valid directory (stale plan)",
+            )
+
+        # Preflight: verify container identity for managed entry
+        if op.target_kind == "managed_entry":
+            container = target.parent
+            if not (container.is_dir() and not container.is_symlink()):
+                return LinkExecutionResult(
+                    operation=op,
+                    success=False,
+                    applied=False,
+                    error_message=f"Preflight failed: managed container {container} is not a valid directory (stale plan)",
+                )
+
+        # Preflight: verify consumer parent availability
+        if op.target_kind == "consumer_link" and not op.requires_parent_creation:
+            if not target.parent.exists():
+                return LinkExecutionResult(
+                    operation=op,
+                    success=False,
+                    applied=False,
+                    error_message=f"Preflight failed: consumer parent directory missing for {target} (stale plan)",
+                )
+
         # Preflight: target must not exist
         if target.is_symlink() or target.exists():
             return LinkExecutionResult(
                 operation=op,
                 success=False,
                 applied=False,
-                error_message=f"Preflight failed: target already exists: {target}",
+                error_message=f"Preflight failed: target already exists or changed: {target} (stale plan)",
             )
 
         try:

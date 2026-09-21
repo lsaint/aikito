@@ -292,6 +292,64 @@ jobs:
           test -L ~/.claude/skills
           test -L ~/.gemini/antigravity-cli/skills
 
+      - name: Global skills safety, conflict, and migration smoke - Phase 4 invariants
+        run: |
+          # 1. Dry-run zero-write snapshot
+          DRY_HOME=${{ runner.temp }}/dry-home
+          mkdir -p "$DRY_HOME"
+          HOME="$DRY_HOME" AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync global --dry-run
+          test ! -e "$DRY_HOME/.agents"
+          test ! -e "$DRY_HOME/.claude"
+
+          # 2. Legacy top-level container migration (§5.4 / INV-GLB-04)
+          LEGACY_HOME=${{ runner.temp }}/legacy-home
+          mkdir -p "$LEGACY_HOME/.agents" "$LEGACY_HOME/.claude"
+          ln -s "${{ runner.temp }}/aikito-ws/skills" "$LEGACY_HOME/.agents/skills"
+          test -L "$LEGACY_HOME/.agents/skills"
+          HOME="$LEGACY_HOME" AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync global | tee ${{ runner.temp }}/legacy-mig.out
+          grep -F "Replacing old top-level symlink" ${{ runner.temp }}/legacy-mig.out
+          test -d "$LEGACY_HOME/.agents/skills"
+          test ! -L "$LEGACY_HOME/.agents/skills"
+          test -L "$LEGACY_HOME/.agents/skills/aikito"
+          test -L "$LEGACY_HOME/.agents/skills/durable-memory"
+
+          # 3. Wrong consumer symlink preservation and conflict (§8.1 / INV-GLB-05)
+          mkdir -p ${{ runner.temp }}/ext-consumer-dest
+          rm -f "$LEGACY_HOME/.claude/skills"
+          ln -s "${{ runner.temp }}/ext-consumer-dest" "$LEGACY_HOME/.claude/skills"
+          ! HOME="$LEGACY_HOME" AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync global 2> ${{ runner.temp }}/wrong-consumer.err
+          grep -F "[CONFLICT]" ${{ runner.temp }}/wrong-consumer.err
+          grep -F "Target preserved:" ${{ runner.temp }}/wrong-consumer.err
+          test "$(readlink "$LEGACY_HOME/.claude/skills")" = "${{ runner.temp }}/ext-consumer-dest"
+          # Restore valid link for subsequent checks
+          rm -f "$LEGACY_HOME/.claude/skills"
+          ln -s "$LEGACY_HOME/.agents/skills" "$LEGACY_HOME/.claude/skills"
+
+          # 4. Stale matching directory preservation (§8.2 / INV-GLB-02)
+          mkdir -p "$LEGACY_HOME/.agents/skills/matching-dir"
+          echo "preserve" > "$LEGACY_HOME/.agents/skills/matching-dir/keep.txt"
+          ! HOME="$LEGACY_HOME" AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync global 2> ${{ runner.temp }}/matching-dir.err
+          grep -F "[CONFLICT]" ${{ runner.temp }}/matching-dir.err
+          grep -F "Target preserved:" ${{ runner.temp }}/matching-dir.err
+          test -f "$LEGACY_HOME/.agents/skills/matching-dir/keep.txt"
+          rm -rf "$LEGACY_HOME/.agents/skills/matching-dir"
+
+          # 5. Cross-workspace ownership conflict (§4.3 / INV-GLB-03)
+          WS_B=${{ runner.temp }}/aikito-ws-b
+          python3 -m aikito init workspace "$WS_B"
+          printf 'skills = ["aikito"]\n' > "$WS_B/skills.toml"
+          ! HOME="$LEGACY_HOME" AIKITO_DIR="$WS_B" \
+            python3 -m aikito sync global 2> ${{ runner.temp }}/cross-ws.err
+          grep -F "[CONFLICT]" ${{ runner.temp }}/cross-ws.err
+          grep -F "Target preserved:" ${{ runner.temp }}/cross-ws.err
+          grep -F "Other workspace or unmanaged skill symlink will not be overwritten automatically" ${{ runner.temp }}/cross-ws.err
+          test "$(readlink "$LEGACY_HOME/.agents/skills/aikito")" = "${{ runner.temp }}/aikito-ws/skills/aikito"
+
+
       - name: Refresh divergent bundled skills
         run: |
           printf 'customized aikito\n' > \
