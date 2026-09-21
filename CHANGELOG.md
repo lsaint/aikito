@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.48.0] - 2026-09-21
+
 ### Added
 
 - Migrated subagent configuration and MCP server configuration engines to the structured configuration model (Core Model Phase 7), introducing `SubagentPlan`, `SubagentFilePlan`, `SubagentExecutionResult`, `MCPPlan`, `MCPFilePlan`, and `MCPExecutionResult`.
@@ -868,7 +870,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.47.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.48.0...HEAD
+[1.48.0]: https://github.com/lsaint/aikito/compare/v1.47.0...v1.48.0
 [1.47.0]: https://github.com/lsaint/aikito/compare/v1.46.0...v1.47.0
 [1.46.0]: https://github.com/lsaint/aikito/compare/v1.45.0...v1.46.0
 [1.45.0]: https://github.com/lsaint/aikito/compare/v1.44.2...v1.45.0
