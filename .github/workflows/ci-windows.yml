@@ -258,6 +258,20 @@ jobs:
           Remove-Item -Force $winInstTarget
           # Re-sync to leave clean link for remainder of test
           python -m aikito sync project example
+
+          # Phase 6 Project memory smoke tests on Windows
+          $winMemCanonical = Join-Path $wsDir "projects\example\memory\notes"
+          New-Item -ItemType Directory -Force -Path $winMemCanonical | Out-Null
+          $winMemTarget = Join-Path $projectDir ".agents\memory\notes"
+          python -m aikito sync project example
+          if (-not (Test-Path $winMemTarget)) {
+            throw "Project memory notes link missing on Windows"
+          }
+          # Repeated sync is idempotent
+          $repeatMemOutput = python -m aikito sync project example | Out-String
+          if ($repeatMemOutput -match "\[LINK\].*memory" -or $repeatMemOutput -match "\[UNLINK\].*memory") {
+            throw "Repeated project memory sync was not idempotent on Windows"
+          }
           $extSkillDir = Join-Path $env:RUNNER_TEMP "external-windows-skill"
           New-Item -ItemType Directory -Force -Path $extSkillDir | Out-Null
           @("---", "name: win-imported-skill", "description: Windows imported skill", "---", "", "# Windows Skill") | Set-Content (Join-Path $extSkillDir "SKILL.md")

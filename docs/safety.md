@@ -106,9 +106,13 @@ review is useful.
   unexpected global instruction symlinks cause conflicts rather than automatic relinking ([INV-INST-06](architecture/invariants.md#inv-inst-06)).
 - When project instructions are empty/disabled, only exact owned symlinks are unlinked ([INV-INST-08](architecture/invariants.md#inv-inst-08));
   pre-existing regular files at instruction targets are strictly preserved as project-owned ([INV-INST-10](architecture/invariants.md#inv-inst-10)).
+- Project memory operates strictly in link mode without copy baselines ([INV-MEM-01](architecture/invariants.md#inv-mem-01));
+  pre-existing regular files, directories, or foreign symlinks at memory targets cause conflicts rather than automatic replacement ([INV-MEM-07](architecture/invariants.md#inv-mem-07)).
+- Deselected memory entries are unlinked only when proven to be exact owned symlinks to canonical candidates ([INV-MEM-06](architecture/invariants.md#inv-mem-06));
+  stale unmanaged items are preserved untouched.
 - Conflicting instruction sources require user judgment.
 - Explicit force or prune options are strictly scoped to reviewed targets ([INV-AUTH-02](architecture/invariants.md#inv-auth-02));
-  `--force` never authorizes overwriting instructions ([INV-AUTH-05](architecture/invariants.md#inv-auth-05)).
+  `--force` never authorizes overwriting instructions or memory ([INV-AUTH-05](architecture/invariants.md#inv-auth-05), [INV-MEM-07](architecture/invariants.md#inv-mem-07)).
 - For formal verification rules and state transition tables, see the
   [Engineering Invariants](architecture/invariants.md).
 
@@ -140,9 +144,11 @@ Command Prompt):
 
 Project `.agents/skills/` is shared at entry level. Aikito manages only selected
 skill names, preserves other project-owned entries, and reports a conflict only
-when a selected name is already owned by the project. `.agents/memory/` remains
-exclusively managed by Aikito. Matching file contents alone never prove copy
-ownership ([INV-OWN-01](architecture/invariants.md#inv-own-01)), and synchronization never deletes unknown content.
+when a selected name is already owned by the project. Project `.agents/memory/`
+manages selected memory references and project `notes/`. Pre-existing unmanaged entries
+evaluate to conflicts and are strictly preserved ([INV-MEM-07](architecture/invariants.md#inv-mem-07)).
+Matching file contents alone never prove ownership ([INV-OWN-01](architecture/invariants.md#inv-own-01)),
+and synchronization never deletes unknown content.
 
 ## Recovery Practice
 

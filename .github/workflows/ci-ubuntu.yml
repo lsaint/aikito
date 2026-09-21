@@ -417,6 +417,54 @@ jobs:
           test "$(cat "$PROJ_DIR/AGENTS.md")" = "project-owned instruction content"
           rm -rf "$PROJ_DIR" "$WS/projects/inst-test"
 
+      - name: Project memory safety, idempotency, and source priority smoke - Phase 6 invariants
+        run: |
+          WS=${{ runner.temp }}/aikito-ws
+          PROJ_DIR=${{ runner.temp }}/mem-proj
+          mkdir -p "$PROJ_DIR"
+          AIKITO_DIR="$WS" python3 -m aikito init project mem-test "$PROJ_DIR"
+          mkdir -p "$WS/projects/mem-test/memory/notes"
+          mkdir -p "$WS/memory"
+          printf "# Global Reference\n" > "$WS/memory/shared.md"
+          printf 'memory = ["shared.md"]\n' >> "$WS/projects/mem-test/agent.toml"
+
+          # 1. Project sync creates canonical memory symlinks (INV-MEM-01, INV-MEM-03)
+          AIKITO_DIR="$WS" python3 -m aikito sync project mem-test
+          test -L "$PROJ_DIR/.agents/memory/notes"
+          test -L "$PROJ_DIR/.agents/memory/shared.md"
+
+          # 2. Repeated sync is NOOP and dry-run zero-mutation (INV-MEM-10)
+          AIKITO_DIR="$WS" python3 -m aikito sync project mem-test --dry-run | tee ${{ runner.temp }}/mem-dryrun.out
+          ! grep -F "[CLEANUP]" ${{ runner.temp }}/mem-dryrun.out
+          AIKITO_DIR="$WS" python3 -m aikito sync project mem-test | tee ${{ runner.temp }}/mem-repeat.out
+          ! grep -F "[LINK]" ${{ runner.temp }}/mem-repeat.out
+          ! grep -F "[UNLINK]" ${{ runner.temp }}/mem-repeat.out
+
+          # 3. Target conflict protection preserves existing regular files (INV-MEM-07)
+          rm "$PROJ_DIR/.agents/memory/shared.md"
+          printf "unmanaged content\n" > "$PROJ_DIR/.agents/memory/shared.md"
+          ! AIKITO_DIR="$WS" python3 -m aikito sync project mem-test 2> ${{ runner.temp }}/mem-conflict.err
+          grep -F "Unmanaged project runtime item:" ${{ runner.temp }}/mem-conflict.err
+          test -f "$PROJ_DIR/.agents/memory/shared.md"
+          test ! -L "$PROJ_DIR/.agents/memory/shared.md"
+          test "$(cat "$PROJ_DIR/.agents/memory/shared.md")" = "unmanaged content"
+
+          # 4. Deselection unlinks exact owned link (INV-MEM-06)
+          rm "$PROJ_DIR/.agents/memory/shared.md"
+          AIKITO_DIR="$WS" python3 -m aikito sync project mem-test
+          test -L "$PROJ_DIR/.agents/memory/shared.md"
+          python3 -c "
+          from pathlib import Path
+          p = Path('$WS/projects/mem-test/agent.toml')
+          p.write_text(p.read_text().replace('\"shared.md\"', ''))
+          "
+          AIKITO_DIR="$WS" python3 -m aikito sync project mem-test | tee ${{ runner.temp }}/mem-desel.out
+          grep -F "[CLEANUP]" ${{ runner.temp }}/mem-desel.out
+          test ! -e "$PROJ_DIR/.agents/memory/shared.md"
+          test -L "$PROJ_DIR/.agents/memory/notes"
+
+          rm -rf "$PROJ_DIR" "$WS/projects/mem-test"
+
       - name: Refresh divergent bundled skills
         run: |
           printf 'customized aikito\n' > \
