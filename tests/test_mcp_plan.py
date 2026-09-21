@@ -11,16 +11,21 @@ import dataclasses
 import json
 import os
 import shutil
+import stat
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from aikito.config_runtime import ConfigCollisionError, StaleConfigPlanError
 from aikito.mcp import (
+    BACKUP_DIR,
     STATE_FILE,
     AgentSpec,
+    MCPExecutionResult,
     MCPPlan,
     build_mcp_plan,
+    execute_mcp_plan,
     sync_mcp_configs,
 )
 
@@ -333,6 +338,250 @@ agents = ["claude"]
         self.assertTrue(fp.will_mutate)
         data = json.loads(fp.final_content)
         self.assertNotIn("old_server", data.get("mcpServers", {}))
+
+    def test_execute_mcp_plan_success_single_file_write_and_state_commit(self) -> None:
+        """Applying plan writes file once and atomically records state (INV-MCP-02, INV-MCP-03)."""
+        (self.mcps_dir / "srv-1.toml").write_text(
+            """transport = "remote"
+url = "https://example.com/1"
+agents = ["claude"]
+""",
+            encoding="utf-8",
+        )
+        (self.mcps_dir / "srv-2.toml").write_text(
+            """transport = "remote"
+url = "https://example.com/2"
+agents = ["claude"]
+""",
+            encoding="utf-8",
+        )
+
+        plan = build_mcp_plan(self.ws, self.home)
+        self.assertEqual(len(plan.operations), 2)
+        self.assertEqual(len(plan.file_plans), 1)
+
+        result = execute_mcp_plan(plan, self.home)
+        self.assertTrue(result.success)
+        self.assertEqual(result.applied_count, 2)
+        self.assertEqual(result.failed_count, 0)
+
+        # File written once with both servers
+        claude_json = self.home / ".claude.json"
+        self.assertTrue(claude_json.exists())
+        data = json.loads(claude_json.read_text(encoding="utf-8"))
+        self.assertIn("srv_1", data["mcpServers"])
+        self.assertIn("srv_2", data["mcpServers"])
+
+        # State file committed
+        state_file = self.home / STATE_FILE
+        self.assertTrue(state_file.exists())
+        state = json.loads(state_file.read_text(encoding="utf-8"))
+        self.assertIn("claude:srv-1", state["entries"])
+        self.assertIn("claude:srv-2", state["entries"])
+
+        # Second plan execution is complete NOOP
+        second_plan = build_mcp_plan(self.ws, self.home)
+        self.assertTrue(all(op.action == "NOOP" for op in second_plan.operations))
+
+    def test_execute_backup_suppression_and_secure_permissions_for_sensitive(self) -> None:
+        """Sensitive configs suppress backups and enforce 0o600 permissions (INV-MCP-06)."""
+        (self.mcps_dir / "secret-srv.toml").write_text(
+            """transport = "remote"
+url = "https://example.com/sec"
+agents = ["claude"]
+""",
+            encoding="utf-8",
+        )
+        # Pre-create claude.json
+        claude_json = self.home / ".claude.json"
+        claude_json.write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")
+
+        plan = build_mcp_plan(self.ws, self.home)
+        self.assertFalse(plan.file_plans[0].should_backup)
+
+        result = execute_mcp_plan(plan, self.home)
+        self.assertTrue(result.success)
+        # No backups should be created
+        self.assertEqual(len(result.backups_created), 0)
+
+        # On POSIX, file permissions must be 0o600
+        if os.name == "posix":
+            file_mode = stat.S_IMODE(claude_json.stat().st_mode)
+            self.assertEqual(file_mode, 0o600)
+
+    def test_execute_backup_created_for_eligible_targets(self) -> None:
+        """Eligible non-sensitive existing configs are backed up before write (INV-MCP-06)."""
+        # Create a spec for an agent with standard toml config format
+        toml_path = self.home / "agent_config.toml"
+        toml_path.write_text("[mcpServers]\n", encoding="utf-8")
+
+        spec = AgentSpec(
+            agent="standard-agent",
+            server="my-server",
+            config_path=toml_path,
+            config_format="toml",
+            target_name="my_server",
+            desired={"url": "https://example.com"},
+            contains_secret=False,
+        )
+
+        plan = build_mcp_plan(self.ws, self.home, specs=[spec])
+        self.assertTrue(plan.file_plans[0].should_backup)
+
+        result = execute_mcp_plan(plan, self.home)
+        self.assertTrue(result.success)
+        self.assertEqual(len(result.backups_created), 1)
+        backup_path = result.backups_created[0]
+        self.assertTrue(backup_path.exists())
+        self.assertIn("agent_config.toml", backup_path.name)
+
+    def test_execute_abort_on_backup_failure(self) -> None:
+        """If backup fails, abort immediately before modifying any runtime file (INV-MCP-03)."""
+        toml_path = self.home / "agent_config.toml"
+        toml_path.write_text("[mcpServers]\n", encoding="utf-8")
+
+        spec = AgentSpec(
+            agent="test-agent",
+            server="srv",
+            config_path=toml_path,
+            config_format="toml",
+            target_name="srv",
+            desired={"url": "https://example.com"},
+            contains_secret=False,
+        )
+        plan = build_mcp_plan(self.ws, self.home, specs=[spec])
+
+        with patch("aikito.mcp._backup_config", side_effect=OSError("Disk full")):
+            result = execute_mcp_plan(plan, self.home)
+
+        self.assertFalse(result.success)
+        self.assertIn("Backup failed", result.error_message or "")
+        # Original runtime file MUST NOT be touched
+        self.assertEqual(toml_path.read_text(encoding="utf-8"), "[mcpServers]\n")
+        # State file MUST NOT be created
+        self.assertFalse((self.home / STATE_FILE).exists())
+
+    def test_execute_rollback_on_write_failure(self) -> None:
+        """If write fails, committed files are rolled back to pre-mutation content (INV-MCP-03)."""
+        file1 = self.home / "file1.json"
+        file2 = self.home / "file2.json"
+        file1.write_text("orig 1", encoding="utf-8")
+        file2.write_text("orig 2", encoding="utf-8")
+
+        spec1 = AgentSpec(
+            agent="ag1",
+            server="s1",
+            config_path=file1,
+            config_format="claude_json",
+            target_name="s1",
+            desired={"url": "https://1"},
+        )
+        spec2 = AgentSpec(
+            agent="ag2",
+            server="s2",
+            config_path=file2,
+            config_format="claude_json",
+            target_name="s2",
+            desired={"url": "https://2"},
+        )
+
+        plan = build_mcp_plan(self.ws, self.home, specs=[spec1, spec2])
+        self.assertEqual(len(plan.file_plans), 2)
+
+        original_atomic_write = __import__("aikito.mcp", fromlist=["_atomic_write"])._atomic_write
+
+        call_count = [0]
+        def failing_write(path: Path, content: str, secure_permissions: bool = False) -> None:
+            call_count[0] += 1
+            if call_count[0] == 2:
+                raise OSError("Write error on file 2")
+            original_atomic_write(path, content, secure_permissions=secure_permissions)
+
+        with patch("aikito.mcp._atomic_write", side_effect=failing_write):
+            result = execute_mcp_plan(plan, self.home)
+
+        self.assertFalse(result.success)
+        # file1 was written on call 1, then rolled back when call 2 failed
+        self.assertEqual(file1.read_text(encoding="utf-8"), "orig 1")
+        self.assertEqual(file2.read_text(encoding="utf-8"), "orig 2")
+        # State file must not exist
+        self.assertFalse((self.home / STATE_FILE).exists())
+
+    def test_execute_rollback_on_state_promotion_failure(self) -> None:
+        """If state promotion fails, runtime files are rolled back (INV-MCP-03)."""
+        file1 = self.home / "file1.json"
+        file1.write_text("orig 1", encoding="utf-8")
+
+        spec1 = AgentSpec(
+            agent="ag1",
+            server="s1",
+            config_path=file1,
+            config_format="claude_json",
+            target_name="s1",
+            desired={"url": "https://1"},
+        )
+
+        plan = build_mcp_plan(self.ws, self.home, specs=[spec1])
+
+        with patch("os.replace", side_effect=OSError("State replace failed")):
+            result = execute_mcp_plan(plan, self.home)
+
+        self.assertFalse(result.success)
+        # file1 must be restored to original
+        self.assertEqual(file1.read_text(encoding="utf-8"), "orig 1")
+        # State file must not exist
+        self.assertFalse((self.home / STATE_FILE).exists())
+
+    def test_execute_rollback_failure_retains_backup_and_sets_recovery_required(self) -> None:
+        """If rollback fails, backups are strictly retained and recovery_required=True (INV-MCP-08)."""
+        file1 = self.home / "agent_config.toml"
+        file2 = self.home / "fail_write.toml"
+        file1.write_text("[mcpServers]\n", encoding="utf-8")
+        file2.write_text("[mcpServers]\n", encoding="utf-8")
+
+        spec1 = AgentSpec(
+            agent="ag1",
+            server="s1",
+            config_path=file1,
+            config_format="toml",
+            target_name="s1",
+            desired={"url": "https://1"},
+        )
+        spec2 = AgentSpec(
+            agent="ag2",
+            server="s2",
+            config_path=file2,
+            config_format="toml",
+            target_name="s2",
+            desired={"url": "https://2"},
+        )
+
+        plan = build_mcp_plan(self.ws, self.home, specs=[spec1, spec2])
+
+        original_atomic_write = __import__("aikito.mcp", fromlist=["_atomic_write"])._atomic_write
+
+        write_calls = [0]
+        def simulate_write_and_rollback_failure(path: Path, content: str, secure_permissions: bool = False) -> None:
+            write_calls[0] += 1
+            if write_calls[0] == 2:
+                # file2 write fails
+                raise OSError("Simulated disk error on file2")
+            if write_calls[0] == 3:
+                # rollback of file1 fails!
+                raise OSError("Simulated disk error during rollback")
+            original_atomic_write(path, content, secure_permissions=secure_permissions)
+
+        with patch("aikito.mcp._atomic_write", side_effect=simulate_write_and_rollback_failure):
+            result = execute_mcp_plan(plan, self.home)
+
+        self.assertFalse(result.success)
+        self.assertTrue(result.recovery_required)
+        self.assertIsNotNone(result.recovery_guidance)
+        self.assertIn("rollback failed", result.recovery_guidance or "")
+        # The backup for file1 MUST be retained on disk
+        self.assertEqual(len(result.backups_created), 1)
+        backup_path = result.backups_created[0]
+        self.assertTrue(backup_path.exists())
 
 
 if __name__ == "__main__":

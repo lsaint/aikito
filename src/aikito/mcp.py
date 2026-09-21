@@ -2537,6 +2537,7 @@ class MCPFilePlan:
     sensitive: bool
     pre_image: FileSnapshot
     operations: tuple[MCPOperation, ...] = ()
+    orig_content: str | None = None
     final_content: str | None = None
 
     @property
@@ -2673,7 +2674,7 @@ def build_mcp_plan(
     all_operations: list[MCPOperation] = []
     file_plans: list[MCPFilePlan] = []
 
-    for phys_id, g_specs in sorted(groups.items(), key=lambda item: str(canonical_paths[item[0]])):
+    for phys_id, g_specs in groups.items():
         canonical_path = canonical_paths[phys_id]
         resolved_format = g_specs[0].config_format if g_specs else ""
         file_sensitive = any(
@@ -2959,6 +2960,7 @@ def build_mcp_plan(
             sensitive=file_sensitive,
             pre_image=file_snapshot,
             operations=tuple(group_ops),
+            orig_content=orig_text if file_existed else None,
             final_content=current_text if file_mutating else orig_text,
         )
         file_plans.append(file_plan)
@@ -2971,165 +2973,100 @@ def build_mcp_plan(
     )
 
 
-def sync_mcp_configs(
-    *,
-    aikito_dir: Path,
+@dataclass(frozen=True)
+class MCPExecutionResult:
+    """Structured execution result of applying an MCPPlan."""
+
+    success: bool
+    applied_count: int
+    noop_count: int
+    skipped_count: int
+    conflict_count: int
+    failed_count: int
+    backups_created: tuple[Path, ...] = ()
+    failed_files: tuple[Path, ...] = ()
+    backup_warnings: tuple[str, ...] = ()
+    error_message: str | None = None
+    recovery_required: bool = False
+    recovery_guidance: str | None = None
+
+
+def _backup_file_plan(home: Path, file_plan: MCPFilePlan) -> Path | None:
+    if not file_plan.path.exists():
+        return None
+    agent = file_plan.operations[0].target.agent if file_plan.operations else "common"
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    backup = home / BACKUP_DIR / agent / f"{timestamp}-{file_plan.path.name}"
+    backup.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(file_plan.path, backup)
+    return backup
+
+
+def execute_mcp_plan(
+    plan: MCPPlan,
     home: Path,
-    dry_run: bool = False,
-    force: bool = False,
+    *,
     output: Callable[[str], None] = print,
-) -> bool:
-    specs = load_agent_specs(aikito_dir, home)
+) -> MCPExecutionResult:
+    """Apply an MCPPlan transactionally with atomic write once, backup, rollback, and state commit.
+
+    Enforces INV-MCP-03, INV-MCP-06, INV-MCP-08.
+    """
+    # 1. Validate preconditions
+    try:
+        plan.validate_preconditions(home)
+    except StaleConfigPlanError as exc:
+        output(f"[ERROR] MCP plan is stale: {exc}")
+        return MCPExecutionResult(
+            success=False,
+            applied_count=0,
+            noop_count=0,
+            skipped_count=0,
+            conflict_count=0,
+            failed_count=len(plan.operations),
+            error_message=f"Plan is stale: {exc}",
+        )
+
+    # 2. Check conflicts / authorization
+    if not plan.can_apply:
+        return MCPExecutionResult(
+            success=False,
+            applied_count=0,
+            noop_count=sum(1 for op in plan.operations if op.action == "NOOP"),
+            skipped_count=sum(1 for op in plan.operations if op.action == "SKIP"),
+            conflict_count=plan.conflicts_count,
+            failed_count=0,
+            error_message="Plan contains unauthorized conflicts",
+        )
+
+    # 3. Prepare new state in memory
     state = _load_state(home)
-    entries = state["entries"]
-    success = True
+    new_entries = dict(state.get("entries", {}))
 
-    # Pre-calculate file-level secret sensitivity across ALL enabled specs.
-    # If any enabled spec targeting a config_path contains a secret, the file
-    # is considered sensitive even if that spec is already synchronized and not
-    # modified in this run.
-    file_contains_secret: dict[Path, bool] = {}
-    for spec in specs:
-        if spec.enabled and spec.contains_secret:
-            file_contains_secret[spec.config_path] = True
-
-    # Phase 1: classify all specs — skip/conflict/already-ok/pending-write.
-    # Specs that share a config_path must be chained: each spec's _update_entry
-    # result becomes the input for the next spec in the same file, so that writing
-    # multiple MCPs to the same agent config is additive rather than last-write-wins.
-    #
-    # pending is keyed by config_path; each entry holds:
-    #   file_existed     – bool: whether the file existed before this run
-    #   orig_text        – original disk content (for rollback)
-    #   current_text     – running accumulated text (grows with each chained spec)
-    #   contains_secret  – bool: whether this file contains sensitive credentials
-    #   config_format    – str: agent config format
-    #   specs_meta       – list of (spec, desired_fp, prev_entry, action)
-    pending: dict[Path, dict] = {}  # config_path → per-file pending info
-
-    for spec in specs:
-        if not spec.enabled:
-            output(f"[SKIP] {spec.agent}/{spec.server}: {spec.reason}")
+    for op in plan.operations:
+        if not op.is_authorized:
             continue
-        if not _agent_detected(spec):
-            output(f"[SKIP] {spec.agent} not detected: {spec.config_path.parent}")
-            continue
-        if spec.missing_credential_env:
-            output(
-                f"[WARN] {spec.agent}/{spec.server}: skipped due to missing credential "
-                f"environment variable: {spec.missing_credential_env}"
-            )
-            continue
-
-        file_existed = spec.config_path.exists()
-        # Use the accumulated in-memory text if we've already staged edits to this file.
-        if spec.config_path in pending:
-            text = pending[spec.config_path]["current_text"]
-        else:
-            text = spec.config_path.read_text(encoding="utf-8") if file_existed else ""
-
-        current = _read_entry(spec, text)
-        previous = entries.get(spec.state_key, {})
-        managed_fingerprint = previous.get("fingerprint")
-        current_fingerprint = _fingerprint(current) if current is not None else None
-        desired_fingerprint = _fingerprint(spec.desired)
-
-        if _entry_matches_desired(spec, current):
-            output(f"[OK] {spec.agent}/{spec.server}: already synchronized")
-            if not dry_run:
-                entries[spec.state_key] = {
-                    "fingerprint": desired_fingerprint,
-                    "config_path": str(spec.config_path),
-                    "target_name": spec.target_name,
-                }
-            continue
-
-        safe_to_update = (
-            current is None
-            or force
-            or (
-                managed_fingerprint is not None
-                and current_fingerprint == managed_fingerprint
-            )
-        )
-        if not safe_to_update:
-            output(
-                f"[CONFLICT] {spec.agent}/{spec.server}: existing config was not "
-                "last written by aikito; review it or rerun with --force"
-            )
-            success = False
-            continue
-
-        action = "create" if current is None else "update"
-        if dry_run:
-            output(f"[DRY-RUN] {spec.agent}/{spec.server}: would {action} entry")
-            continue
-
-        # Accumulate the write in memory (chaining for same-file specs).
-        updated = _update_entry(spec, text)
-        prev_entry = entries.get(spec.state_key)
-
-        if spec.config_path not in pending:
-            # First spec for this config_path: record the original disk snapshot.
-            orig_text = (
-                spec.config_path.read_text(encoding="utf-8") if file_existed else ""
-            )
-            pending[spec.config_path] = {
-                "file_existed": file_existed,
-                "orig_text": orig_text,
-                "current_text": updated,
-                "contains_secret": (
-                    file_contains_secret.get(spec.config_path, False)
-                    or spec.contains_secret
-                ),
-                "config_format": spec.config_format,
-                "specs_meta": [],
+        if op.action in ("NOOP", "CREATE", "UPDATE") and op.state_transition:
+            state_key, fp = op.state_transition
+            new_entries[state_key] = {
+                "fingerprint": fp,
+                "config_path": str(op.target.path),
+                "target_name": op.target.target_name,
             }
-        else:
-            # Subsequent spec for the same file: advance the accumulated text
-            # and OR-merge the sensitive attribute so secure_permissions is preserved.
-            pending[spec.config_path]["current_text"] = updated
-            pending[spec.config_path]["contains_secret"] = (
-                pending[spec.config_path]["contains_secret"] or spec.contains_secret
-            )
+        elif op.action == "REMOVE":
+            if op.state_transition:
+                new_entries.pop(op.state_transition[0], None)
+            if op.spec:
+                new_entries.pop(op.spec.state_key, None)
+            srv_suffix = f":{op.target.logical_identity}"
+            to_del = [k for k in new_entries if k.endswith(srv_suffix)]
+            for k in to_del:
+                new_entries.pop(k, None)
 
-        pending[spec.config_path]["specs_meta"].append(
-            (spec, desired_fingerprint, prev_entry, action)
-        )
-
-    if not pending:
-        if not dry_run:
-            _save_state(home, state)
-        return success
-
-    # If any conflict was detected in Phase 1, abort before writing any agent file.
-    # The caller (add_mcp --sync) will roll back the canonical TOML; touching other
-    # agent configs here would leave runtime/state/canonical in an inconsistent state.
-    if not success:
-        return False
-
-    # Phase 2: transactional commit.
-    # - Prepare new state in memory and write it to a temp path first.
-    # - Take backups for all eligible pending files BEFORE modifying any runtime file.
-    #   If any backup fails, abort immediately with zero runtime modifications.
-    # - Write each pending agent config (one write per config_path).
-    # - On any failure: restore all already-written files, discard backups and temp state,
-    #   and return False.
-    # - Only rename the temp state file over the real one after all writes succeed.
-
-    # Build the new state snapshot from all pending specs_meta.
-    new_entries = dict(entries)
-    for _cfg_path, pinfo in pending.items():
-        for spec, desired_fp, _prev, _action in pinfo["specs_meta"]:
-            new_entries[spec.state_key] = {
-                "fingerprint": desired_fp,
-                "config_path": str(spec.config_path),
-                "target_name": spec.target_name,
-            }
     new_state = dict(state, entries=new_entries)
     state_path = home / STATE_FILE
-
     state_tmp: Path | None = None
+
     try:
         state_path.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(
@@ -3138,158 +3075,181 @@ def sync_mcp_configs(
             delete=False,
             encoding="utf-8",
             suffix=".tmp",
-        ) as _sf:
-            _sf.write(
-                json.dumps(new_state, ensure_ascii=False, indent=2, sort_keys=True)
-                + "\n"
-            )
-            state_tmp = Path(_sf.name)
+        ) as sf:
+            sf.write(json.dumps(new_state, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+            state_tmp = Path(sf.name)
     except Exception as exc:
         output(f"[ERROR] Failed to prepare state file for atomic save: {exc}")
-        return False
-
-    # Phase 2a: Take backups BEFORE modifying any files on disk.
-    # Mixed application state files containing private/inline credentials (claude_json, agy_json)
-    # and files containing secrets are never backed up as a whole.
-    backups_created: list[Path] = []
-    backup_error: Exception | None = None
-
-    for cfg_path, pinfo in pending.items():
-        file_existed = pinfo["file_existed"]
-        contains_secret = pinfo["contains_secret"]
-        config_format = pinfo["config_format"]
-        specs_meta = pinfo["specs_meta"]
-
-        should_backup = (
-            file_existed
-            and not contains_secret
-            and config_format not in ("claude_json", "agy_json")
+        return MCPExecutionResult(
+            success=False,
+            applied_count=0,
+            noop_count=sum(1 for op in plan.operations if op.action == "NOOP"),
+            skipped_count=sum(1 for op in plan.operations if op.action == "SKIP"),
+            conflict_count=0,
+            failed_count=len(plan.operations),
+            error_message=f"Failed to prepare state file: {exc}",
         )
-        if not should_backup:
-            pinfo["backup"] = None
-            continue
 
+    mutating_files = [fp for fp in plan.file_plans if fp.will_mutate]
+    if not mutating_files:
         try:
-            pinfo["backup"] = _backup_config(home, specs_meta[0][0])
-            if pinfo["backup"]:
-                backups_created.append(pinfo["backup"])
+            os.replace(state_tmp, state_path)
+        except Exception as exc:
+            if state_tmp and state_tmp.exists():
+                try:
+                    state_tmp.unlink()
+                except Exception:
+                    pass
+            output(f"[ERROR] Failed to update state file: {exc}")
+            return MCPExecutionResult(
+                success=False,
+                applied_count=0,
+                noop_count=sum(1 for op in plan.operations if op.action == "NOOP"),
+                skipped_count=sum(1 for op in plan.operations if op.action == "SKIP"),
+                conflict_count=0,
+                failed_count=1,
+                error_message=f"Failed to update state: {exc}",
+            )
+        return MCPExecutionResult(
+            success=True,
+            applied_count=0,
+            noop_count=sum(1 for op in plan.operations if op.action == "NOOP"),
+            skipped_count=sum(1 for op in plan.operations if op.action == "SKIP"),
+            conflict_count=0,
+            failed_count=0,
+        )
+
+    # 4. Take backups for all eligible files BEFORE modifying any runtime files
+    backups_created: list[tuple[MCPFilePlan, Path]] = []
+    backup_error: Exception | None = None
+    failed_fp: MCPFilePlan | None = None
+
+    for fp in mutating_files:
+        if not fp.should_backup:
+            continue
+        try:
+            first_spec = fp.operations[0].spec if fp.operations and fp.operations[0].spec else None
+            bk = _backup_config(home, first_spec) if first_spec else _backup_file_plan(home, fp)
+            if bk:
+                backups_created.append((fp, bk))
         except Exception as exc:
             backup_error = exc
-            first_spec = specs_meta[0][0]
+            failed_fp = fp
+            first_op = fp.operations[0] if fp.operations else None
+            agent_srv = f"{first_op.target.agent}/{first_op.target.logical_identity}" if first_op else str(fp.path)
             output(
-                f"[ERROR] {first_spec.agent}/{first_spec.server}: backup failed ({exc}); "
+                f"[ERROR] {agent_srv}: backup failed ({exc}); "
                 "aborting before modifying runtime files"
             )
             break
 
     if backup_error is not None:
-        for bk in backups_created:
+        for _f, bk in backups_created:
             try:
                 bk.unlink(missing_ok=True)
             except Exception:
                 pass
-        try:
-            if state_tmp and state_tmp.exists():
+        if state_tmp and state_tmp.exists():
+            try:
                 state_tmp.unlink()
-        except Exception:
-            pass
-        return False
+            except Exception:
+                pass
+        return MCPExecutionResult(
+            success=False,
+            applied_count=0,
+            noop_count=sum(1 for op in plan.operations if op.action == "NOOP"),
+            skipped_count=sum(1 for op in plan.operations if op.action == "SKIP"),
+            conflict_count=0,
+            failed_count=1,
+            failed_files=(failed_fp.path,) if failed_fp else (),
+            error_message=f"Backup failed: {backup_error}",
+        )
 
-    # Phase 2b: Atomic writes
-    # committed: list of
-    # (config_path, file_existed, orig_text, contains_secret, specs_meta, backup)
-    committed: list[tuple] = []
+    # 5. Atomic write of each mutating file
+    committed: list[tuple[MCPFilePlan, Path | None]] = []
     write_error: Exception | None = None
+    failed_write_fp: MCPFilePlan | None = None
 
-    for cfg_path, pinfo in pending.items():
-        file_existed = pinfo["file_existed"]
-        orig_text = pinfo["orig_text"]
-        final_text = pinfo["current_text"]
-        contains_secret = pinfo["contains_secret"]
-        specs_meta = pinfo["specs_meta"]
-        backup = pinfo.get("backup")
-
+    for fp in mutating_files:
+        backup_path = next((b for f, b in backups_created if f.path == fp.path), None)
         try:
-            _atomic_write(cfg_path, final_text, secure_permissions=contains_secret)
+            _atomic_write(fp.path, fp.final_content or "", secure_permissions=fp.sensitive)
+            committed.append((fp, backup_path))
         except Exception as exc:
             write_error = exc
-            first_spec = specs_meta[0][0]
+            failed_write_fp = fp
+            first_op = fp.operations[0] if fp.operations else None
+            agent_srv = f"{first_op.target.agent}/{first_op.target.logical_identity}" if first_op else str(fp.path)
             output(
-                f"[ERROR] {first_spec.agent}/{first_spec.server}: write failed ({exc}); "
+                f"[ERROR] {agent_srv}: write failed ({exc}); "
                 "rolling back all committed agent configs"
             )
             break
-        committed.append(
-            (cfg_path, file_existed, orig_text, contains_secret, specs_meta, backup)
-        )
-        first_spec = True
-        for spec, desired_fp, prev_entry, action in specs_meta:
-            output(f"[SYNC] {spec.agent}/{spec.server}: {action}d {cfg_path}")
-            if first_spec and backup:
-                output(f"[BACKUP] {backup}")
-                first_spec = False
-            if spec.auth_command:
-                output(f"[AUTH] aikito auth mcp {spec.agent} {spec.server}")
 
-    def _remove_backup(backup_path: Path) -> None:
-        try:
-            backup_path.unlink(missing_ok=True)
-        except Exception:
-            pass
-
-    def _rollback_committed() -> set[Path]:
-        """Restore written configs and retain backups for any failed rollback."""
-        committed_backups: set[Path] = set()
-        for rb_path, rb_existed, rb_orig, rb_secret, rb_metas, rb_backup in committed:
-            rollback_succeeded = False
+    def _rollback() -> tuple[bool, set[Path], list[str]]:
+        all_succeeded = True
+        retained_backups: set[Path] = set()
+        warnings: list[str] = []
+        for c_fp, c_bk in committed:
+            rb_ok = False
             try:
-                if rb_existed:
-                    _atomic_write(rb_path, rb_orig, secure_permissions=rb_secret)
-                elif rb_path.exists():
-                    rb_path.unlink()
-                rollback_succeeded = True
+                if c_fp.pre_image.exists:
+                    _atomic_write(
+                        c_fp.path,
+                        c_fp.orig_content if c_fp.orig_content is not None else "",
+                        secure_permissions=c_fp.sensitive,
+                    )
+                elif c_fp.path.exists():
+                    c_fp.path.unlink()
+                rb_ok = True
             except Exception as rb_exc:
-                first = rb_metas[0][0]
-                recovery_hint = (
-                    f"; backup retained at {rb_backup}" if rb_backup is not None else ""
-                )
-                output(
-                    f"[WARN] {first.agent}/{first.server}: rollback failed ({rb_exc}); "
-                    f"manual inspection required{recovery_hint}"
-                )
-            if rb_backup is not None:
-                committed_backups.add(rb_backup)
-                if rollback_succeeded:
-                    _remove_backup(rb_backup)
-            for spec, _fp, rb_prev, _act in rb_metas:
-                if rb_prev is not None:
-                    entries[spec.state_key] = rb_prev
-                else:
-                    entries.pop(spec.state_key, None)
-        return committed_backups
+                all_succeeded = False
+                recovery_hint = f"; backup retained at {c_bk}" if c_bk is not None else ""
+                first_op = c_fp.operations[0] if c_fp.operations else None
+                agent_srv = f"{first_op.target.agent}/{first_op.target.logical_identity}" if first_op else str(c_fp.path)
+                msg = f"{agent_srv}: rollback failed ({rb_exc}); manual inspection required{recovery_hint}"
+                output(f"[WARN] {msg}")
+                warnings.append(msg)
 
-    def _cleanup_uncommitted_backups(committed_backups: set[Path]) -> None:
-        for backup_path in backups_created:
-            if backup_path not in committed_backups:
-                _remove_backup(backup_path)
+            if c_bk is not None:
+                if not rb_ok:
+                    retained_backups.add(c_bk)
+                else:
+                    try:
+                        c_bk.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+        return all_succeeded, retained_backups, warnings
 
     if write_error is not None:
-        try:
-            if state_tmp and state_tmp.exists():
+        if state_tmp and state_tmp.exists():
+            try:
                 state_tmp.unlink()
-        except Exception:
-            pass
-        committed_backups = _rollback_committed()
-        _cleanup_uncommitted_backups(committed_backups)
-        try:
-            _save_state(home, state)
-        except Exception:
-            pass
-        return False
+            except Exception:
+                pass
+        rb_success, retained_bks, rb_warnings = _rollback()
+        for _f, bk in backups_created:
+            if bk not in retained_bks:
+                try:
+                    bk.unlink(missing_ok=True)
+                except Exception:
+                    pass
+        return MCPExecutionResult(
+            success=False,
+            applied_count=0,
+            noop_count=sum(1 for op in plan.operations if op.action == "NOOP"),
+            skipped_count=sum(1 for op in plan.operations if op.action == "SKIP"),
+            conflict_count=0,
+            failed_count=1,
+            failed_files=(failed_write_fp.path,) if failed_write_fp else (),
+            backups_created=tuple(retained_bks),
+            backup_warnings=tuple(rb_warnings),
+            error_message=f"Write failed: {write_error}",
+            recovery_required=not rb_success,
+            recovery_guidance="; ".join(rb_warnings) if not rb_success else None,
+        )
 
-    # All runtime writes succeeded — atomically promote the prepared state file.
-    # If this rename fails, we must roll back the runtime writes and return False
-    # so the caller does not treat this as a successful sync.
+    # 6. Promote state temp file
     try:
         os.replace(state_tmp, state_path)
     except Exception as exc:
@@ -3297,20 +3257,116 @@ def sync_mcp_configs(
             f"[ERROR] All agent configs written but state save failed: {exc}; "
             "rolling back runtime changes to keep state consistent"
         )
-        try:
-            if state_tmp and state_tmp.exists():
+        if state_tmp and state_tmp.exists():
+            try:
                 state_tmp.unlink()
-        except Exception:
-            pass
-        committed_backups = _rollback_committed()
-        _cleanup_uncommitted_backups(committed_backups)
-        try:
-            _save_state(home, state)
-        except Exception:
-            pass
+            except Exception:
+                pass
+        rb_success, retained_bks, rb_warnings = _rollback()
+        for _f, bk in backups_created:
+            if bk not in retained_bks:
+                try:
+                    bk.unlink(missing_ok=True)
+                except Exception:
+                    pass
+        return MCPExecutionResult(
+            success=False,
+            applied_count=0,
+            noop_count=sum(1 for op in plan.operations if op.action == "NOOP"),
+            skipped_count=sum(1 for op in plan.operations if op.action == "SKIP"),
+            conflict_count=0,
+            failed_count=1,
+            backups_created=tuple(retained_bks),
+            backup_warnings=tuple(rb_warnings),
+            error_message=f"State promotion failed: {exc}",
+            recovery_required=not rb_success,
+            recovery_guidance="; ".join(rb_warnings) if not rb_success else None,
+        )
+
+    # 7. Success! Output sync logs
+    for fp, bk in committed:
+        first_spec = True
+        for op in fp.operations:
+            if op.is_authorized and op.action in ("CREATE", "UPDATE", "REMOVE"):
+                action_str = f"{op.action.lower()}d" if op.action != "REMOVE" else "removed from"
+                output(f"[SYNC] {op.target.agent}/{op.target.logical_identity}: {action_str} {fp.path}")
+                if first_spec and bk:
+                    output(f"[BACKUP] {bk}")
+                    first_spec = False
+                if op.spec and op.spec.auth_command:
+                    output(f"[AUTH] aikito auth mcp {op.target.agent} {op.target.logical_identity}")
+
+    all_backups = tuple(b for _f, b in backups_created)
+    return MCPExecutionResult(
+        success=True,
+        applied_count=plan.changes_count,
+        noop_count=sum(1 for op in plan.operations if op.action == "NOOP"),
+        skipped_count=sum(1 for op in plan.operations if op.action == "SKIP"),
+        conflict_count=0,
+        failed_count=0,
+        backups_created=all_backups,
+    )
+
+
+def sync_mcp_configs(
+    *,
+    aikito_dir: Path,
+    home: Path,
+    dry_run: bool = False,
+    force: bool = False,
+    output: Callable[[str], None] = print,
+) -> bool:
+    plan = build_mcp_plan(aikito_dir, home, force=force)
+
+    # Output inspection results
+    for op in plan.operations:
+        target_key = f"{op.target.agent}/{op.target.logical_identity}"
+        if op.action == "SKIP":
+            if op.spec and op.spec.missing_credential_env:
+                output(
+                    f"[WARN] {target_key}: skipped due to missing credential "
+                    f"environment variable: {op.spec.missing_credential_env}"
+                )
+            elif op.spec and not op.spec.enabled:
+                output(f"[SKIP] {target_key}: {op.reason}")
+            else:
+                output(f"[SKIP] {op.target.agent} not detected: {op.target.path.parent}")
+        elif op.action == "NOOP":
+            output(f"[OK] {target_key}: already synchronized")
+        elif op.action == "CONFLICT":
+            output(
+                f"[CONFLICT] {target_key}: existing config was not "
+                "last written by aikito; review it or rerun with --force"
+            )
+
+    if dry_run:
+        for op in plan.operations:
+            if op.action in ("CREATE", "UPDATE") and op.is_authorized:
+                action_name = "create" if op.action == "CREATE" else "update"
+                output(f"[DRY-RUN] {op.target.agent}/{op.target.logical_identity}: would {action_name} entry")
+        if not plan.can_apply:
+            return False
+        # In dry run, converge state for already OK entries just like legacy sync
+        state = _load_state(home)
+        entries = state.get("entries", {})
+        state_changed = False
+        for op in plan.operations:
+            if op.action == "NOOP" and op.state_transition:
+                state_key, fp = op.state_transition
+                if entries.get(state_key, {}).get("fingerprint") != fp:
+                    entries[state_key] = {
+                        "fingerprint": fp,
+                        "config_path": str(op.target.path),
+                        "target_name": op.target.target_name,
+                    }
+                    state_changed = True
+        return plan.can_apply
+
+    if not plan.can_apply:
         return False
 
-    return success
+    result = execute_mcp_plan(plan, home, output=output)
+    return result.success
 
 
 def sync_remove_mcp_from_agents(

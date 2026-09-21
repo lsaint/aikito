@@ -19,11 +19,11 @@ When multiple MCP servers target the same physical agent configuration file (e.g
 
 *Targeted tests*: `tests/test_config_characterization.py`, `tests/test_mcp_plan.py`, `tests/test_mcp.py`
 
-### INV-MCP-03: Transactional Consistency Between Runtime Config and State Store Commit `[planned]` {: #inv-mcp-03 }
+### INV-MCP-03: Transactional Consistency Between Runtime Config and State Store Commit `[current]` {: #inv-mcp-03 }
 
 MCP configuration updates and state store updates form a single transactional consistency unit. Backups of all eligible runtime targets are prepared before any writes. Runtime configuration files are updated first; if any write fails, previously written runtime files are restored from backup. If all runtime writes succeed, the temporary state file is atomically promoted via `os.replace`. If state promotion fails, runtime files are rolled back to their pre-mutation states.
 
-*Targeted tests*: `tests/test_mcp.py`
+*Targeted tests*: `tests/test_mcp_plan.py`, `tests/test_mcp.py`
 
 ### INV-MCP-04: Stale Plan Invalidation on Runtime File or State Store Pre-Image Mutation `[current]` {: #inv-mcp-04 }
 
@@ -37,11 +37,11 @@ MCP server environment variables containing sensitive keys or credential tokens 
 
 *Targeted tests*: `tests/test_config_characterization.py`, `tests/test_mcp_plan.py`, `tests/test_mcp.py`
 
-### INV-MCP-06: Backup Suppression and Secure File Permissions on Sensitive Configuration Targets `[planned]` {: #inv-mcp-06 }
+### INV-MCP-06: Backup Suppression and Secure File Permissions on Sensitive Configuration Targets `[current]` {: #inv-mcp-06 }
 
 Configuration files containing sensitive credentials or marked as sensitive (e.g. `claude_json`, `agy_json`) suppress standard whole-file backups to prevent plaintext secret leaks into backup directories. Any configuration files created or updated with sensitive credentials must enforce secure filesystem permissions (mode `0o600`).
 
-*Targeted tests*: `tests/test_mcp.py`
+*Targeted tests*: `tests/test_mcp_plan.py`, `tests/test_mcp.py`
 
 ### INV-MCP-07: Unified Desired-Absent Model for MCP Removal via Shared Executor `[planned]` {: #inv-mcp-07 }
 
@@ -49,11 +49,11 @@ Configuration files containing sensitive credentials or marked as sensitive (e.g
 
 *Targeted tests*: `tests/test_mcp.py`
 
-### INV-MCP-08: Preservation of Recovery Materials and Explicit recovery_required on Rollback Failure `[planned]` {: #inv-mcp-08 }
+### INV-MCP-08: Preservation of Recovery Materials and Explicit recovery_required on Rollback Failure `[current]` {: #inv-mcp-08 }
 
 If an error occurs during runtime file rollback or state recovery, created backups must be strictly preserved on disk, and the execution result must report `recovery_required=True` along with exact recovery guidance for the user.
 
-*Targeted tests*: `tests/test_mcp.py`
+*Targeted tests*: `tests/test_mcp_plan.py`, `tests/test_mcp.py`
 
 ---
 
