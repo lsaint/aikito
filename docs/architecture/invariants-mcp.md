@@ -7,17 +7,17 @@ fingerprinting, multi-server file aggregation, sensitive credentials protection,
 
 ## Core Rules
 
-### INV-MCP-01: Managed Fingerprint as Server Node Ownership and Drift Evidence `[planned]` {: #inv-mcp-01 }
+### INV-MCP-01: Managed Fingerprint as Server Node Ownership and Drift Evidence `[current]` {: #inv-mcp-01 }
 
 MCP server ownership and drift detection rely on logical server configuration fingerprints recorded in `.local/state/aikito/mcp-state.json`. If an existing runtime entry matches the recorded managed fingerprint, changes to the desired configuration evaluate to `UPDATE`. If an existing entry differs from the managed fingerprint, it is classified as external drift and evaluates to `CONFLICT`. Passing `--force` explicitly authorizes overwriting the drifted server entry.
 
-*Targeted tests*: `tests/test_config_characterization.py`, `tests/test_mcp.py`
+*Targeted tests*: `tests/test_config_characterization.py`, `tests/test_mcp_plan.py`, `tests/test_mcp.py`
 
-### INV-MCP-02: Same-File Multi-Server Chained Aggregation Without Overwrite `[planned]` {: #inv-mcp-02 }
+### INV-MCP-02: Same-File Multi-Server Chained Aggregation Without Overwrite `[current]` {: #inv-mcp-02 }
 
 When multiple MCP servers target the same physical agent configuration file (e.g., `~/.claude.json` or `.config/opencode/opencode.jsonc`), their mutations must be chained and merged in memory from the same frozen pre-image. The final merged content is written exactly once to the target file. Unmanaged server entries, comments, and non-MCP settings must be preserved intact.
 
-*Targeted tests*: `tests/test_config_characterization.py`, `tests/test_mcp.py`
+*Targeted tests*: `tests/test_config_characterization.py`, `tests/test_mcp_plan.py`, `tests/test_mcp.py`
 
 ### INV-MCP-03: Transactional Consistency Between Runtime Config and State Store Commit `[planned]` {: #inv-mcp-03 }
 
@@ -25,17 +25,17 @@ MCP configuration updates and state store updates form a single transactional co
 
 *Targeted tests*: `tests/test_mcp.py`
 
-### INV-MCP-04: Stale Plan Invalidation on Runtime File or State Store Pre-Image Mutation `[planned]` {: #inv-mcp-04 }
+### INV-MCP-04: Stale Plan Invalidation on Runtime File or State Store Pre-Image Mutation `[current]` {: #inv-mcp-04 }
 
 An `MCPPlan` captures pre-image fingerprints of both targeted runtime configuration files and `.local/state/aikito/mcp-state.json`. If either a runtime configuration file or the state store is mutated externally after plan construction, the plan is marked stale and execution halts immediately before any file or state modification.
 
-*Targeted tests*: `tests/test_config_characterization.py`, `tests/test_mcp.py`
+*Targeted tests*: `tests/test_config_characterization.py`, `tests/test_mcp_plan.py`, `tests/test_mcp.py`
 
-### INV-MCP-05: Structured and Plaintext Display Redaction of Sensitive Environment Secrets `[planned]` {: #inv-mcp-05 }
+### INV-MCP-05: Structured and Plaintext Display Redaction of Sensitive Environment Secrets `[current]` {: #inv-mcp-05 }
 
 MCP server environment variables containing sensitive keys or credential tokens must be redacted in all plan summaries, CLI outputs, error messages, and public structured views. Raw secrets must never appear in `repr`, `asdict()`, or serialized outputs.
 
-*Targeted tests*: `tests/test_config_characterization.py`, `tests/test_mcp.py`
+*Targeted tests*: `tests/test_config_characterization.py`, `tests/test_mcp_plan.py`, `tests/test_mcp.py`
 
 ### INV-MCP-06: Backup Suppression and Secure File Permissions on Sensitive Configuration Targets `[planned]` {: #inv-mcp-06 }
 
