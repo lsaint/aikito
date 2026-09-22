@@ -238,11 +238,42 @@ jobs:
   publish-pypi:
     name: Publish to PyPI
     needs: tag-and-release
-    uses: ./.github/workflows/publish-pypi.yml
-    with:
-      target: pypi
-      tag: v${{ inputs.version }}
-    secrets: inherit
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/aikito
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: v${{ inputs.version }}
+
+      - name: Set up Python
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools and test dependencies
+        run: python -m pip install --upgrade build hatchling pytest twine
+
+      - name: Run test suite
+        env:
+          PYTHONPATH: src
+        run: python -m pytest -q
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: Check package distribution metadata
+        run: python -m twine check --strict dist/*
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # v1.12.4
+        with:
+          verbose: true
 
   trigger-homebrew:
     name: Trigger Homebrew Tap Release
