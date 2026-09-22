@@ -22,7 +22,7 @@ from aikito.mcp import (
     sync_mcp_configs,
 )
 from aikito.subagent import (
-    build_plan,
+    build_subagent_plan,
     has_aikito_marker,
     render_claude_markdown,
     sync_subagent_configs,
@@ -130,8 +130,8 @@ name_style = "verbatim"
         target_file.write_text("User custom verifier prompt without marker\n", encoding="utf-8")
         self.assertFalse(has_aikito_marker(target_file))
 
-        plan, _ = build_plan(self.ws, self.home)
-        claude_items = [p for p in plan if p.agent_name == "claude-code" and p.subagent_name == "verifier"]
+        plan = build_subagent_plan(self.ws, self.home)
+        claude_items = [op for op in plan.operations if op.target.agent == "claude-code" and op.target.logical_identity == "verifier"]
         self.assertEqual(len(claude_items), 1)
         self.assertEqual(claude_items[0].action, "CONFLICT")
 
@@ -150,18 +150,18 @@ name_style = "verbatim"
         target_file.write_text(with_marker, encoding="utf-8")
         self.assertTrue(has_aikito_marker(target_file))
 
-        plan, _ = build_plan(self.ws, self.home)
-        claude_items = [p for p in plan if p.agent_name == "claude-code" and p.subagent_name == "verifier"]
+        plan = build_subagent_plan(self.ws, self.home)
+        claude_items = [op for op in plan.operations if op.target.agent == "claude-code" and op.target.logical_identity == "verifier"]
         self.assertEqual(claude_items[0].action, "UPDATE")
 
-        # 3. Exact matching rendered content -> OK
+        # 3. Exact matching rendered content -> NOOP
         exact_rendered = render_claude_markdown(
             "verifier", "Verifier agent", {}, "You are a verifier subagent."
         )
         target_file.write_text(exact_rendered, encoding="utf-8")
-        plan_synced, _ = build_plan(self.ws, self.home)
-        claude_items_synced = [p for p in plan_synced if p.agent_name == "claude-code" and p.subagent_name == "verifier"]
-        self.assertEqual(claude_items_synced[0].action, "OK")
+        plan_synced = build_subagent_plan(self.ws, self.home)
+        claude_items_synced = [op for op in plan_synced.operations if op.target.agent == "claude-code" and op.target.logical_identity == "verifier"]
+        self.assertEqual(claude_items_synced[0].action, "NOOP")
 
     def test_subagent_explicit_force_authorization(self) -> None:
         """INV-SUB-02 baseline: explicit --force <agent>/<subagent> authorizes overwrite."""
@@ -199,9 +199,9 @@ name_style = "verbatim"
         unmanaged_orphan = target_dir / "user-custom.md"
         unmanaged_orphan.write_text("User custom subagent\n", encoding="utf-8")
 
-        plan, _ = build_plan(self.ws, self.home)
-        orphan_items = [p for p in plan if p.action == "ORPHAN"]
-        orphan_names = [p.subagent_name for p in orphan_items]
+        plan = build_subagent_plan(self.ws, self.home)
+        orphan_items = [op for op in plan.operations if op.action == "ORPHAN"]
+        orphan_names = [op.target.logical_identity for op in orphan_items]
         self.assertIn("old-managed", orphan_names)
         self.assertNotIn("user-custom", orphan_names)
 

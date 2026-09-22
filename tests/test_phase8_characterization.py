@@ -27,7 +27,7 @@ from aikito.adopt import (
 from aikito.cli import GlobalSyncResult, sync_global_resources
 from aikito.doctor import run_doctor
 from aikito.mcp import redact_mcp_entry
-from aikito.subagent import PlanItem, build_plan, build_subagent_plan
+from aikito.subagent import SubagentPlan, build_subagent_plan
 from aikito.sync_plan import SyncPlan
 from aikito.web_console import ConsoleData, _redact
 
@@ -101,7 +101,7 @@ name_style = "verbatim"
             self.assertIsNone(result.error_message)
 
     def test_subagent_legacy_plan_compatibility_characterization(self) -> None:
-        """Freeze subagent build_plan returning (legacy_plan, configs) alongside build_subagent_plan."""
+        """Verify subagent build_subagent_plan returns SubagentPlan and legacy view is retired."""
         subagent_md = (
             "---\n"
             "description: Code reviewer\n"
@@ -112,16 +112,17 @@ name_style = "verbatim"
 
         # Formal structured plan
         formal_plan = build_subagent_plan(self.ws, home=self.home)
+        self.assertIsInstance(formal_plan, SubagentPlan)
         self.assertTrue(formal_plan.can_apply)
         self.assertEqual(len(formal_plan.operations), 1)
+        self.assertEqual(formal_plan.operations[0].action, "CREATE")
+        self.assertEqual(formal_plan.operations[0].target.logical_identity, "reviewer")
 
-        # Legacy compatibility tuple view
-        legacy_plan, configs = build_plan(self.ws, home=self.home)
-        self.assertIsInstance(legacy_plan, list)
-        self.assertEqual(len(legacy_plan), 1)
-        self.assertIsInstance(legacy_plan[0], PlanItem)
-        self.assertEqual(legacy_plan[0].action, "CREATE")
-        self.assertEqual(legacy_plan[0].subagent_name, "reviewer")
+        # Verify legacy names are retired from module
+        import aikito.subagent as subagent_mod
+
+        self.assertFalse(hasattr(subagent_mod, "PlanItem"))
+        self.assertFalse(hasattr(subagent_mod, "build_plan"))
 
     def test_doctor_subagent_mcp_characterization(self) -> None:
         """Freeze doctor execution over configured workspace report sections."""

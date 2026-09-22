@@ -13,7 +13,7 @@ from .mcp import (
     redact_mcp_entry,
 )
 from .project import collect_project_skill_diffs
-from .subagent import build_plan, build_subagent_plan
+from .subagent import build_subagent_plan
 
 
 def _json_lines(value: dict[str, Any]) -> list[str]:
@@ -73,25 +73,28 @@ def collect_drift_diffs(aikito_dir: Path, home: Path) -> list[tuple[str, str]]:
             diff = _redacted_only_diff(actual_label, expected_label)
         results.append((f"MCP {spec.agent}/{spec.server}", diff))
 
-    plan_out = build_plan(aikito_dir, home, allow_empty=True)
-    items = plan_out[0] if isinstance(plan_out, tuple) else getattr(plan_out, "operations", plan_out)
-    for item in items:
-        action = getattr(item, "action", None)
-        if action != "UPDATE":
-            continue
-        target_path = getattr(item, "target_path", None) or item.target.path
-        subagent_name = getattr(item, "subagent_name", None) or item.target.logical_identity
-        agent_name = getattr(item, "agent_name", None) or item.target.agent
-        rendered = getattr(item, "rendered_content", None) or getattr(item, "rendered_payload", "")
-        actual = target_path.read_text(encoding="utf-8", errors="replace")
-        diff = _unified_diff(
-            actual.splitlines(keepends=True),
-            rendered.splitlines(keepends=True),
-            str(target_path),
-            f"subagents/{subagent_name}.md ({agent_name})",
-        )
-        if diff:
-            results.append((f"Subagent {agent_name}/{subagent_name}", diff))
+    try:
+        subagent_plan = build_subagent_plan(aikito_dir, home, allow_empty=True)
+    except Exception:
+        subagent_plan = None
+
+    if subagent_plan:
+        for op in subagent_plan.operations:
+            if op.action != "UPDATE":
+                continue
+            target_path = op.target.path
+            subagent_name = op.target.logical_identity
+            agent_name = op.target.agent
+            rendered = op.rendered_payload or ""
+            actual = target_path.read_text(encoding="utf-8", errors="replace")
+            diff = _unified_diff(
+                actual.splitlines(keepends=True),
+                rendered.splitlines(keepends=True),
+                str(target_path),
+                f"subagents/{subagent_name}.md ({agent_name})",
+            )
+            if diff:
+                results.append((f"Subagent {agent_name}/{subagent_name}", diff))
 
     results.extend(collect_project_skill_diffs(aikito_dir, home))
 

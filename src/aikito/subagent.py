@@ -14,14 +14,11 @@ from collections.abc import Mapping, Sequence
 
 from .agents import is_agent_installed
 from .config_runtime import (
-    ConfigCollisionError,
     ConfigOperation,
     ConfigTarget,
     FileMutationPlan,
-    FileSnapshot,
     StaleConfigPlanError,
     aggregate_file_plans,
-    capture_file_snapshot,
 )
 
 
@@ -95,15 +92,6 @@ class SubagentDefinition:
     platform_configs: dict[str, dict[str, Any]]
     instructions: str
 
-
-@dataclass
-class PlanItem:
-    agent_name: str
-    subagent_name: str
-    target_path: Path
-    action: str  # OK, CREATE, UPDATE, CONFLICT, ORPHAN, SKIP, ERROR
-    reason: str
-    rendered_content: str = ""
 
 
 @dataclass(frozen=True)
@@ -1215,37 +1203,6 @@ def build_subagent_plan(
     )
 
 
-def build_plan(
-    aikito_dir: Path,
-    home: Path,
-    allow_empty: bool = False,
-    gate_installed: bool = True,
-    force_targets: Sequence[str] | None = None,
-    prune: bool = False,
-) -> tuple[list[PlanItem], dict[str, AgentSubagentConfig]]:
-    subagent_plan = build_subagent_plan(
-        aikito_dir=aikito_dir,
-        home=home,
-        allow_empty=allow_empty,
-        gate_installed=gate_installed,
-        force_targets=force_targets,
-        prune=prune,
-    )
-    legacy_plan: list[PlanItem] = []
-    for op in subagent_plan.operations:
-        action = "OK" if op.action == "NOOP" else op.action
-        legacy_plan.append(
-            PlanItem(
-                agent_name=op.target.agent,
-                subagent_name=op.target.logical_identity,
-                target_path=op.target.path,
-                action=action,
-                reason=op.reason,
-                rendered_content=op.rendered_payload or "",
-            )
-        )
-    return legacy_plan, dict(subagent_plan.agent_configs)
-
 
 def _backup_file(home: Path, agent_name: str, target_path: Path) -> Path | None:
     if not target_path.is_file():
@@ -1469,30 +1426,30 @@ def sync_subagent_configs(
 
 
 def status_subagent_configs(aikito_dir: Path, home: Path) -> bool:
-    plan, _ = build_plan(aikito_dir, home)
+    plan = build_subagent_plan(aikito_dir, home)
     all_ok = True
 
     print("[INFO] Subagent Status Report:")
-    for item in plan:
-        target_key = f"{item.agent_name}/{item.subagent_name}"
-        if item.action == "SKIP":
-            print(f"  [SKIP] {item.agent_name}: no subagents configured")
-        elif item.action == "OK":
+    for op in plan.operations:
+        target_key = f"{op.target.agent}/{op.target.logical_identity}"
+        if op.action == "SKIP":
+            print(f"  [SKIP] {op.target.agent}: no subagents configured")
+        elif op.action == "NOOP":
             print(f"  [OK] {target_key}")
-        elif item.action in ("CREATE", "UPDATE"):
+        elif op.action in ("CREATE", "UPDATE"):
             all_ok = False
             print(
-                f"  [{item.action}] {target_key} -> {item.target_path} ({item.reason})"
+                f"  [{op.action}] {target_key} -> {op.target.path} ({op.reason})"
             )
-        elif item.action == "CONFLICT":
+        elif op.action == "CONFLICT":
             all_ok = False
-            print(f"  [CONFLICT] {target_key} -> {item.target_path}")
-        elif item.action == "ORPHAN":
+            print(f"  [CONFLICT] {target_key} -> {op.target.path}")
+        elif op.action in ("ORPHAN", "REMOVE"):
             all_ok = False
-            print(f"  [ORPHAN] {target_key} -> {item.target_path}")
-        elif item.action == "ERROR":
+            print(f"  [ORPHAN] {target_key} -> {op.target.path}")
+        elif op.action == "ERROR":
             all_ok = False
-            print(f"  [ERROR] {target_key}: {item.reason}")
+            print(f"  [ERROR] {target_key}: {op.reason}")
 
     if all_ok:
         print("[SUCCESS] All subagent configurations are up-to-date.")

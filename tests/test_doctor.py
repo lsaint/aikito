@@ -32,7 +32,8 @@ from aikito.render import (
     DoctorSection,
     render_doctor_report,
 )
-from aikito.subagent import PlanItem
+from aikito.config_runtime import ConfigOperation, ConfigTarget
+from aikito.subagent import SubagentPlan
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -1028,17 +1029,19 @@ agents = ["claude-code"]
 
     def test_missing_managed_subagent_is_reported_in_drift(self) -> None:
         missing_target = self.home / ".copilot" / "agents" / "formatter.agent.md"
-        plan = [
-            PlanItem(
-                agent_name="github-copilot",
-                subagent_name="formatter",
-                target_path=missing_target,
-                action="CREATE",
-                reason="Target file does not exist",
-            )
-        ]
+        target = ConfigTarget(
+            path=missing_target,
+            logical_identity="formatter",
+            agent="github-copilot",
+        )
+        op = ConfigOperation(
+            target=target,
+            action="CREATE",
+            reason="Target file does not exist",
+        )
+        plan = SubagentPlan(operations=(op,), file_plans=())
 
-        with patch("aikito.doctor.build_plan", return_value=(plan, {})):
+        with patch("aikito.doctor.build_subagent_plan", return_value=plan):
             section = check_drift(self.aikito_dir, self.home)
 
         failures = [finding for finding in section.findings if finding.status == "FAIL"]
@@ -1064,7 +1067,7 @@ agents = ["claude-code"]
         with (
             patch("aikito.doctor.load_agent_specs", return_value=[spec]),
             patch("aikito.doctor.evaluate_spec_status", return_value="DRIFT"),
-            patch("aikito.doctor.build_plan", return_value=([], {})),
+            patch("aikito.doctor.build_subagent_plan", return_value=SubagentPlan(operations=(), file_plans=())),
         ):
             section = check_drift(self.aikito_dir, self.home)
 
@@ -1105,7 +1108,7 @@ agents = ["claude-code"]
         with (
             patch("aikito.doctor.load_agent_specs", return_value=[spec_update, spec_drift]),
             patch("aikito.doctor.evaluate_spec_status", side_effect=eval_status),
-            patch("aikito.doctor.build_plan", return_value=([], {})),
+            patch("aikito.doctor.build_subagent_plan", return_value=SubagentPlan(operations=(), file_plans=())),
         ):
             section = check_drift(self.aikito_dir, self.home)
 

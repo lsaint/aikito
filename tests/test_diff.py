@@ -3,9 +3,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from aikito.config_runtime import ConfigOperation, ConfigTarget
 from aikito.diff import collect_drift_diffs, render_drift_diffs
 from aikito.mcp import AgentSpec
-from aikito.subagent import PlanItem
+from aikito.subagent import SubagentPlan
 
 
 class DriftDiffTest(unittest.TestCase):
@@ -31,7 +32,7 @@ class DriftDiffTest(unittest.TestCase):
 
             with (
                 patch("aikito.diff.load_agent_specs", return_value=[]),
-                patch("aikito.diff.build_plan", return_value=([], {})),
+                patch("aikito.diff.build_subagent_plan", return_value=SubagentPlan(operations=(), file_plans=())),
             ):
                 rendered = render_drift_diffs(collect_drift_diffs(root, root))
 
@@ -56,14 +57,18 @@ class DriftDiffTest(unittest.TestCase):
                 target_name="example",
                 desired={"headers": {"Authorization": "new-secret"}, "url": "new"},
             )
-            item = PlanItem(
-                agent_name="test-agent",
-                subagent_name="formatter",
-                target_path=subagent_path,
+            target = ConfigTarget(
+                path=subagent_path,
+                logical_identity="formatter",
+                agent="test-agent",
+            )
+            op = ConfigOperation(
+                target=target,
                 action="UPDATE",
                 reason="Content changed",
-                rendered_content="new\n",
+                rendered_payload="new\n",
             )
+            subagent_plan = SubagentPlan(operations=(op,), file_plans=())
 
             with (
                 patch("aikito.diff.load_agent_specs", return_value=[spec]),
@@ -75,7 +80,7 @@ class DriftDiffTest(unittest.TestCase):
                         "url": "old",
                     },
                 ),
-                patch("aikito.diff.build_plan", return_value=([item], {})),
+                patch("aikito.diff.build_subagent_plan", return_value=subagent_plan),
             ):
                 rendered = render_drift_diffs(collect_drift_diffs(root, root))
 
@@ -111,7 +116,7 @@ class DriftDiffTest(unittest.TestCase):
                     "aikito.diff.read_entry",
                     return_value={"headers": {"Authorization": "old-secret"}},
                 ),
-                patch("aikito.diff.build_plan", return_value=([], {})),
+                patch("aikito.diff.build_subagent_plan", return_value=SubagentPlan(operations=(), file_plans=())),
             ):
                 rendered = render_drift_diffs(collect_drift_diffs(root, root))
 
@@ -137,7 +142,7 @@ class DriftDiffTest(unittest.TestCase):
 
             with (
                 patch("aikito.diff.load_agent_specs", return_value=[]),
-                patch("aikito.diff.build_plan", return_value=([], {})),
+                patch("aikito.diff.build_subagent_plan", return_value=SubagentPlan(operations=(), file_plans=())),
             ):
                 diffs = collect_drift_diffs(root, root)
                 rendered = render_drift_diffs(diffs)

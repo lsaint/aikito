@@ -18,7 +18,6 @@ from aikito.subagent import (
     SubagentConfigError,
     SubagentExecutionResult,
     SubagentPlan,
-    build_plan,
     build_subagent_plan,
     execute_subagent_plan,
 )
@@ -185,14 +184,6 @@ config_format = "dsh_cordis_subagent"
         fp = dsh_file_plans[0]
         self.assertEqual(len(fp.operations), 2)
         self.assertEqual(fp.format, "dsh_cordis_subagent")
-
-    def test_legacy_build_plan_compatibility(self) -> None:
-        """build_plan backwards compatibility wrapper returns legacy PlanItem list and config dict."""
-        items, configs = build_plan(self.ws, self.home)
-        self.assertIsInstance(items, list)
-        self.assertIsInstance(configs, dict)
-        self.assertIn("claude-code", configs)
-        self.assertTrue(any(item.subagent_name == "verifier" for item in items))
 
     def test_execute_subagent_plan_creates_files_and_reports_result(self) -> None:
         """INV-SUB-06: Execution returns structured SubagentExecutionResult and writes files."""
