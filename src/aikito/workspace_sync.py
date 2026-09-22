@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import tomllib
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
@@ -29,8 +29,29 @@ from .instructions import (
     execute_instruction_plan,
     plan_instructions,
 )
-from .mcp import MCPConfigError, load_agents
+from .mcp import (
+    MCPConfigError,
+    MCPExecutionResult,
+    MCPPlan,
+    build_mcp_plan,
+    execute_mcp_plan,
+    load_agents,
+)
+from .project import resolve_project_binding
+from .project_sync import (
+    ProjectSyncBatch,
+    ProjectSyncExecutionResult,
+    apply_project_sync_batch,
+    build_project_sync_batch,
+)
 from .skill_state import SkillWriterLock
+from .subagent import (
+    SubagentConfigError,
+    SubagentExecutionResult,
+    SubagentPlan,
+    build_subagent_plan,
+    execute_subagent_plan,
+)
 from .templating import BUNDLED_SKILL_NAMES
 
 
@@ -127,6 +148,7 @@ def build_global_sync_plan(
     *,
     dry_run: bool = False,
     container_path: Path | None = None,
+    skills: Sequence[str] | None = None,
     outdated_bundled_skills_fn: Optional[Callable[[Path], Sequence[str]]] = None,
     load_agents_fn: Optional[Callable[[Path, Path], Any]] = None,
 ) -> GlobalSyncPlan:
@@ -194,22 +216,23 @@ def build_global_sync_plan(
             error_message=str(exc),
         )
 
-    skills = data.get("skills", [])
-    if not isinstance(skills, list):
-        finding = Finding(
-            status="ERROR",
-            code="INVALID_CONFIG",
-            message="Global skills configuration is malformed (expected a list of skill names).",
-            resource=str(skills_toml_path),
-        )
-        return GlobalSyncPlan(
-            bundled_refresh_plan=BundledSkillRefreshPlan(),
-            skill_plan=None,
-            instruction_plan=None,
-            findings=(finding,),
-            can_apply=False,
-            error_message="Global skills configuration is malformed.",
-        )
+    if skills is None:
+        skills = data.get("skills", [])
+        if not isinstance(skills, list):
+            finding = Finding(
+                status="ERROR",
+                code="INVALID_CONFIG",
+                message="Global skills configuration is malformed (expected a list of skill names).",
+                resource=str(skills_toml_path),
+            )
+            return GlobalSyncPlan(
+                bundled_refresh_plan=BundledSkillRefreshPlan(),
+                skill_plan=None,
+                instruction_plan=None,
+                findings=(finding,),
+                can_apply=False,
+                error_message="Global skills configuration is malformed.",
+            )
 
     bundled_plan = build_bundled_refresh_plan(
         aikito_dir, home, outdated_bundled_skills_fn=outdated_bundled_skills_fn
@@ -479,4 +502,604 @@ def execute_global_sync_plan(
         refreshed_bundled=refreshed,
         findings=plan.findings,
         replan_required=plan.replan_required_after_apply,
+    )
+
+
+@dataclass(frozen=True)
+class WorkspaceSyncRequest:
+    """Request parameters for building a WorkspaceSyncPlan."""
+
+    workspace_root: Path
+    home: Path
+    force: bool = False
+    prune: bool = False
+    force_targets: tuple[str, ...] = ()
+    skills: tuple[str, ...] | None = None
+
+
+@dataclass(frozen=True)
+class ProjectSyncEntry:
+    """Structured representation of a configured project within a workspace."""
+
+    project_name: str
+    binding_status: str  # "active", "offline", "unbound", "error"
+    config_data: dict[str, Any] = field(default_factory=dict)
+    batch: ProjectSyncBatch | None = None
+    offline_paths: tuple[str, ...] = ()
+    error_message: str | None = None
+
+
+@dataclass(frozen=True)
+class WorkspaceSyncPlan:
+    """Fully evaluated, immutable workspace-wide synchronization plan.
+
+    Aggregates global resources, subagents, MCP servers, and project batches
+    into a single structured plan before any mutations are performed.
+    """
+
+    workspace_root: Path
+    home: Path
+    global_plan: GlobalSyncPlan
+    subagent_plan: SubagentPlan | None
+    mcp_plan: MCPPlan | None
+    project_entries: tuple[ProjectSyncEntry, ...]
+    findings: tuple[Finding, ...] = ()
+    can_apply: bool = True
+    replan_required_after_apply: bool = False
+
+    @property
+    def changes(self) -> int:
+        count = 0
+        # 1. Global
+        if self.global_plan.bundled_refresh_plan:
+            count += sum(
+                1
+                for op in self.global_plan.bundled_refresh_plan.operations
+                if op.action == "REFRESH"
+            )
+        if self.global_plan.skill_plan:
+            count += getattr(self.global_plan.skill_plan, "planned_change_count", 0)
+        if self.global_plan.instruction_plan:
+            count += getattr(self.global_plan.instruction_plan, "planned_change_count", 0)
+
+        # 2. Subagents
+        if self.subagent_plan:
+            count += sum(
+                1
+                for op in self.subagent_plan.operations
+                if op.action in ("CREATE", "UPDATE", "REMOVE") and op.is_authorized
+            )
+
+        # 3. MCP
+        if self.mcp_plan:
+            count += getattr(self.mcp_plan, "changes_count", 0)
+
+        # 4. Projects
+        for entry in self.project_entries:
+            if entry.batch is not None:
+                b = entry.batch
+                if b.skill_plan:
+                    count += sum(
+                        1
+                        for op in b.skill_plan.operations
+                        if op.action in ("CREATE", "UPDATE", "UNLINK") and op.is_authorized
+                    )
+                if b.instruction_plan:
+                    count += getattr(b.instruction_plan, "planned_change_count", 0)
+                if b.memory_plan:
+                    count += getattr(b.memory_plan, "planned_change_count", 0)
+
+        return count
+
+    @property
+    def unchanged(self) -> int:
+        count = 0
+        # 1. Global
+        if self.global_plan.bundled_refresh_plan:
+            count += sum(
+                1
+                for op in self.global_plan.bundled_refresh_plan.operations
+                if op.action == "NOOP"
+            )
+        if self.global_plan.skill_plan:
+            count += getattr(self.global_plan.skill_plan, "noop_count", 0)
+        if self.global_plan.instruction_plan:
+            count += getattr(self.global_plan.instruction_plan, "noop_count", 0)
+
+        # 2. Subagents
+        if self.subagent_plan:
+            count += sum(1 for op in self.subagent_plan.operations if op.action == "NOOP")
+
+        # 3. MCP
+        if self.mcp_plan:
+            count += sum(1 for op in self.mcp_plan.operations if op.action == "NOOP")
+
+        # 4. Projects
+        for entry in self.project_entries:
+            if entry.batch is not None:
+                b = entry.batch
+                if b.skill_plan:
+                    count += sum(1 for op in b.skill_plan.operations if op.action == "NOOP")
+                if b.instruction_plan:
+                    count += getattr(b.instruction_plan, "noop_count", 0)
+                if b.memory_plan:
+                    count += getattr(b.memory_plan, "noop_count", 0)
+
+        return count
+
+    @property
+    def offline(self) -> int:
+        return sum(1 for entry in self.project_entries if entry.binding_status == "offline")
+
+    @property
+    def conflicts(self) -> tuple[str, ...]:
+        result: list[str] = []
+        # Global
+        if self.global_plan.skill_plan and hasattr(self.global_plan.skill_plan, "conflicts"):
+            for op in self.global_plan.skill_plan.conflicts:
+                msg = getattr(op, "finding", None) or getattr(op, "reason", str(op))
+                if msg not in result:
+                    result.append(msg)
+        if self.global_plan.instruction_plan and hasattr(self.global_plan.instruction_plan, "conflicts"):
+            for op in self.global_plan.instruction_plan.conflicts:
+                msg = getattr(op, "finding", None) or getattr(op, "reason", str(op))
+                if msg not in result:
+                    result.append(msg)
+
+        # Subagents
+        if self.subagent_plan:
+            for op in self.subagent_plan.operations:
+                if op.action == "CONFLICT" or (op.requires_force and not op.is_authorized):
+                    msg = f"{op.target.agent}/{op.target.logical_identity}: {op.reason}"
+                    if msg not in result:
+                        result.append(msg)
+
+        # MCP
+        if self.mcp_plan:
+            for op in self.mcp_plan.operations:
+                if (op.action == "CONFLICT" and not op.is_authorized) or op.action == "ERROR":
+                    msg = f"{op.target.agent}/{op.target.logical_identity}: {op.reason}"
+                    if msg not in result:
+                        result.append(msg)
+
+        # Projects
+        for entry in self.project_entries:
+            if entry.batch is not None:
+                b = entry.batch
+                if b.skill_plan:
+                    for op in b.skill_plan.operations:
+                        if op.action == "CONFLICT" or (op.requires_force and not op.is_authorized):
+                            msg = getattr(op, "finding", None) or op.reason
+                            if msg not in result:
+                                result.append(msg)
+                if b.instruction_plan and hasattr(b.instruction_plan, "conflicts"):
+                    for op in b.instruction_plan.conflicts:
+                        msg = getattr(op, "finding", None) or getattr(op, "reason", str(op))
+                        if msg not in result:
+                            result.append(msg)
+                if b.memory_plan and hasattr(b.memory_plan, "conflicts"):
+                    for op in b.memory_plan.conflicts:
+                        msg = getattr(op, "finding", None) or getattr(op, "reason", str(op))
+                        if msg not in result:
+                            result.append(msg)
+
+        for f in self.findings:
+            if f.status == "conflict" and f.message not in result:
+                result.append(f.message)
+
+        return tuple(result)
+
+    @property
+    def errors(self) -> tuple[str, ...]:
+        result: list[str] = []
+        if self.global_plan.error_message and self.global_plan.error_message not in result:
+            result.append(self.global_plan.error_message)
+
+        if self.subagent_plan:
+            for op in self.subagent_plan.operations:
+                if op.action == "ERROR":
+                    msg = f"{op.target.agent}/{op.target.logical_identity}: {op.reason}"
+                    if msg not in result:
+                        result.append(msg)
+
+        for entry in self.project_entries:
+            if entry.error_message and entry.error_message not in result:
+                result.append(entry.error_message)
+            if entry.batch is not None:
+                for err in entry.batch.preflight_findings:
+                    if err not in result:
+                        result.append(err)
+
+        for f in self.findings:
+            if f.status == "error" and f.message not in result:
+                result.append(f.message)
+
+        return tuple(result)
+
+    @property
+    def warnings(self) -> tuple[str, ...]:
+        result: list[str] = []
+        if self.subagent_plan:
+            for op in self.subagent_plan.operations:
+                if op.action == "ORPHAN":
+                    msg = f"{op.target.agent}/{op.target.logical_identity}: {op.reason}"
+                    if msg not in result:
+                        result.append(msg)
+
+        for f in self.findings:
+            if f.status == "warning" and f.message not in result:
+                result.append(f.message)
+
+        return tuple(result)
+
+    def render(self, *, verbose: bool = False) -> str:
+        lines = [
+            "Sync plan",
+            "",
+            f"  Changes:   {self.changes}",
+            f"  Unchanged: {self.unchanged}",
+            f"  Offline:   {self.offline}",
+            f"  Warnings:  {len(self.warnings)}",
+            f"  Conflicts: {len(self.conflicts)}",
+            f"  Errors:    {len(self.errors)}",
+        ]
+        important = (*self.warnings, *self.conflicts, *self.errors)
+        if important:
+            lines.extend(("", "Needs attention:"))
+            lines.extend(f"  {line}" for line in important)
+        lines.extend(
+            (
+                "",
+                "Safe to apply" if self.can_apply else "Blocked; no changes were made",
+            )
+        )
+        return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class WorkspaceSyncExecutionResult:
+    """Segmented execution outcome of a WorkspaceSyncPlan."""
+
+    success: bool
+    global_result: GlobalSyncExecutionResult | None = None
+    subagent_result: SubagentExecutionResult | None = None
+    mcp_result: MCPExecutionResult | None = None
+    project_results: tuple[ProjectSyncExecutionResult, ...] = ()
+    findings: tuple[Finding, ...] = ()
+    replan_required: bool = False
+    error_message: str | None = None
+
+    def __bool__(self) -> bool:
+        return self.success
+
+
+def build_workspace_sync_plan(
+    request: WorkspaceSyncRequest | Path,
+    home: Path | None = None,
+    *,
+    force: bool = False,
+    prune: bool = False,
+    force_targets: Sequence[str] | None = None,
+    load_agents_fn: Optional[Callable[..., Any]] = None,
+    outdated_bundled_skills_fn: Optional[Callable[[Path], Sequence[str]]] = None,
+) -> WorkspaceSyncPlan:
+    """Construct an immutable, fully-evaluated WorkspaceSyncPlan strictly read-only.
+
+    Enforces INV-APP-01, INV-APP-06, and INV-APP-07.
+    """
+    if isinstance(request, Path):
+        h = home or Path.home()
+        req = WorkspaceSyncRequest(
+            workspace_root=request,
+            home=h,
+            force=force,
+            prune=prune,
+            force_targets=tuple(force_targets or ()),
+        )
+    else:
+        req = request
+
+    workspace_root = req.workspace_root
+    user_home = req.home
+
+    # 1. Global sync plan
+    global_plan = build_global_sync_plan(
+        workspace_root,
+        user_home,
+        skills=req.skills,
+        load_agents_fn=load_agents_fn,
+        outdated_bundled_skills_fn=outdated_bundled_skills_fn,
+    )
+
+    # 2. Subagent plan
+    subagent_plan: SubagentPlan | None = None
+    try:
+        subagent_plan = build_subagent_plan(
+            aikito_dir=workspace_root,
+            home=user_home,
+            allow_empty=True,
+            force_targets=list(req.force_targets) if req.force_targets else None,
+            prune=req.prune,
+        )
+    except SubagentConfigError as exc:
+        subagent_err_finding = Finding(
+            status="error",
+            message=f"Subagent configuration error: {exc}",
+            resource="subagents",
+            code="SUBAGENT_CONFIG_ERROR",
+        )
+        return WorkspaceSyncPlan(
+            workspace_root=workspace_root,
+            home=user_home,
+            global_plan=global_plan,
+            subagent_plan=None,
+            mcp_plan=None,
+            project_entries=(),
+            findings=(*global_plan.findings, subagent_err_finding),
+            can_apply=False,
+        )
+
+    # 3. MCP plan
+    mcp_plan: MCPPlan | None = None
+    try:
+        mcp_plan = build_mcp_plan(
+            aikito_dir=workspace_root,
+            home=user_home,
+        )
+    except MCPConfigError as exc:
+        mcp_err_finding = Finding(
+            status="error",
+            message=f"MCP configuration error: {exc}",
+            resource="mcp",
+            code="MCP_CONFIG_ERROR",
+        )
+        return WorkspaceSyncPlan(
+            workspace_root=workspace_root,
+            home=user_home,
+            global_plan=global_plan,
+            subagent_plan=subagent_plan,
+            mcp_plan=None,
+            project_entries=(),
+            findings=(*global_plan.findings, mcp_err_finding),
+            can_apply=False,
+        )
+
+    # 4. Project entries
+    project_entries: list[ProjectSyncEntry] = []
+    project_findings: list[Finding] = []
+    projects_dir = workspace_root / "projects"
+
+    if projects_dir.is_dir():
+        proj_dirs = sorted(
+            [p for p in projects_dir.iterdir() if p.is_dir() and not p.name.startswith(".")],
+            key=lambda p: p.name,
+        )
+        for proj_dir in proj_dirs:
+            project_name = proj_dir.name
+            agent_toml = proj_dir / "agent.toml"
+            if not agent_toml.is_file():
+                continue
+
+            try:
+                with open(agent_toml, "rb") as f:
+                    data = tomllib.load(f)
+            except (OSError, tomllib.TOMLDecodeError) as exc:
+                err_msg = f"Failed to read configuration for project '{project_name}': {exc}"
+                project_findings.append(
+                    Finding(status="error", message=err_msg, resource=project_name, code="PROJECT_CONFIG_ERROR")
+                )
+                project_entries.append(
+                    ProjectSyncEntry(
+                        project_name=project_name,
+                        binding_status="error",
+                        error_message=err_msg,
+                    )
+                )
+                continue
+
+            binding = resolve_project_binding(data, user_home)
+            if not binding.entries:
+                project_entries.append(
+                    ProjectSyncEntry(
+                        project_name=project_name,
+                        binding_status="unbound",
+                        config_data=data,
+                    )
+                )
+                continue
+
+            offline_paths = tuple(e.raw_path for e in binding.offline_entries)
+            if not binding.active_entries:
+                project_entries.append(
+                    ProjectSyncEntry(
+                        project_name=project_name,
+                        binding_status="offline",
+                        config_data=data,
+                        offline_paths=offline_paths,
+                    )
+                )
+                continue
+
+            batch = build_project_sync_batch(
+                workspace_root,
+                user_home,
+                project_name,
+                data,
+                force=req.force,
+            )
+            for err in batch.preflight_findings:
+                project_findings.append(
+                    Finding(status="error", message=err, resource=project_name, code="PREFLIGHT_ERROR")
+                )
+            for op in batch.skill_plan.operations:
+                if op.action == "CONFLICT" or (op.requires_force and not op.is_authorized):
+                    msg = op.finding or op.reason
+                    project_findings.append(
+                        Finding(status="conflict", message=msg, resource=project_name, code="SKILL_CONFLICT")
+                    )
+
+            project_entries.append(
+                ProjectSyncEntry(
+                    project_name=project_name,
+                    binding_status="active",
+                    config_data=data,
+                    batch=batch,
+                    offline_paths=offline_paths,
+                )
+            )
+
+    all_findings = (*global_plan.findings, *project_findings)
+    can_apply = (
+        global_plan.can_apply
+        and (subagent_plan is None or subagent_plan.can_apply)
+        and (mcp_plan is None or mcp_plan.can_apply)
+        and all(e.batch.can_apply for e in project_entries if e.batch is not None)
+        and not any(e.binding_status == "error" for e in project_entries)
+        and not any(f.status == "error" for f in all_findings)
+    )
+
+    replan_required_after_apply = (
+        global_plan.replan_required_after_apply
+        and any(e.batch is not None for e in project_entries)
+    )
+
+    return WorkspaceSyncPlan(
+        workspace_root=workspace_root,
+        home=user_home,
+        global_plan=global_plan,
+        subagent_plan=subagent_plan,
+        mcp_plan=mcp_plan,
+        project_entries=tuple(project_entries),
+        findings=all_findings,
+        can_apply=can_apply,
+        replan_required_after_apply=replan_required_after_apply,
+    )
+
+
+def execute_workspace_sync_plan(
+    plan: WorkspaceSyncPlan,
+    workspace: Path,
+    home: Path,
+    *,
+    dry_run: bool = False,
+    execute_global_fn: Optional[Callable[..., GlobalSyncExecutionResult]] = None,
+    execute_subagent_fn: Optional[Callable[..., SubagentExecutionResult]] = None,
+    execute_mcp_fn: Optional[Callable[..., MCPExecutionResult]] = None,
+    apply_project_batch_fn: Optional[Callable[..., ProjectSyncExecutionResult]] = None,
+) -> WorkspaceSyncExecutionResult:
+    """Execute a WorkspaceSyncPlan with segmented failure boundaries and same-plan fidelity.
+
+    Enforces INV-APP-02, INV-APP-04, and INV-APP-05.
+    """
+    if not dry_run and not plan.can_apply:
+        return WorkspaceSyncExecutionResult(
+            success=False,
+            findings=plan.findings,
+            replan_required=False,
+            error_message="Workspace sync plan contains unhandled conflicts or errors; cannot apply.",
+        )
+
+    # 1. Global Sync
+    exec_global = execute_global_fn or execute_global_sync_plan
+    global_res = exec_global(plan.global_plan, workspace, home, dry_run=dry_run)
+    if not global_res.success:
+        return WorkspaceSyncExecutionResult(
+            success=False,
+            global_result=global_res,
+            findings=plan.findings,
+            replan_required=False,
+            error_message=global_res.error_message or "Global sync failed.",
+        )
+
+    # Check if bundled skills refresh requires replan before project sync
+    has_projects_with_batches = any(e.batch is not None for e in plan.project_entries)
+    if not dry_run and global_res.replan_required and has_projects_with_batches:
+        return WorkspaceSyncExecutionResult(
+            success=False,
+            global_result=global_res,
+            findings=plan.findings,
+            replan_required=True,
+            error_message=(
+                "Bundled skills refreshed or canonical skills changed during global sync; "
+                "workspace sync plan invalidated. Please re-run 'aikito sync'."
+            ),
+        )
+
+    # 2. Subagents
+    sub_res: SubagentExecutionResult | None = None
+    if plan.subagent_plan is not None:
+        if dry_run:
+            sub_res = SubagentExecutionResult(
+                success=plan.subagent_plan.can_apply,
+                applied_count=0,
+                noop_count=sum(1 for op in plan.subagent_plan.operations if op.action == "NOOP"),
+                skipped_count=sum(1 for op in plan.subagent_plan.operations if op.action == "SKIP"),
+                conflict_count=plan.subagent_plan.conflicts_count,
+                failed_count=0,
+            )
+        else:
+            exec_sub = execute_subagent_fn or execute_subagent_plan
+            sub_res = exec_sub(plan.subagent_plan, home=home)
+        if not sub_res.success:
+            return WorkspaceSyncExecutionResult(
+                success=False,
+                global_result=global_res,
+                subagent_result=sub_res,
+                findings=plan.findings,
+                replan_required=False,
+                error_message=sub_res.error_message or "Subagents sync failed.",
+            )
+
+    # 3. MCP
+    mcp_res: MCPExecutionResult | None = None
+    if plan.mcp_plan is not None:
+        if dry_run:
+            mcp_res = MCPExecutionResult(
+                success=plan.mcp_plan.can_apply,
+                applied_count=0,
+                noop_count=sum(1 for op in plan.mcp_plan.operations if op.action == "NOOP"),
+                skipped_count=sum(1 for op in plan.mcp_plan.operations if op.action == "SKIP"),
+                conflict_count=plan.mcp_plan.conflicts_count,
+                failed_count=0,
+            )
+        else:
+            exec_mcp = execute_mcp_fn or execute_mcp_plan
+            mcp_res = exec_mcp(plan.mcp_plan, home=home)
+        if not mcp_res.success:
+            return WorkspaceSyncExecutionResult(
+                success=False,
+                global_result=global_res,
+                subagent_result=sub_res,
+                mcp_result=mcp_res,
+                findings=plan.findings,
+                replan_required=False,
+                error_message=mcp_res.error_message or "MCP sync failed.",
+            )
+
+    # 4. Projects
+    project_results: list[ProjectSyncExecutionResult] = []
+    projects_ok = True
+    first_proj_error: str | None = None
+    apply_batch = apply_project_batch_fn or apply_project_sync_batch
+
+    for entry in plan.project_entries:
+        if entry.batch is None:
+            continue
+        p_res = apply_batch(entry.batch, entry.config_data, home, dry_run=dry_run)
+        project_results.append(p_res)
+        if not p_res.is_success:
+            projects_ok = False
+            if first_proj_error is None:
+                first_proj_error = p_res.error_message or f"Project '{entry.project_name}' sync failed."
+
+    overall_success = projects_ok and plan.can_apply
+    return WorkspaceSyncExecutionResult(
+        success=overall_success,
+        global_result=global_res,
+        subagent_result=sub_res,
+        mcp_result=mcp_res,
+        project_results=tuple(project_results),
+        findings=plan.findings,
+        replan_required=False,
+        error_message=first_proj_error if not overall_success else None,
     )
