@@ -1,6 +1,7 @@
-# Core Model Migration Inventory
+# Core Model Migration Inventory (Archived)
 
-> **Note**: This is a temporary Core Model migration tracker. It is not a permanent invariant contract. It may be removed or archived after Phase 8.
+> Core Model migration completed in Phase 8.
+> This document is retained as historical implementation context and is no longer an active engineering contract.
 
 Every subsystem scheduled for migration into the structured Plan / Executor engine is documented below.
 

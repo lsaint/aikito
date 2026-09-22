@@ -7,12 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .compat import get_workspace_config_dir
-from .diagnostics import Finding
 from .doctor import run_doctor
 from .mcp import load_agents
-from .project import ProjectSummary, collect_project_summaries
+from .project import collect_project_summaries
 from .subagent import load_subagent_definitions
-from .workspace_sync import WorkspaceSyncPlan, plan_workspace_sync
+from .workspace_sync import plan_workspace_sync
 
 
 class WorkspaceError(RuntimeError):
@@ -28,13 +27,34 @@ class InvalidWorkspaceError(WorkspaceError, ValueError):
 
 
 @dataclass(frozen=True)
+class WorkspaceFinding:
+    """Read-only diagnostic finding presented by the public Workspace API."""
+
+    status: str
+    code: str
+    message: str
+    resource: str = ""
+    fix_hint: str = ""
+
+
+@dataclass(frozen=True)
+class WorkspaceProjectView:
+    """Read-only view of a project configured in an Aikito workspace."""
+
+    name: str
+    status: str
+    active_paths: tuple[str, ...] = ()
+    offline_paths: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class WorkspaceInspection:
     """Read-only diagnostic and configuration snapshot of an Aikito workspace."""
 
     workspace_dir: Path
     configured_agents: tuple[str, ...] = ()
-    projects: tuple[ProjectSummary, ...] = ()
-    diagnostics: tuple[Finding, ...] = ()
+    projects: tuple[WorkspaceProjectView, ...] = ()
+    diagnostics: tuple[WorkspaceFinding, ...] = ()
     mcps: tuple[str, ...] = ()
     skills: tuple[str, ...] = ()
     subagents: tuple[str, ...] = ()
@@ -45,7 +65,7 @@ class WorkspaceInspection:
 class WorkspaceSyncPreview:
     """Read-only preview of workspace synchronization operations."""
 
-    plan: WorkspaceSyncPlan
+    workspace_path: Path
     changes: int
     unchanged: int
     offline: int
@@ -54,7 +74,7 @@ class WorkspaceSyncPreview:
     errors: int
     can_apply: bool
     will_mutate: bool
-    findings: tuple[Finding, ...] = ()
+    findings: tuple[WorkspaceFinding, ...] = ()
     operations: tuple[str, ...] = ()
 
 
@@ -106,7 +126,16 @@ class Workspace:
             configured_agents = ()
 
         # 2. Projects
-        projects = tuple(collect_project_summaries(self.path, self.home))
+        project_summaries = collect_project_summaries(self.path, self.home)
+        projects = tuple(
+            WorkspaceProjectView(
+                name=p.name,
+                status=p.runtime_status,
+                active_paths=tuple(str(path) for _, path in p.active_paths),
+                offline_paths=tuple(str(path) for _, path in p.offline_paths),
+            )
+            for p in project_summaries
+        )
 
         # 3. MCPs
         mcps_dir = self.path / "mcps"
@@ -148,11 +177,19 @@ class Workspace:
 
         # 6. Diagnostics & readiness
         doctor_report = run_doctor(self.path, self.home)
-        findings: list[Finding] = []
+        findings: list[WorkspaceFinding] = []
         for section in doctor_report.sections:
             for f in section.findings:
                 if f.status in ("FAIL", "WARN"):
-                    findings.append(f)
+                    findings.append(
+                        WorkspaceFinding(
+                            status=f.status,
+                            code=f.code,
+                            message=f.message,
+                            resource=f.resource,
+                            fix_hint=f.fix_hint,
+                        )
+                    )
 
         return WorkspaceInspection(
             workspace_dir=self.path,
@@ -170,42 +207,70 @@ class Workspace:
         plan = plan_workspace_sync(self.path, self.home)
 
         operations: list[str] = []
-        if plan.global_plan.instruction_plan:
-            for target, action, _ in getattr(
-                plan.global_plan.instruction_plan, "planned_operations", ()
-            ):
-                operations.append(f"Instructions {action}: {target}")
+        if plan.global_plan.bundled_refresh_plan:
+            for op in plan.global_plan.bundled_refresh_plan.operations:
+                if op.action == "REFRESH":
+                    operations.append(f"Bundled Skill {op.skill_name}: REFRESH")
+
         if plan.global_plan.skill_plan:
-            for op in getattr(plan.global_plan.skill_plan, "operations", ()):
-                operations.append(
-                    f"Skill {getattr(op, 'action', '')}: {getattr(op, 'agent', '')}/{getattr(op, 'skill', '')}"
-                )
+            for op in plan.global_plan.skill_plan.all_operations:
+                if op.action in ("CREATE", "UNLINK", "MIGRATE_CONTAINER", "CONFLICT"):
+                    name = op.resource_name or op.target_path.name
+                    operations.append(f"Global Skill {op.action}: {name}")
+
+        if plan.global_plan.instruction_plan:
+            for op in plan.global_plan.instruction_plan.operations:
+                if op.action in ("CREATE", "UNLINK", "CONFLICT"):
+                    name = op.resource_name or op.target_path.name
+                    operations.append(f"Global Instructions {op.action}: {name}")
+
         if plan.subagent_plan:
             for op in plan.subagent_plan.operations:
                 if op.is_authorized:
-                    operations.append(f"Subagent {op.action}: {op.agent}/{op.subagent}")
+                    agent = getattr(getattr(op, "target", None), "agent", "")
+                    identity = getattr(getattr(op, "target", None), "logical_identity", "")
+                    operations.append(f"Subagent {op.action}: {agent}/{identity}")
+
         if plan.mcp_plan:
             for op in getattr(plan.mcp_plan, "operations", ()):
-                operations.append(
-                    f"MCP {getattr(op, 'action', '')}: {getattr(op, 'agent', '')}/{getattr(op, 'server', '')}"
-                )
+                if getattr(op, "is_authorized", True):
+                    agent = getattr(getattr(op, "target", None), "agent", "")
+                    identity = getattr(getattr(op, "target", None), "logical_identity", "")
+                    operations.append(f"MCP {op.action}: {agent}/{identity}")
+
         for entry in plan.project_entries:
             if entry.batch:
-                operations.append(
-                    f"Project {entry.project_name}: {entry.batch.agent} ({entry.candidate_path})"
-                )
+                b = entry.batch
+                if b.active_checkouts:
+                    checkouts_str = ", ".join(str(c) for c in b.active_checkouts)
+                    operations.append(f"Project {entry.project_name}: {checkouts_str}")
+                else:
+                    operations.append(f"Project {entry.project_name}: no active checkouts")
+            elif entry.binding_status == "offline":
+                operations.append(f"Project {entry.project_name}: offline")
+
+        preview_findings = tuple(
+            WorkspaceFinding(
+                status=f.status,
+                code=f.code,
+                message=f.message,
+                resource=f.resource,
+                fix_hint=f.fix_hint,
+            )
+            for f in plan.findings
+        )
 
         return WorkspaceSyncPreview(
-            plan=plan,
+            workspace_path=self.path,
             changes=plan.changes,
             unchanged=plan.unchanged,
             offline=plan.offline,
-            warnings=plan.warnings,
-            conflicts=plan.conflicts,
-            errors=plan.errors,
+            warnings=len(plan.warnings),
+            conflicts=len(plan.conflicts),
+            errors=len(plan.errors),
             can_apply=plan.can_apply,
             will_mutate=plan.changes > 0,
-            findings=plan.findings,
+            findings=preview_findings,
             operations=tuple(operations),
         )
 

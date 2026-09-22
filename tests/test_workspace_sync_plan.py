@@ -5,13 +5,19 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import Mock
 
+import pytest
+
 from aikito.mcp import MCPExecutionResult
 from aikito.subagent import SubagentExecutionResult
 from aikito.workspace_sync import (
+    BundledSkillRefreshError,
     GlobalSyncExecutionResult,
     WorkspaceSyncPlan,
+    build_bundled_refresh_plan,
     build_workspace_sync_plan,
+    execute_bundled_refresh_plan,
     execute_workspace_sync_plan,
+    sync_global_resources,
 )
 
 
@@ -297,3 +303,53 @@ def test_inv_app_07_bundled_refresh_replan_boundary_in_workspace(tmp_path: Path)
     assert res.replan_required is True
     assert "re-run 'aikito sync'" in (res.error_message or "")
     mock_apply_proj.assert_not_called()
+
+
+def test_bundled_skill_refresh_fingerprint_divergence_fails(tmp_path: Path) -> None:
+    """Bundled skill refresh aborts when target fingerprint diverges between plan and apply."""
+    ws = tmp_path / "workspace"
+    home = tmp_path / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    _setup_minimal_workspace(ws)
+
+    # Put an outdated bundled skill in workspace
+    aikito_skill = ws / "skills" / "aikito"
+    aikito_skill.mkdir(parents=True, exist_ok=True)
+    (aikito_skill / "SKILL.md").write_text("Old content\n", encoding="utf-8")
+
+    plan = build_bundled_refresh_plan(ws, home)
+    assert plan.can_apply is True
+    assert "aikito" in plan.refreshed_names
+
+    # Diverge target fingerprint before execution
+    (aikito_skill / "SKILL.md").write_text("Mutated after plan\n", encoding="utf-8")
+
+    with pytest.raises(BundledSkillRefreshError, match="state diverged from plan snapshot"):
+        execute_bundled_refresh_plan(plan, ws, home, dry_run=False)
+
+
+def test_sync_global_resources_application_service_and_bundled_verification(tmp_path: Path) -> None:
+    """sync_global_resources in workspace_sync functions as an application service and enforces fingerprint verification."""
+    ws = tmp_path / "workspace"
+    home = tmp_path / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    _setup_minimal_workspace(ws)
+
+    # 1. Successful execution through application service without CLI dependencies
+    res = sync_global_resources(ws, home, dry_run=False)
+    assert isinstance(res, GlobalSyncExecutionResult)
+    assert res.success is True
+
+    # 2. Bundled skill refresh divergence is enforced through sync_global_resources
+    aikito_skill = ws / "skills" / "aikito"
+    aikito_skill.mkdir(parents=True, exist_ok=True)
+    (aikito_skill / "SKILL.md").write_text("Old content\n", encoding="utf-8")
+
+    from unittest.mock import patch
+    with patch("aikito.workspace_sync.execute_bundled_refresh_plan", side_effect=BundledSkillRefreshError("Mock fingerprint divergence")):
+        res_fail = sync_global_resources(ws, home, dry_run=False)
+        assert isinstance(res_fail, GlobalSyncExecutionResult)
+        assert res_fail.success is False
+        assert "Mock fingerprint divergence" in (res_fail.error_message or "")
+
+

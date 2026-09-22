@@ -5,7 +5,15 @@ preparation into external runners and CI pipelines. Import directly from
 `aikito`; internal modules are not part of the public API surface.
 
 ```python
-from aikito import Project, PreparedProject, Workspace, WorkspaceInspection, WorkspaceSyncPreview
+from aikito import (
+    Project,
+    PreparedProject,
+    Workspace,
+    WorkspaceInspection,
+    WorkspaceSyncPreview,
+    WorkspaceFinding,
+    WorkspaceProjectView,
+)
 ```
 
 ---
@@ -318,14 +326,33 @@ Return a strictly read-only synchronization preview without mutating files, acqu
 
 ## Data Models
 
+### `WorkspaceFinding`
+
+Frozen dataclass exposing:
+
+- **`status`** `str` — Severity status (`"FAIL"`, `"WARN"`, etc.).
+- **`code`** `str` — Machine-readable diagnostic rule code.
+- **`message`** `str` — Human-readable finding description.
+- **`resource`** `str` — Associated file path or resource key.
+- **`fix_hint`** `str` — Suggested remediation step.
+
+### `WorkspaceProjectView`
+
+Frozen dataclass exposing:
+
+- **`name`** `str` — Project name.
+- **`status`** `str` — Binding status (`"OK"`, `"OFFLINE"`, `"UNBOUND"`, `"CONFLICT"`).
+- **`active_paths`** `tuple[str, ...]` — Active checkout paths on this host.
+- **`offline_paths`** `tuple[str, ...]` — Configured paths that do not exist on this host.
+
 ### `WorkspaceInspection`
 
 Frozen dataclass exposing:
 
 - **`workspace_dir`** `Path` — Absolute path to the workspace.
 - **`configured_agents`** `tuple[str, ...]` — Configured agent identifiers.
-- **`projects`** `tuple[ProjectSummary, ...]` — Project summaries.
-- **`diagnostics`** `tuple[Finding, ...]` — Actionable warnings or failures.
+- **`projects`** `tuple[WorkspaceProjectView, ...]` — Project view snapshots.
+- **`diagnostics`** `tuple[WorkspaceFinding, ...]` — Actionable warnings or failures.
 - **`mcps`** `tuple[str, ...]` — Canonical MCP server names.
 - **`skills`** `tuple[str, ...]` — Canonical skill names.
 - **`subagents`** `tuple[str, ...]` — Canonical subagent names.
@@ -335,7 +362,7 @@ Frozen dataclass exposing:
 
 Frozen dataclass exposing:
 
-- **`plan`** `WorkspaceSyncPlan` — Fully evaluated workspace sync plan.
+- **`workspace_path`** `Path` — Absolute path to the workspace.
 - **`changes`** `int` — Count of planned changes.
 - **`unchanged`** `int` — Count of unchanged resources.
 - **`offline`** `int` — Count of offline projects.
@@ -344,7 +371,7 @@ Frozen dataclass exposing:
 - **`errors`** `int` — Count of blocking errors.
 - **`can_apply`** `bool` — True if safe to apply.
 - **`will_mutate`** `bool` — True if changes > 0.
-- **`findings`** `tuple[Finding, ...]` — Issues found during planning.
+- **`findings`** `tuple[WorkspaceFinding, ...]` — Issues found during planning.
 - **`operations`** `tuple[str, ...]` — Sanitized operation descriptions.
 
 ---

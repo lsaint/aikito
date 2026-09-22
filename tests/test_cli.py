@@ -307,7 +307,7 @@ class SyncAllExecutionTest(unittest.TestCase):
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
             patch("pathlib.Path.home", return_value=self.home),
             patch.object(AIKITO_CLI, "build_workspace_sync_plan", return_value=blocked_plan),
-            patch.object(AIKITO_CLI, "_run_workspace_sync", side_effect=run_sync),
+            patch.object(AIKITO_CLI, "execute_workspace_sync_plan", side_effect=run_sync),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["sync"])
             with self.assertRaises(SystemExit) as raised:
@@ -366,16 +366,17 @@ skills_path = ".agents/skills"
         calls: list[bool] = []
 
         def run_sync(
-            _aikito_dir: Path, _home: Path, *, dry_run: bool, **_kwargs: Any
-        ) -> bool:
+            _plan: Any, _aikito_dir: Path, home: Path | None = None, *, dry_run: bool = False, **_kwargs: Any
+        ) -> Any:
             calls.append(dry_run)
-            return True
+            from aikito.workspace_sync import WorkspaceSyncExecutionResult
+            return WorkspaceSyncExecutionResult(success=True)
 
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
             patch("pathlib.Path.home", return_value=self.home),
-            patch.object(AIKITO_CLI, "_run_workspace_sync", side_effect=run_sync),
+            patch.object(AIKITO_CLI, "execute_workspace_sync_plan", side_effect=run_sync),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["sync"])
             args.func(args)
@@ -422,7 +423,7 @@ skills_path = ".agents/skills"
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
             patch("pathlib.Path.home", return_value=self.home),
             patch.object(
-                AIKITO_CLI, "_run_workspace_sync", side_effect=raise_type_error
+                AIKITO_CLI, "execute_workspace_sync_plan", side_effect=raise_type_error
             ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["sync"])

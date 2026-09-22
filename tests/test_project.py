@@ -366,9 +366,11 @@ class ProjectApiTest(unittest.TestCase):
             "ProjectPrepareConflictError",
             "Workspace",
             "WorkspaceError",
+            "WorkspaceFinding",
             "WorkspaceInspection",
             "WorkspaceNotFoundError",
             "InvalidWorkspaceError",
+            "WorkspaceProjectView",
             "WorkspaceSyncPreview",
             "__version__",
         ]

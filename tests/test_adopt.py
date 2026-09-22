@@ -19,6 +19,7 @@ from aikito.adopt import (
     execute_adopt_plan,
     execute_adoption,
     summarize_adopt_plan,
+    _write_text_atomic,
 )
 from aikito.templating import (
     load_agents_template,
@@ -813,9 +814,10 @@ config_format = "claude_json"
             side_effect=RuntimeError("Simulated backup storage failure"),
         ):
             with patch("sys.stderr.write"):
-                with self.assertRaises(SystemExit) as cm:
-                    execute_adoption(plan, dry_run=False)
-                self.assertEqual(cm.exception.code, 1)
+                result = execute_adoption(plan, dry_run=False)
+                self.assertIsInstance(result, AdoptExecutionResult)
+                self.assertFalse(result.success)
+                self.assertIn("Simulated backup storage failure", result.error_message or "")
 
     def test_adopt_copilot_cli_resources(self) -> None:
         copilot_dir = self.fake_home / ".copilot"
@@ -976,6 +978,73 @@ config_format = "claude_json"
         self.assertEqual(len(result.instructions), 1)
         self.assertGreater(len(result.backups), 0)
 
+    def test_adopt_source_fingerprint_mismatch_prevents_writes(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        source_file = codex_dir / "AGENTS.md"
+        source_file.write_text("Original Rules\n", encoding="utf-8")
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        self.assertTrue(plan.can_apply)
+
+        # Stale host state: source modified after plan generated
+        source_file.write_text("Mutated Rules\n", encoding="utf-8")
+
+        result = execute_adoption(plan, dry_run=False)
+        self.assertIsInstance(result, AdoptExecutionResult)
+        self.assertFalse(result.success)
+        self.assertIn("modified after plan was generated", result.error_message or "")
+        # Workspace should remain unwritten
+        self.assertFalse((self.target_path / "global" / "AGENTS.md").exists())
+
+    def test_adopt_backup_failure_does_not_call_sys_exit(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        self.assertTrue(plan.can_apply)
+
+        with patch("aikito.adopt.create_adopt_backup", side_effect=OSError("Disk error during backup")):
+            result = execute_adoption(plan, dry_run=False)
+            self.assertIsInstance(result, AdoptExecutionResult)
+            self.assertFalse(result.success)
+            self.assertIn("Failed during adoption backup", result.error_message or "")
+
+    def test_adopt_partial_write_failure_tracks_written_and_unwritten_files(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+
+        # Also add an MCP server to create multiple file plans
+        (self.fake_home / ".claude.json").write_text(
+            json.dumps({"mcpServers": {"server-a": {"command": "echo"}}}),
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        self.assertTrue(plan.can_apply)
+        self.assertGreater(len(plan.file_plans), 1)
+
+        real_write_text_atomic = _write_text_atomic
+        written_count = 0
+
+        def failing_write(path: Path, content: str) -> None:
+            nonlocal written_count
+            written_count += 1
+            if written_count > 1:
+                raise OSError("Simulated disk error on second file")
+            real_write_text_atomic(path, content)
+
+        with patch("aikito.adopt._write_text_atomic", side_effect=failing_write):
+            result = execute_adoption(plan, dry_run=False)
+            self.assertIsInstance(result, AdoptExecutionResult)
+            self.assertFalse(result.success)
+            self.assertEqual(len(result.written_files), 1)
+            self.assertGreater(len(result.unwritten_files), 0)
+            self.assertNotIn(result.written_files[0], result.unwritten_files)
+
 
 if __name__ == "__main__":
     unittest.main()
+

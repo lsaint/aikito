@@ -27,7 +27,6 @@ from .adopt import (
 from .bundled_skills import (
     outdated_bundled_skills,
     print_bundled_skill_notice,
-    refresh_bundled_skills,
 )
 from .diff import collect_drift_diffs, render_drift_diffs
 from .doctor import run_doctor, run_doctor_fixes
@@ -52,7 +51,6 @@ from .project_sync import (
 )
 from .workspace_sync import (
     GlobalSyncResult,
-    WorkspaceSyncPlan,
     build_global_sync_plan,
     build_workspace_sync_plan,
     execute_global_sync_plan,
@@ -247,7 +245,6 @@ def sync_global_resources(
         aikito_dir,
         home,
         dry_run=dry_run,
-        refresh_bundled_skills_fn=refresh_bundled_skills,
         execute_global_skills_fn=execute_global_skills,
         execute_instruction_plan_fn=execute_instruction_plan,
     )
@@ -437,39 +434,6 @@ def cmd_subagent_sync(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-# TODO(Phase 3-5): Remove cached_project_batches and canonical_snapshots bridge once workspace-level unified planning is introduced.
-def _run_workspace_sync(
-    aikito_dir: Path,
-    home: Path,
-    *,
-    dry_run: bool,
-    force: bool = False,
-    prune: bool = False,
-    plan: WorkspaceSyncPlan | None = None,
-    cached_project_batches: Optional[dict[str, Any]] = None,
-    **_kwargs: Any,
-) -> bool:
-    """Thin wrapper around unified workspace sync coordinator."""
-    if plan is None:
-        plan = build_workspace_sync_plan(aikito_dir, home=home, force=force, prune=prune)
-    res = execute_workspace_sync_plan(plan, aikito_dir, home=home, dry_run=dry_run)
-    if (
-        not dry_run
-        and res.global_result
-        and res.global_result.replan_required
-        and (cached_project_batches or any(e.batch is not None for e in plan.project_entries))
-    ):
-        print(
-            "[ERROR] Bundled skills refreshed or canonical skills changed during global sync; "
-            "workspace sync plan invalidated. Please re-run 'aikito sync'.",
-            file=sys.stderr,
-        )
-        return False
-    if not res.success and res.error_message:
-        print(f"[ERROR] {res.error_message}", file=sys.stderr)
-    return res.success
-
-
 def cmd_sync_all(args: argparse.Namespace) -> None:
     require_symlink_support()
     aikito_dir = get_aikito_dir()
@@ -489,8 +453,10 @@ def cmd_sync_all(args: argparse.Namespace) -> None:
     if dry_run:
         return
 
-    applied = _run_workspace_sync(aikito_dir, home, dry_run=False, plan=plan)
-    if not applied:
+    res = execute_workspace_sync_plan(plan, aikito_dir, home=home, dry_run=False)
+    if not res.success:
+        if res.error_message:
+            print(f"[ERROR] {res.error_message}", file=sys.stderr)
         sys.exit(1)
     print("\n[SUCCESS] Full workspace sync completed successfully.")
 

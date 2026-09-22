@@ -17,7 +17,7 @@ from .instructions import (
     plan_instructions,
 )
 from .mcp import (
-    MCPConfigError,
+    build_mcp_plan,
     evaluate_spec_status,
     load_agent_specs,
     load_agents,
@@ -100,8 +100,10 @@ def collect_mcp_details(
     agents = load_agents(aikito_dir, home)
     try:
         specs = load_agent_specs(aikito_dir, home)
-    except MCPConfigError:
+        mcp_plan = build_mcp_plan(aikito_dir, home=home, specs=specs)
+    except Exception:
         specs = []
+        mcp_plan = None
     server_names = sorted({spec.server for spec in specs if spec.enabled})
     server_name = (
         _resolve_name(server_target, server_names, "MCP server")
@@ -130,7 +132,7 @@ def collect_mcp_details(
                 agent_name=spec.agent,
                 agent_display_name=definition.display_name,
                 source="managed",
-                status=evaluate_spec_status(spec, home=home),
+                status=evaluate_spec_status(spec, home=home, plan=mcp_plan),
                 config_path=spec.config_path,
                 config_format=spec.config_format,
                 entry=redact_mcp_entry(current) if current is not None else None,
@@ -374,8 +376,10 @@ def collect_agent_status_rows(
     # Pre-fetch MCP specs and Subagent plan items
     try:
         mcp_specs = load_agent_specs(aikito_dir, home)
-    except MCPConfigError:
+        mcp_plan = build_mcp_plan(aikito_dir, home=home, specs=mcp_specs)
+    except Exception:
         mcp_specs = []
+        mcp_plan = None
         agent_issues += 1
 
     try:
@@ -474,7 +478,7 @@ def collect_agent_status_rows(
                 has_error = False
 
                 for spec in agent_mcp_specs:
-                    st = evaluate_spec_status(spec, home=home)
+                    st = evaluate_spec_status(spec, home=home, plan=mcp_plan)
                     if st == "OK":
                         ok_mcp += 1
                     elif st == "SKIP":
@@ -688,8 +692,10 @@ def collect_mcp_matrix(
     agents_dict = load_agents(aikito_dir, home)
     try:
         specs = load_agent_specs(aikito_dir, home)
-    except MCPConfigError:
+        mcp_plan = build_mcp_plan(aikito_dir, home=home, specs=specs)
+    except Exception:
         specs = []
+        mcp_plan = None
     agent_names = [a.display_name for a in agents_dict.values()]
     agent_key_to_display = {k: v.display_name for k, v in agents_dict.items()}
 
@@ -702,7 +708,7 @@ def collect_mcp_matrix(
             servers[srv_name] = {}
 
         if spec.agent in agents_dict:
-            st = evaluate_spec_status(spec, home=home)
+            st = evaluate_spec_status(spec, home=home, plan=mcp_plan)
         else:
             st = "SKIP"
 

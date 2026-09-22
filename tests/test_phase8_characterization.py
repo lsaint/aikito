@@ -111,7 +111,7 @@ name_style = "verbatim"
         (self.ws / "subagents" / "reviewer.md").write_text(subagent_md, encoding="utf-8")
 
         # Formal structured plan
-        formal_plan = build_subagent_plan(self.ws, home=self.home)
+        formal_plan = build_subagent_plan(self.ws, home=self.home, gate_installed=False)
         self.assertIsInstance(formal_plan, SubagentPlan)
         self.assertTrue(formal_plan.can_apply)
         self.assertEqual(len(formal_plan.operations), 1)
@@ -182,8 +182,11 @@ args = ["-y", "@modelcontextprotocol/server-everything"]
             "UnsupportedProjectAgentError",
             "Workspace",
             "WorkspaceError",
+            "WorkspaceFinding",
             "WorkspaceInspection",
             "WorkspaceNotFoundError",
+            "InvalidWorkspaceError",
+            "WorkspaceProjectView",
             "WorkspaceSyncPreview",
             "__version__",
         }
@@ -194,8 +197,10 @@ args = ["-y", "@modelcontextprotocol/server-everything"]
         from aikito import (
             InvalidWorkspaceError,
             Workspace,
+            WorkspaceFinding,
             WorkspaceInspection,
             WorkspaceNotFoundError,
+            WorkspaceProjectView,
             WorkspaceSyncPreview,
         )
 
@@ -220,13 +225,27 @@ args = ["-y", "@modelcontextprotocol/server-everything"]
         self.assertIsInstance(inspection.projects, tuple)
         self.assertIsInstance(inspection.diagnostics, tuple)
         self.assertIsInstance(inspection.ready_for_sync, bool)
+        for p in inspection.projects:
+            self.assertIsInstance(p, WorkspaceProjectView)
+        for d in inspection.diagnostics:
+            self.assertIsInstance(d, WorkspaceFinding)
 
         # 5. Plan sync preview
         preview = ws.plan_sync()
         self.assertIsInstance(preview, WorkspaceSyncPreview)
+        self.assertEqual(preview.workspace_path, self.ws)
+        self.assertFalse(hasattr(preview, "plan"))
         self.assertIsInstance(preview.changes, int)
+        self.assertIsInstance(preview.unchanged, int)
+        self.assertIsInstance(preview.offline, int)
+        self.assertIsInstance(preview.warnings, int)
+        self.assertIsInstance(preview.conflicts, int)
+        self.assertIsInstance(preview.errors, int)
+        self.assertIsInstance(preview.can_apply, bool)
         self.assertIsInstance(preview.will_mutate, bool)
         self.assertIsInstance(preview.findings, tuple)
+        for f in preview.findings:
+            self.assertIsInstance(f, WorkspaceFinding)
         self.assertIsInstance(preview.operations, tuple)
 
     def test_web_console_read_only_and_redaction_characterization(self) -> None:

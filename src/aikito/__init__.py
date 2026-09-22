@@ -15,8 +15,10 @@ from .workspace import (
     InvalidWorkspaceError,
     Workspace,
     WorkspaceError,
+    WorkspaceFinding,
     WorkspaceInspection,
     WorkspaceNotFoundError,
+    WorkspaceProjectView,
     WorkspaceSyncPreview,
 )
 
@@ -35,8 +37,10 @@ __all__ = [
     "UnsupportedProjectAgentError",
     "Workspace",
     "WorkspaceError",
+    "WorkspaceFinding",
     "WorkspaceInspection",
     "WorkspaceNotFoundError",
+    "WorkspaceProjectView",
     "WorkspaceSyncPreview",
     "__version__",
 ]

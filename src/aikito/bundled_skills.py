@@ -46,6 +46,9 @@ def _directory_digest(root: Path) -> str | None:
     return digest.hexdigest()
 
 
+directory_digest = _directory_digest
+
+
 def outdated_bundled_skills(workspace: Path) -> tuple[str, ...]:
     """Return bundled system skills that differ from the installed package."""
     skills_root = workspace / "skills"

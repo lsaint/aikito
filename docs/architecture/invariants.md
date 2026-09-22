@@ -77,12 +77,11 @@ Each Rule ID is permanent. The table below maps every prefix to its canonical do
 | [invariants-api.md](invariants-api.md) | Public Python API invariants |
 | [invariants-application.md](invariants-application.md) | Application layer coordination and workspace synchronization |
 | [invariants-adopt.md](invariants-adopt.md) | Adoption engine, discovery, conflict resolution, and backups |
-| [migration-inventory.md](migration-inventory.md) | Temporary Core Model migration tracker (not a permanent contract) |
+| [archive/core-model-migration.md](archive/core-model-migration.md) | Historical Core Model migration tracker (Phase 8 completed) |
 
 ---
 
-## Migration Inventory
+## Migration History
 
-See [migration-inventory.md](migration-inventory.md) for the current Core Model
-migration tracker. This document tracks subsystem migration progress across
-Phases 1–8 and will be archived after Phase 8 is complete.
+See [archive/core-model-migration.md](archive/core-model-migration.md) for the
+historical Core Model migration inventory completed in Phase 8.

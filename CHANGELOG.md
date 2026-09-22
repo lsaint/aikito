@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Retired legacy Subagent compatibility view (`PlanItem`, `build_plan()`) in `subagent.py`; aligned `doctor.py`, `diff.py`, and status matrix to evaluate subagents directly through structured `SubagentPlan`.
-- Archived Core Model Migration Inventory (`migration-inventory.md`) marking all planned subsystems as migrated.
+- Completed and archived Core Model Migration Inventory (`docs/architecture/archive/core-model-migration.md`) marking all planned subsystems as migrated.
 
 
 ## [1.48.0] - 2026-09-21

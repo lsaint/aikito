@@ -2,22 +2,21 @@
 
 from __future__ import annotations
 
-import io
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
-from aikito.cli import _run_workspace_sync
 from aikito.templating import BUNDLED_SKILL_NAMES, bundled_skill_path
 from aikito.workspace_sync import (
     BundledSkillRefreshPlan,
     GlobalSyncExecutionResult,
     build_bundled_refresh_plan,
     build_global_sync_plan,
+    build_workspace_sync_plan,
     execute_bundled_refresh_plan,
     execute_global_sync_plan,
+    execute_workspace_sync_plan,
 )
 
 
@@ -157,20 +156,29 @@ skills_path = ".claude/skills"
         self.assertTrue(result.replan_required)
         self.assertIn("aikito", result.refreshed_bundled)
 
-    def test_workspace_sync_aborts_on_bundled_refresh_without_canonical_snapshots(self) -> None:
-        """_run_workspace_sync invalidates plan when global sync requires replan, without canonical_snapshots."""
+    def test_workspace_sync_aborts_on_bundled_refresh_when_replan_required(self) -> None:
+        """execute_workspace_sync_plan invalidates plan when global sync requires replan and projects have batches."""
         # Cause bundled skill to need refresh
         (self.ws / "skills" / "aikito" / "SKILL.md").write_text("custom\n", encoding="utf-8")
 
-        with patch("aikito.cli.get_agents_dir", return_value=self.home / ".agents"):
-            # In apply mode (dry_run=False), refresh happens in global sync and triggers replan invalidation
-            stderr_io = io.StringIO()
-            with patch("sys.stderr", stderr_io):
-                success = _run_workspace_sync(
-                    self.ws,
-                    self.home,
-                    dry_run=False,
-                    cached_project_batches={"p1": ("dummy_batch", {})},
-                )
-            self.assertFalse(success)
-            self.assertIn("workspace sync plan invalidated", stderr_io.getvalue())
+        # Create a mock project entry with batch on plan
+        from aikito.workspace_sync import ProjectSyncEntry
+        from aikito.project_sync import ProjectSyncBatch
+
+        dummy_batch = ProjectSyncBatch(
+            workspace_root=self.ws,
+            project_name="p1",
+            active_checkouts=(),
+            offline_checkouts=(),
+            skill_plan=None,
+            preflight_findings=(),
+            can_apply=True,
+        )
+        entry = ProjectSyncEntry(project_name="p1", binding_status="active", batch=dummy_batch)
+        plan_with_project = build_workspace_sync_plan(self.ws, home=self.home)
+        object.__setattr__(plan_with_project, "project_entries", (entry,))
+
+        res = execute_workspace_sync_plan(plan_with_project, self.ws, self.home, dry_run=False)
+        self.assertFalse(res.success)
+        self.assertTrue(res.replan_required)
+        self.assertIn("workspace sync plan invalidated", res.error_message or "")

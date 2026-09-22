@@ -7,6 +7,7 @@ Supports --dry-run for previewing adoption changes without modifying workspace f
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -83,6 +84,8 @@ class AdoptExecutionResult:
     backups: tuple[Path, ...] = ()
     skipped: tuple[str, ...] = ()
     failed: tuple[str, ...] = ()
+    written_files: tuple[Path, ...] = ()
+    unwritten_files: tuple[Path, ...] = ()
     error_message: str | None = None
 
     def __bool__(self) -> bool:
@@ -101,6 +104,7 @@ class AdoptPlan:
     skipped: tuple[str, ...] = ()
     builtin_mcps: tuple[Tuple[str, str], ...] = ()
     backup_sources: tuple[Path, ...] = ()
+    source_fingerprints: tuple[tuple[Path, str], ...] = ()
     can_apply: bool = True
 
     @property
@@ -1139,6 +1143,13 @@ def _create_adopt_plan(
     backup_sources = tuple(
         _collect_sources_for_backup(request.home, instructions, subagents)
     )
+    source_fingerprints: list[tuple[Path, str]] = []
+    for src in backup_sources:
+        if src.is_file():
+            try:
+                source_fingerprints.append((src, hashlib.sha256(src.read_bytes()).hexdigest()))
+            except OSError:
+                pass
     can_apply = len(findings) == 0
 
     return AdoptPlan(
@@ -1152,6 +1163,7 @@ def _create_adopt_plan(
         skipped=skipped,
         builtin_mcps=tuple(builtin_mcps),
         backup_sources=backup_sources,
+        source_fingerprints=tuple(source_fingerprints),
         can_apply=can_apply,
     )
 
@@ -1379,7 +1391,7 @@ def execute_adoption(
                     error_message=err_msg,
                 )
 
-    # Verify source backup availability (INV-ADOPT-06)
+    # Verify source backup availability and frozen fingerprint (INV-ADOPT-06)
     for src in plan.backup_sources:
         if not src.is_file():
             err_msg = f"Source configuration file '{src}' was removed after plan was generated"
@@ -1394,14 +1406,76 @@ def execute_adoption(
                 error_message=err_msg,
             )
 
+    for src, expected_fp in getattr(plan, "source_fingerprints", ()):
+        if src.is_file():
+            try:
+                current_fp = hashlib.sha256(src.read_bytes()).hexdigest()
+            except OSError as exc:
+                err_msg = f"Cannot read source configuration file '{src}': {exc}"
+                print(f"[ERROR] {err_msg}", file=sys.stderr)
+                return AdoptExecutionResult(
+                    success=False,
+                    skipped=plan.skipped,
+                    failed=(str(src),),
+                    error_message=err_msg,
+                )
+            if current_fp != expected_fp:
+                err_msg = f"Source configuration file '{src}' was modified after plan was generated"
+                print(
+                    f"[ERROR] Adoption plan is stale: {err_msg}. Re-run 'aikito adopt' to plan against current host state.",
+                    file=sys.stderr,
+                )
+                return AdoptExecutionResult(
+                    success=False,
+                    skipped=plan.skipped,
+                    failed=(str(src),),
+                    error_message=err_msg,
+                )
+
     # Create timestamped backup of local agent config files (INV-ADOPT-05)
-    try:
-        actual_backup_dir = create_adopt_backup(
-            plan, backup_dir=backup_dir, dry_run=dry_run
-        )
-    except Exception as exc:
-        print(f"[ERROR] Failed during adoption backup: {exc}", file=sys.stderr)
-        sys.exit(1)
+    actual_backup_dir = None
+    if plan.backup_sources and not dry_run:
+        try:
+            actual_backup_dir = create_adopt_backup(
+                plan, backup_dir=backup_dir, dry_run=dry_run
+            )
+        except Exception as exc:
+            err_msg = f"Failed during adoption backup: {exc}"
+            print(f"[ERROR] {err_msg}", file=sys.stderr)
+            return AdoptExecutionResult(
+                success=False,
+                skipped=plan.skipped,
+                failed=tuple(str(src) for src in plan.backup_sources),
+                error_message=err_msg,
+            )
+
+    backups: list[Path] = []
+    if actual_backup_dir:
+        for src in plan.backup_sources:
+            try:
+                rel_path = src.relative_to(plan.home)
+                backups.append(actual_backup_dir / rel_path)
+            except ValueError:
+                backups.append(actual_backup_dir / src.name)
+
+    planned_targets = [fp.path for fp in plan.file_plans if fp.action in ("CREATE", "UPDATE")]
+    written_files: list[Path] = []
+    failed_files: list[str] = []
+    adopted_instructions: list[str] = []
+    adopted_mcps: list[str] = []
+    adopted_subagents: list[str] = []
+
+    def _write_fp(fp: AdoptFilePlan) -> bool:
+        if dry_run:
+            return True
+        try:
+            _write_text_atomic(fp.path, fp.desired_content)
+            written_files.append(fp.path)
+            return True
+        except Exception as exc:
+            failed_files.append(str(fp.path))
+            print(f"[ERROR] Failed to write '{fp.path}': {exc}", file=sys.stderr)
+            return False
 
     # 1. Instructions Adoption
     inst = plan.instructions
@@ -1422,7 +1496,21 @@ def execute_adoption(
                         f"[DRY-RUN WRITE] Would write merged instructions to {inst_fp.path}"
                     )
             else:
-                _write_text_atomic(inst_fp.path, inst_fp.desired_content)
+                if not _write_fp(inst_fp):
+                    unwritten = tuple(p for p in planned_targets if p not in written_files)
+                    return AdoptExecutionResult(
+                        success=False,
+                        instructions=(),
+                        mcps=(),
+                        subagents=(),
+                        backups=tuple(backups),
+                        skipped=plan.skipped,
+                        failed=tuple(failed_files),
+                        written_files=tuple(written_files),
+                        unwritten_files=unwritten,
+                        error_message=f"Failed to write '{inst_fp.path}'",
+                    )
+                adopted_instructions.append(str(inst_fp.path))
                 if verbose:
                     print(f"[WRITE FILE] Updated {inst_fp.path}")
 
@@ -1458,7 +1546,21 @@ def execute_adoption(
             if verbose:
                 print(log_msg)
             if not dry_run:
-                _write_text_atomic(mcp_fp.path, mcp_fp.desired_content)
+                if not _write_fp(mcp_fp):
+                    unwritten = tuple(p for p in planned_targets if p not in written_files)
+                    return AdoptExecutionResult(
+                        success=False,
+                        instructions=tuple(adopted_instructions),
+                        mcps=tuple(adopted_mcps),
+                        subagents=(),
+                        backups=tuple(backups),
+                        skipped=plan.skipped,
+                        failed=tuple(failed_files),
+                        written_files=tuple(written_files),
+                        unwritten_files=unwritten,
+                        error_message=f"Failed to write '{mcp_fp.path}'",
+                    )
+                adopted_mcps.append(srv.server_name)
                 if verbose:
                     print(f"[WRITE FILE] Created {mcp_fp.path}")
 
@@ -1482,14 +1584,41 @@ def execute_adoption(
             None,
         )
         if not dry_run and cfg_fp and cfg_fp.action in ("CREATE", "UPDATE"):
-            _write_text_atomic(cfg_fp.path, cfg_fp.desired_content)
+            if not _write_fp(cfg_fp):
+                unwritten = tuple(p for p in planned_targets if p not in written_files)
+                return AdoptExecutionResult(
+                    success=False,
+                    instructions=tuple(adopted_instructions),
+                    mcps=tuple(adopted_mcps),
+                    subagents=tuple(adopted_subagents),
+                    backups=tuple(backups),
+                    skipped=plan.skipped,
+                    failed=tuple(failed_files),
+                    written_files=tuple(written_files),
+                    unwritten_files=unwritten,
+                    error_message=f"Failed to write '{cfg_fp.path}'",
+                )
             if verbose:
                 print(f"[WRITE FILE] Updated {cfg_fp.path}")
 
         if not dry_run:
             for fp in plan.file_plans:
                 if fp.resource_kind == "subagent_prompt" and fp.action == "CREATE":
-                    _write_text_atomic(fp.path, fp.desired_content)
+                    if not _write_fp(fp):
+                        unwritten = tuple(p for p in planned_targets if p not in written_files)
+                        return AdoptExecutionResult(
+                            success=False,
+                            instructions=tuple(adopted_instructions),
+                            mcps=tuple(adopted_mcps),
+                            subagents=tuple(adopted_subagents),
+                            backups=tuple(backups),
+                            skipped=plan.skipped,
+                            failed=tuple(failed_files),
+                            written_files=tuple(written_files),
+                            unwritten_files=unwritten,
+                            error_message=f"Failed to write '{fp.path}'",
+                        )
+                    adopted_subagents.append(fp.resource_name)
                     if verbose:
                         print(f"[WRITE FILE] Created {fp.path}")
 
@@ -1499,38 +1628,16 @@ def execute_adoption(
         print("\n[SUCCESS] Adoption executed successfully!")
         print("Next step: Run 'aikito sync' to check and apply runtime changes.")
 
-    backups: list[Path] = []
-    if actual_backup_dir:
-        for src in plan.backup_sources:
-            try:
-                rel_path = src.relative_to(plan.home)
-                backups.append(actual_backup_dir / rel_path)
-            except ValueError:
-                backups.append(actual_backup_dir / src.name)
-
-    adopted_instructions = (
-        (str(inst_fp.path),) if inst_fp and inst_fp.action in ("CREATE", "UPDATE") else ()
-    )
-    adopted_mcps = tuple(
-        fp.resource_name
-        for fp in plan.file_plans
-        if fp.resource_kind == "mcp" and fp.action == "CREATE"
-    )
-    adopted_subagents = tuple(
-        fp.resource_name
-        for fp in plan.file_plans
-        if fp.resource_kind == "subagent_prompt"
-        and fp.log_message.startswith("[ADOPT SUBAGENT]")
-    )
-
     return AdoptExecutionResult(
         success=True,
-        instructions=adopted_instructions,
-        mcps=adopted_mcps,
-        subagents=adopted_subagents,
+        instructions=tuple(adopted_instructions),
+        mcps=tuple(adopted_mcps),
+        subagents=tuple(adopted_subagents),
         backups=tuple(backups),
         skipped=plan.skipped,
         failed=(),
+        written_files=tuple(written_files),
+        unwritten_files=(),
         error_message=None,
     )
 

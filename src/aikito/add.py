@@ -16,11 +16,12 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from . import mcp
-from .compat import _atomic_write_text, safe_relative_path
+from .compat import _atomic_write_text, require_symlink_support, safe_relative_path
 from .project_sync import sync_project
 from .skill_state import SkillWriterLock
 from .subagent import KNOWN_PLATFORM_FIELDS
 from .templating import BUNDLED_SKILL_NAMES
+from .workspace_sync import sync_global_resources
 
 
 NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
@@ -1041,9 +1042,6 @@ Describe what this skill does and when agents should use it.
     print(f"  {step}. Synchronize to agents: aikito sync global")
 
     if sync:
-        from .cli import sync_global_resources
-        from .compat import require_symlink_support
-
         require_symlink_support()
         if not sync_global_resources(aikito_dir, home):
             return False

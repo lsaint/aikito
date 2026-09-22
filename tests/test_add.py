@@ -116,7 +116,7 @@ class TestAikitoAddSkill(unittest.TestCase):
             observed_depths.append(SkillWriterLock._lock_depth)
             return True
 
-        with patch("aikito.cli.sync_global_resources", side_effect=sync_while_locked):
+        with patch("aikito.add.sync_global_resources", side_effect=sync_while_locked):
             success = add_skill(
                 self.aikito_dir,
                 self.home,

@@ -6,14 +6,16 @@ import os
 import tomllib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
 from .agents import AgentRegistry
 from .bundled_skills import (
     BundledSkillRefreshError,
-    outdated_bundled_skills,
-    refresh_bundled_skills,
+    _backup_target,
+    _replace_directory,
+    directory_digest,
 )
 from .conflict import collect_resource_conflicts
 from .diagnostics import Finding
@@ -52,13 +54,15 @@ from .subagent import (
     build_subagent_plan,
     execute_subagent_plan,
 )
-from .templating import BUNDLED_SKILL_NAMES
+from .templating import BUNDLED_SKILL_NAMES, bundled_skill_path
 
 
 @dataclass(frozen=True)
 class BundledSkillRefreshOperation:
     skill_name: str
     action: str  # "NOOP" or "REFRESH"
+    package_source_fingerprint: str | None = None
+    workspace_target_fingerprint: str | None = None
     reason: str = ""
 
 
@@ -106,19 +110,49 @@ def build_bundled_refresh_plan(
     *,
     outdated_bundled_skills_fn: Optional[Callable[[Path], Sequence[str]]] = None,
 ) -> BundledSkillRefreshPlan:
-    fn = outdated_bundled_skills_fn or outdated_bundled_skills
-    outdated = tuple(fn(workspace_root))
-    operations = tuple(
-        BundledSkillRefreshOperation(
-            skill_name=name,
-            action="REFRESH" if name in outdated else "NOOP",
-            reason="Bundled skill diverged from package" if name in outdated else "Bundled skill matches package"
+    skills_root = workspace_root / "skills"
+    outdated_set = set(outdated_bundled_skills_fn(workspace_root)) if outdated_bundled_skills_fn else None
+
+    operations: list[BundledSkillRefreshOperation] = []
+    outdated: list[str] = []
+
+    names = list(BUNDLED_SKILL_NAMES)
+    if outdated_set:
+        for extra_name in outdated_set:
+            if extra_name not in names:
+                names.append(extra_name)
+
+    for name in names:
+        source = bundled_skill_path(name)
+        target = skills_root / name
+        source_fp = directory_digest(source) if source.is_dir() else None
+        target_fp = directory_digest(target) if target.exists() else None
+
+        if outdated_set is not None:
+            diverged = name in outdated_set
+        else:
+            diverged = source_fp != target_fp
+
+        action = "REFRESH" if diverged else "NOOP"
+        if diverged:
+            outdated.append(name)
+
+        operations.append(
+            BundledSkillRefreshOperation(
+                skill_name=name,
+                action=action,
+                package_source_fingerprint=source_fp,
+                workspace_target_fingerprint=target_fp,
+                reason=(
+                    "Bundled skill diverged from package"
+                    if diverged
+                    else "Bundled skill matches package"
+                ),
+            )
         )
-        for name in BUNDLED_SKILL_NAMES
-    )
     return BundledSkillRefreshPlan(
-        operations=operations,
-        refreshed_names=outdated,
+        operations=tuple(operations),
+        refreshed_names=tuple(outdated),
         can_apply=True,
         replan_required=len(outdated) > 0,
     )
@@ -130,16 +164,53 @@ def execute_bundled_refresh_plan(
     home: Path,
     *,
     dry_run: bool = False,
-    refresh_fn: Optional[Callable[..., Sequence[str]]] = None,
 ) -> tuple[str, ...]:
-    if not plan.refreshed_names and not any(op.action == "REFRESH" for op in plan.operations):
+    refresh_ops = [op for op in plan.operations if op.action == "REFRESH"]
+    if not refresh_ops:
         return ()
-    fn = refresh_fn or refresh_bundled_skills
-    try:
-        res = fn(workspace_root, home, dry_run=dry_run)
-        return tuple(res)
-    except TypeError:
-        return fn(workspace_root, home, dry_run=dry_run)
+
+    if dry_run:
+        for op in refresh_ops:
+            print(f"[DRY-RUN] Would refresh bundled skill: {op.skill_name}")
+        return tuple(op.skill_name for op in refresh_ops)
+
+    skills_root = workspace_root / "skills"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    backup_root = home / ".aikito" / "backups" / f"bundled-skills_{timestamp}"
+
+    with SkillWriterLock(home):
+        for op in refresh_ops:
+            target = skills_root / op.skill_name
+            source = bundled_skill_path(op.skill_name)
+            curr_source_fp = directory_digest(source) if source.is_dir() else None
+            curr_target_fp = directory_digest(target) if target.exists() else None
+
+            if (
+                curr_source_fp != op.package_source_fingerprint
+                or curr_target_fp != op.workspace_target_fingerprint
+            ):
+                raise BundledSkillRefreshError(
+                    f"Bundled skill '{op.skill_name}' state diverged from plan snapshot; re-plan required"
+                )
+
+        refreshed: list[str] = []
+        try:
+            for op in refresh_ops:
+                target = skills_root / op.skill_name
+                source = bundled_skill_path(op.skill_name)
+                if target.exists() or target.is_symlink():
+                    backup = backup_root / op.skill_name
+                    _backup_target(target, backup)
+                    print(f"[BACKUP] Bundled skill '{op.skill_name}': {backup}")
+                _replace_directory(source, target)
+                print(f"[REFRESH] Bundled skill '{op.skill_name}' updated from installed Aikito")
+                refreshed.append(op.skill_name)
+        except OSError as exc:
+            raise BundledSkillRefreshError(
+                f"Failed to refresh bundled skill '{op.skill_name}': {exc}"
+            ) from exc
+
+        return tuple(refreshed)
 
 
 def build_global_sync_plan(
@@ -354,7 +425,6 @@ def execute_global_sync_plan(
     home: Path,
     *,
     dry_run: bool = False,
-    refresh_bundled_skills_fn: Optional[Callable[..., Sequence[str]]] = None,
     execute_global_skills_fn: Optional[Callable[..., GlobalSkillExecutionResult]] = None,
     execute_instruction_plan_fn: Optional[Callable[..., InstructionExecutionResult]] = None,
 ) -> GlobalSyncExecutionResult:
@@ -383,7 +453,6 @@ def execute_global_sync_plan(
                     aikito_dir,
                     home,
                     dry_run=False,
-                    refresh_fn=refresh_bundled_skills_fn,
                 )
             except BundledSkillRefreshError as exc:
                 return GlobalSyncExecutionResult(
@@ -415,7 +484,6 @@ def execute_global_sync_plan(
                 aikito_dir,
                 home,
                 dry_run=True,
-                refresh_fn=refresh_bundled_skills_fn,
             )
         except BundledSkillRefreshError as exc:
             return GlobalSyncExecutionResult(
@@ -503,6 +571,69 @@ def execute_global_sync_plan(
         findings=plan.findings,
         replan_required=plan.replan_required_after_apply,
     )
+
+
+def sync_global_resources(
+    aikito_dir: Path,
+    home: Path,
+    *,
+    dry_run: bool = False,
+    container_path: Optional[Path] = None,
+    load_agents_fn: Optional[Callable] = None,
+    execute_global_skills_fn: Optional[Callable[..., GlobalSkillExecutionResult]] = None,
+    execute_instruction_plan_fn: Optional[Callable[..., InstructionExecutionResult]] = None,
+) -> GlobalSyncExecutionResult:
+    """Synchronize global resources (skills and instructions) via structured execution plan."""
+    if container_path is None:
+        container_path = home / ".agents" / "skills"
+
+    plan = build_global_sync_plan(
+        aikito_dir,
+        home,
+        dry_run=dry_run,
+        container_path=container_path,
+        load_agents_fn=load_agents_fn,
+    )
+
+    if not plan.can_apply:
+        return GlobalSyncExecutionResult(
+            success=False,
+            findings=plan.findings,
+            replan_required=False,
+            error_message=plan.error_message or "Global sync plan cannot be applied.",
+        )
+
+    res = execute_global_sync_plan(
+        plan,
+        aikito_dir,
+        home,
+        dry_run=dry_run,
+        execute_global_skills_fn=execute_global_skills_fn,
+        execute_instruction_plan_fn=execute_instruction_plan_fn,
+    )
+
+    global_instruction_source = aikito_dir / "global" / "AGENTS.md"
+    if not global_instruction_source.is_file():
+        return GlobalSyncExecutionResult(
+            success=False,
+            findings=res.findings,
+            skill_result=res.skill_result,
+            instruction_result=res.instruction_result,
+            refreshed_bundled=res.refreshed_bundled,
+            error_message=f"Global instruction file not found: {global_instruction_source}",
+        )
+
+    if plan.instruction_plan and plan.instruction_plan.conflicts:
+        return GlobalSyncExecutionResult(
+            success=False,
+            findings=res.findings,
+            skill_result=res.skill_result,
+            instruction_result=res.instruction_result,
+            refreshed_bundled=res.refreshed_bundled,
+            error_message="Conflicts detected in global instruction plan.",
+        )
+
+    return res
 
 
 @dataclass(frozen=True)
@@ -684,7 +815,7 @@ class WorkspaceSyncPlan:
                             result.append(msg)
 
         for f in self.findings:
-            if f.status == "conflict" and f.message not in result:
+            if f.status.lower() == "conflict" and f.message not in result:
                 result.append(f.message)
 
         return tuple(result)
@@ -711,7 +842,7 @@ class WorkspaceSyncPlan:
                         result.append(err)
 
         for f in self.findings:
-            if f.status == "error" and f.message not in result:
+            if f.status.lower() in ("error", "fail") and f.message not in result:
                 result.append(f.message)
 
         return tuple(result)
@@ -727,7 +858,7 @@ class WorkspaceSyncPlan:
                         result.append(msg)
 
         for f in self.findings:
-            if f.status == "warning" and f.message not in result:
+            if f.status.lower() in ("warning", "warn") and f.message not in result:
                 result.append(f.message)
 
         return tuple(result)
@@ -993,7 +1124,7 @@ def build_workspace_sync_plan(
         and (mcp_plan is None or mcp_plan.can_apply)
         and all(e.batch.can_apply for e in project_entries if e.batch is not None)
         and not any(e.binding_status == "error" for e in project_entries)
-        and not any(f.status == "error" for f in all_findings)
+        and not any(f.status.lower() in ("error", "fail") for f in all_findings)
     )
 
     replan_required_after_apply = (

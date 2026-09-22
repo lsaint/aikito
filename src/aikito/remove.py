@@ -18,9 +18,11 @@ from .add import (
     _update_skills_in_toml,
     validate_resource_name,
 )
+from .compat import require_symlink_support
 from .project_sync import sync_project
 from .skill_runtime import execute_selection_transaction
 from .templating import BUNDLED_SKILL_NAMES
+from .workspace_sync import sync_global_resources
 
 
 def _remove_skill_from_projects(
@@ -282,9 +284,6 @@ def _remove_skill_globally(
 
     # 4. Optional runtime synchronization
     if sync:
-        from .cli import sync_global_resources
-        from .compat import require_symlink_support
-
         for _, _, _, proj in planned_project_updates:
             if not sync_project(aikito_dir, home, proj):
                 return False

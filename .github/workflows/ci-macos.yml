@@ -624,7 +624,7 @@ jobs:
           assert isinstance(inspection.projects, tuple)
 
           preview = ws.plan_sync()
-          assert preview.plan.workspace_root.resolve() == Path('$WS').resolve()
+          assert preview.workspace_path.resolve() == Path('$WS').resolve()
           assert isinstance(preview.can_apply, bool)
 
           try:
