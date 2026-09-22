@@ -258,7 +258,7 @@ def test_inv_app_06_structured_project_binding_and_offline(tmp_path: Path) -> No
     # Offline
     assert entries_by_name["offline_proj"].binding_status == "offline"
     assert entries_by_name["offline_proj"].batch is None
-    assert str(c_off) in entries_by_name["offline_proj"].offline_paths
+    assert c_off.as_posix() in entries_by_name["offline_proj"].offline_paths
 
     # Unbound
     assert entries_by_name["unbound_proj"].binding_status == "unbound"
