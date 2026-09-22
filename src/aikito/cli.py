@@ -15,7 +15,6 @@ import subprocess
 import sys
 import tomllib
 from contextlib import redirect_stderr, redirect_stdout
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -29,19 +28,14 @@ from .adopt import (
     summarize_adopt_plan,
 )
 from .bundled_skills import (
-    BundledSkillRefreshError,
     outdated_bundled_skills,
     print_bundled_skill_notice,
     refresh_bundled_skills,
 )
-from .conflict import collect_resource_conflicts
 from .diff import collect_drift_diffs, render_drift_diffs
 from .doctor import run_doctor, run_doctor_fixes
 from .global_skills import (
-    GlobalSkillExecutionResult,
-    build_global_skill_batch,
     execute_global_skills,
-    plan_global_skills,
 )
 from .init import init_project, init_workspace, is_recognized_workspace
 from .maintain import MemoryMaintenanceError, run_memory_maintenance
@@ -63,8 +57,12 @@ from .project_sync import (
     build_project_sync_batch,
     sync_project,
 )
-from .skill_state import SkillWriterLock, calculate_directory_fingerprint
 from .sync_plan import capture_sync_plan
+from .workspace_sync import (
+    GlobalSyncResult,
+    build_global_sync_plan,
+    execute_global_sync_plan,
+)
 from .memory import (
     MemoryTargetConflictError,
     remove_memory_note,
@@ -72,18 +70,14 @@ from .memory import (
     resolve_memory_target_for_command,
     validate_memory_name,
 )
-from .agents import AgentRegistry
 from .instructions import (
-    InstructionExecutionResult,
-    build_global_instruction_batch,
     execute_instruction_plan,
-    plan_instructions,
 )
 from .mcp import (
     MCPConfigError,
     authenticate_mcp,
     build_mcp_plan,
-    load_agents,
+    load_agents,  # noqa: F401
     sync_mcp_configs,
 )
 from .templating import TemplateError, detect_existing_agents
@@ -192,218 +186,88 @@ def resolve_color_flags(args: argparse.Namespace) -> tuple[bool, bool]:
     return use_unicode, use_color
 
 
-@dataclass(frozen=True)
-class GlobalSyncResult:
-    """Structured result of executing global synchronization (skills + instructions)."""
-
-    success: bool
-    skill_result: Optional[GlobalSkillExecutionResult] = None
-    instruction_result: Optional[InstructionExecutionResult] = None
-    instruction_success: bool = (
-        True  # DEPRECATED: derive from instruction_result.success
-    )
-    refreshed_bundled: tuple[str, ...] = ()
-    error_message: Optional[str] = None
-
-    def __post_init__(self) -> None:
-        if self.instruction_result is not None:
-            object.__setattr__(
-                self, "instruction_success", self.instruction_result.success
-            )
-            if not self.instruction_result.success:
-                object.__setattr__(self, "success", False)
-
-    def __bool__(self) -> bool:
-        return self.success
-
-    def __eq__(self, other: object) -> bool:
-        if isinstance(other, bool):
-            return self.success == other
-        return super().__eq__(other)
-
-
 def sync_global_resources(
     aikito_dir: Path,
     home: Path,
     *,
     dry_run: bool = False,
 ) -> GlobalSyncResult:
-    skills_toml_path = aikito_dir / "skills.toml"
-    agents_skills_dir = get_agents_dir() / "skills"
-    global_instruction_source = aikito_dir / "global" / "AGENTS.md"
-
-    if not skills_toml_path.exists():
-        print("[ERROR] Global skills configuration not found.", file=sys.stderr)
-        return GlobalSyncResult(
-            success=False, error_message="Global skills configuration not found."
-        )
-
-    toml_conflicts = collect_resource_conflicts([skills_toml_path], home)
-    if toml_conflicts:
-        for err in toml_conflicts:
-            print(f"[ERROR] {err}", file=sys.stderr)
-        print("[ERROR] Global synchronization aborted.", file=sys.stderr)
-        return GlobalSyncResult(
-            success=False, error_message="Conflict markers detected in skills.toml."
-        )
-
-    try:
-        with open(skills_toml_path, "rb") as f:
-            data = tomllib.load(f)
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        print(
-            f"[ERROR] Failed to read global skills configuration: {exc}",
-            file=sys.stderr,
-        )
-        return GlobalSyncResult(success=False, error_message=str(exc))
-
-    skills = data.get("skills", [])
-    if not isinstance(skills, list):
-        print(
-            "[ERROR] Global skills configuration is malformed (expected a list of skill names).",
-            file=sys.stderr,
-        )
-        return GlobalSyncResult(
-            success=False,
-            error_message="Global skills configuration is malformed.",
-        )
-
-    outdated_bundled = set(outdated_bundled_skills(aikito_dir))
-
-    # Check global instruction source and global skills for conflict markers
-    global_resources: list[Path] = []
-    if global_instruction_source.is_file():
-        global_resources.append(global_instruction_source)
-    for skill_name in skills:
-        s_dir = aikito_dir / "skills" / str(skill_name)
-        if s_dir.is_dir() and str(skill_name) not in outdated_bundled:
-            global_resources.append(s_dir)
-    global_conflicts = collect_resource_conflicts(global_resources, home)
-    if global_conflicts:
-        for err in global_conflicts:
-            print(f"[ERROR] {err}", file=sys.stderr)
-        print("[ERROR] Global synchronization aborted.", file=sys.stderr)
-        return GlobalSyncResult(
-            success=False,
-            error_message="Conflict markers detected in global resources.",
-        )
-
-    try:
-        agents = load_agents(aikito_dir, home)
-    except MCPConfigError as exc:
-        print(f"[ERROR] {exc}", file=sys.stderr)
-        return GlobalSyncResult(success=False, error_message=str(exc))
-
-    valid_targets = tuple(str(skill_name) for skill_name in skills)
-    registry = AgentRegistry(agents)
-    batch = build_global_skill_batch(
+    """Synchronize global resources (skills and instructions) via workspace_sync."""
+    container_path = get_agents_dir() / "skills"
+    plan = build_global_sync_plan(
         aikito_dir,
         home,
-        skills=skills,
-        registry=registry,
-        container_path=agents_skills_dir,
-    )
-    plan = plan_global_skills(
-        batch, home, dry_run=dry_run, refreshed_bundled=outdated_bundled
+        dry_run=dry_run,
+        container_path=container_path,
+        outdated_bundled_skills_fn=outdated_bundled_skills,
+        load_agents_fn=load_agents,
     )
 
-    instruction_batch = build_global_instruction_batch(
-        aikito_dir, home, registry=registry
-    )
-    instruction_plan = plan_instructions(instruction_batch, home)
+    if not plan.can_apply:
+        for finding in plan.findings:
+            if finding.code in (
+                "GLOBAL_SKILLS_MISSING",
+                "TOML_DECODE_ERROR",
+                "INVALID_CONFIG",
+                "CONFLICT_MARKER",
+                "MCP_CONFIG_ERROR",
+            ):
+                print(f"[ERROR] {finding.message}", file=sys.stderr)
 
-    all_conflicts = [op for op in plan.all_operations if op.action == "CONFLICT"]
-    if all_conflicts:
-        for op in all_conflicts:
-            prefix = (
-                "[ERROR]" if op.rule_id in ("INV-TR-02", "INV-TR-04") else "[CONFLICT]"
-            )
-            print(f"{prefix} {op.reason}", file=sys.stderr)
-        print("[ERROR] Global synchronization aborted.", file=sys.stderr)
-        return GlobalSyncResult(
-            success=False,
-            error_message="Conflicts detected in global skill plan.",
-        )
+        if plan.error_message in (
+            "Conflict markers detected in skills.toml.",
+            "Conflict markers detected in global resources.",
+        ):
+            print("[ERROR] Global synchronization aborted.", file=sys.stderr)
+            return GlobalSyncResult(success=False, error_message=plan.error_message)
 
-    refreshed: tuple[str, ...] = ()
-    if not dry_run:
-        try:
-            with SkillWriterLock(home):
-                refreshed = tuple(
-                    refresh_bundled_skills(aikito_dir, home, dry_run=False)
-                )
-                for skill_name in outdated_bundled:
-                    skill_dir = aikito_dir / "skills" / skill_name
-                    if not skill_dir.is_dir():
-                        print(
-                            f"[ERROR] Bundled skill refresh incomplete: canonical skill '{skill_name}' not found at {skill_dir}",
-                            file=sys.stderr,
-                        )
-                        return GlobalSyncResult(
-                            success=False,
-                            refreshed_bundled=refreshed,
-                            error_message=f"Canonical skill '{skill_name}' not found after refresh.",
-                        )
-                skill_res = execute_global_skills(
-                    plan, dry_run=False, refreshed_bundled=refreshed
-                )
-                if not skill_res.success:
-                    print(
-                        f"[ERROR] Global skill synchronization aborted: {skill_res.error_message or 'execution failed'}",
-                        file=sys.stderr,
+        if plan.error_message in (
+            "Global skills configuration not found.",
+            "Global skills configuration is malformed.",
+        ):
+            return GlobalSyncResult(success=False, error_message=plan.error_message)
+
+        if any(f.code in ("TOML_DECODE_ERROR", "MCP_CONFIG_ERROR") for f in plan.findings):
+            return GlobalSyncResult(success=False, error_message=plan.error_message)
+
+        if plan.skill_plan and plan.skill_plan.all_operations:
+            all_conflicts = [
+                op for op in plan.skill_plan.all_operations if op.action == "CONFLICT"
+            ]
+            if all_conflicts:
+                for op in all_conflicts:
+                    prefix = (
+                        "[ERROR]"
+                        if op.rule_id in ("INV-TR-02", "INV-TR-04")
+                        else "[CONFLICT]"
                     )
-                    return GlobalSyncResult(
-                        success=False,
-                        skill_result=skill_res,
-                        refreshed_bundled=refreshed,
-                        error_message=skill_res.error_message,
-                    )
-        except BundledSkillRefreshError as exc:
-            print(f"[ERROR] {exc}", file=sys.stderr)
-            return GlobalSyncResult(success=False, error_message=str(exc))
-    else:
-        try:
-            refreshed = tuple(refresh_bundled_skills(aikito_dir, home, dry_run=True))
-        except BundledSkillRefreshError as exc:
-            print(f"[ERROR] {exc}", file=sys.stderr)
-            return GlobalSyncResult(success=False, error_message=str(exc))
-        skill_res = execute_global_skills(
-            plan, dry_run=True, refreshed_bundled=refreshed
-        )
-        if not skill_res.success:
-            print(
-                f"[ERROR] Global skill synchronization aborted: {skill_res.error_message or 'execution failed'}",
-                file=sys.stderr,
-            )
-            return GlobalSyncResult(
-                success=False,
-                skill_result=skill_res,
-                refreshed_bundled=refreshed,
-                error_message=skill_res.error_message,
-            )
+                    print(f"{prefix} {op.reason}", file=sys.stderr)
+                print("[ERROR] Global synchronization aborted.", file=sys.stderr)
+                return GlobalSyncResult(
+                    success=False,
+                    error_message="Conflicts detected in global skill plan.",
+                )
 
+    res = execute_global_sync_plan(
+        plan,
+        aikito_dir,
+        home,
+        dry_run=dry_run,
+        refresh_bundled_skills_fn=refresh_bundled_skills,
+        execute_global_skills_fn=execute_global_skills,
+        execute_instruction_plan_fn=execute_instruction_plan,
+    )
+
+    global_instruction_source = aikito_dir / "global" / "AGENTS.md"
     if not global_instruction_source.is_file():
         print(
             f"[ERROR] Global instruction file not found: {global_instruction_source}",
             file=sys.stderr,
         )
-        instruction_res = InstructionExecutionResult(
-            operations=instruction_plan.operations,
-            success=False,
-            conflict_count=len(instruction_plan.conflicts),
-            error_message=f"Global instruction file not found: {global_instruction_source}",
-        )
-        return GlobalSyncResult(
-            success=False,
-            skill_result=skill_res,
-            instruction_result=instruction_res,
-            refreshed_bundled=refreshed,
-            instruction_success=False,
-            error_message=f"Global instruction file not found: {global_instruction_source}",
-        )
+        return res
 
-    if instruction_plan.conflicts:
-        for op in instruction_plan.conflicts:
+    if plan.instruction_plan and plan.instruction_plan.conflicts:
+        for op in plan.instruction_plan.conflicts:
             if op.rule_id == "INV-TR-02":
                 print(
                     f"[ERROR] Global instruction file not found: {global_instruction_source}",
@@ -415,57 +279,41 @@ def sync_global_resources(
                     if op.resource_name
                     else "[CONFLICT]"
                 )
-                print(
-                    f"{prefix} {op.reason}",
-                    file=sys.stderr,
-                )
+                print(f"{prefix} {op.reason}", file=sys.stderr)
         print(
             "[ERROR] Global skills were synced successfully, but one or more Agent "
             "instruction runtime targets have conflicts.",
             file=sys.stderr,
         )
-        instruction_res = InstructionExecutionResult(
-            operations=instruction_plan.operations,
-            success=False,
-            conflict_count=len(instruction_plan.conflicts),
-            error_message="Instruction targets have conflicts.",
-        )
-        return GlobalSyncResult(
-            success=False,
-            skill_result=skill_res,
-            instruction_result=instruction_res,
-            refreshed_bundled=refreshed,
-            error_message="Instruction targets have conflicts.",
-        )
+        return res
 
-    instruction_res = execute_instruction_plan(instruction_plan, home, dry_run=dry_run)
-    if not instruction_res.success:
+    if not res.success:
+        if res.error_message:
+            print(f"[ERROR] {res.error_message}", file=sys.stderr)
+        if res.instruction_result and not res.instruction_result.success:
+            print(
+                "[ERROR] Global skills were synced successfully, but one or more "
+                "Agent instruction runtime targets have conflicts.",
+                file=sys.stderr,
+            )
+        elif res.skill_result and not res.skill_result.success:
+            print(
+                f"[ERROR] Global skill synchronization aborted: {res.skill_result.error_message or 'execution failed'}",
+                file=sys.stderr,
+            )
+        return res
+
+    if plan.skill_plan:
+        valid_targets = tuple(str(s.path.name) for s in plan.skill_plan.batch.selected_entries)
+        skill_consumer_count = sum(len(t.consumers) for t in plan.skill_plan.batch.consumers)
+        consumer_count = res.skill_result.consumer_target_count if res.skill_result else 0
         print(
-            "[ERROR] Global skills were synced successfully, but one or more Agent "
-            "instruction runtime targets have conflicts.",
-            file=sys.stderr,
-        )
-        return GlobalSyncResult(
-            success=False,
-            skill_result=skill_res,
-            instruction_result=instruction_res,
-            refreshed_bundled=refreshed,
-            error_message=instruction_res.error_message
-            or "Instruction targets have conflicts.",
+            f"[SUCCESS] Global resources synced successfully "
+            f"({len(valid_targets)} skills, 1 instruction source, "
+            f"{consumer_count} Agent skill entries across {skill_consumer_count} consumers)."
         )
 
-    skill_consumer_count = sum(len(t.consumers) for t in batch.consumers)
-    print(
-        f"[SUCCESS] Global resources synced successfully "
-        f"({len(valid_targets)} skills, 1 instruction source, "
-        f"{skill_res.consumer_target_count} Agent skill entries across {skill_consumer_count} consumers)."
-    )
-    return GlobalSyncResult(
-        success=True,
-        skill_result=skill_res,
-        instruction_result=instruction_res,
-        refreshed_bundled=refreshed,
-    )
+    return res
 
 
 def cmd_global_sync(args: argparse.Namespace) -> None:
@@ -612,36 +460,27 @@ def _run_workspace_sync(
 
     overall_success = True
 
-    # Take snapshot of canonical skills during dry_run
-    if dry_run and canonical_snapshots is not None:
-        skills_dir = aikito_dir / "skills"
-        if skills_dir.is_dir():
-            for s_dir in skills_dir.iterdir():
-                if s_dir.is_dir() and not s_dir.name.startswith("."):
-                    canonical_snapshots[s_dir.name] = calculate_directory_fingerprint(
-                        s_dir
-                    )
-
     # 1. Global sync
     print("[INFO] --- [1/4] Global Resources ---")
-    if not sync_global_resources(aikito_dir, home, dry_run=dry_run):
+    global_res = sync_global_resources(aikito_dir, home, dry_run=dry_run)
+    if not global_res.success:
         overall_success = False
         print("[ERROR] Global sync failed.\n", file=sys.stderr)
     else:
         print()
 
     # If apply pass, verify that global sync (e.g. bundled skills refresh) did not change planned canonical skills
-    if not dry_run and canonical_snapshots:
-        skills_dir = aikito_dir / "skills"
-        for s_name, old_fp in canonical_snapshots.items():
-            s_path = skills_dir / s_name
-            if not s_path.is_dir() or calculate_directory_fingerprint(s_path) != old_fp:
-                print(
-                    "[ERROR] Bundled skills refreshed or canonical skills changed during global sync; "
-                    "workspace sync plan invalidated. Please re-run 'aikito sync'.",
-                    file=sys.stderr,
-                )
-                return False
+    has_cached_projects = (
+        cached_project_batches is not None
+        and any(b for b, _ in cached_project_batches.values())
+    )
+    if not dry_run and global_res.replan_required and has_cached_projects:
+        print(
+            "[ERROR] Bundled skills refreshed or canonical skills changed during global sync; "
+            "workspace sync plan invalidated. Please re-run 'aikito sync'.",
+            file=sys.stderr,
+        )
+        return False
 
     # 2. Subagent sync (host-gated)
     print("[INFO] --- [2/4] Subagents ---")
@@ -833,7 +672,6 @@ def cmd_sync_all(args: argparse.Namespace) -> None:
     verbose = getattr(args, "verbose", False)
 
     cached_project_batches: dict[str, tuple[ProjectSyncBatch, dict]] = {}
-    canonical_snapshots: dict[str, str] = {}
     cached_subagent_plan: list[Any] = [None]
     cached_mcp_plan: list[Any] = [None]
 
@@ -843,7 +681,6 @@ def cmd_sync_all(args: argparse.Namespace) -> None:
             home,
             dry_run=is_dry_run,
             cached_project_batches=cached_project_batches,
-            canonical_snapshots=canonical_snapshots,
             cached_subagent_plan=cached_subagent_plan,
             cached_mcp_plan=cached_mcp_plan,
         )

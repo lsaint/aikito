@@ -54,7 +54,7 @@
   - They are not counted as errors or conflicts.
 - Project offline status is determined from project path resolution on the host, never inferred from printed text lines.
 
-### INV-APP-07: Bundled Skill Refresh Re-plan Boundary `[planned]` {: #inv-app-07 }
+### INV-APP-07: Bundled Skill Refresh Re-plan Boundary `[current]` {: #inv-app-07 }
 
 - Bundled skill updates are represented as a structured `BundledSkillRefreshPlan`.
 - If an outdated bundled skill is refreshed in the canonical workspace during sync:
@@ -62,6 +62,7 @@
   - The workspace coordinator must mark `replan_required = True`.
   - Dependent project skill operations relying on stale canonical snapshots are deferred rather than executed with mismatched baselines.
   - The CLI informs the user to re-run `aikito sync` to synchronize projects against updated canonical skills.
+- Verified by: `tests/test_global_sync_plan.py`, `tests/test_bundled_skills.py`.
 
 ### INV-APP-08: Sensitive Configuration Redaction Across Views `[planned]` {: #inv-app-08 }
 
