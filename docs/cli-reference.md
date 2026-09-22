@@ -25,10 +25,11 @@ version.
 | --- | --- |
 | `aikito init workspace [path]` | Initialize a new workspace or connect an existing one, detect installed Agents, and remember an explicit path |
 | `aikito path workspace` | Print the resolved active workspace path |
+| `aikito git [args...]` | Run git commands directly in the active Aikito workspace |
 | `aikito init project [name] [path] [--description <text>]` | Register a code project and synchronize its `.agents/` runtime |
-| `aikito add skill <name>` | Create a canonical skill skeleton and register it in `skills.toml` or project config |
-| `aikito add subagent <name>` | Create a canonical subagent skeleton and register it in `subagents.toml` |
-| `aikito add mcp <name>` | Create a canonical MCP server configuration in `mcps/<name>.toml` |
+| `aikito add skill [name] [--from <path>] [--force] [--project <projects>] [--sync]` | Create or import a canonical skill; use `--force` with `--from` to replace an existing imported snapshot |
+| `aikito add subagent [name] [--from <path>] [--description <desc>] [--agents <list>] [--sync] [--force]` | Create a canonical subagent skeleton or import from external markdown source; use `--force` with `--from` to replace |
+| `aikito add mcp [name] [--from <source>] [--transport {stdio,remote}] [--command <cmd>] [--url <url>] [--agents <list>] [--sync] [--force]` | Create a canonical MCP server configuration or import from an external file (.json, .toml) or remote URL |
 | `aikito adopt [path] [--dry-run] [--verbose] [--skip <resource>]` | Preflight existing local configuration, then import it only when the complete plan is safe |
 | `aikito status` | Show the synchronization dashboard |
 | `aikito diff` | Show unified diffs for drifted MCP, subagent, and copied project skill resources |
@@ -49,6 +50,9 @@ version.
 | `aikito show skill [target]` | Print a skill's SKILL.md file, or list all skills if target is omitted |
 | `aikito rename memory <target> <new-name>` | Rename a memory note and refactor inbound wikilinks |
 | `aikito rm memory <target>` | Remove a memory note and scan for inbound wikilinks |
+| `aikito rm skill <name> [--project <projects>] [--force] [--sync]` | Remove a skill globally or unregister it from specific project(s) |
+| `aikito rm subagent <name> [--sync]` | Remove a subagent and unregister it from workspace |
+| `aikito rm mcp <name> [--sync] [--force]` | Remove a canonical MCP server configuration from workspace |
 | `aikito edit memory <target>` | Open a memory note in the configured editor |
 | `aikito maintain memory [global\|<project>\|.] [--agent <name>]` | Launch an Agent to review one complete memory scope and propose maintenance before making changes |
 | `aikito edit instructions <global|project|.>` | Open canonical instructions in `$VISUAL` or `$EDITOR` |
@@ -57,7 +61,7 @@ version.
 | `aikito doctor [--fix]` | Run deep workspace diagnostics and repair supported configuration issues |
 | `aikito completion zsh\|bash\|fish\|powershell` | Print a shell completion script |
 | `aikito completion candidates projects\|skills\|subagents\|mcps\|memories\|memory-completions\|inbox\|inbox-completions\|paths [prefix]` | List dynamic completion candidates |
-| `aikito version` | Print the CLI version |
+| `aikito version [-c\|--check] [--force] [--json]` | Print the CLI version and check for available updates |
 
 ## Discovery
 
@@ -73,6 +77,7 @@ aikito --version
 Commands differ in their effect:
 
 - `status`, `diff`, `show`, `completion`, and `adopt --dry-run` are read-only;
+- `git` forwards arbitrary Git commands and arguments directly to the active workspace;
 - `init workspace` creates or updates a recognized workspace;
 - `init project` creates an idempotent canonical project skeleton and its runtime links;
 - `add` creates a canonical resource skeleton and performs required registration;
@@ -219,6 +224,50 @@ The inbox directory defaults to `<workspace>/inbox` and can be customized in `co
 ```toml
 [inbox]
 path = "inbox"
+```
+
+## Workspace Configuration
+
+Global workspace behavior is governed by `<workspace>/config.toml`:
+
+```toml
+# <workspace>/config.toml
+
+[memory]
+# Days after which an untouched durable memory note is flagged as stale (default: 30)
+stale_days = 30
+
+[inbox]
+# Staging directory for incoming distilled notes (default: "inbox")
+path = "inbox"
+
+[update]
+# Enable or disable automatic background update checks and CLI notifications (default: true)
+check = true
+```
+
+### Update Notifications and Checks
+
+Aikito performs lightweight, non-blocking version checks against PyPI and GitHub releases using a 24-hour local cache.
+
+To disable automatic upgrade notifications:
+- In `<workspace>/config.toml`: set `[update] check = false`
+- In the shell environment: set `export AIKITO_NO_UPDATE_NOTIFIER=1` or `NO_UPDATE_NOTIFIER=1`
+
+To inspect version and update status manually:
+
+```bash
+# Print current version (plus cached update notice on stderr if available)
+aikito version
+
+# Check for updates against remote source (reuses cache if checked within 24h)
+aikito version --check
+
+# Bypass cache and force an immediate remote check
+aikito version --check --force
+
+# Machine-readable output in JSON format
+aikito version --json
 ```
 
 ## Projects

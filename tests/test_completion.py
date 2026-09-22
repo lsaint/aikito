@@ -36,6 +36,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("rm", schema["commands"])
         self.assertIn("remove", schema["commands"])
         self.assertIn("maintain", schema["commands"])
+        self.assertIn("git", schema["commands"])
         self.assertIn("--version", schema["flags"])
 
         # Subcommand aliases
@@ -51,10 +52,17 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         rm_subs = schema["commands"]["rm"]["subcommands"]
         self.assertIn("memory", rm_subs)
         self.assertIn("inbox", rm_subs)
+        self.assertIn("skill", rm_subs)
+        self.assertIn("skills", rm_subs)
+        self.assertIn("--project", rm_subs["skill"]["flags"])
+        self.assertIn("--force", rm_subs["skill"]["flags"])
+        self.assertIn("--sync", rm_subs["skill"]["flags"])
 
         remove_subs = schema["commands"]["remove"]["subcommands"]
         self.assertIn("memory", remove_subs)
         self.assertIn("inbox", remove_subs)
+        self.assertIn("skill", remove_subs)
+        self.assertIn("skills", remove_subs)
 
         sync_subs = schema["commands"]["sync"]["subcommands"]
         self.assertIn("subagents", sync_subs)
@@ -119,6 +127,10 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("show\\ project", zsh)
         self.assertIn("edit\\ inbox", zsh)
         self.assertIn("rm\\ inbox", zsh)
+        self.assertIn("rm\\ skill", zsh)
+        self.assertIn("add\\ skill", zsh)
+        self.assertIn("add\\ subagent", zsh)
+        self.assertIn("add\\ mcp", zsh)
         self.assertIn("--dry-run", zsh)
         self.assertNotIn("--apply", zsh)
         self.assertIn("--prune", zsh)
@@ -133,6 +145,10 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("show\\ project", bash)
         self.assertIn("edit\\ inbox", bash)
         self.assertIn("rm\\ inbox", bash)
+        self.assertIn("rm\\ skill", bash)
+        self.assertIn("add\\ skill", bash)
+        self.assertIn("add\\ subagent", bash)
+        self.assertIn("add\\ mcp", bash)
         self.assertIn("--dry-run", bash)
         self.assertNotIn("--apply", bash)
         self.assertIn("--prune", bash)
@@ -146,6 +162,18 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("project projects", fish)
         self.assertIn(
             "show edit rm remove; and __fish_seen_subcommand_from inbox", fish
+        )
+        self.assertIn(
+            "show edit rm remove add; and __fish_seen_subcommand_from skill skills",
+            fish,
+        )
+        self.assertIn(
+            "show edit rm remove add; and __fish_seen_subcommand_from subagent subagents",
+            fish,
+        )
+        self.assertIn(
+            "show edit rm remove add; and __fish_seen_subcommand_from mcp mcps",
+            fish,
         )
         self.assertIn("-l dry-run", fish)
         self.assertNotIn("-l apply", fish)

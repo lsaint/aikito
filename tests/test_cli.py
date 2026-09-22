@@ -8,11 +8,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from aikito import cli as AIKITO_CLI
+from aikito.compat import resolve_symlink_target
+from aikito.init import init_project
 from aikito.status import MCPRuntimeRow
-from aikito.sync import sync_project_instruction
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -131,99 +133,6 @@ class WorkspaceInitGuidanceTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Aikito templates directory is missing", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
-
-
-class GlobalEntrySyncTest(unittest.TestCase):
-    def setUp(self) -> None:
-        self.temporary_directory = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary_directory.name)
-        self.source = self.root / "source"
-        self.agent_dir = self.root / ".agent"
-        self.target = self.agent_dir / "skills"
-        self.source.mkdir()
-        self.agent_dir.mkdir()
-
-    def tearDown(self) -> None:
-        self.temporary_directory.cleanup()
-
-    def test_creates_and_preserves_expected_link(self) -> None:
-        self.assertTrue(
-            AIKITO_CLI.sync_global_entry(
-                self.source, self.target, "Test Agent", "skills"
-            )
-        )
-        self.assertEqual(self.target.resolve(), self.source.resolve())
-        self.assertTrue(
-            AIKITO_CLI.sync_global_entry(
-                self.source, self.target, "Test Agent", "skills"
-            )
-        )
-
-    def test_regular_directory_is_reported_as_conflict(self) -> None:
-        self.target.mkdir()
-
-        self.assertFalse(
-            AIKITO_CLI.sync_global_entry(
-                self.source, self.target, "Test Agent", "skills"
-            )
-        )
-        self.assertTrue(self.target.is_dir())
-
-    def test_installed_agent_missing_parent_directory_is_created(self) -> None:
-        target = self.root / ".grok" / "rules" / "aikito.md"
-
-        result = AIKITO_CLI.sync_global_entry(
-            self.source, target, "Grok Build", "instructions", installed=True
-        )
-
-        self.assertTrue(result)
-        self.assertEqual(target.resolve(), self.source.resolve())
-
-    def test_dry_run_does_not_create_installed_agent_parent_directory(self) -> None:
-        target = self.root / ".grok" / "rules" / "aikito.md"
-
-        result = AIKITO_CLI.sync_global_entry(
-            self.source,
-            target,
-            "Grok Build",
-            "instructions",
-            dry_run=True,
-            installed=True,
-        )
-
-        self.assertTrue(result)
-        self.assertFalse((self.root / ".grok").exists())
-
-    def test_uninstalled_agent_missing_parent_directory_is_skipped(self) -> None:
-        target = self.root / ".grok" / "rules" / "aikito.md"
-
-        result = AIKITO_CLI.sync_global_entry(
-            self.source, target, "Grok Build", "instructions", installed=False
-        )
-
-        self.assertTrue(result)
-        self.assertFalse((self.root / ".grok").exists())
-
-    def test_sync_global_entry_fails_when_symlinks_unavailable(self) -> None:
-        (self.source / "SKILL.md").write_text("# Skill", encoding="utf-8")
-        target = self.root / ".agent" / "skills"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with patch("aikito.compat.can_symlink", return_value=False):
-            with patch("sys.stderr"):
-                with self.assertRaises(SystemExit) as cm:
-                    AIKITO_CLI.sync_global_entry(
-                        self.source, target, "Test Agent", "skills"
-                    )
-                self.assertEqual(cm.exception.code, 1)
-
-    def test_sync_project_instruction_conflict_protection(self) -> None:
-        source = self.root / "AGENTS.md"
-        source.write_text("# Instructions", encoding="utf-8")
-        target = self.root / "proj" / "AGENTS.md"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("# Custom Instructions", encoding="utf-8")
-        self.assertFalse(sync_project_instruction(source, target, dry_run=False))
-        self.assertEqual(target.read_text(encoding="utf-8"), "# Custom Instructions")
 
 
 class SyncSubcommandParserTest(unittest.TestCase):
@@ -376,26 +285,54 @@ class SyncAllExecutionTest(unittest.TestCase):
         self.assertIn("offline on this host", output)
 
     def test_cmd_sync_all_does_not_apply_a_blocked_plan(self) -> None:
+        from unittest.mock import Mock
+        from aikito.diagnostics import Finding
+        from aikito.workspace_sync import WorkspaceSyncPlan
+
         calls: list[bool] = []
 
-        def run_sync(_aikito_dir: Path, _home: Path, *, dry_run: bool) -> bool:
+        def run_sync(
+            _aikito_dir: Path, _home: Path, *, dry_run: bool, **_kwargs: Any
+        ) -> bool:
             calls.append(dry_run)
-            print("[CONFLICT] unmanaged target", file=sys.stderr)
             return False
+
+        blocked_plan = WorkspaceSyncPlan(
+            workspace_root=self.aikito_dir,
+            home=self.home,
+            global_plan=Mock(
+                can_apply=False,
+                bundled_refresh_plan=None,
+                skill_plan=None,
+                instruction_plan=None,
+                findings=(),
+                error_message=None,
+            ),
+            subagent_plan=None,
+            mcp_plan=None,
+            project_entries=(),
+            findings=(Finding(status="conflict", message="unmanaged target"),),
+            can_apply=False,
+        )
 
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
             patch("sys.stderr", new_callable=io.StringIO),
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
             patch("pathlib.Path.home", return_value=self.home),
-            patch.object(AIKITO_CLI, "_run_workspace_sync", side_effect=run_sync),
+            patch.object(
+                AIKITO_CLI, "build_workspace_sync_plan", return_value=blocked_plan
+            ),
+            patch.object(
+                AIKITO_CLI, "execute_workspace_sync_plan", side_effect=run_sync
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["sync"])
             with self.assertRaises(SystemExit) as raised:
                 args.func(args)
 
         self.assertEqual(raised.exception.code, 1)
-        self.assertEqual(calls, [True])
+        self.assertEqual(calls, [])
         self.assertIn("Blocked; no changes were made", mock_stdout.getvalue())
 
     def test_cmd_sync_all_project_conflict_prevents_global_writes(self) -> None:
@@ -446,23 +383,81 @@ skills_path = ".agents/skills"
     def test_cmd_sync_all_preflights_before_apply(self) -> None:
         calls: list[bool] = []
 
-        def run_sync(_aikito_dir: Path, _home: Path, *, dry_run: bool) -> bool:
+        def run_sync(
+            _plan: Any,
+            _aikito_dir: Path,
+            home: Path | None = None,
+            *,
+            dry_run: bool = False,
+            **_kwargs: Any,
+        ) -> Any:
             calls.append(dry_run)
-            return True
+            from aikito.workspace_sync import WorkspaceSyncExecutionResult
+
+            return WorkspaceSyncExecutionResult(success=True)
 
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
             patch("pathlib.Path.home", return_value=self.home),
-            patch.object(AIKITO_CLI, "_run_workspace_sync", side_effect=run_sync),
+            patch.object(
+                AIKITO_CLI, "execute_workspace_sync_plan", side_effect=run_sync
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["sync"])
             args.func(args)
 
-        self.assertEqual(calls, [True, False])
+        self.assertEqual(calls, [False])
         self.assertIn(
             "Full workspace sync completed successfully", mock_stdout.getvalue()
         )
+
+    def test_cmd_sync_all_caches_subagent_and_mcp_plans_across_preview_and_apply(
+        self,
+    ) -> None:
+        subagent_plan_calls = []
+        mcp_plan_calls = []
+
+        real_build_sub = AIKITO_CLI.build_subagent_plan
+        real_build_mcp = AIKITO_CLI.build_mcp_plan
+
+        def track_sub_plan(*args: Any, **kwargs: Any) -> Any:
+            subagent_plan_calls.append(len(subagent_plan_calls))
+            return real_build_sub(*args, **kwargs)
+
+        def track_mcp_plan(*args: Any, **kwargs: Any) -> Any:
+            mcp_plan_calls.append(len(mcp_plan_calls))
+            return real_build_mcp(*args, **kwargs)
+
+        with (
+            patch("sys.stdout", new_callable=io.StringIO),
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("pathlib.Path.home", return_value=self.home),
+            patch.object(AIKITO_CLI, "build_subagent_plan", side_effect=track_sub_plan),
+            patch.object(AIKITO_CLI, "build_mcp_plan", side_effect=track_mcp_plan),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["sync"])
+            args.func(args)
+
+        # Verified: build_subagent_plan and build_mcp_plan were called exactly once during preview, and cached during apply!
+        self.assertEqual(len(subagent_plan_calls), 1)
+        self.assertEqual(len(mcp_plan_calls), 1)
+
+    def test_cmd_sync_all_propagates_internal_type_error(self) -> None:
+        def raise_type_error(*_args: Any, **_kwargs: Any) -> bool:
+            raise TypeError("Real internal type mismatch")
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("pathlib.Path.home", return_value=self.home),
+            patch.object(
+                AIKITO_CLI, "execute_workspace_sync_plan", side_effect=raise_type_error
+            ),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["sync"])
+            with self.assertRaises(TypeError) as ctx:
+                args.func(args)
+            self.assertIn("Real internal type mismatch", str(ctx.exception))
 
 
 class MaintainMemoryParserTest(unittest.TestCase):
@@ -671,6 +666,108 @@ class ProjectSyncSafetyTest(unittest.TestCase):
         self.assertTrue(runtime.is_dir())
         self.assertIn("[INFO] Preserving project-owned skill:", stdout.getvalue())
 
+    def test_deselected_managed_broken_link_is_cleaned_and_previewed(self) -> None:
+        canonical = self.workspace / "skills" / "example-skill"
+        canonical.mkdir()
+        (canonical / "SKILL.md").write_text("canonical\n", encoding="utf-8")
+        config = self.workspace / "projects" / "example" / "agent.toml"
+        config.write_text(
+            config.read_text(encoding="utf-8").replace(
+                "skills = []", 'skills = ["example-skill"]'
+            ),
+            encoding="utf-8",
+        )
+        self._run_sync()
+        runtime = self.project / ".agents" / "skills" / "example-skill"
+        self.assertTrue(runtime.is_symlink())
+
+        # Remove canonical skill to make it a broken symlink
+        shutil.rmtree(canonical)
+        self.assertTrue(runtime.is_symlink())
+        self.assertFalse(runtime.exists())
+
+        # Deselect the skill
+        config.write_text(
+            config.read_text(encoding="utf-8").replace(
+                'skills = ["example-skill"]', "skills = []"
+            ),
+            encoding="utf-8",
+        )
+
+        with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            self._run_sync("--dry-run")
+        self.assertTrue(runtime.is_symlink())
+        self.assertIn("[DRY RUN CLEANUP]", stdout.getvalue())
+
+        self._run_sync()
+        self.assertFalse(runtime.is_symlink())
+
+    def test_deselected_external_symlink_is_preserved_as_project_owned(self) -> None:
+        external_skill = self.root / "external-skill"
+        external_skill.mkdir()
+        (external_skill / "SKILL.md").write_text("external\n", encoding="utf-8")
+        runtime = self.project / ".agents" / "skills" / "external-skill"
+        runtime.parent.mkdir(parents=True, exist_ok=True)
+        runtime.symlink_to(external_skill)
+
+        with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            self._run_sync()
+        self.assertTrue(runtime.is_symlink())
+        self.assertEqual(runtime.resolve(), external_skill.resolve())
+        self.assertIn("[INFO] Preserving project-owned skill:", stdout.getvalue())
+
+    def test_selected_external_symlink_reports_conflict_and_blocks_sync(self) -> None:
+        canonical = self.workspace / "skills" / "example-skill"
+        canonical.mkdir()
+        (canonical / "SKILL.md").write_text("canonical\n", encoding="utf-8")
+        config = self.workspace / "projects" / "example" / "agent.toml"
+        config.write_text(
+            config.read_text(encoding="utf-8").replace(
+                "skills = []", 'skills = ["example-skill"]'
+            ),
+            encoding="utf-8",
+        )
+        external_dir = self.root / "external-dir"
+        external_dir.mkdir()
+        (external_dir / "SKILL.md").write_text("external\n", encoding="utf-8")
+        runtime = self.project / ".agents" / "skills" / "example-skill"
+        runtime.parent.mkdir(parents=True, exist_ok=True)
+        runtime.symlink_to(external_dir)
+
+        with self.assertRaises(SystemExit):
+            self._run_sync()
+
+        self.assertTrue(runtime.is_symlink())
+        self.assertEqual(runtime.resolve(), external_dir.resolve())
+        self.assertEqual(
+            (external_dir / "SKILL.md").read_text(encoding="utf-8"), "external\n"
+        )
+
+    def test_deselected_internal_mismatched_symlink_preserved_by_exact_ownership_rule(
+        self,
+    ) -> None:
+        # Document INV-OWN-03: exact canonical pointing tightening.
+        # A symlink pointing to another skill (mismatched) is unmanaged and preserved upon deselection.
+        canonical_a = self.workspace / "skills" / "skill-a"
+        canonical_b = self.workspace / "skills" / "skill-b"
+        canonical_a.mkdir(parents=True)
+        canonical_b.mkdir(parents=True)
+        (canonical_a / "SKILL.md").write_text("a\n", encoding="utf-8")
+        (canonical_b / "SKILL.md").write_text("b\n", encoding="utf-8")
+
+        # Runtime skill-a wrongly links to skill-b
+        runtime_a = self.project / ".agents" / "skills" / "skill-a"
+        runtime_a.parent.mkdir(parents=True, exist_ok=True)
+        runtime_a.symlink_to(canonical_b)
+
+        # skill-a is deselected (skills = [])
+        self.assertTrue(runtime_a.is_symlink())
+        self._run_sync()
+
+        # Under tightened ownership (INV-OWN-03), it is preserved because it does not point to canonical_a
+        self.assertTrue(runtime_a.is_symlink())
+        self.assertEqual(resolve_symlink_target(runtime_a), canonical_b.resolve())
+
 
 class GlobalSyncSafetyTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -781,6 +878,255 @@ class GlobalSyncSafetyTest(unittest.TestCase):
 
         self.assertNotIn("category:", note.read_text(encoding="utf-8"))
         self.assertEqual(stderr.getvalue(), "")
+
+    def _snapshot_fs(self, root: Path) -> dict[str, tuple[str, int]]:
+        snapshot: dict[str, tuple[str, int]] = {}
+        for p in sorted(root.rglob("*")):
+            rel = str(p.relative_to(root))
+            if p.is_symlink():
+                snapshot[rel] = ("link", len(os.readlink(p)))
+            elif p.is_file():
+                snapshot[rel] = ("file", p.stat().st_size)
+            elif p.is_dir():
+                snapshot[rel] = ("dir", 0)
+        return snapshot
+
+    def test_global_dry_run_zero_write_filesystem_snapshot(self) -> None:
+        (self.workspace / "skills.toml").write_text(
+            'skills = ["stale"]\n', encoding="utf-8"
+        )
+        before = self._snapshot_fs(self.root)
+        with patch("sys.stdout", new_callable=io.StringIO):
+            self._run_sync("--dry-run")
+        after = self._snapshot_fs(self.root)
+        self.assertEqual(before, after)
+        lock_file = self.root / ".aikito" / "state" / "project-skills" / "writer.lock"
+        self.assertFalse(lock_file.exists())
+
+    def test_phase4_idempotency_hard_assertions(self) -> None:
+        (self.workspace / "skills.toml").write_text(
+            'skills = ["stale"]\n', encoding="utf-8"
+        )
+        self._run_sync()
+        target_link = self.runtime / "stale"
+        self.assertTrue(target_link.is_symlink())
+        target_stat_before = target_link.lstat()
+        readlink_before = os.readlink(target_link)
+
+        # Under Phase 4 unified link model, repeat sync is strictly idempotent (NOOP):
+        with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            self._run_sync()
+            out = stdout.getvalue()
+
+        self.assertTrue(target_link.is_symlink())
+        target_stat_after = target_link.lstat()
+        readlink_after = os.readlink(target_link)
+
+        # Inode, mtime_ns, and raw readlink target must remain strictly identical
+        self.assertEqual(readlink_before, readlink_after)
+        self.assertEqual(target_stat_before.st_ino, target_stat_after.st_ino)
+        self.assertEqual(target_stat_before.st_mtime_ns, target_stat_after.st_mtime_ns)
+        # Ensure no recreation ([LINK] / [UNLINK]) was performed
+        self.assertNotIn("[LINK]", out)
+        self.assertNotIn("[UNLINK]", out)
+
+    def test_legacy_top_level_container_migration_e2e(self) -> None:
+        # Legacy container setup: .agents/skills is a symlink to workspace skills
+        self.runtime.parent.mkdir(parents=True, exist_ok=True)
+        if self.runtime.exists():
+            shutil.rmtree(self.runtime)
+        self.runtime.symlink_to(self.workspace / "skills")
+
+        (self.workspace / "skills.toml").write_text(
+            'skills = ["stale"]\n', encoding="utf-8"
+        )
+        (self.workspace / "skills" / "stale").mkdir(parents=True, exist_ok=True)
+
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as stdout,
+            patch("sys.stderr", new_callable=io.StringIO) as stderr,
+        ):
+            self._run_sync()
+            out = stdout.getvalue()
+            err = stderr.getvalue()
+
+        self.assertNotIn("[CONFLICT]", err)
+        self.assertNotIn("aborted", err)
+        self.assertIn("Replacing old top-level symlink at", out)
+        self.assertIn("[LINK]", out)
+        self.assertTrue(self.runtime.is_dir())
+        self.assertFalse(self.runtime.is_symlink())
+        stale_link = self.runtime / "stale"
+        self.assertTrue(stale_link.is_symlink())
+        self.assertEqual(
+            stale_link.resolve(), (self.workspace / "skills" / "stale").resolve()
+        )
+
+    def test_bundled_skill_deleted_canonical_dry_run_and_real_consistency_e2e(
+        self,
+    ) -> None:
+        # Configure a bundled skill in skills.toml and remove its canonical directory
+        (self.workspace / "skills.toml").write_text(
+            'skills = ["aikito"]\n', encoding="utf-8"
+        )
+        aikito_canonical = self.workspace / "skills" / "aikito"
+        if aikito_canonical.exists():
+            shutil.rmtree(aikito_canonical)
+        self.assertFalse(aikito_canonical.exists())
+
+        # Dry-run should succeed without conflict
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as stdout,
+            patch("sys.stderr", new_callable=io.StringIO) as stderr,
+        ):
+            self._run_sync("--dry-run")
+            dry_err = stderr.getvalue()
+            dry_out = stdout.getvalue()
+
+        self.assertNotIn("[CONFLICT]", dry_err)
+        self.assertNotIn("aborted", dry_err)
+        self.assertIn("[DRY RUN LINK]", dry_out)
+
+        # Real sync should refresh canonical and succeed
+        with (
+            patch("sys.stdout", new_callable=io.StringIO) as stdout,
+            patch("sys.stderr", new_callable=io.StringIO) as stderr,
+        ):
+            self._run_sync()
+            real_err = stderr.getvalue()
+
+        self.assertNotIn("[CONFLICT]", real_err)
+        self.assertNotIn("aborted", real_err)
+        self.assertTrue(aikito_canonical.is_dir())
+        aikito_link = self.runtime / "aikito"
+        self.assertTrue(aikito_link.is_symlink())
+        self.assertEqual(aikito_link.resolve(), aikito_canonical.resolve())
+
+    def test_result_segmentation_skills_succeed_instructions_fail(self) -> None:
+        # Configure a valid skill
+        (self.workspace / "skills.toml").write_text(
+            'skills = ["stale"]\n', encoding="utf-8"
+        )
+        (self.workspace / "skills" / "stale").mkdir(parents=True, exist_ok=True)
+
+        # Remove global instruction source so instructions phase fails
+        instr_source = self.workspace / "global" / "AGENTS.md"
+        if instr_source.exists():
+            instr_source.unlink()
+        self.assertFalse(instr_source.exists())
+
+        with (
+            patch.object(AIKITO_CLI, "load_agents", return_value={}),
+            patch.object(
+                AIKITO_CLI, "get_agents_dir", return_value=self.root / ".agents"
+            ),
+        ):
+            result = AIKITO_CLI.sync_global_resources(self.workspace, self.root)
+        self.assertFalse(result.success)
+        self.assertFalse(bool(result))
+        self.assertFalse(result.instruction_success)
+        # Skills phase must be successfully applied and not rolled back
+        self.assertIsNotNone(result.skill_result)
+        self.assertTrue(result.skill_result.success)
+        stale_link = self.runtime / "stale"
+        self.assertTrue(stale_link.is_symlink())
+        self.assertEqual(
+            stale_link.resolve(), (self.workspace / "skills" / "stale").resolve()
+        )
+
+    def test_cross_workspace_sync_global_conflict_cli(self) -> None:
+        # WS A syncs 'stale' skill
+        (self.workspace / "skills.toml").write_text(
+            'skills = ["stale"]\n', encoding="utf-8"
+        )
+        (self.workspace / "skills" / "stale").mkdir(parents=True, exist_ok=True)
+        self._run_sync()
+        target_link = self.runtime / "stale"
+        self.assertTrue(target_link.is_symlink())
+        self.assertEqual(
+            target_link.resolve(), (self.workspace / "skills" / "stale").resolve()
+        )
+
+        # Setup WS B
+        ws_b = self.root / "ws_b"
+        ws_b.mkdir()
+        (ws_b / "skills" / "stale").mkdir(parents=True, exist_ok=True)
+        (ws_b / "skills.toml").write_text('skills = ["stale"]\n', encoding="utf-8")
+        (ws_b / "global").mkdir()
+        (ws_b / "global" / "AGENTS.md").write_text("", encoding="utf-8")
+
+        # WS B attempts to sync global against same runtime
+        args = AIKITO_CLI.build_parser().parse_args(["sync", "global"])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=ws_b),
+            patch.object(
+                AIKITO_CLI, "get_agents_dir", return_value=self.root / ".agents"
+            ),
+            patch.object(AIKITO_CLI, "load_agents", return_value={}),
+            patch("sys.stderr", new_callable=io.StringIO) as stderr,
+            self.assertRaises(SystemExit) as cm,
+        ):
+            args.func(args)
+
+        self.assertEqual(cm.exception.code, 1)
+        err = stderr.getvalue()
+        self.assertIn("[CONFLICT]", err)
+        self.assertIn(f"Target preserved: {target_link}", err)
+        self.assertIn(
+            "Other workspace or unmanaged skill symlink will not be overwritten automatically",
+            err,
+        )
+        # Verify original target link from WS A was not touched
+        self.assertEqual(
+            target_link.resolve(), (self.workspace / "skills" / "stale").resolve()
+        )
+
+    def test_global_instruction_wrong_symlink_cli_output(self) -> None:
+        from aikito.agents import Agent
+
+        # Create global instructions source
+        (self.workspace / "global").mkdir(parents=True, exist_ok=True)
+        global_agents = self.workspace / "global" / "AGENTS.md"
+        global_agents.write_text("# Global Instructions\n", encoding="utf-8")
+
+        # Configure an agent pointing to a wrong/external symlink
+        codex_dir = self.root / ".codex"
+        codex_dir.mkdir(parents=True, exist_ok=True)
+        wrong_symlink = codex_dir / "AGENTS.md"
+        external_file = self.root / "external.md"
+        external_file.write_text("external content\n", encoding="utf-8")
+        wrong_symlink.symlink_to(external_file)
+
+        fake_registry = {
+            "codex": Agent(
+                "codex",
+                "Codex",
+                instruction_path=wrong_symlink,
+            )
+        }
+
+        with (
+            patch.object(AIKITO_CLI, "load_agents", return_value=fake_registry),
+            patch.object(
+                AIKITO_CLI, "get_agents_dir", return_value=self.root / ".agents"
+            ),
+            patch("sys.stderr", new_callable=io.StringIO) as stderr,
+            self.assertRaises(SystemExit) as cm,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(["sync", "global"])
+            with patch.object(
+                AIKITO_CLI, "get_aikito_dir", return_value=self.workspace
+            ):
+                args.func(args)
+
+        self.assertEqual(cm.exception.code, 1)
+        err = stderr.getvalue()
+        # Verify CLI output renders op.reason directly and does not falsely claim "is not a symlink"
+        self.assertIn("[CONFLICT] Codex instructions:", err)
+        self.assertIn("Symbolic link points to unauthorized destination", err)
+        self.assertNotIn("is not a symlink", err)
+        # Verify the wrong symlink is preserved
+        self.assertTrue(wrong_symlink.is_symlink())
 
 
 class InitSubcommandParserTest(unittest.TestCase):
@@ -2238,6 +2584,73 @@ url = "http://custom.example.com"
             "[SUCCESS] Added global skill 'cli-skill'.", mock_stdout.getvalue()
         )
 
+    def test_add_skill_cli_from_and_multi_project(self) -> None:
+        proj_a = self.home / "project-a"
+        proj_b = self.home / "project-b"
+        proj_a.mkdir(parents=True)
+        proj_b.mkdir(parents=True)
+        init_project(self.aikito_dir, proj_a, "project-a")
+        init_project(self.aikito_dir, proj_b, "project-b")
+
+        ext_skill_dir = self.home / "cli-ext-skill"
+        ext_skill_dir.mkdir()
+        (ext_skill_dir / "SKILL.md").write_text(
+            "---\nname: cli-imported-skill\ndescription: CLI imported skill.\n---\n\n# CLI Imported\n",
+            encoding="utf-8",
+        )
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                [
+                    "add",
+                    "skill",
+                    "--from",
+                    str(ext_skill_dir),
+                    "--project",
+                    "project-a, project-b",
+                ]
+            )
+            args.func(args)
+
+        self.assertTrue(
+            (self.aikito_dir / "skills" / "cli-imported-skill" / "SKILL.md").is_file()
+        )
+        self.assertIn(
+            "Added skill 'cli-imported-skill' to project(s)", mock_stdout.getvalue()
+        )
+
+    def test_add_skill_cli_force_updates_imported_skill(self) -> None:
+        ext_skill_dir = self.home / "cli-updated-skill"
+        ext_skill_dir.mkdir()
+        source_file = ext_skill_dir / "SKILL.md"
+        source_file.write_text(
+            "---\nname: cli-updated-skill\ndescription: Initial.\n---\n\n# Initial\n",
+            encoding="utf-8",
+        )
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["add", "skill", "--from", str(ext_skill_dir)]
+            )
+            args.func(args)
+            source_file.write_text(
+                "---\nname: cli-updated-skill\ndescription: Updated.\n---\n\n# Updated\n",
+                encoding="utf-8",
+            )
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["add", "skill", "--from", str(ext_skill_dir), "--force"]
+            )
+            args.func(args)
+
+        canonical_file = self.aikito_dir / "skills" / "cli-updated-skill" / "SKILL.md"
+        self.assertIn("# Updated", canonical_file.read_text(encoding="utf-8"))
+
     def test_add_subagent_cli(self) -> None:
         with (
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
@@ -2262,6 +2675,76 @@ url = "http://custom.example.com"
             "[SUCCESS] Added subagent 'cli-subagent'.", mock_stdout.getvalue()
         )
 
+    def test_add_subagent_cli_with_from_sync_and_force(self) -> None:
+        codex_agents_dir = self.home / ".codex" / "agents"
+        codex_agents_dir.mkdir(parents=True)
+
+        prompt_file = self.home / "cli-imported.md"
+        prompt_file.write_text(
+            "---\n"
+            "name: cli-imported\n"
+            "description: CLI imported subagent\n"
+            'agents: ["codex"]\n'
+            "---\n"
+            "# Imported Agent\n\nPrompt instructions here.\n",
+            encoding="utf-8",
+        )
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                [
+                    "add",
+                    "subagent",
+                    "--from",
+                    str(prompt_file),
+                    "--sync",
+                ]
+            )
+            args.func(args)
+
+        self.assertTrue((self.aikito_dir / "subagents" / "cli-imported.md").is_file())
+        self.assertTrue((codex_agents_dir / "cli-imported.toml").is_file())
+        self.assertIn(
+            "[SUCCESS] Added subagent 'cli-imported'.", mock_stdout.getvalue()
+        )
+
+        # Test overwrite with --force
+        prompt_file.write_text(
+            "---\n"
+            "description: Updated CLI imported subagent\n"
+            "---\n"
+            "# Updated Imported Agent\n\nUpdated instructions.\n",
+            encoding="utf-8",
+        )
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout2,
+        ):
+            args2 = AIKITO_CLI.build_parser().parse_args(
+                [
+                    "add",
+                    "subagents",
+                    "cli-imported",
+                    "--from",
+                    str(prompt_file),
+                    "--force",
+                ]
+            )
+            args2.func(args2)
+
+        self.assertIn(
+            "[SUCCESS] Updated subagent 'cli-imported'.", mock_stdout2.getvalue()
+        )
+        content = (self.aikito_dir / "subagents" / "cli-imported.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Updated instructions.", content)
+
     def test_add_mcp_cli(self) -> None:
         with (
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
@@ -2283,6 +2766,62 @@ url = "http://custom.example.com"
 
         self.assertTrue((self.aikito_dir / "mcps" / "cli-mcp.toml").is_file())
         self.assertIn("[SUCCESS] Added MCP server 'cli-mcp'.", mock_stdout.getvalue())
+
+    def test_add_mcp_cli_from_url_and_sync(self) -> None:
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch("aikito.mcp.sync_mcp_configs", return_value=True) as mock_sync,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                [
+                    "add",
+                    "mcp",
+                    "cli-remote",
+                    "--from",
+                    "https://example.com/remote-mcp",
+                    "--sync",
+                ]
+            )
+            args.func(args)
+
+        self.assertTrue((self.aikito_dir / "mcps" / "cli-remote.toml").is_file())
+        self.assertIn(
+            "[SUCCESS] Added MCP server 'cli-remote'.", mock_stdout.getvalue()
+        )
+        self.assertTrue(mock_sync.called)
+
+    def test_add_mcp_cli_from_json_and_force(self) -> None:
+        cfg = self.home / "cli-server.json"
+        cfg.write_text('{"url": "https://init.example.com"}', encoding="utf-8")
+        (self.aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
+        (self.aikito_dir / "mcps" / "cli-server.toml").write_text(
+            'transport = "remote"\nurl = "https://old.example.com"\nagents = ["codex"]\n',
+            encoding="utf-8",
+        )
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(Path, "home", return_value=self.home),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                [
+                    "add",
+                    "mcp",
+                    "--from",
+                    str(cfg),
+                    "--force",
+                ]
+            )
+            args.func(args)
+
+        content = (self.aikito_dir / "mcps" / "cli-server.toml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("https://init.example.com", content)
+        self.assertIn("[UPDATE FILE]", mock_stdout.getvalue())
 
 
 class TestMemoryRenameAndRemove(unittest.TestCase):
@@ -2651,6 +3190,26 @@ class TestDoctorFixCli(unittest.TestCase):
 
 
 class TestCliGlobalExceptionHandler(unittest.TestCase):
+    def test_successful_command_passes_workspace_to_update_notifier(self) -> None:
+        workspace = Path("/test/workspace")
+        fake_parser = MagicMock()
+        fake_args = MagicMock(command="status", debug=False)
+        fake_parser.parse_args.return_value = fake_args
+
+        with (
+            patch.object(AIKITO_CLI, "build_parser", return_value=fake_parser),
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=workspace),
+            patch.object(AIKITO_CLI, "check_and_notify_update") as mock_check,
+        ):
+            AIKITO_CLI.main()
+
+        fake_args.func.assert_called_once_with(fake_args)
+        mock_check.assert_called_once_with(
+            aikito_dir=workspace,
+            command="status",
+            args=fake_args,
+        )
+
     def test_status_missing_workspace_reports_clean_error_without_traceback(
         self,
     ) -> None:
@@ -2861,7 +3420,7 @@ class ProjectSyncCliTest(unittest.TestCase):
 
         self.assertEqual(ctx.exception.code, 1)
         err = mock_stderr.getvalue()
-        self.assertIn("Failed to save candidate path", err)
+        self.assertIn("Failed to save codebase path", err)
         self.assertFalse((p3 / ".agents").exists())
 
 
@@ -2885,6 +3444,235 @@ class CliSubparserDescriptionTest(unittest.TestCase):
             self.assertNotEqual(desc_pos, -1)
             self.assertNotEqual(usage_pos, -1)
             self.assertLess(desc_pos, usage_pos)
+
+
+class CliGitCommandTest(unittest.TestCase):
+    def test_git_command_forwards_arguments_to_git(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "workspace"
+            ws.mkdir()
+            (ws / ".git").mkdir()
+
+            with (
+                patch.object(AIKITO_CLI, "get_aikito_dir", return_value=ws),
+                patch("aikito.cli.shutil.which", return_value="/usr/bin/git"),
+                patch(
+                    "aikito.cli.subprocess.run",
+                    return_value=subprocess.CompletedProcess(
+                        ["/usr/bin/git", "-C", str(ws), "status"], 0
+                    ),
+                ) as mock_run,
+            ):
+                parser = AIKITO_CLI.build_parser()
+                args = parser.parse_args(["git", "status"])
+                args.func(args)
+
+            mock_run.assert_called_once()
+            called_cmd = mock_run.call_args[0][0]
+            self.assertEqual(called_cmd, ["/usr/bin/git", "-C", str(ws), "status"])
+
+    def test_git_command_strips_leading_double_dash(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "workspace"
+            ws.mkdir()
+            (ws / ".git").mkdir()
+
+            with (
+                patch.object(AIKITO_CLI, "get_aikito_dir", return_value=ws),
+                patch("aikito.cli.shutil.which", return_value="/usr/bin/git"),
+                patch(
+                    "aikito.cli.subprocess.run",
+                    return_value=subprocess.CompletedProcess([], 0),
+                ) as mock_run,
+            ):
+                parser = AIKITO_CLI.build_parser()
+                args = parser.parse_args(["git", "--", "log", "-n", "1"])
+                args.func(args)
+
+            mock_run.assert_called_once()
+            called_cmd = mock_run.call_args[0][0]
+            self.assertEqual(
+                called_cmd, ["/usr/bin/git", "-C", str(ws), "log", "-n", "1"]
+            )
+
+    def test_git_command_propagates_nonzero_exit_code(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "workspace"
+            ws.mkdir()
+            (ws / ".git").mkdir()
+
+            with (
+                patch.object(AIKITO_CLI, "get_aikito_dir", return_value=ws),
+                patch("aikito.cli.shutil.which", return_value="/usr/bin/git"),
+                patch(
+                    "aikito.cli.subprocess.run",
+                    return_value=subprocess.CompletedProcess([], 42),
+                ),
+                self.assertRaises(SystemExit) as ctx,
+            ):
+                parser = AIKITO_CLI.build_parser()
+                args = parser.parse_args(["git", "status"])
+                args.func(args)
+
+            self.assertEqual(ctx.exception.code, 42)
+
+    def test_git_command_fails_if_workspace_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "nonexistent"
+
+            with (
+                patch.object(AIKITO_CLI, "get_aikito_dir", return_value=ws),
+                patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+                self.assertRaises(SystemExit) as ctx,
+            ):
+                parser = AIKITO_CLI.build_parser()
+                args = parser.parse_args(["git", "status"])
+                args.func(args)
+
+            self.assertEqual(ctx.exception.code, 1)
+            self.assertIn("Workspace does not exist", mock_stderr.getvalue())
+
+    def test_git_command_fails_if_workspace_not_git_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "workspace"
+            ws.mkdir()
+
+            with (
+                patch.object(AIKITO_CLI, "get_aikito_dir", return_value=ws),
+                patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+                self.assertRaises(SystemExit) as ctx,
+            ):
+                parser = AIKITO_CLI.build_parser()
+                args = parser.parse_args(["git", "status"])
+                args.func(args)
+
+            self.assertEqual(ctx.exception.code, 1)
+            self.assertIn("is not a Git repository", mock_stderr.getvalue())
+
+    def test_git_command_fails_if_git_binary_not_found(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "workspace"
+            ws.mkdir()
+            (ws / ".git").mkdir()
+
+            with (
+                patch.object(AIKITO_CLI, "get_aikito_dir", return_value=ws),
+                patch("aikito.cli.shutil.which", return_value=None),
+                patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+                self.assertRaises(SystemExit) as ctx,
+            ):
+                parser = AIKITO_CLI.build_parser()
+                args = parser.parse_args(["git", "status"])
+                args.func(args)
+
+            self.assertEqual(ctx.exception.code, 1)
+            self.assertIn("'git' executable not found", mock_stderr.getvalue())
+
+
+class CliNoticePlacementTest(unittest.TestCase):
+    def test_status_calls_notice_after_rendering(self) -> None:
+        call_order = []
+
+        def mock_render(*args, **kwargs):
+            call_order.append("render")
+            return "Status Report"
+
+        def mock_notice(*args, **kwargs):
+            call_order.append("notice")
+            return ()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "workspace"
+            ws.mkdir()
+            with (
+                patch.object(
+                    AIKITO_CLI,
+                    "resolve_workspace_with_source",
+                    return_value=(ws, "default"),
+                ),
+                patch.object(
+                    AIKITO_CLI, "get_status_report_data", return_value=MagicMock()
+                ),
+                patch.object(
+                    AIKITO_CLI, "render_status_report", side_effect=mock_render
+                ),
+                patch.object(
+                    AIKITO_CLI, "print_bundled_skill_notice", side_effect=mock_notice
+                ),
+                patch("sys.stdout", new_callable=io.StringIO),
+            ):
+                parser = AIKITO_CLI.build_parser()
+                args = parser.parse_args(["status"])
+                args.func(args)
+
+        self.assertEqual(call_order, ["render", "notice"])
+
+    def test_doctor_calls_notice_after_rendering(self) -> None:
+        call_order = []
+
+        mock_report = MagicMock()
+        mock_report.fail_count = 0
+
+        def mock_render(*args, **kwargs):
+            call_order.append("render")
+            return "Doctor Report"
+
+        def mock_notice(*args, **kwargs):
+            call_order.append("notice")
+            return ()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "workspace"
+            ws.mkdir()
+            with (
+                patch.object(AIKITO_CLI, "get_aikito_dir", return_value=ws),
+                patch.object(AIKITO_CLI, "run_doctor", return_value=mock_report),
+                patch.object(
+                    AIKITO_CLI, "render_doctor_report", side_effect=mock_render
+                ),
+                patch.object(
+                    AIKITO_CLI, "print_bundled_skill_notice", side_effect=mock_notice
+                ),
+                patch("sys.stdout", new_callable=io.StringIO),
+            ):
+                parser = AIKITO_CLI.build_parser()
+                args = parser.parse_args(["doctor"])
+                args.func(args)
+
+        self.assertEqual(call_order, ["render", "notice"])
+
+    def test_show_skill_calls_notice_after_printing(self) -> None:
+        call_order = []
+
+        def mock_notice(*args, **kwargs):
+            call_order.append("notice")
+            return ()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "workspace"
+            skill_dir = ws / "skills" / "my-skill"
+            skill_dir.mkdir(parents=True)
+            skill_file = skill_dir / "SKILL.md"
+            skill_file.write_text("Skill Content\n", encoding="utf-8")
+
+            with (
+                patch.object(AIKITO_CLI, "get_aikito_dir", return_value=ws),
+                patch.object(
+                    AIKITO_CLI,
+                    "resolve_skill_target_for_command",
+                    return_value=skill_file,
+                ),
+                patch.object(
+                    AIKITO_CLI, "print_bundled_skill_notice", side_effect=mock_notice
+                ),
+                patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            ):
+                parser = AIKITO_CLI.build_parser()
+                args = parser.parse_args(["show", "skill", "my-skill"])
+                args.func(args)
+
+            self.assertIn("Skill Content", mock_stdout.getvalue())
+            self.assertEqual(call_order, ["notice"])
 
 
 if __name__ == "__main__":

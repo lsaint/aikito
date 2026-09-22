@@ -14,10 +14,10 @@ Coding Agent 擅长检索笔记、提炼持久结论、修复链接、发现过�
 
 ## 一次真实的重构
 
-Chat Distiller 最初位于 Aikito workspace 内部。源码在那里开发，再导出到独立的公开仓库；
+[Chat Distiller](https://github.com/lsaint/chat-distiller) 最初位于 Aikito workspace 内部。源码在那里开发，再导出到独立的公开仓库；
 与它相关的架构、产品、合规和发布 memory 因此也都属于 Aikito 项目。
 
-当 Chat Distiller 已经具备独立开发条件后，Agent 可以完成大部分机械迁移：
+当 [Chat Distiller](https://github.com/lsaint/chat-distiller) 已经具备独立开发条件后，Agent 可以完成大部分机械迁移：
 
 - 对比规范源码与公开仓库；
 - 把唯一源码迁移到公开仓库；
@@ -27,10 +27,10 @@ Chat Distiller 最初位于 Aikito workspace 内部。源码在那里开发，�
 
 但仅靠自动化并不能得到正确的最终设计。人的审查连续引入了几次语义修正。
 
-首先，只迁移源码还不够。Chat Distiller 的 memory 仍属于 Aikito 项目，其认知作用域与新的
+首先，只迁移源码还不够。[Chat Distiller](https://github.com/lsaint/chat-distiller) 的 memory 仍属于 Aikito 项目，其认知作用域与新的
 仓库边界互相矛盾。因此必须独立注册项目，并把五条产品专属 memory 一同迁移。
 
-其次，一个共享 release skill 同时包含 Aikito、Chat Distiller 和另一个 Python 包的发布
+其次，一个共享 release skill 同时包含 Aikito、[Chat Distiller](https://github.com/lsaint/chat-distiller) 和另一个 Python 包的发布
 流程。它在技术上可以复用，在概念上却是一个浅抽象：三个产品的源码、产物、验证门禁和发布
 渠道完全不同。最终它被三个自包含的项目 skill 取代。
 

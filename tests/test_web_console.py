@@ -152,7 +152,7 @@ process.stdout.write(markdown(JSON.parse(process.argv[2]), JSON.parse(process.ar
 
     def test_redacts_sensitive_mcp_values(self) -> None:
         detail = self.get_json("/api/mcps/sample")
-        self.assertEqual(detail["content"]["headers"]["Authorization"], "[configured]")
+        self.assertEqual(detail["content"]["headers"]["Authorization"], "<redacted>")
         self.assertNotIn("PRIVATE_TOKEN", json.dumps(detail))
 
     def test_resolves_existing_wikilinks_only(self) -> None:

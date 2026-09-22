@@ -1,0 +1,1270 @@
+name: Ubuntu CI
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install documentation dependencies
+        run: uv pip install --system -r requirements-docs.txt
+
+      - name: Build documentation
+        run: mkdocs build --strict
+
+      - name: Check homepage links
+        env:
+          AIKITO_DOCS_SITE: site
+        run: python -m unittest discover -s tests -p test_homepage.py
+
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install test dependencies
+        run: uv pip install --system pytest
+
+      - name: Run unit tests
+        run: python -m pytest
+
+  ubuntu-smoke-test:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: src
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Build and verify public site
+        run: |
+          uv pip install --system -r requirements-docs.txt
+          mkdocs build --strict
+          test -f site/index.html
+          test -f site/guide/index.html
+          test -f site/architecture/invariants/index.html
+          test -f site/stylesheets/fonts.css
+          test -f site/stylesheets/home.css
+          test -f site/assets/fonts/inter-latin.woff2
+          AIKITO_DOCS_SITE=site python -m unittest discover -s tests -p test_homepage.py
+
+      - name: aikito --help
+        run: python3 -m aikito --help
+
+      - name: aikito version
+        run: python3 -m aikito version
+
+      - name: aikito subcommand --help
+        run: |
+          python3 -m aikito init --help
+          python3 -m aikito init workspace --help
+          python3 -m aikito init project --help
+          python3 -m aikito git --help
+          python3 -m aikito add --help
+          python3 -m aikito add skill --help
+          python3 -m aikito add subagent --help
+          python3 -m aikito add mcp --help
+          python3 -m aikito rm --help
+          python3 -m aikito rm skill --help
+          python3 -m aikito rm subagent --help
+          python3 -m aikito rm mcp --help
+          python3 -m aikito remove skill --help
+          python3 -m aikito remove subagents --help
+          python3 -m aikito remove mcps --help
+          python3 -m aikito adopt --help
+          python3 -m aikito status --help
+          python3 -m aikito sync --help
+          python3 -m aikito show --help
+          python3 -m aikito show inbox --help
+          python3 -m aikito doctor --help
+          python3 -m aikito web --help
+          python3 -m aikito maintain memory --help
+          python3 -m aikito completion --help
+          python3 -m aikito completion candidates --help
+
+      - name: aikito version options
+        run: |
+          python3 -m aikito version --help
+          python3 -m aikito version --json
+
+      # Simulate installed agents so sync/doctor exercise real logic instead of skipping.
+      # Paths mirror the instruction_path / skills_path parent dirs from agents.toml template.
+      - name: Create mock agent directories
+        run: |
+          mkdir -p \
+            ~/.codex \
+            ~/.claude \
+            ~/.copilot/agents \
+            ~/.dsh \
+            ~/.grok/rules \
+            ~/.gemini/antigravity-cli \
+            ~/.gemini/config \
+            ~/.config/opencode \
+            ~/.pi/agent
+
+      - name: aikito init workspace (fresh workspace)
+        run: |
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito init workspace ${{ runner.temp }}/aikito-ws \
+            | tee ${{ runner.temp }}/init-workspace.out
+          test -f ${{ runner.temp }}/aikito-ws/config.toml
+          grep -F "Run 'aikito sync'" ${{ runner.temp }}/init-workspace.out
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito git status \
+            | grep -F "On branch"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync --dry-run \
+            | tee ${{ runner.temp }}/sync-plan.out
+          grep -F "Sync plan" ${{ runner.temp }}/sync-plan.out
+          grep -F "Safe to apply" ${{ runner.temp }}/sync-plan.out
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync --dry-run --verbose \
+            | grep -F "Details"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito init workspace ${{ runner.temp }}/aikito-ws \
+            | tee ${{ runner.temp }}/connect-workspace.out
+          grep -F "[CONNECTED]" ${{ runner.temp }}/connect-workspace.out
+          grep -F "aikito doctor" ${{ runner.temp }}/connect-workspace.out
+
+      - name: Pip install source and verify workspace init
+        env:
+          PYTHONPATH: ""  # override job-level PYTHONPATH so installed package is tested, not src/
+        run: |
+          python -m venv ${{ runner.temp }}/src-venv
+          ${{ runner.temp }}/src-venv/bin/pip install .
+          HOME=${{ runner.temp }}/installed-home \
+            XDG_CONFIG_HOME=${{ runner.temp }}/installed-home/.config \
+            ${{ runner.temp }}/src-venv/bin/aikito init workspace \
+              ${{ runner.temp }}/installed-workspace
+          test -f ${{ runner.temp }}/installed-workspace/config.toml
+          test -f ${{ runner.temp }}/installed-workspace/skills/aikito/SKILL.md
+          test -f \
+            ${{ runner.temp }}/installed-workspace/skills/aikito/references/adoption.md
+          test -f \
+            ${{ runner.temp }}/installed-workspace/skills/aikito/references/installation.md
+          test -f \
+            ${{ runner.temp }}/installed-workspace/skills/aikito/references/projects.md
+          test -f \
+            ${{ runner.temp }}/installed-workspace/skills/durable-memory/SKILL.md
+
+      - name: Build wheel and verify package contents
+        env:
+          PYTHONPATH: ""  # override job-level PYTHONPATH so wheel install is tested, not src/
+        run: |
+          python -m pip install --upgrade build hatchling pytest twine
+          python -m build
+          python -m twine check --strict dist/*
+          python3 -c "
+          import zipfile, hashlib, pathlib, subprocess, tarfile, tempfile
+
+          wheel_path = list(pathlib.Path('dist').glob('*.whl'))[0]
+          with zipfile.ZipFile(wheel_path) as z:
+              wheel_names = sorted(
+                  n.replace('aikito/', '', 1)
+                  for n in z.namelist()
+                  if n.startswith('aikito/templates/') and not n.endswith('/')
+              )
+              wheel_data = z.read('aikito/web/assets/logo.png')
+              marked_wheel = z.read('aikito/web/marked.umd.js')
+              metadata_names = [n for n in z.namelist() if n.endswith('/METADATA')]
+              assert metadata_names, 'METADATA missing from wheel'
+              metadata_text = z.read(metadata_names[0]).decode('utf-8')
+              assert 'Metadata-Version: 2.3' in metadata_text, f'Unexpected Metadata-Version: {metadata_text[:100]}'
+
+          git_names = sorted(
+              p.replace('src/aikito/', '', 1)
+              for p in subprocess.check_output(
+                  ['git', 'ls-files', 'src/aikito/templates'], text=True
+              ).splitlines()
+          )
+          assert wheel_names == git_names, f'Template file mismatch:\n  wheel={wheel_names}\n  git={git_names}'
+
+          src_data = open('src/aikito/web/assets/logo.png', 'rb').read()
+          assert hashlib.sha256(wheel_data).hexdigest() == hashlib.sha256(src_data).hexdigest(), 'logo.png SHA256 mismatch'
+
+          marked_src = open('src/aikito/web/marked.umd.js', 'rb').read()
+          assert hashlib.sha256(marked_wheel).hexdigest() == hashlib.sha256(marked_src).hexdigest(), 'marked.umd.js SHA256 mismatch'
+          print('Wheel contents and metadata verified OK')
+
+          # Verify sdist test suite execution
+          sdist_path = list(pathlib.Path('dist').glob('*.tar.gz'))[0]
+          with tempfile.TemporaryDirectory() as tmp:
+              with tarfile.open(sdist_path, 'r:gz') as tar:
+                  tar.extractall(path=tmp)
+              unpacked_dir = list(pathlib.Path(tmp).iterdir())[0]
+              subprocess.check_call(['pytest', '-q'], cwd=unpacked_dir)
+          print('Sdist test suite verified OK')
+          "
+          python -m venv ${{ runner.temp }}/isolated-venv
+          ${{ runner.temp }}/isolated-venv/bin/pip install dist/*.whl
+          ${{ runner.temp }}/isolated-venv/bin/aikito --version
+          ${{ runner.temp }}/isolated-venv/bin/python -c \
+            "from aikito import PreparedProject, Project, Workspace, WorkspaceInspection, WorkspaceSyncPreview, WorkspaceError, WorkspaceNotFoundError, InvalidWorkspaceError; assert Project and PreparedProject and Workspace"
+          ${{ runner.temp }}/isolated-venv/bin/aikito init workspace ${{ runner.temp }}/wheel-ws
+          test -f ${{ runner.temp }}/wheel-ws/agents.toml
+          test -f ${{ runner.temp }}/wheel-ws/skills/aikito/SKILL.md
+          test -f \
+            ${{ runner.temp }}/wheel-ws/skills/aikito/references/adoption.md
+          test -f \
+            ${{ runner.temp }}/wheel-ws/skills/aikito/references/installation.md
+          test -f \
+            ${{ runner.temp }}/wheel-ws/skills/aikito/references/projects.md
+          test -f ${{ runner.temp }}/wheel-ws/skills/durable-memory/SKILL.md
+          ${{ runner.temp }}/isolated-venv/bin/python -c "
+          from aikito import Workspace
+          ws = Workspace.load('${{ runner.temp }}/wheel-ws')
+          insp = ws.inspect()
+          assert insp.workspace_dir.resolve() == ws.path.resolve()
+          preview = ws.plan_sync()
+          assert preview.workspace_path.resolve() == ws.path.resolve()
+          "
+          mkdir -p ${{ runner.temp }}/wheel-project
+          mkdir -p ${{ runner.temp }}/wheel-project-second
+          AIKITO_DIR=${{ runner.temp }}/wheel-ws \
+            ${{ runner.temp }}/isolated-venv/bin/aikito init project \
+              wheel-example ${{ runner.temp }}/wheel-project
+          AIKITO_DIR=${{ runner.temp }}/wheel-ws \
+            AIKITO_TEST_PROJECT_PATH=${{ runner.temp }}/wheel-project-second \
+            ${{ runner.temp }}/isolated-venv/bin/python -c "
+          import os
+          from pathlib import Path
+          from aikito import Project
+          updated = Project.load('wheel-example').add_path(os.environ['AIKITO_TEST_PROJECT_PATH'])
+          assert Path(os.environ['AIKITO_TEST_PROJECT_PATH']).resolve() in updated.paths
+          "
+
+
+      - name: aikito workspace persistence
+        run: |
+          mkdir -p ${{ runner.temp }}/pointer-home
+          HOME=${{ runner.temp }}/pointer-home \
+            XDG_CONFIG_HOME=${{ runner.temp }}/pointer-home/.config \
+            python3 -m aikito init workspace ${{ runner.temp }}/pointer-ws
+          test "$(HOME=${{ runner.temp }}/pointer-home \
+            XDG_CONFIG_HOME=${{ runner.temp }}/pointer-home/.config \
+            python3 -m aikito path workspace)" = \
+            "${{ runner.temp }}/pointer-ws"
+          HOME=${{ runner.temp }}/pointer-home \
+            XDG_CONFIG_HOME=${{ runner.temp }}/pointer-home/.config \
+            python3 -m aikito status
+
+      # README Quick Start: init workspace → sync global → init project → status
+      - name: aikito sync global
+        run: |
+          mkdir -p ~/.claude ~/.gemini/config
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync global | tee ${{ runner.temp }}/sync-global.out
+          grep -F "3 Agent skill entries across 8 consumers" \
+            ${{ runner.temp }}/sync-global.out
+          grep -F "skills: shared path" \
+            ${{ runner.temp }}/sync-global.out
+          test -L ~/.agents/skills/aikito
+          test -L ~/.agents/skills/durable-memory
+          test -L ~/.claude/skills
+          test -L ~/.gemini/antigravity-cli/skills
+          test -L ~/.claude/CLAUDE.md
+          test -L ~/.codex/AGENTS.md
+          # Verify Phase 4 idempotency: repeat sync global must be NOOP (no writes / no recreations)
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync global | tee ${{ runner.temp }}/sync-global-repeat.out
+          grep -F "[SUCCESS] Global resources synced successfully" \
+            ${{ runner.temp }}/sync-global-repeat.out
+          ! grep -F "[LINK]" ${{ runner.temp }}/sync-global-repeat.out
+          ! grep -F "[UNLINK]" ${{ runner.temp }}/sync-global-repeat.out
+          test -L ~/.agents/skills/aikito
+          test -L ~/.agents/skills/durable-memory
+          test -L ~/.claude/skills
+          test -L ~/.gemini/antigravity-cli/skills
+          test -L ~/.claude/CLAUDE.md
+          test -L ~/.codex/AGENTS.md
+
+      - name: Global skills safety, conflict, and migration smoke - Phase 4 invariants
+        run: |
+          # 1. Dry-run zero-write snapshot
+          DRY_HOME=${{ runner.temp }}/dry-home
+          mkdir -p "$DRY_HOME"
+          HOME="$DRY_HOME" AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync global --dry-run
+          test ! -e "$DRY_HOME/.agents"
+          test ! -e "$DRY_HOME/.claude"
+
+          # 2. Legacy top-level container migration (§5.4 / INV-GLB-04)
+          LEGACY_HOME=${{ runner.temp }}/legacy-home
+          mkdir -p "$LEGACY_HOME/.agents" "$LEGACY_HOME/.claude"
+          ln -s "${{ runner.temp }}/aikito-ws/skills" "$LEGACY_HOME/.agents/skills"
+          test -L "$LEGACY_HOME/.agents/skills"
+          HOME="$LEGACY_HOME" AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync global | tee ${{ runner.temp }}/legacy-mig.out
+          grep -F "Replacing old top-level symlink" ${{ runner.temp }}/legacy-mig.out
+          test -d "$LEGACY_HOME/.agents/skills"
+          test ! -L "$LEGACY_HOME/.agents/skills"
+          test -L "$LEGACY_HOME/.agents/skills/aikito"
+          test -L "$LEGACY_HOME/.agents/skills/durable-memory"
+
+          # 3. Wrong consumer symlink preservation and conflict (§8.1 / INV-GLB-05)
+          mkdir -p ${{ runner.temp }}/ext-consumer-dest
+          rm -f "$LEGACY_HOME/.claude/skills"
+          ln -s "${{ runner.temp }}/ext-consumer-dest" "$LEGACY_HOME/.claude/skills"
+          ! HOME="$LEGACY_HOME" AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync global 2> ${{ runner.temp }}/wrong-consumer.err
+          grep -F "[CONFLICT]" ${{ runner.temp }}/wrong-consumer.err
+          grep -F "Target preserved:" ${{ runner.temp }}/wrong-consumer.err
+          test "$(readlink "$LEGACY_HOME/.claude/skills")" = "${{ runner.temp }}/ext-consumer-dest"
+          # Restore valid link for subsequent checks
+          rm -f "$LEGACY_HOME/.claude/skills"
+          ln -s "$LEGACY_HOME/.agents/skills" "$LEGACY_HOME/.claude/skills"
+
+          # 4. Stale matching directory preservation (§8.2 / INV-GLB-02)
+          mkdir -p "$LEGACY_HOME/.agents/skills/matching-dir"
+          echo "preserve" > "$LEGACY_HOME/.agents/skills/matching-dir/keep.txt"
+          ! HOME="$LEGACY_HOME" AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync global 2> ${{ runner.temp }}/matching-dir.err
+          grep -F "[CONFLICT]" ${{ runner.temp }}/matching-dir.err
+          grep -F "Target preserved:" ${{ runner.temp }}/matching-dir.err
+          test -f "$LEGACY_HOME/.agents/skills/matching-dir/keep.txt"
+          rm -rf "$LEGACY_HOME/.agents/skills/matching-dir"
+
+          # 5. Cross-workspace ownership conflict (§4.3 / INV-GLB-03)
+          WS_B=${{ runner.temp }}/aikito-ws-b
+          python3 -m aikito init workspace "$WS_B"
+          printf 'skills = ["aikito"]\n' > "$WS_B/skills.toml"
+          ! HOME="$LEGACY_HOME" AIKITO_DIR="$WS_B" \
+            python3 -m aikito sync global 2> ${{ runner.temp }}/cross-ws.err
+          grep -F "[CONFLICT]" ${{ runner.temp }}/cross-ws.err
+          grep -F "Target preserved:" ${{ runner.temp }}/cross-ws.err
+          grep -F "Other workspace or unmanaged skill symlink will not be overwritten automatically" ${{ runner.temp }}/cross-ws.err
+          test "$(readlink "$LEGACY_HOME/.agents/skills/aikito")" = "${{ runner.temp }}/aikito-ws/skills/aikito"
+          rm -rf "$WS_B"
+
+      - name: Global and project instructions safety, idempotency, and empty canonical smoke - Phase 5 invariants
+        run: |
+          WS=${{ runner.temp }}/aikito-ws
+          # 1. Global instruction wrong symlink conflict and target preservation (INV-INST-06)
+          INST_HOME=${{ runner.temp }}/inst-home
+          mkdir -p "$INST_HOME/.claude" "$INST_HOME/.codex"
+          mkdir -p ${{ runner.temp }}/ext-inst-dest
+          ln -s "${{ runner.temp }}/ext-inst-dest" "$INST_HOME/.claude/CLAUDE.md"
+          ! HOME="$INST_HOME" AIKITO_DIR="$WS" \
+            python3 -m aikito sync global 2> ${{ runner.temp }}/wrong-inst.err
+          grep -F "[CONFLICT]" ${{ runner.temp }}/wrong-inst.err
+          test "$(readlink "$INST_HOME/.claude/CLAUDE.md")" = "${{ runner.temp }}/ext-inst-dest"
+
+          # 2. Project instructions with non-empty canonical creates links and is idempotent
+          PROJ_DIR=${{ runner.temp }}/inst-proj
+          mkdir -p "$PROJ_DIR/.claude"
+          AIKITO_DIR="$WS" python3 -m aikito init project inst-test "$PROJ_DIR"
+          printf "# Test Instructions\n" > "$WS/projects/inst-test/AGENTS.md"
+          AIKITO_DIR="$WS" python3 -m aikito sync project inst-test
+          test -L "$PROJ_DIR/AGENTS.md"
+          test -L "$PROJ_DIR/.claude/CLAUDE.md"
+
+          # Repeat sync is NOOP
+          AIKITO_DIR="$WS" python3 -m aikito sync project inst-test | tee ${{ runner.temp }}/proj-repeat.out
+          ! grep -F "[LINK]" ${{ runner.temp }}/proj-repeat.out
+          ! grep -F "[UNLINK]" ${{ runner.temp }}/proj-repeat.out
+
+          # 3. Empty canonical removes exact owned links (INV-INST-08)
+          printf "" > "$WS/projects/inst-test/AGENTS.md"
+          AIKITO_DIR="$WS" python3 -m aikito sync project inst-test
+          test ! -e "$PROJ_DIR/AGENTS.md"
+          test ! -e "$PROJ_DIR/.claude/CLAUDE.md"
+
+          # 4. Project-owned regular file at instruction target is preserved under empty canonical (INV-INST-10)
+          printf "project-owned instruction content\n" > "$PROJ_DIR/AGENTS.md"
+          AIKITO_DIR="$WS" python3 -m aikito sync project inst-test
+          test -f "$PROJ_DIR/AGENTS.md"
+          test ! -L "$PROJ_DIR/AGENTS.md"
+          test "$(cat "$PROJ_DIR/AGENTS.md")" = "project-owned instruction content"
+
+          # 5. Regular file at instruction target causes conflict when canonical is enabled (INV-INST-03)
+          printf "# Enabled Instructions\n" > "$WS/projects/inst-test/AGENTS.md"
+          ! AIKITO_DIR="$WS" python3 -m aikito sync project inst-test 2> ${{ runner.temp }}/reg-inst-conflict.err
+          grep -F "[CONFLICT]" ${{ runner.temp }}/reg-inst-conflict.err
+          test -f "$PROJ_DIR/AGENTS.md"
+          test ! -L "$PROJ_DIR/AGENTS.md"
+          test "$(cat "$PROJ_DIR/AGENTS.md")" = "project-owned instruction content"
+          rm -rf "$PROJ_DIR" "$WS/projects/inst-test"
+
+      - name: Project memory safety, idempotency, and source priority smoke - Phase 6 invariants
+        run: |
+          WS=${{ runner.temp }}/aikito-ws
+          PROJ_DIR=${{ runner.temp }}/mem-proj
+          mkdir -p "$PROJ_DIR"
+          AIKITO_DIR="$WS" python3 -m aikito init project mem-test "$PROJ_DIR"
+          mkdir -p "$WS/projects/mem-test/memory/notes"
+          mkdir -p "$WS/memory"
+          printf "# Global Reference\n" > "$WS/memory/shared.md"
+          printf 'memory = ["shared.md"]\n' >> "$WS/projects/mem-test/agent.toml"
+
+          # 1. Project sync creates canonical memory symlinks (INV-MEM-01, INV-MEM-03)
+          AIKITO_DIR="$WS" python3 -m aikito sync project mem-test
+          test -L "$PROJ_DIR/.agents/memory/notes"
+          test -L "$PROJ_DIR/.agents/memory/shared.md"
+
+          # 2. Repeated sync is NOOP and dry-run zero-mutation (INV-MEM-10)
+          AIKITO_DIR="$WS" python3 -m aikito sync project mem-test --dry-run | tee ${{ runner.temp }}/mem-dryrun.out
+          ! grep -F "[CLEANUP]" ${{ runner.temp }}/mem-dryrun.out
+          AIKITO_DIR="$WS" python3 -m aikito sync project mem-test | tee ${{ runner.temp }}/mem-repeat.out
+          ! grep -F "[LINK]" ${{ runner.temp }}/mem-repeat.out
+          ! grep -F "[UNLINK]" ${{ runner.temp }}/mem-repeat.out
+
+          # 3. Target conflict protection preserves existing regular files (INV-MEM-07)
+          rm "$PROJ_DIR/.agents/memory/shared.md"
+          printf "unmanaged content\n" > "$PROJ_DIR/.agents/memory/shared.md"
+          ! AIKITO_DIR="$WS" python3 -m aikito sync project mem-test 2> ${{ runner.temp }}/mem-conflict.err
+          grep -F "[CONFLICT]" ${{ runner.temp }}/mem-conflict.err
+          grep -F "Unmanaged project runtime item:" ${{ runner.temp }}/mem-conflict.err
+          test -f "$PROJ_DIR/.agents/memory/shared.md"
+          test ! -L "$PROJ_DIR/.agents/memory/shared.md"
+          test "$(cat "$PROJ_DIR/.agents/memory/shared.md")" = "unmanaged content"
+
+          # 4. Deselection unlinks exact owned link (INV-MEM-06)
+          rm "$PROJ_DIR/.agents/memory/shared.md"
+          AIKITO_DIR="$WS" python3 -m aikito sync project mem-test
+          test -L "$PROJ_DIR/.agents/memory/shared.md"
+          python3 -c "
+          from pathlib import Path
+          p = Path('$WS/projects/mem-test/agent.toml')
+          p.write_text(p.read_text().replace('\"shared.md\"', ''))
+          "
+          AIKITO_DIR="$WS" python3 -m aikito sync project mem-test | tee ${{ runner.temp }}/mem-desel.out
+          grep -F "[CLEANUP]" ${{ runner.temp }}/mem-desel.out
+          test ! -e "$PROJ_DIR/.agents/memory/shared.md"
+          test -L "$PROJ_DIR/.agents/memory/notes"
+
+          rm -rf "$PROJ_DIR" "$WS/projects/mem-test"
+
+      - name: Subagents and MCP configuration safety, same-file aggregation, and recovery smoke - Phase 7 invariants
+        run: |
+          WS=${{ runner.temp }}/aikito-ws
+
+          # 1. Subagent dry-run zero-mutation (INV-CFG-01, INV-SUB-01)
+          AIKITO_DIR="$WS" python3 -m aikito add subagent p7-sub --description "Phase 7 test subagent"
+          test -f "$WS/subagents/p7-sub.md"
+          AIKITO_DIR="$WS" python3 -m aikito sync subagents --dry-run | tee ${{ runner.temp }}/sub-dryrun.out
+          grep -F "Subagent synchronization plan" ${{ runner.temp }}/sub-dryrun.out
+          test ! -e ~/.claude/agents/p7-sub.md
+
+          # 2. Subagent sync and repeat NOOP idempotency
+          AIKITO_DIR="$WS" python3 -m aikito sync subagents | tee ${{ runner.temp }}/sub-apply.out
+          test -f ~/.claude/agents/p7-sub.md
+          grep -q 'generated by aikito from subagents/p7-sub.md' ~/.claude/agents/p7-sub.md
+          AIKITO_DIR="$WS" python3 -m aikito sync subagents | tee ${{ runner.temp }}/sub-repeat.out
+          grep -F "[OK] claude-code/p7-sub" ${{ runner.temp }}/sub-repeat.out
+
+          # 3. Subagent unmanaged conflict and scoped --force (INV-SUB-02)
+          printf "unmanaged agent prompt without marker\n" > ~/.claude/agents/p7-conflict.md
+          AIKITO_DIR="$WS" python3 -m aikito add subagent p7-conflict --description "Conflicting subagent"
+          ! AIKITO_DIR="$WS" python3 -m aikito sync subagents > ${{ runner.temp }}/sub-conflict.err 2>&1
+          grep -F "[CONFLICT]" ${{ runner.temp }}/sub-conflict.err
+          test "$(cat ~/.claude/agents/p7-conflict.md)" = "unmanaged agent prompt without marker"
+          AIKITO_DIR="$WS" python3 -m aikito sync subagents --force claude-code/p7-conflict
+          grep -q 'generated by aikito from subagents/p7-conflict.md' ~/.claude/agents/p7-conflict.md
+
+          # 4. Managed orphan prune (INV-SUB-03)
+          AIKITO_DIR="$WS" python3 -m aikito rm subagent p7-conflict
+          test ! -e "$WS/subagents/p7-conflict.md"
+          test -f ~/.claude/agents/p7-conflict.md
+          AIKITO_DIR="$WS" python3 -m aikito sync subagents --prune
+          test ! -e ~/.claude/agents/p7-conflict.md
+          AIKITO_DIR="$WS" python3 -m aikito rm subagent p7-sub --sync
+          test ! -e ~/.claude/agents/p7-sub.md
+
+          # 5. MCP dry-run zero-mutation (INV-CFG-01, INV-MCP-01)
+          AIKITO_DIR="$WS" python3 -m aikito add mcp p7-mcp-1 --url "https://example.com/p7-1"
+          AIKITO_DIR="$WS" python3 -m aikito add mcp p7-mcp-2 --url "https://example.com/p7-2"
+          AIKITO_DIR="$WS" python3 -m aikito sync mcp --dry-run | tee ${{ runner.temp }}/mcp-dryrun.out
+          grep -F "[DRY-RUN] codex/p7-mcp-1: would create entry" ${{ runner.temp }}/mcp-dryrun.out
+          if [ -f ~/.codex/config.toml ]; then
+            ! grep -q "p7_mcp_1" ~/.codex/config.toml
+            ! grep -q "p7_mcp_2" ~/.codex/config.toml
+          fi
+
+          # 6. Same-file multi-server aggregation write-once (INV-MCP-02)
+          AIKITO_DIR="$WS" python3 -m aikito sync mcp | tee ${{ runner.temp }}/mcp-apply.out
+          grep -q "p7_mcp_1" ~/.codex/config.toml
+          grep -q "p7_mcp_2" ~/.codex/config.toml
+
+          # 7. MCP Desired Absent removal via unified engine (INV-MCP-07)
+          AIKITO_DIR="$WS" python3 -m aikito rm mcp p7-mcp-1 --sync
+          test ! -e "$WS/mcps/p7-mcp-1.toml"
+          ! grep -q "p7_mcp_1" ~/.codex/config.toml
+          grep -q "p7_mcp_2" ~/.codex/config.toml
+          AIKITO_DIR="$WS" python3 -m aikito rm mcp p7-mcp-2 --sync
+          ! grep -q "p7_mcp_2" ~/.codex/config.toml
+
+      - name: Refresh divergent bundled skills
+        run: |
+          printf 'customized aikito\n' > \
+            ${{ runner.temp }}/aikito-ws/skills/aikito/SKILL.md
+          printf 'customized memory\n' > \
+            ${{ runner.temp }}/aikito-ws/skills/durable-memory/SKILL.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito status \
+            2> ${{ runner.temp }}/bundled-skill-notice.err
+          grep -F "Bundled skill snapshot differs" \
+            ${{ runner.temp }}/bundled-skill-notice.err
+          grep -F "customized aikito" \
+            ${{ runner.temp }}/aikito-ws/skills/aikito/SKILL.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync global \
+            | tee ${{ runner.temp }}/bundled-skill-refresh.out
+          grep -F "[REFRESH] Bundled skill 'aikito'" \
+            ${{ runner.temp }}/bundled-skill-refresh.out
+          grep -F "[REFRESH] Bundled skill 'durable-memory'" \
+            ${{ runner.temp }}/bundled-skill-refresh.out
+          cmp src/aikito/templates/skills/aikito/SKILL.md \
+            ${{ runner.temp }}/aikito-ws/skills/aikito/SKILL.md
+          cmp src/aikito/templates/skills/durable-memory/SKILL.md \
+            ${{ runner.temp }}/aikito-ws/skills/durable-memory/SKILL.md
+          test -f $(find ~/.aikito/backups -path \
+            '*/bundled-skills_*/aikito/SKILL.md' -print -quit)
+          test -f $(find ~/.aikito/backups -path \
+            '*/bundled-skills_*/durable-memory/SKILL.md' -print -quit)
+
+      - name: aikito init project (fresh and idempotent)
+        run: |
+          mkdir -p ${{ runner.temp }}/example-project
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito init project example \
+            ${{ runner.temp }}/example-project \
+            --description "CI example project"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito init project example ${{ runner.temp }}/example-project
+          grep -q 'description = "CI example project"' \
+            ${{ runner.temp }}/aikito-ws/projects/example/agent.toml
+          test ! -e ${{ runner.temp }}/example-project/.agents/AGENTS.md
+          test ! -e ${{ runner.temp }}/example-project/AGENTS.md
+          test ! -e ${{ runner.temp }}/example-project/.claude/CLAUDE.md
+          test -L ${{ runner.temp }}/example-project/.agents/memory/notes
+
+      - name: aikito project inspection and dry-run
+        run: |
+          printf '# CI project instructions\n' > \
+            ${{ runner.temp }}/aikito-ws/projects/example/AGENTS.md
+          python3 -c "
+          from pathlib import Path
+          path = Path(r'${{ runner.temp }}/aikito-ws/projects/example/agent.toml')
+          text = path.read_text()
+          path.write_text(text.replace('skills = []', 'skills = [\"durable-memory\"]'))
+          "
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws python3 -c "
+          from aikito import Project
+          prepared = Project.load('example').prepare(agent='pi')
+          assert prepared.name == 'example'
+          "
+          test -L ${{ runner.temp }}/example-project/AGENTS.md
+          test -L \
+            ${{ runner.temp }}/example-project/.agents/skills/durable-memory
+          test -L ${{ runner.temp }}/example-project/.agents/memory/notes
+          mkdir -p ${{ runner.temp }}/example-project-second
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            AIKITO_TEST_PROJECT_PATH=${{ runner.temp }}/example-project-second \
+            python3 -c "
+          import os
+          from pathlib import Path
+          from aikito import Project
+          updated = Project.load('example').add_path(os.environ['AIKITO_TEST_PROJECT_PATH'])
+          assert Path(os.environ['AIKITO_TEST_PROJECT_PATH']).resolve() in updated.paths
+          "
+          if AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -c "from aikito import Project; Project.load('example').prepare(agent='pi')" \
+              2>${{ runner.temp }}/prepare-ambiguous.log; then
+            echo "Expected ambiguous project preparation to fail"
+            exit 1
+          fi
+          grep -q "Multiple paths are available" \
+            ${{ runner.temp }}/prepare-ambiguous.log
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            AIKITO_TEST_PROJECT_PATH=${{ runner.temp }}/example-project-second \
+            python3 -c "
+          import os
+          from pathlib import Path
+          from aikito import Project
+          prepared = Project.load('example').prepare(
+              agent='pi', path=os.environ['AIKITO_TEST_PROJECT_PATH']
+          )
+          assert prepared.cwd == Path(os.environ['AIKITO_TEST_PROJECT_PATH']).resolve()
+          "
+          test -L ${{ runner.temp }}/example-project-second/AGENTS.md
+          test -L \
+            ${{ runner.temp }}/example-project-second/.agents/skills/durable-memory
+          test -L ${{ runner.temp }}/example-project-second/.agents/memory/notes
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show projects
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show project example | grep -q "CI example project"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show project example | grep -q "Project paths"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync project example --dry-run
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito diff
+          # Assert single-project Fix: and doctor hints on missing runtime instructions
+          rm ${{ runner.temp }}/example-project/AGENTS.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show project example | grep -q "Fix:"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show project example | grep -q "aikito sync project example"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito doctor --no-color | grep -q "aikito sync project example"
+          # Add second project and break its runtime link to ensure multiple projects fail
+          mkdir -p ${{ runner.temp }}/example-project-b
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito init project example-b ${{ runner.temp }}/example-project-b
+          rm ${{ runner.temp }}/example-project-b/.agents/memory/notes
+          # Doctor output should now consolidate to a single 'aikito sync' on the first failing project
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito doctor --no-color > ${{ runner.temp }}/multi-doctor.log || true
+          grep -E "→ aikito sync$" ${{ runner.temp }}/multi-doctor.log
+          ! grep -q "aikito sync project" ${{ runner.temp }}/multi-doctor.log
+          # Full workspace sync repairs all projects
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync
+          test -L ${{ runner.temp }}/example-project/AGENTS.md
+          test -L ${{ runner.temp }}/example-project-b/.agents/memory/notes
+          rm -rf ${{ runner.temp }}/aikito-ws/projects/example-b ${{ runner.temp }}/example-project-b
+
+      - name: aikito add resources (skill, subagent, mcp)
+        run: |
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito add skill ci-skill --description "CI test skill"
+          test -f ${{ runner.temp }}/aikito-ws/skills/ci-skill/SKILL.md
+          mkdir -p ${{ runner.temp }}/external-skill
+          printf -- "---\nname: imported-ci-skill\ndescription: External imported skill\n---\n\n# Imported CI Skill\n" > ${{ runner.temp }}/external-skill/SKILL.md
+          printf "obsolete\n" > ${{ runner.temp }}/external-skill/obsolete.txt
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito add skill --from ${{ runner.temp }}/external-skill --project example --sync
+          test -f ${{ runner.temp }}/aikito-ws/skills/imported-ci-skill/SKILL.md
+          test -L ${{ runner.temp }}/example-project/.agents/skills/imported-ci-skill
+          printf -- "---\nname: imported-ci-skill\ndescription: Updated external skill\n---\n\n# Updated CI Skill\n" > ${{ runner.temp }}/external-skill/SKILL.md
+          rm ${{ runner.temp }}/external-skill/obsolete.txt
+          printf "added\n" > ${{ runner.temp }}/external-skill/added.txt
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito add skill --from ${{ runner.temp }}/external-skill --project example --force --sync
+          grep -q "# Updated CI Skill" ${{ runner.temp }}/aikito-ws/skills/imported-ci-skill/SKILL.md
+          test ! -e ${{ runner.temp }}/aikito-ws/skills/imported-ci-skill/obsolete.txt
+          test -f ${{ runner.temp }}/aikito-ws/skills/imported-ci-skill/added.txt
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm skill imported-ci-skill --project example --sync
+          test -f ${{ runner.temp }}/aikito-ws/skills/imported-ci-skill/SKILL.md
+          test ! -e ${{ runner.temp }}/example-project/.agents/skills/imported-ci-skill
+          ! grep -q "imported-ci-skill" ${{ runner.temp }}/aikito-ws/projects/example/agent.toml
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm skill imported-ci-skill
+          test ! -e ${{ runner.temp }}/aikito-ws/skills/imported-ci-skill
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito add skill rm-test-skill
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm skill rm-test-skill
+          test ! -e ${{ runner.temp }}/aikito-ws/skills/rm-test-skill
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito add subagent ci-subagent \
+            --description "CI test subagent" \
+            --agents "codex,claude-code,agy,opencode,github-copilot,pi"
+          test -f ${{ runner.temp }}/aikito-ws/subagents/ci-subagent.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito add mcp ci-mcp --url "https://example.com/mcp"
+          test -f ${{ runner.temp }}/aikito-ws/mcps/ci-mcp.toml
+
+      - name: aikito sync without Pi subagent extension
+        run: |
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync global
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync mcp
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync subagents
+          test ! -e ~/.pi/agent/agents
+
+      - name: aikito sync with Pi subagent extension
+        run: |
+          mkdir -p ~/.pi/agent/extensions/subagent
+          touch ~/.pi/agent/extensions/subagent/index.ts
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync global
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync mcp
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync subagents
+          test -L ~/.agents/skills/ci-skill
+          test -L ~/.codex/AGENTS.md
+          test -L ~/.claude/skills
+          test -L ~/.grok/rules/aikito.md
+          test -L ~/.config/opencode/AGENTS.md
+          test -f ~/.codex/config.toml
+          test -f ~/.codex/agents/ci-subagent.toml
+          test -f ~/.claude/agents/ci-subagent.md
+          test -f ~/.config/opencode/agents/ci-subagent.md
+          test -f ~/.pi/agent/agents/ci-subagent.md
+          grep -q 'generated by aikito from subagents/ci-subagent.md' \
+            ~/.pi/agent/agents/ci-subagent.md
+
+      - name: aikito resource inspection
+        run: |
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show skill ci-skill | grep -q "CI test skill"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show subagents ci-subagent | \
+            grep -q "# Ci Subagent"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show mcp ci-mcp | grep -q "https://example.com/mcp"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show instructions global | \
+            grep -q "durable-memory"
+
+      - name: aikito subagent and mcp lifecycle parity
+        run: |
+          mkdir -p ${{ runner.temp }}/ext-prompts
+          cat << 'EOF' > ${{ runner.temp }}/ext-prompts/ci-reviewer.md
+          ---
+          name: ci-reviewer
+          description: CI reviewer prompt
+          agents: ["claude-code"]
+          ---
+          # CI Reviewer
+
+          Review instructions.
+          EOF
+
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito add subagent \
+            --from ${{ runner.temp }}/ext-prompts/ci-reviewer.md \
+            --sync
+          test -f ${{ runner.temp }}/aikito-ws/subagents/ci-reviewer.md
+          test -f ~/.claude/agents/ci-reviewer.md
+          grep -q "Review instructions" ~/.claude/agents/ci-reviewer.md
+
+          # Test overwrite with --force
+          cat << 'EOF' > ${{ runner.temp }}/ext-prompts/ci-reviewer.md
+          ---
+          description: Updated CI reviewer prompt
+          ---
+          # CI Reviewer V2
+
+          Updated review instructions.
+          EOF
+
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito add subagent ci-reviewer \
+            --from ${{ runner.temp }}/ext-prompts/ci-reviewer.md \
+            --force \
+            --sync
+          grep -q "Updated review instructions" ~/.claude/agents/ci-reviewer.md
+
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm subagent ci-reviewer --sync
+          test ! -e ${{ runner.temp }}/aikito-ws/subagents/ci-reviewer.md
+          test ! -e ~/.claude/agents/ci-reviewer.md
+
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito add mcp smoke-mcp --url "https://example.com/smoke"
+          test -f ${{ runner.temp }}/aikito-ws/mcps/smoke-mcp.toml
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync mcp
+          grep -q "smoke_mcp" ~/.codex/config.toml
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm mcp smoke-mcp --sync
+          test ! -e ${{ runner.temp }}/aikito-ws/mcps/smoke-mcp.toml
+          ! grep -q "smoke_mcp" ~/.codex/config.toml
+
+          # Verify add mcp with --from, --sync, and --force
+          echo '{"url": "https://example.com/from-json"}' > ${{ runner.temp }}/ext-mcp.json
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito add mcp imported-mcp --from ${{ runner.temp }}/ext-mcp.json --sync
+          test -f ${{ runner.temp }}/aikito-ws/mcps/imported-mcp.toml
+          grep -q "imported_mcp" ~/.codex/config.toml
+          echo '{"url": "https://example.com/from-json-v2"}' > ${{ runner.temp }}/ext-mcp.json
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito add mcp imported-mcp --from ${{ runner.temp }}/ext-mcp.json --force --sync
+          grep -q "https://example.com/from-json-v2" ${{ runner.temp }}/aikito-ws/mcps/imported-mcp.toml
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm mcp imported-mcp --sync
+          test ! -e ${{ runner.temp }}/aikito-ws/mcps/imported-mcp.toml
+
+          # Verify conflict protection: tamper with managed agent config and assert rm mcp --sync blocks
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito add mcp conflict-mcp --url "https://example.com/conflict"
+          test -f ${{ runner.temp }}/aikito-ws/mcps/conflict-mcp.toml
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync mcp
+          grep -q "conflict_mcp" ~/.codex/config.toml
+
+          # Tamper with Codex configuration outside aikito
+          sed -i 's|https://example.com/conflict|https://example.com/tampered|g' ~/.codex/config.toml
+
+          # Assert that rm mcp --sync blocks on conflict, preserves canonical toml, and leaves config untouched
+          ! AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm mcp conflict-mcp --sync
+          test -f ${{ runner.temp }}/aikito-ws/mcps/conflict-mcp.toml
+          grep -q "tampered" ~/.codex/config.toml
+
+          # Assert that rm mcp --sync --force forces removal through the conflict
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm mcp conflict-mcp --sync --force
+          test ! -e ${{ runner.temp }}/aikito-ws/mcps/conflict-mcp.toml
+          ! grep -q "conflict_mcp" ~/.codex/config.toml
+
+      - name: aikito status
+        run: |
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito status
+
+      - name: aikito web
+        run: |
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito web --port 8765 --no-open &
+          web_pid=$!
+          trap 'kill "$web_pid"' EXIT
+          for attempt in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:8765/ > "${{ runner.temp }}/aikito-web.html"; then
+              break
+            fi
+            sleep 0.25
+          done
+          curl --fail --silent http://127.0.0.1:8765/ | grep -q '<title>Aikito Console</title>'
+          curl --fail --silent http://127.0.0.1:8765/api/overview | \
+            python3 -c 'import json, sys; data = json.load(sys.stdin); assert data["version"]'
+
+      - name: aikito memory maintenance validation
+        run: |
+          if AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito maintain memory missing-project; then
+            exit 1
+          fi
+
+      - name: aikito memory lifecycle
+        run: |
+          mkdir -p ${{ runner.temp }}/aikito-ws/memory/notes
+          printf '%s\n' '# CI memory note' > \
+            ${{ runner.temp }}/aikito-ws/memory/notes/ci-memory.md
+          mkdir -p ${{ runner.temp }}/aikito-ws/projects/example/memory/notes
+          printf '%s\n' '# CI project memory note' > \
+            ${{ runner.temp }}/aikito-ws/projects/example/memory/notes/ci-proj-memory.md
+          printf '%s\n' '# Legacy index' '- [[ci-memory|CI memory note]]' > \
+            ${{ runner.temp }}/aikito-ws/memory/index.md
+          printf '%s\n' '# Legacy project index' '- [[ci-proj-memory|CI project memory note]]' > \
+            ${{ runner.temp }}/aikito-ws/projects/example/memory/index.md
+          if EDITOR=true AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito edit memory global/index; then
+            exit 1
+          fi
+          test ! -e ${{ runner.temp }}/aikito-ws/index.md
+          if EDITOR=true AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito edit memory example/index; then
+            exit 1
+          fi
+          test ! -e ${{ runner.temp }}/aikito-ws/projects/example/index.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show memory --project example | grep -q "ci-proj-memory"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show memory ci-proj-memory --project example | \
+            grep -q "CI project memory note"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show memory ci-memory | grep -q "CI memory note"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show memory ci-memory --project global | grep -q "CI memory note"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rename memory ci-memory ci-memory-renamed
+          test -f ${{ runner.temp }}/aikito-ws/memory/notes/ci-memory-renamed.md
+          test ! -e ${{ runner.temp }}/aikito-ws/memory/notes/ci-memory.md
+          grep -q 'ci-memory|CI memory note' ${{ runner.temp }}/aikito-ws/memory/index.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm memory ci-memory-renamed
+          test ! -e ${{ runner.temp }}/aikito-ws/memory/notes/ci-memory-renamed.md
+          grep -q 'ci-memory|CI memory note' ${{ runner.temp }}/aikito-ws/memory/index.md
+          test -f ${{ runner.temp }}/aikito-ws/projects/example/memory/notes/ci-proj-memory.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm memory ci-proj-memory
+          test ! -e ${{ runner.temp }}/aikito-ws/projects/example/memory/notes/ci-proj-memory.md
+          printf '%s\n' '# Malformed memory note' > \
+            ${{ runner.temp }}/aikito-ws/memory/notes/malformed.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm memory malformed
+          test ! -e ${{ runner.temp }}/aikito-ws/memory/notes/malformed.md
+          printf '%s\n' '# Rename repair note' > \
+            ${{ runner.temp }}/aikito-ws/memory/notes/rename-repair.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rename memory rename-repair renamed-repair
+          test -f ${{ runner.temp }}/aikito-ws/memory/notes/renamed-repair.md
+          if grep -q 'category:' \
+            ${{ runner.temp }}/aikito-ws/memory/notes/renamed-repair.md; then
+            exit 1
+          fi
+          printf '%s\n' '# Sync malformed note' > \
+            ${{ runner.temp }}/aikito-ws/projects/example/memory/notes/sync-malformed.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync project example 2> \
+            ${{ runner.temp }}/project-memory-sync.err
+          test ! -s ${{ runner.temp }}/project-memory-sync.err
+          test -L ${{ runner.temp }}/example-project/.agents/memory/notes
+          test ! -e ${{ runner.temp }}/example-project/.agents/memory/index.md
+          if grep -q 'category:' \
+            ${{ runner.temp }}/aikito-ws/projects/example/memory/notes/sync-malformed.md; then
+            exit 1
+          fi
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito rm memory sync-malformed
+
+      # doctor should report all symlinks and config.toml OK after sync
+      - name: aikito doctor
+        run: |
+          mkdir -p ${{ runner.temp }}/aikito-ws/memory/notes/nested
+          printf '%s\n' '# Hidden nested note' > \
+            ${{ runner.temp }}/aikito-ws/memory/notes/nested/hidden.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito doctor --no-color 2>&1 | \
+            tee ${{ runner.temp }}/doctor-memory-layout.log || true
+          grep -q "memory notes subdirectory 'nested/' is not scanned" \
+            ${{ runner.temp }}/doctor-memory-layout.log
+          rm ${{ runner.temp }}/aikito-ws/memory/notes/nested/hidden.md
+          rmdir ${{ runner.temp }}/aikito-ws/memory/notes/nested
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito doctor --stale-days 14
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito doctor --json
+
+      - name: aikito doctor conflict markers
+        run: |
+          # --- Scenario 1: conflict in memory note only (no TOML conflict) ---
+          printf '%s\n' \
+            '# Conflicted Note' \
+            '<<<<<<< HEAD' \
+            'version A' \
+            '=======' \
+            'version B' \
+            '>>>>>>> branch' \
+            > ${{ runner.temp }}/aikito-ws/memory/notes/ci-conflict.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito doctor --no-color 2>&1 | \
+            tee ${{ runner.temp }}/doctor-conflict-md.log || true
+          grep -q "Git conflict marker detected" \
+            ${{ runner.temp }}/doctor-conflict-md.log
+          # doctor --fix must NOT modify the conflicted file
+          conflict_before=$(cat ${{ runner.temp }}/aikito-ws/memory/notes/ci-conflict.md)
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito doctor --fix --no-color 2>&1 || true
+          conflict_after=$(cat ${{ runner.temp }}/aikito-ws/memory/notes/ci-conflict.md)
+          [ "$conflict_before" = "$conflict_after" ] || \
+            { echo "doctor --fix modified conflicted file"; exit 1; }
+          # Clean up before TOML scenario
+          rm ${{ runner.temp }}/aikito-ws/memory/notes/ci-conflict.md
+
+          # --- Scenario 2: conflict in TOML only (no conflicted note) ---
+          printf '%s\n' \
+            '<<<<<<< HEAD' \
+            'skills = ["a"]' \
+            '=======' \
+            'skills = ["b"]' \
+            '>>>>>>> branch' \
+            > ${{ runner.temp }}/aikito-ws/skills.toml
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito doctor --no-color 2>&1 | \
+            tee ${{ runner.temp }}/doctor-conflict-toml.log || true
+          grep -q "skills.toml" ${{ runner.temp }}/doctor-conflict-toml.log
+          grep -q "Git conflict marker detected" \
+            ${{ runner.temp }}/doctor-conflict-toml.log
+          # Conflicted TOML must NOT produce a duplicate "TOML parse error" line
+          if grep -q "TOML parse error" ${{ runner.temp }}/doctor-conflict-toml.log; then
+            echo "check_config_syntax still reported a parse error for conflicted TOML"
+            exit 1
+          fi
+          # doctor --fix must NOT modify the conflicted TOML file
+          toml_before=$(cat ${{ runner.temp }}/aikito-ws/skills.toml)
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito doctor --fix --no-color 2>&1 || true
+          toml_after=$(cat ${{ runner.temp }}/aikito-ws/skills.toml)
+          [ "$toml_before" = "$toml_after" ] || \
+            { echo "doctor --fix modified conflicted TOML file"; exit 1; }
+          # Restore clean skills.toml
+          printf '%s\n' 'skills = ["durable-memory"]' \
+            > ${{ runner.temp }}/aikito-ws/skills.toml
+
+      - name: Verify sync and prepare conflict pre-check
+        run: |
+          # 1. Project preparation and sync fail if project instructions have conflict
+          example_agents="${{ runner.temp }}/aikito-ws/projects/example/AGENTS.md"
+          orig_agents=$(cat "$example_agents")
+          printf '%s\n' \
+            '# Conflicted instructions' \
+            '<<<<<<< HEAD' \
+            'rule A' \
+            '=======' \
+            'rule B' \
+            '>>>>>>> branch' \
+            > "$example_agents"
+
+          # Project.prepare() must raise ProjectPrepareConflictError
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws python3 -c "
+          from aikito import Project, ProjectPrepareConflictError
+          try:
+              Project.load('example').prepare(agent='pi', path='${{ runner.temp }}/example-project')
+              raise AssertionError('prepare() did not raise ProjectPrepareConflictError')
+          except ProjectPrepareConflictError as exc:
+              assert 'Git conflict marker detected' in str(exc), f'Unexpected exc: {exc}'
+          "
+
+          # CLI sync project must fail (exit non-zero) and print conflict error
+          if AIKITO_DIR=${{ runner.temp }}/aikito-ws python3 -m aikito sync project example 2>${{ runner.temp }}/sync-proj-conflict.err; then
+            echo "Expected sync project example to fail on conflict"
+            exit 1
+          fi
+          grep -q "Git conflict marker detected" ${{ runner.temp }}/sync-proj-conflict.err
+
+          # --force must NOT bypass the conflict
+          if AIKITO_DIR=${{ runner.temp }}/aikito-ws python3 -m aikito sync project example --force 2>&1 | grep -q "Git conflict marker detected"; then
+            echo "sync project --force properly blocked by conflict"
+          else
+            echo "sync project --force was not blocked by conflict"
+            exit 1
+          fi
+
+          # Unrelated global sync must SUCCEED even while project example has conflict
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws python3 -m aikito sync global
+
+          # Restore clean project instructions
+          printf '%s\n' "$orig_agents" > "$example_agents"
+
+          # 2. Global sync fails if global instructions have conflict
+          global_agents="${{ runner.temp }}/aikito-ws/global/AGENTS.md"
+          orig_global=$(cat "$global_agents")
+          printf '%s\n' \
+            '# Conflicted global instructions' \
+            '<<<<<<< HEAD' \
+            'global A' \
+            '=======' \
+            'global B' \
+            '>>>>>>> branch' \
+            > "$global_agents"
+
+          if AIKITO_DIR=${{ runner.temp }}/aikito-ws python3 -m aikito sync global 2>${{ runner.temp }}/sync-global-conflict.err; then
+            echo "Expected sync global to fail on conflict"
+            exit 1
+          fi
+          grep -q "Git conflict marker detected" ${{ runner.temp }}/sync-global-conflict.err
+
+          # Unrelated project sync must SUCCEED even while global instructions have conflict
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws python3 -m aikito sync project example
+
+          # Restore clean global instructions
+          printf '%s\n' "$orig_global" > "$global_agents"
+
+      - name: Project Skill Sync Engine (copy mode, idempotency, drift vs update, force, deselection preservation)
+        run: |
+          WS=${{ runner.temp }}/aikito-ws
+          PROJ=${{ runner.temp }}/copy-mode-proj
+          mkdir -p "$PROJ"
+
+          AIKITO_DIR=$WS python3 -m aikito init project copy-proj "$PROJ"
+          # Switch to copy mode
+          python3 -c "
+          from pathlib import Path
+          p = Path('$WS/projects/copy-proj/agent.toml')
+          p.write_text(p.read_text().replace('sync_mode = \"link\"', 'sync_mode = \"copy\"'))
+          "
+
+          # 1. Add skill and first-time sync
+          AIKITO_DIR=$WS python3 -m aikito add skill copy-test-skill --description "Copy test skill" --project copy-proj
+          printf "canonical v1\n" > "$WS/skills/copy-test-skill/SKILL.md"
+
+          # Dry run preview check
+          AIKITO_DIR=$WS python3 -m aikito sync project copy-proj --dry-run | tee ${{ runner.temp }}/copy-dryrun.out
+          grep -F "[DRY RUN COPY]" ${{ runner.temp }}/copy-dryrun.out
+          test ! -d "$PROJ/.agents/skills/copy-test-skill"
+
+          # Real first-time sync
+          AIKITO_DIR=$WS python3 -m aikito sync project copy-proj
+          test -d "$PROJ/.agents/skills/copy-test-skill"
+          test ! -L "$PROJ/.agents/skills/copy-test-skill"
+          test -f "$PROJ/.agents/skills/copy-test-skill/SKILL.md"
+          grep -F "canonical v1" "$PROJ/.agents/skills/copy-test-skill/SKILL.md"
+
+          # 2. Idempotent repeated sync (zero mutations)
+          mtime_before=$(stat -c %Y "$PROJ/.agents/skills/copy-test-skill/SKILL.md" 2>/dev/null || stat -f %m "$PROJ/.agents/skills/copy-test-skill/SKILL.md")
+          AIKITO_DIR=$WS python3 -m aikito sync project copy-proj
+          mtime_after=$(stat -c %Y "$PROJ/.agents/skills/copy-test-skill/SKILL.md" 2>/dev/null || stat -f %m "$PROJ/.agents/skills/copy-test-skill/SKILL.md")
+          [ "$mtime_before" = "$mtime_after" ]
+
+          # 3. Canonical upstream update without --force (R == B != C)
+          printf "canonical v2\n" > "$WS/skills/copy-test-skill/SKILL.md"
+          AIKITO_DIR=$WS python3 -m aikito sync project copy-proj
+          grep -F "canonical v2" "$PROJ/.agents/skills/copy-test-skill/SKILL.md"
+
+          # 4. Local drift conflict (R != B != C)
+          printf "local modified\n" > "$PROJ/.agents/skills/copy-test-skill/SKILL.md"
+          if AIKITO_DIR=$WS python3 -m aikito sync project copy-proj 2>${{ runner.temp }}/copy-drift.err; then
+            echo "Expected sync project to fail on local drift"
+            exit 1
+          fi
+          grep -F "drifted" ${{ runner.temp }}/copy-drift.err
+
+          # 5. Overwrite drift with --force
+          AIKITO_DIR=$WS python3 -m aikito sync project copy-proj --force
+          grep -F "canonical v2" "$PROJ/.agents/skills/copy-test-skill/SKILL.md"
+
+          # 6. Deselection preservation (INV-TR-14/15/17)
+          AIKITO_DIR=$WS python3 -m aikito rm skill copy-test-skill --project copy-proj
+          AIKITO_DIR=$WS python3 -m aikito sync project copy-proj
+          test -d "$PROJ/.agents/skills/copy-test-skill"
+          test -f "$PROJ/.agents/skills/copy-test-skill/SKILL.md"
+          grep -F "canonical v2" "$PROJ/.agents/skills/copy-test-skill/SKILL.md"
+
+          # 7. Re-register and reactivate state with --force
+          AIKITO_DIR=$WS python3 -m aikito add skill copy-test-skill --project copy-proj
+          AIKITO_DIR=$WS python3 -m aikito sync project copy-proj --force
+          test -d "$PROJ/.agents/skills/copy-test-skill"
+          test -f "$PROJ/.agents/skills/copy-test-skill/SKILL.md"
+
+      - name: Verify workspace config customization in CI
+        run: |
+          cat << 'EOF' > ${{ runner.temp }}/aikito-ws/config.toml
+          # Workspace custom test config
+          [memory]
+          stale_days = 14
+
+          [inbox]
+          path = "~/aikito/inbox"
+          EOF
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito doctor
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito doctor --no-color | grep -F "Adoption"
+
+      - name: aikito inbox inspection (missing, empty, note list, and target reading)
+        run: |
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show inbox
+          mkdir -p ${{ runner.temp }}/aikito-ws/inbox
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show inbox
+          echo "# CI Test Inbox Note" > ${{ runner.temp }}/aikito-ws/inbox/ci-note.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show inbox
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show inbox ci-note
+
+      - name: aikito adopt (preflight and default apply)
+        run: |
+          mkdir -p ~/.claude/agents
+          cat << 'EOF' > ~/.claude/agents/ci-adopt.md
+          ---
+          name: ci-adopt
+          description: CI adoption smoke test
+          ---
+          Review adoption behavior.
+          EOF
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito adopt --dry-run --verbose \
+            | tee ${{ runner.temp }}/adopt-preview.out
+          grep -F "Safe to apply" ${{ runner.temp }}/adopt-preview.out
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito adopt --dry-run --verbose \
+            --skip subagent/ci-adopt \
+            | tee ${{ runner.temp }}/adopt-skip.out
+          grep -F "[SKIP] subagent/ci-adopt" ${{ runner.temp }}/adopt-skip.out
+          test ! -f ${{ runner.temp }}/aikito-ws/subagents/ci-adopt.md
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito adopt
+          test -f ${{ runner.temp }}/aikito-ws/subagents/ci-adopt.md
+          grep -F "[subagents.ci-adopt]" \
+            ${{ runner.temp }}/aikito-ws/subagents.toml
+          mkdir -p ~/.codex
+          cat << 'EOF' > ~/.codex/config.toml
+          [mcp_servers.openaiDeveloperDocs]
+          url = "https://developers.openai.com/mcp"
+          EOF
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito adopt --dry-run --verbose \
+            | tee ${{ runner.temp }}/adopt-builtin.out
+          grep -F "[SKIP MCP] Server 'openaiDeveloperDocs' is built-in to codex" ${{ runner.temp }}/adopt-builtin.out
+          test ! -f ${{ runner.temp }}/aikito-ws/mcps/openaiDeveloperDocs.toml
+
+      - name: aikito completion scripts and dynamic candidates
+        run: |
+          python3 -m aikito completion zsh > ${{ runner.temp }}/_aikito
+          python3 -m aikito completion bash > ${{ runner.temp }}/aikito.bash
+          python3 -m aikito completion fish > ${{ runner.temp }}/aikito.fish
+          test -s ${{ runner.temp }}/_aikito
+          test -s ${{ runner.temp }}/aikito.bash
+          test -s ${{ runner.temp }}/aikito.fish
+          bash -n ${{ runner.temp }}/aikito.bash
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito completion candidates memories
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito completion candidates inbox-completions
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito completion candidates skills
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito completion candidates projects
+
+      - name: Workspace public API and unified coordination smoke - Phase 8 invariants
+        run: |
+          WS=${{ runner.temp }}/aikito-ws
+          AIKITO_DIR=$WS python3 -c "
+          from aikito import Workspace, WorkspaceNotFoundError, InvalidWorkspaceError
+          import tempfile
+          from pathlib import Path
+
+          ws = Workspace.load('$WS')
+          assert ws.path.resolve() == Path('$WS').resolve()
+          inspection = ws.inspect()
+          assert inspection.workspace_dir.resolve() == ws.path.resolve()
+          assert isinstance(inspection.projects, tuple)
+
+          preview = ws.plan_sync()
+          assert preview.workspace_path.resolve() == Path('$WS').resolve()
+          assert isinstance(preview.can_apply, bool)
+
+          try:
+              Workspace.load('/nonexistent/path/to/ws')
+              raise AssertionError('Expected WorkspaceNotFoundError')
+          except WorkspaceNotFoundError:
+              pass
+
+          try:
+              Workspace.load('relative/path/to/ws')
+              raise AssertionError('Expected InvalidWorkspaceError')
+          except InvalidWorkspaceError:
+              pass
+          "
+

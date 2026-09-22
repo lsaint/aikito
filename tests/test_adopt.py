@@ -9,12 +9,17 @@ from unittest.mock import patch
 
 from aikito import cli as AIKITO_CLI
 from aikito.adopt import (
+    AdoptExecutionResult,
+    AdoptFilePlan,
+    AdoptRequest,
     AdoptSkipError,
     apply_adopt_skips,
     build_adopt_plan,
     collect_adopt_findings,
+    execute_adopt_plan,
     execute_adoption,
     summarize_adopt_plan,
+    _write_text_atomic,
 )
 from aikito.templating import (
     load_agents_template,
@@ -237,6 +242,24 @@ class AikitoAdoptTest(unittest.TestCase):
         self.assertFalse((self.target_path / "global" / "AGENTS.md").exists())
         self.assertFalse((self.fake_home / ".aikito" / "backups").exists())
 
+    def test_adopt_malformed_agent_registry_blocks_all_writes(self) -> None:
+        (self.target_path / "agents.toml").write_text(
+            "[agents.codex\n", encoding="utf-8"
+        )
+        claude_dir = self.fake_home / ".claude"
+        claude_dir.mkdir(parents=True)
+        (claude_dir / "claude_desktop_config.json").write_text(
+            json.dumps({"mcpServers": {"example": {"command": "example"}}}),
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+
+        self.assertEqual(len(plan.errors), 1)
+        self.assertEqual(plan.errors[0].resource, "agents")
+        self.assertFalse(execute_adoption(plan, dry_run=False, verbose=False))
+        self.assertFalse((self.target_path / "mcps").exists())
+
     def test_adopt_skip_invalid_mcp_applies_remaining_resources(self) -> None:
         codex_dir = self.fake_home / ".codex"
         codex_dir.mkdir(parents=True)
@@ -271,6 +294,265 @@ class AikitoAdoptTest(unittest.TestCase):
         self.assertTrue(execute_adoption(plan, dry_run=False, verbose=False))
         self.assertFalse((self.target_path / "global" / "AGENTS.md").exists())
         self.assertTrue((self.target_path / "mcps" / "example.toml").is_file())
+
+    def test_adopt_mcp_canonicalizes_underscore_to_existing_hyphen_server(self) -> None:
+        (self.target_path / "agents.toml").write_text(
+            load_agents_template(), encoding="utf-8"
+        )
+        mcps_dir = self.target_path / "mcps"
+        mcps_dir.mkdir(parents=True)
+        (mcps_dir / "atlassian-rovo.toml").write_text(
+            'transport = "remote"\nurl = "https://mcp.atlassian.com/v2/mcp"\nagents = ["claude-code"]\n',
+            encoding="utf-8",
+        )
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+        (codex_dir / "config.toml").write_text(
+            '[mcp_servers.atlassian_rovo]\nurl = "https://mcp.atlassian.com/v2/mcp"\n',
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        self.assertEqual(len(plan.mcp_servers), 1)
+        self.assertEqual(plan.mcp_servers[0].server_name, "atlassian-rovo")
+        self.assertEqual(plan.mcp_servers[0].agents, ["codex"])
+
+        summary = summarize_adopt_plan(plan)
+        self.assertEqual(summary.mcp_imports, 0)
+
+        self.assertTrue(execute_adoption(plan, dry_run=False, verbose=False))
+        self.assertFalse((mcps_dir / "atlassian_rovo.toml").exists())
+        self.assertTrue((mcps_dir / "atlassian-rovo.toml").exists())
+
+    def test_adopt_mcp_unifies_hyphen_and_underscore_across_agents(self) -> None:
+        (self.target_path / "agents.toml").write_text(
+            load_agents_template(), encoding="utf-8"
+        )
+        claude_dir = self.fake_home / ".claude"
+        claude_dir.mkdir(parents=True)
+        (claude_dir / "claude_desktop_config.json").write_text(
+            json.dumps(
+                {"mcpServers": {"atlassian-rovo": {"url": "https://example.com"}}}
+            ),
+            encoding="utf-8",
+        )
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+        (codex_dir / "config.toml").write_text(
+            '[mcp_servers.atlassian_rovo]\nurl = "https://example.com"\n',
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        self.assertEqual(len(plan.mcp_servers), 1)
+        self.assertEqual(plan.mcp_servers[0].server_name, "atlassian-rovo")
+        self.assertEqual(sorted(plan.mcp_servers[0].agents), ["claude-code", "codex"])
+
+        summary = summarize_adopt_plan(plan)
+        self.assertEqual(summary.mcp_imports, 1)
+
+        self.assertTrue(execute_adoption(plan, dry_run=False, verbose=False))
+        mcps_dir = self.target_path / "mcps"
+        self.assertTrue((mcps_dir / "atlassian-rovo.toml").exists())
+        self.assertFalse((mcps_dir / "atlassian_rovo.toml").exists())
+
+    def test_adopt_mcp_keeps_verbatim_hyphen_and_underscore_names_distinct(
+        self,
+    ) -> None:
+        (self.target_path / "agents.toml").write_text(
+            load_agents_template(), encoding="utf-8"
+        )
+        (self.fake_home / ".claude.json").write_text(
+            json.dumps({"mcpServers": {"example-server": {"command": "first"}}}),
+            encoding="utf-8",
+        )
+        claude_dir = self.fake_home / ".claude"
+        claude_dir.mkdir(parents=True)
+        (claude_dir / "claude_desktop_config.json").write_text(
+            json.dumps({"mcpServers": {"example_server": {"command": "second"}}}),
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+
+        self.assertEqual(
+            {server.server_name for server in plan.mcp_servers},
+            {"example-server", "example_server"},
+        )
+        self.assertEqual(plan.errors, ())
+
+    def test_adopt_mcp_blocks_different_urls_after_name_mapping(self) -> None:
+        (self.target_path / "agents.toml").write_text(
+            load_agents_template(), encoding="utf-8"
+        )
+        claude_dir = self.fake_home / ".claude"
+        claude_dir.mkdir(parents=True)
+        (claude_dir / "claude_desktop_config.json").write_text(
+            json.dumps({"mcpServers": {"company-api": {"url": "https://claude.test"}}}),
+            encoding="utf-8",
+        )
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "config.toml").write_text(
+            '[mcp_servers.company_api]\nurl = "https://codex.test"\n',
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+
+        self.assertEqual(len(plan.errors), 1)
+        self.assertEqual(plan.errors[0].code, "adopt.mcp_conflict")
+        self.assertFalse(execute_adoption(plan, dry_run=False, verbose=False))
+        self.assertFalse((self.target_path / "mcps").exists())
+
+    def test_adopt_mcp_ignores_agent_specific_fields_when_urls_match(self) -> None:
+        (self.target_path / "agents.toml").write_text(
+            load_agents_template(), encoding="utf-8"
+        )
+        claude_dir = self.fake_home / ".claude"
+        claude_dir.mkdir(parents=True)
+        (claude_dir / "claude_desktop_config.json").write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "atlassian-rovo": {
+                            "type": "http",
+                            "url": "https://mcp.atlassian.com/v2/mcp",
+                            "headers": {
+                                "Authorization": "${ATLASSIAN_MCP_AUTHORIZATION}"
+                            },
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "config.toml").write_text(
+            """
+[mcp_servers.atlassian_rovo]
+url = "https://mcp.atlassian.com/v2/mcp"
+env_http_headers = { Authorization = "ATLASSIAN_MCP_AUTHORIZATION" }
+""".lstrip(),
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+
+        self.assertEqual(plan.errors, ())
+        self.assertEqual(len(plan.mcp_servers), 1)
+        self.assertEqual(plan.mcp_servers[0].server_name, "atlassian-rovo")
+        self.assertEqual(sorted(plan.mcp_servers[0].agents), ["claude-code", "codex"])
+
+    def test_adopt_mcp_skips_agent_builtin_servers(self) -> None:
+        (self.target_path / "agents.toml").write_text(
+            """
+[agents.codex]
+display_name = "Codex"
+[agents.codex.mcp]
+config_path = ".codex/config.toml"
+config_format = "toml"
+builtin_mcps = ["openaiDeveloperDocs"]
+""".lstrip(),
+            encoding="utf-8",
+        )
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+        (codex_dir / "config.toml").write_text(
+            '[mcp_servers.openaiDeveloperDocs]\nurl = "https://developers.openai.com/mcp"\n',
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        self.assertEqual(len(plan.mcp_servers), 0)
+        self.assertEqual(plan.builtin_mcps, (("openaiDeveloperDocs", "codex"),))
+
+        summary = summarize_adopt_plan(plan)
+        self.assertEqual(summary.mcp_imports, 0)
+
+        self.assertTrue(execute_adoption(plan, dry_run=False, verbose=False))
+        self.assertFalse(
+            (self.target_path / "mcps" / "openaiDeveloperDocs.toml").exists()
+        )
+
+    def test_adopt_mcp_reports_builtin_skip_when_plan_has_no_changes(self) -> None:
+        (self.target_path / "agents.toml").write_text(
+            """
+[agents.codex]
+display_name = "Codex"
+[agents.codex.mcp]
+config_path = ".codex/config.toml"
+config_format = "toml"
+builtin_mcps = ["openaiDeveloperDocs"]
+""".lstrip(),
+            encoding="utf-8",
+        )
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "config.toml").write_text(
+            '[mcp_servers.openaiDeveloperDocs]\nurl = "https://developers.openai.com/mcp"\n',
+            encoding="utf-8",
+        )
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            self.assertTrue(
+                execute_adoption(
+                    build_adopt_plan(self.target_path, self.fake_home),
+                    dry_run=True,
+                    verbose=True,
+                )
+            )
+
+        self.assertIn(
+            "[SKIP MCP] Server 'openaiDeveloperDocs' is built-in to codex",
+            output.getvalue(),
+        )
+
+    def test_adopt_mcp_keeps_builtin_server_when_shared_with_another_agent(
+        self,
+    ) -> None:
+        (self.target_path / "agents.toml").write_text(
+            """
+[agents.codex]
+display_name = "Codex"
+[agents.codex.mcp]
+config_path = ".codex/config.toml"
+config_format = "toml"
+builtin_mcps = ["sharedServer"]
+[agents.claude-code]
+display_name = "Claude Code"
+[agents.claude-code.mcp]
+config_path = ".claude.json"
+config_format = "claude_json"
+""".lstrip(),
+            encoding="utf-8",
+        )
+        claude_dir = self.fake_home / ".claude"
+        claude_dir.mkdir(parents=True)
+        (claude_dir / "claude_desktop_config.json").write_text(
+            json.dumps(
+                {"mcpServers": {"sharedServer": {"url": "https://example.com"}}}
+            ),
+            encoding="utf-8",
+        )
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+        (codex_dir / "config.toml").write_text(
+            '[mcp_servers.sharedServer]\nurl = "https://example.com"\n',
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        self.assertEqual(len(plan.mcp_servers), 1)
+        self.assertEqual(plan.mcp_servers[0].server_name, "sharedServer")
+        self.assertEqual(sorted(plan.mcp_servers[0].agents), ["claude-code", "codex"])
+        self.assertEqual(len(plan.builtin_mcps), 0)
 
     def test_adopt_rejects_unknown_skip_target(self) -> None:
         plan = build_adopt_plan(self.target_path, self.fake_home)
@@ -532,9 +814,12 @@ class AikitoAdoptTest(unittest.TestCase):
             side_effect=RuntimeError("Simulated backup storage failure"),
         ):
             with patch("sys.stderr.write"):
-                with self.assertRaises(SystemExit) as cm:
-                    execute_adoption(plan, dry_run=False)
-                self.assertEqual(cm.exception.code, 1)
+                result = execute_adoption(plan, dry_run=False)
+                self.assertIsInstance(result, AdoptExecutionResult)
+                self.assertFalse(result.success)
+                self.assertIn(
+                    "Simulated backup storage failure", result.error_message or ""
+                )
 
     def test_adopt_copilot_cli_resources(self) -> None:
         copilot_dir = self.fake_home / ".copilot"
@@ -641,6 +926,132 @@ class AikitoAdoptTest(unittest.TestCase):
             "${AIKITO_PRIVATE_API_AUTHORIZATION}",
         )
         self.assertEqual(server.config_data["headers"]["X-API-Version"], "2026-08-09")
+
+    def test_adopt_request_and_structured_file_plans(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+
+        req = AdoptRequest(workspace=self.target_path, home=self.fake_home)
+        plan = build_adopt_plan(self.target_path, request=req)
+
+        self.assertEqual(plan.request, req)
+        self.assertTrue(plan.can_apply)
+        self.assertGreater(len(plan.file_plans), 0)
+
+        inst_plan = next(
+            fp for fp in plan.file_plans if fp.resource_kind == "instructions"
+        )
+        self.assertIsInstance(inst_plan, AdoptFilePlan)
+        self.assertIsNone(inst_plan.expected_pre_image)
+        self.assertEqual(inst_plan.action, "CREATE")
+
+    def test_adopt_pre_image_mismatch_prevents_writes(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        self.assertTrue(plan.can_apply)
+
+        # Simulate workspace file created after planning
+        target_file = self.target_path / "global" / "AGENTS.md"
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        target_file.write_text("Interfering content", encoding="utf-8")
+
+        # Execution must fail due to stale pre-image, zero writes made to that plan
+        result = execute_adopt_plan(plan, dry_run=False, verbose=False)
+        self.assertIsInstance(result, AdoptExecutionResult)
+        self.assertFalse(result.success)
+        self.assertFalse(bool(result))
+        self.assertIn("created after plan", result.error_message or "")
+        # File content was untouched
+        self.assertEqual(target_file.read_text(encoding="utf-8"), "Interfering content")
+
+    def test_execute_adopt_plan_returns_structured_execution_result(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        result = execute_adopt_plan(plan, dry_run=False, verbose=False)
+
+        self.assertIsInstance(result, AdoptExecutionResult)
+        self.assertTrue(result.success)
+        self.assertTrue(bool(result))
+        self.assertEqual(len(result.instructions), 1)
+        self.assertGreater(len(result.backups), 0)
+
+    def test_adopt_source_fingerprint_mismatch_prevents_writes(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        source_file = codex_dir / "AGENTS.md"
+        source_file.write_text("Original Rules\n", encoding="utf-8")
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        self.assertTrue(plan.can_apply)
+
+        # Stale host state: source modified after plan generated
+        source_file.write_text("Mutated Rules\n", encoding="utf-8")
+
+        result = execute_adoption(plan, dry_run=False)
+        self.assertIsInstance(result, AdoptExecutionResult)
+        self.assertFalse(result.success)
+        self.assertIn("modified after plan was generated", result.error_message or "")
+        # Workspace should remain unwritten
+        self.assertFalse((self.target_path / "global" / "AGENTS.md").exists())
+
+    def test_adopt_backup_failure_does_not_call_sys_exit(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        self.assertTrue(plan.can_apply)
+
+        with patch(
+            "aikito.adopt.create_adopt_backup",
+            side_effect=OSError("Disk error during backup"),
+        ):
+            result = execute_adoption(plan, dry_run=False)
+            self.assertIsInstance(result, AdoptExecutionResult)
+            self.assertFalse(result.success)
+            self.assertIn("Failed during adoption backup", result.error_message or "")
+
+    def test_adopt_partial_write_failure_tracks_written_and_unwritten_files(
+        self,
+    ) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+
+        # Also add an MCP server to create multiple file plans
+        (self.fake_home / ".claude.json").write_text(
+            json.dumps({"mcpServers": {"server-a": {"command": "echo"}}}),
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        self.assertTrue(plan.can_apply)
+        self.assertGreater(len(plan.file_plans), 1)
+
+        real_write_text_atomic = _write_text_atomic
+        written_count = 0
+
+        def failing_write(path: Path, content: str) -> None:
+            nonlocal written_count
+            written_count += 1
+            if written_count > 1:
+                raise OSError("Simulated disk error on second file")
+            real_write_text_atomic(path, content)
+
+        with patch("aikito.adopt._write_text_atomic", side_effect=failing_write):
+            result = execute_adoption(plan, dry_run=False)
+            self.assertIsInstance(result, AdoptExecutionResult)
+            self.assertFalse(result.success)
+            self.assertEqual(len(result.written_files), 1)
+            self.assertGreater(len(result.unwritten_files), 0)
+            self.assertNotIn(result.written_files[0], result.unwritten_files)
 
 
 if __name__ == "__main__":

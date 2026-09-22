@@ -46,6 +46,9 @@ def _directory_digest(root: Path) -> str | None:
     return digest.hexdigest()
 
 
+directory_digest = _directory_digest
+
+
 def outdated_bundled_skills(workspace: Path) -> tuple[str, ...]:
     """Return bundled system skills that differ from the installed package."""
     skills_root = workspace / "skills"
@@ -76,7 +79,7 @@ def print_bundled_skill_notice(
     if outdated:
         rendered = ", ".join(outdated)
         print(
-            f"[NOTICE] Bundled skill snapshot differs from the installed Aikito "
+            f"\n[NOTICE] Bundled skill snapshot differs from the installed Aikito "
             f"package: {rendered}. Run 'aikito sync global' to refresh it.",
             file=output,
         )

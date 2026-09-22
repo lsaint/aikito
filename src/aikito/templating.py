@@ -15,7 +15,10 @@ import shutil
 from pathlib import Path
 from typing import List, Tuple
 
-from .mcp import AGENT_INSTALL_MARKERS, is_agent_installed
+from .agents import (
+    AGENT_INSTALL_MARKERS,
+    check_agent_availability,
+)
 from .compat import _package_resource_dir
 
 
@@ -105,7 +108,7 @@ def detect_existing_agents(home: Path) -> List[Tuple[str, Path]]:
         binary,
         relative_marker,
     ) in AGENT_INSTALL_MARKERS.items():
-        if not is_agent_installed(agent_name, home):
+        if not check_agent_availability(agent_name, home).is_installed:
             continue
         executable = shutil.which(binary)
         detected.append(

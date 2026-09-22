@@ -27,7 +27,7 @@ aikito show project example
 
 Use `aikito sync global --dry-run` for global instructions and skills, or `aikito sync --dry-run` for the entire workspace.
 Empty canonical project instructions intentionally disable their connections;
-see [create an instruction from scratch](first-instruction.md) when that is not
+see [Manage Instructions](instructions.md) when that is not
 intentional.
 
 ## Existing files conflict

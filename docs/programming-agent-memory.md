@@ -17,12 +17,12 @@ becoming conceptually wrong.
 
 ## A real refactoring case
 
-Chat Distiller originally lived inside the Aikito workspace. Its source was
+[Chat Distiller](https://github.com/lsaint/chat-distiller) originally lived inside the Aikito workspace. Its source was
 edited there and exported into a separate public repository. Its architecture,
 product, compliance, and release memories therefore lived under the Aikito
 project as well.
 
-Once Chat Distiller became capable of independent development, an agent could
+Once [Chat Distiller](https://github.com/lsaint/chat-distiller) became capable of independent development, an agent could
 handle most of the mechanical migration:
 
 - compare the canonical and exported repositories;
@@ -34,13 +34,13 @@ handle most of the mechanical migration:
 But automation alone did not identify the right final design. Human review
 introduced several semantic corrections.
 
-First, moving the source code was not enough. Chat Distiller's memory still
+First, moving the source code was not enough. [Chat Distiller](https://github.com/lsaint/chat-distiller)'s memory still
 belonged to the Aikito project, so its cognitive scope contradicted its new
 repository boundary. The project had to be registered independently, and its
 five product-specific notes had to move with it.
 
 Second, one shared release skill still contained the release procedures for
-Aikito, Chat Distiller, and another Python package. It was technically reusable
+Aikito, [Chat Distiller](https://github.com/lsaint/chat-distiller), and another Python package. It was technically reusable
 but conceptually shallow: each product had different sources, artifacts,
 validation gates, and publication channels. It was replaced by three
 self-contained project skills.

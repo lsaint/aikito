@@ -1,14 +1,19 @@
 import io
 import shutil
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+
+from unittest.mock import patch
 
 from aikito.bundled_skills import (
     outdated_bundled_skills,
     print_bundled_skill_notice,
     refresh_bundled_skills,
 )
+from aikito.instructions import InstructionExecutionResult
+from aikito.skill_state import SkillWriterLock, get_skill_state_dir
 from aikito.templating import BUNDLED_SKILL_NAMES, bundled_skill_path
 
 
@@ -51,6 +56,7 @@ class BundledSkillRefreshTest(unittest.TestCase):
         )
 
         self.assertEqual(outdated, ("aikito",))
+        self.assertTrue(output.getvalue().startswith("\n[NOTICE]"))
         self.assertIn("aikito", output.getvalue())
         self.assertNotIn("durable-memory", output.getvalue())
 
@@ -104,6 +110,219 @@ class BundledSkillRefreshTest(unittest.TestCase):
         self.assertEqual(refreshed, ("durable-memory",))
         self.assertEqual(outdated_bundled_skills(self.workspace), ())
         self.assertFalse((self.home / ".aikito").exists())
+
+
+class BundledSkillWriterLockTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary_directory.name).resolve()
+        self.workspace = self.root / "workspace"
+        self.home = self.root / "home"
+        self.skills = self.workspace / "skills"
+        self.skills.mkdir(parents=True)
+        self.home.mkdir()
+        for name in BUNDLED_SKILL_NAMES:
+            shutil.copytree(bundled_skill_path(name), self.skills / name)
+        (self.workspace / "config.toml").write_text("", encoding="utf-8")
+        (self.workspace / "skills.toml").write_text("", encoding="utf-8")
+        (self.workspace / "agents.toml").write_text(
+            '[agents.codex]\nskills_path = ".agents/skills"\n',
+            encoding="utf-8",
+        )
+        (self.workspace / "subagents.toml").write_text("", encoding="utf-8")
+        for marker in ("mcps", "memory", "projects", "skills", "global", "subagents"):
+            (self.workspace / marker).mkdir(parents=True, exist_ok=True)
+        (self.workspace / "global" / "AGENTS.md").write_text(
+            "# Global\n", encoding="utf-8"
+        )
+        (self.home / ".agents" / "skills").mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self) -> None:
+        self.temporary_directory.cleanup()
+
+    def test_cli_sync_global_holds_writer_lock_when_applying(self) -> None:
+        from aikito.cli import sync_global_resources
+
+        lock_acquired = False
+        orig_acquire = SkillWriterLock.acquire
+
+        def tracking_acquire(lock_self: SkillWriterLock) -> None:
+            nonlocal lock_acquired
+            lock_acquired = True
+            orig_acquire(lock_self)
+
+        with (
+            patch("aikito.cli.get_agents_dir", return_value=self.home / ".agents"),
+            patch.object(
+                SkillWriterLock, "acquire", side_effect=tracking_acquire, autospec=True
+            ),
+        ):
+            ok = sync_global_resources(self.workspace, self.home, dry_run=False)
+            self.assertTrue(ok)
+            self.assertTrue(lock_acquired)
+
+    def test_cli_sync_global_dry_run_does_not_acquire_or_create_lock(self) -> None:
+        from aikito.cli import sync_global_resources
+
+        lock_acquired = False
+        orig_acquire = SkillWriterLock.acquire
+
+        def tracking_acquire(lock_self: SkillWriterLock) -> None:
+            nonlocal lock_acquired
+            lock_acquired = True
+            orig_acquire(lock_self)
+
+        with (
+            patch("aikito.cli.get_agents_dir", return_value=self.home / ".agents"),
+            patch.object(
+                SkillWriterLock, "acquire", side_effect=tracking_acquire, autospec=True
+            ),
+        ):
+            ok = sync_global_resources(self.workspace, self.home, dry_run=True)
+            self.assertTrue(ok)
+            self.assertFalse(lock_acquired)
+
+        lock_file = get_skill_state_dir(self.home) / "writer.lock"
+        self.assertFalse(lock_file.exists())
+
+    def test_cli_sync_global_executes_apply_under_writer_lock(self) -> None:
+        from aikito.cli import sync_global_resources
+        import aikito.cli
+
+        lock_depth_during_apply = -1
+        orig_execute = aikito.cli.execute_global_skills
+
+        def tracking_execute(*args, **kwargs):
+            nonlocal lock_depth_during_apply
+            lock_depth_during_apply = SkillWriterLock._lock_depth
+            return orig_execute(*args, **kwargs)
+
+        with (
+            patch("aikito.cli.get_agents_dir", return_value=self.home / ".agents"),
+            patch("aikito.cli.execute_global_skills", side_effect=tracking_execute),
+        ):
+            ok = sync_global_resources(self.workspace, self.home, dry_run=False)
+            self.assertTrue(ok)
+            self.assertGreaterEqual(lock_depth_during_apply, 1)
+
+    def test_cli_sync_global_aborts_if_refreshed_canonical_missing(self) -> None:
+        from aikito.cli import sync_global_resources
+
+        with (
+            patch("aikito.cli.get_agents_dir", return_value=self.home / ".agents"),
+            patch(
+                "aikito.workspace_sync.execute_bundled_refresh_plan",
+                return_value=("missing-skill",),
+            ),
+        ):
+            res = sync_global_resources(self.workspace, self.home, dry_run=False)
+            self.assertFalse(res)
+            self.assertIn("missing-skill", res.error_message or "")
+
+    def test_cli_sync_global_result_segmentation_on_instruction_failure(self) -> None:
+        from aikito.cli import sync_global_resources
+
+        (self.workspace / "skills.toml").write_text(
+            'skills = ["aikito"]\n', encoding="utf-8"
+        )
+        (self.workspace / "agents.toml").write_text(
+            '[agents.claude]\nskills_path = ".agents/skills"\ninstruction_path = ".claude/AGENTS.md"\n',
+            encoding="utf-8",
+        )
+
+        # Mock execute_instruction_plan for instructions to fail
+        mock_instruction_res = InstructionExecutionResult(
+            operations=(), success=False, error_message="mock instruction failure"
+        )
+        with (
+            patch("aikito.cli.get_agents_dir", return_value=self.home / ".agents"),
+            patch(
+                "aikito.cli.execute_instruction_plan", return_value=mock_instruction_res
+            ),
+        ):
+            res = sync_global_resources(self.workspace, self.home, dry_run=False)
+            self.assertFalse(res.success)
+            self.assertFalse(bool(res))
+            self.assertIsNotNone(res.skill_result)
+            self.assertTrue(res.skill_result.success)
+            self.assertFalse(res.instruction_success)
+            # Skills runtime links were nonetheless successfully applied
+            container = self.home / ".agents" / "skills"
+            self.assertTrue(container.is_dir())
+            self.assertTrue((container / "aikito").is_symlink())
+
+    def test_init_existing_workspace_holds_writer_lock(self) -> None:
+        from aikito.init import init_workspace
+
+        for marker in ("agents.toml", "skills.toml", "subagents.toml"):
+            (self.workspace / marker).write_text("", encoding="utf-8")
+        for marker in ("mcps", "memory", "projects", "skills", "global", "subagents"):
+            (self.workspace / marker).mkdir(parents=True, exist_ok=True)
+
+        lock_acquired = False
+        orig_acquire = SkillWriterLock.acquire
+
+        def tracking_acquire(lock_self: SkillWriterLock) -> None:
+            nonlocal lock_acquired
+            lock_acquired = True
+            orig_acquire(lock_self)
+
+        with patch.object(
+            SkillWriterLock, "acquire", side_effect=tracking_acquire, autospec=True
+        ):
+            ok = init_workspace(self.workspace, self.home)
+            self.assertTrue(ok)
+            self.assertTrue(lock_acquired)
+
+    def test_reentrant_lock_does_not_deadlock_on_nested_calls(self) -> None:
+        with SkillWriterLock(self.home):
+            self.assertEqual(SkillWriterLock._lock_depth, 1)
+            with SkillWriterLock(self.home):
+                self.assertEqual(SkillWriterLock._lock_depth, 2)
+            self.assertEqual(SkillWriterLock._lock_depth, 1)
+        self.assertEqual(SkillWriterLock._lock_depth, 0)
+
+    def test_writer_lock_serializes_threads(self) -> None:
+        first_entered = threading.Event()
+        release_first = threading.Event()
+        second_entered = threading.Event()
+        errors: list[tuple[str, Exception]] = []
+
+        def first_writer() -> None:
+            try:
+                with SkillWriterLock(self.home):
+                    first_entered.set()
+                    release_first.wait(timeout=10)
+            except Exception as exc:
+                errors.append(("first_writer", exc))
+                first_entered.set()
+
+        def second_writer() -> None:
+            try:
+                if not first_entered.wait(timeout=10):
+                    return
+                with SkillWriterLock(self.home):
+                    second_entered.set()
+            except Exception as exc:
+                errors.append(("second_writer", exc))
+
+        first = threading.Thread(target=first_writer)
+        second = threading.Thread(target=second_writer)
+        first.start()
+        second.start()
+        try:
+            self.assertTrue(first_entered.wait(timeout=10))
+            self.assertEqual(errors, [])
+            self.assertFalse(second_entered.wait(timeout=0.2))
+        finally:
+            release_first.set()
+            first.join(timeout=10)
+            second.join(timeout=10)
+
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        self.assertTrue(second_entered.is_set())
+        self.assertEqual(errors, [])
 
 
 if __name__ == "__main__":

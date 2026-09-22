@@ -7,17 +7,17 @@ Supports sync_mode: 'link' (symlinks) or 'copy' (file/directory copy).
 
 import argparse
 import errno
-import io
 import json
 import os
+import shutil
+import subprocess
 import sys
-import tomllib
-from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any, List, Optional
 
 from . import __version__
 from .add import add_mcp, add_skill, add_subagent
+from .remove import remove_mcp, remove_skill, remove_subagent
 from .adopt import (
     apply_adopt_skips,
     build_adopt_plan,
@@ -25,14 +25,14 @@ from .adopt import (
     summarize_adopt_plan,
 )
 from .bundled_skills import (
-    BundledSkillRefreshError,
     outdated_bundled_skills,
     print_bundled_skill_notice,
-    refresh_bundled_skills,
 )
-from .conflict import collect_resource_conflicts
 from .diff import collect_drift_diffs, render_drift_diffs
 from .doctor import run_doctor, run_doctor_fixes
+from .global_skills import (
+    execute_global_skills,
+)
 from .init import init_project, init_workspace, is_recognized_workspace
 from .maintain import MemoryMaintenanceError, run_memory_maintenance
 from .resolve import (
@@ -46,13 +46,16 @@ from .resolve import (
     resolve_skill_target_for_command,
     resolve_subagent_target_for_command,
 )
-from .sync import (
-    apply_runtime_cleanup,
-    ensure_dir,
-    sync_global_entry,
-    sync_resource,
+from .project_sync import (
+    sync_project,
 )
-from .sync_plan import capture_sync_plan
+from .workspace_sync import (
+    GlobalSyncResult,
+    build_global_sync_plan,
+    build_workspace_sync_plan,
+    execute_global_sync_plan,
+    execute_workspace_sync_plan,
+)
 from .memory import (
     MemoryTargetConflictError,
     remove_memory_note,
@@ -60,24 +63,20 @@ from .memory import (
     resolve_memory_target_for_command,
     validate_memory_name,
 )
+from .instructions import (
+    execute_instruction_plan,
+)
 from .mcp import (
     MCPConfigError,
     authenticate_mcp,
-    is_agent_installed,
-    load_agents,
+    build_mcp_plan,
+    load_agents,  # noqa: F401
     sync_mcp_configs,
 )
 from .templating import TemplateError, detect_existing_agents
 from .project import (
     append_candidate_path_to_config,
     collect_project_summaries,
-    find_selected_runtime_conflicts,
-    plan_runtime_cleanup,
-    resolve_project_binding,
-)
-from .project_runtime import (
-    collect_project_prepare_errors,
-    sync_project_path,
 )
 
 from .config import get_inbox_path
@@ -118,12 +117,13 @@ from .status import (
 )
 from .subagent import (
     SubagentConfigError,
+    build_subagent_plan,
     sync_subagent_configs,
 )
 from .compat import (
     init_console_encoding,
     require_symlink_support,
-    safe_relative_path,
+    resolve_executable,
 )
 
 from .web_console import serve_console
@@ -135,6 +135,7 @@ from .completion import (
     generate_zsh,
     get_candidates,
 )
+from .update_notifier import check_and_notify_update, cmd_version
 from .workspace import (
     persist_workspace,
     resolve_workspace,
@@ -182,181 +183,136 @@ def sync_global_resources(
     home: Path,
     *,
     dry_run: bool = False,
-) -> bool:
-    skills_toml_path = aikito_dir / "skills.toml"
-    agents_skills_dir = get_agents_dir() / "skills"
-    global_instruction_source = aikito_dir / "global" / "AGENTS.md"
-
-    if not skills_toml_path.exists():
-        print(f"[ERROR] Config file not found: {skills_toml_path}", file=sys.stderr)
-        return False
-
-    toml_conflicts = collect_resource_conflicts([skills_toml_path], home)
-    if toml_conflicts:
-        for err in toml_conflicts:
-            print(f"[ERROR] {err}", file=sys.stderr)
-        print("[ERROR] Global synchronization aborted.", file=sys.stderr)
-        return False
-
-    try:
-        with open(skills_toml_path, "rb") as f:
-            data = tomllib.load(f)
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        print(f"[ERROR] Failed to read {skills_toml_path}: {exc}", file=sys.stderr)
-        return False
-
-    skills = data.get("skills", [])
-    if not isinstance(skills, list):
-        print("[ERROR] 'skills' in skills.toml must be a list.", file=sys.stderr)
-        return False
-
-    outdated_bundled = set(outdated_bundled_skills(aikito_dir))
-
-    # Check global instruction source and global skills for conflict markers
-    global_resources: list[Path] = []
-    if global_instruction_source.is_file():
-        global_resources.append(global_instruction_source)
-    for skill_name in skills:
-        s_dir = aikito_dir / "skills" / str(skill_name)
-        if s_dir.is_dir() and str(skill_name) not in outdated_bundled:
-            global_resources.append(s_dir)
-    global_conflicts = collect_resource_conflicts(global_resources, home)
-    if global_conflicts:
-        for err in global_conflicts:
-            print(f"[ERROR] {err}", file=sys.stderr)
-        print("[ERROR] Global synchronization aborted.", file=sys.stderr)
-        return False
-
-    # A legacy top-level link is safe to replace only when it points to Aikito.
-    legacy_skills_link = agents_skills_dir.is_symlink()
-    if legacy_skills_link:
-        if not agents_skills_dir.resolve(strict=False).is_relative_to(
-            (aikito_dir / "skills").resolve()
-        ):
-            print(
-                f"[CONFLICT] Global skills path points outside Aikito: "
-                f"{agents_skills_dir}",
-                file=sys.stderr,
-            )
-            return False
-        print(
-            f"[INFO] Replacing old top-level symlink at {agents_skills_dir} with directory"
-        )
-        if not dry_run:
-            agents_skills_dir.unlink()
-
-    if not dry_run:
-        ensure_dir(agents_skills_dir)
-
-    valid_targets = {str(skill_name) for skill_name in skills}
-    cleanup_paths: tuple[Path, ...] = ()
-    cleanup_conflicts: tuple[Path, ...] = ()
-    if not legacy_skills_link:
-        cleanup_plan = plan_runtime_cleanup(
-            agents_skills_dir,
-            valid_targets,
-            (aikito_dir / "skills",),
-            allow_matching_copies=True,
-        )
-        cleanup_paths = cleanup_plan.cleanup
-        cleanup_conflicts = cleanup_plan.conflicts
-    selected_conflicts = find_selected_runtime_conflicts(
-        agents_skills_dir,
-        valid_targets,
-        aikito_dir / "skills",
-        allow_drifted_copies=False,
+) -> GlobalSyncResult:
+    """Synchronize global resources (skills and instructions) via workspace_sync."""
+    container_path = get_agents_dir() / "skills"
+    plan = build_global_sync_plan(
+        aikito_dir,
+        home,
+        dry_run=dry_run,
+        container_path=container_path,
+        outdated_bundled_skills_fn=outdated_bundled_skills,
+        load_agents_fn=load_agents,
     )
-    all_conflicts = (*cleanup_conflicts, *selected_conflicts)
-    if all_conflicts:
-        for path in all_conflicts:
-            print(f"[CONFLICT] Unmanaged global skill item: {path}", file=sys.stderr)
-        print("[ERROR] Global synchronization aborted.", file=sys.stderr)
-        return False
-    try:
-        refreshed_bundled = set(
-            refresh_bundled_skills(aikito_dir, home, dry_run=dry_run)
-        )
-    except BundledSkillRefreshError as exc:
-        print(f"[ERROR] {exc}", file=sys.stderr)
-        return False
-    apply_runtime_cleanup(cleanup_paths, dry_run)
 
-    skill_results: list[bool] = []
-    for skill_name in skills:
-        source = aikito_dir / "skills" / skill_name
-        target = agents_skills_dir / skill_name
-        if dry_run and skill_name in refreshed_bundled and not source.exists():
-            print(f"[DRY RUN LINK] {source} -> {target}")
-            skill_results.append(True)
-            continue
-        skill_results.append(
-            sync_resource(source, target, mode="link", dry_run=dry_run)
-        )
-    if not all(skill_results):
-        print("[ERROR] Global skill synchronization aborted.", file=sys.stderr)
-        return False
+    if not plan.can_apply:
+        for finding in plan.findings:
+            if finding.code in (
+                "GLOBAL_SKILLS_MISSING",
+                "TOML_DECODE_ERROR",
+                "INVALID_CONFIG",
+                "CONFLICT_MARKER",
+                "MCP_CONFIG_ERROR",
+            ):
+                print(f"[ERROR] {finding.message}", file=sys.stderr)
 
+        if plan.error_message in (
+            "Conflict markers detected in skills.toml.",
+            "Conflict markers detected in global resources.",
+        ):
+            print("[ERROR] Global synchronization aborted.", file=sys.stderr)
+            return GlobalSyncResult(success=False, error_message=plan.error_message)
+
+        if plan.error_message in (
+            "Global skills configuration not found.",
+            "Global skills configuration is malformed.",
+        ):
+            return GlobalSyncResult(success=False, error_message=plan.error_message)
+
+        if any(
+            f.code in ("TOML_DECODE_ERROR", "MCP_CONFIG_ERROR") for f in plan.findings
+        ):
+            return GlobalSyncResult(success=False, error_message=plan.error_message)
+
+        if plan.skill_plan and plan.skill_plan.all_operations:
+            all_conflicts = [
+                op for op in plan.skill_plan.all_operations if op.action == "CONFLICT"
+            ]
+            if all_conflicts:
+                for op in all_conflicts:
+                    prefix = (
+                        "[ERROR]"
+                        if op.rule_id in ("INV-TR-02", "INV-TR-04")
+                        else "[CONFLICT]"
+                    )
+                    print(f"{prefix} {op.reason}", file=sys.stderr)
+                print("[ERROR] Global synchronization aborted.", file=sys.stderr)
+                return GlobalSyncResult(
+                    success=False,
+                    error_message="Conflicts detected in global skill plan.",
+                )
+
+    res = execute_global_sync_plan(
+        plan,
+        aikito_dir,
+        home,
+        dry_run=dry_run,
+        execute_global_skills_fn=execute_global_skills,
+        execute_instruction_plan_fn=execute_instruction_plan,
+    )
+
+    global_instruction_source = aikito_dir / "global" / "AGENTS.md"
     if not global_instruction_source.is_file():
         print(
             f"[ERROR] Global instruction file not found: {global_instruction_source}",
             file=sys.stderr,
         )
-        return False
+        return res
 
-    try:
-        agents = load_agents(aikito_dir, home)
-    except MCPConfigError as exc:
-        print(f"[ERROR] {exc}", file=sys.stderr)
-        return False
-
-    legacy_grok_instructions = Path.home() / ".grok" / "AGENTS.md"
-    if (
-        "grok" in agents
-        and legacy_grok_instructions.is_symlink()
-        and legacy_grok_instructions.resolve(strict=False)
-        == global_instruction_source.resolve(strict=False)
-    ):
-        apply_runtime_cleanup((legacy_grok_instructions,), dry_run)
-
-    instruction_results = [
-        sync_global_entry(
-            global_instruction_source,
-            definition.instruction_path,
-            definition.display_name,
-            "instructions",
-            dry_run,
-            installed=is_agent_installed(definition.name, home),
-        )
-        for definition in agents.values()
-        if definition.instruction_path is not None
-    ]
-    skill_entry_results = [
-        sync_global_entry(
-            agents_skills_dir,
-            definition.skills_path,
-            definition.display_name,
-            "skills",
-            dry_run,
-            installed=is_agent_installed(definition.name, home),
-        )
-        for definition in agents.values()
-        if definition.skills_path is not None
-    ]
-
-    if not all((*instruction_results, *skill_entry_results)):
+    if plan.instruction_plan and plan.instruction_plan.conflicts:
+        for op in plan.instruction_plan.conflicts:
+            if op.rule_id == "INV-TR-02":
+                print(
+                    f"[ERROR] Global instruction file not found: {global_instruction_source}",
+                    file=sys.stderr,
+                )
+            else:
+                prefix = (
+                    f"[CONFLICT] {op.resource_name} instructions:"
+                    if op.resource_name
+                    else "[CONFLICT]"
+                )
+                print(f"{prefix} {op.reason}", file=sys.stderr)
         print(
-            "[ERROR] Global resources were synced, but one or more Agent "
-            "runtime targets have conflicts.",
+            "[ERROR] Global skills were synced successfully, but one or more Agent "
+            "instruction runtime targets have conflicts.",
             file=sys.stderr,
         )
-        return False
+        return res
 
-    print(
-        f"[SUCCESS] Global resources synced successfully "
-        f"({len(valid_targets)} skills, 1 instruction source, "
-        f"{len(skill_entry_results)} Agent skill entries)."
-    )
-    return True
+    if not res.success:
+        if res.error_message:
+            print(f"[ERROR] {res.error_message}", file=sys.stderr)
+        if res.instruction_result and not res.instruction_result.success:
+            print(
+                "[ERROR] Global skills were synced successfully, but one or more "
+                "Agent instruction runtime targets have conflicts.",
+                file=sys.stderr,
+            )
+        elif res.skill_result and not res.skill_result.success:
+            print(
+                f"[ERROR] Global skill synchronization aborted: {res.skill_result.error_message or 'execution failed'}",
+                file=sys.stderr,
+            )
+        return res
+
+    if plan.skill_plan:
+        valid_targets = tuple(
+            str(s.path.name) for s in plan.skill_plan.batch.selected_entries
+        )
+        skill_consumer_count = sum(
+            len(t.consumers) for t in plan.skill_plan.batch.consumers
+        )
+        consumer_count = (
+            res.skill_result.consumer_target_count if res.skill_result else 0
+        )
+        print(
+            f"[SUCCESS] Global resources synced successfully "
+            f"({len(valid_targets)} skills, 1 instruction source, "
+            f"{consumer_count} Agent skill entries across {skill_consumer_count} consumers)."
+        )
+
+    return res
 
 
 def cmd_global_sync(args: argparse.Namespace) -> None:
@@ -366,103 +322,56 @@ def cmd_global_sync(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-def cmd_project_sync(args: argparse.Namespace) -> None:
+def sync_project_by_name(
+    aikito_dir: Path,
+    home: Path,
+    project_name: str,
+    project_path: Optional[str] = None,
+    dry_run: bool = False,
+    force: bool = False,
+) -> bool:
+    from .compat import require_symlink_support
+
     require_symlink_support()
-    project_name = args.project_name
+    # Path registration is handled atomically by the CAS mechanism inside sync_project.
+    # Do not write agent.toml here before preflight; doing so would bypass conflict
+    # checks and cause the CAS to see the path as already registered (NOOP).
+    return sync_project(
+        aikito_dir,
+        home,
+        project_name,
+        project_path=project_path,
+        dry_run=dry_run,
+        force=force,
+        append_fn=append_candidate_path_to_config,
+    )
+
+
+def cmd_project_sync(args: argparse.Namespace) -> None:
+    dry_run = getattr(args, "dry_run", False)
+    force = getattr(args, "force", False)
     aikito_dir = get_aikito_dir()
     home = Path.home()
 
-    agent_toml_path = aikito_dir / "projects" / project_name / "agent.toml"
-    data: dict = {}
-    if agent_toml_path.exists():
-        toml_conflicts = collect_resource_conflicts([agent_toml_path], home)
-        if toml_conflicts:
-            for err in toml_conflicts:
-                print(f"[ERROR] {err}", file=sys.stderr)
-            print("[ERROR] Project synchronization aborted.", file=sys.stderr)
-            sys.exit(1)
-        try:
-            with open(agent_toml_path, "rb") as f:
-                data = tomllib.load(f)
-        except (OSError, tomllib.TOMLDecodeError) as exc:
-            print(f"[ERROR] Failed to read {agent_toml_path}: {exc}", file=sys.stderr)
-            sys.exit(1)
-
-    binding = resolve_project_binding(data, home)
-    dry_run = getattr(args, "dry_run", False)
-    force = getattr(args, "force", False)
-
-    if args.project_path:
-        target_path = Path(args.project_path).expanduser().resolve()
-        if not target_path.exists():
-            print(
-                f"[ERROR] Project path does not exist: {target_path}", file=sys.stderr
-            )
-            sys.exit(1)
-        if not target_path.is_dir():
-            print(
-                f"[ERROR] Project path is not a directory: {target_path}",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        errors = collect_project_prepare_errors(
-            aikito_dir, project_name, target_path, data, home, force=force
-        )
-        if errors:
-            for err in errors:
-                print(f"[ERROR] {err}", file=sys.stderr)
-            print("[ERROR] Project synchronization aborted.", file=sys.stderr)
-            sys.exit(1)
-
-        if not dry_run:
-            try:
-                appended = append_candidate_path_to_config(
-                    agent_toml_path, safe_relative_path(target_path, home), home
-                )
-                if appended:
-                    print(f"[INFO] Added new candidate path to {agent_toml_path}")
-            except Exception as exc:
-                print(
-                    f"[ERROR] Failed to save candidate path to {agent_toml_path}: {exc}\n"
-                    f"Please manually add '{target_path}' to {agent_toml_path}.",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-
-        sync_project_path(
-            aikito_dir, project_name, target_path, data, home, dry_run=dry_run
-        )
-        result = "sync preview completed" if dry_run else "synced successfully"
-        print(f"[SUCCESS] Project '{project_name}' {result} at {target_path}.")
-        return
-
-    if not binding.entries:
+    raw_names = args.project_name
+    project_names = [p.strip() for p in raw_names.split(",") if p.strip()]
+    if len(project_names) > 1 and args.project_path:
         print(
-            f"[ERROR] Project path not provided and no saved path found in {agent_toml_path}.\n"
-            f"Usage: aikito sync project {project_name} <project_path>",
+            "[ERROR] Cannot specify explicit project_path when syncing multiple projects.",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    if not binding.active_entries:
-        offline_list = "\n".join(
-            f"  - [{e.label}] {e.resolved_path}" for e in binding.offline_entries
-        )
-        print(
-            f"[ERROR] None of the configured paths for project '{project_name}' "
-            f"exist on this machine:\n"
-            f"{offline_list}\n\n"
-            f"Please clone/create the project directory or specify the path explicitly:\n"
-            f"  aikito sync project {project_name} <project_path>",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    if not _sync_project_active_entries(
-        aikito_dir, project_name, binding, data, home, dry_run=dry_run, force=force
-    ):
-        sys.exit(1)
+    for p in project_names:
+        if not sync_project_by_name(
+            aikito_dir,
+            home,
+            p,
+            project_path=args.project_path if len(project_names) == 1 else None,
+            dry_run=dry_run,
+            force=force,
+        ):
+            sys.exit(1)
 
 
 def _sync_project_active_entries(
@@ -475,46 +384,16 @@ def _sync_project_active_entries(
     dry_run: bool,
     force: bool,
 ) -> bool:
-    multi = len(binding.active_entries) > 1
+    from .compat import require_symlink_support
 
-    # Phase 1: Preflight check all active entries (fail fast, no partial writes)
-    all_errors: list[str] = []
-    for entry in binding.active_entries:
-        errors = collect_project_prepare_errors(
-            aikito_dir, project_name, entry.resolved_path, data, home, force=force
-        )
-        for err in errors:
-            prefix = f"[{entry.label}] " if multi else ""
-            all_errors.append(f"{prefix}{err}")
-
-    if all_errors:
-        for err in all_errors:
-            print(f"[ERROR] {err}", file=sys.stderr)
-        print("[ERROR] Project synchronization aborted.", file=sys.stderr)
-        return False
-
-    # Phase 2: Perform synchronization across all paths
-    if multi:
-        operation = "Previewing sync for" if dry_run else "Syncing"
-        print(
-            f"[INFO] {operation} project '{project_name}' across "
-            f"{len(binding.active_entries)} active paths:"
-        )
-
-    for idx, entry in enumerate(binding.active_entries, start=1):
-        if multi:
-            count = len(binding.active_entries)
-            print(
-                f"\n[INFO] === [{idx}/{count}] Path [{entry.label}]: "
-                f"{entry.resolved_path} ==="
-            )
-        sync_project_path(
-            aikito_dir, project_name, entry.resolved_path, data, home, dry_run=dry_run
-        )
-
-    result = "sync preview completed" if dry_run else "synced successfully"
-    print(f"[SUCCESS] Project '{project_name}' {result}.")
-    return True
+    require_symlink_support()
+    return sync_project(
+        aikito_dir,
+        home,
+        project_name,
+        dry_run=dry_run,
+        force=force,
+    )
 
 
 def cmd_mcp_sync(args: argparse.Namespace) -> None:
@@ -563,131 +442,6 @@ def cmd_subagent_sync(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-def _run_workspace_sync(aikito_dir: Path, home: Path, *, dry_run: bool) -> bool:
-    """Run all workspace sync scopes without terminating the process."""
-    mode_str = " (dry run)" if dry_run else ""
-    print(f"[INFO] Starting full workspace sync{mode_str}...\n")
-
-    overall_success = True
-
-    # 1. Global sync
-    print("[INFO] --- [1/4] Global Resources ---")
-    if not sync_global_resources(aikito_dir, home, dry_run=dry_run):
-        overall_success = False
-        print("[ERROR] Global sync failed.\n", file=sys.stderr)
-    else:
-        print()
-
-    # 2. Subagent sync (host-gated)
-    print("[INFO] --- [2/4] Subagents ---")
-    try:
-        sub_ok = sync_subagent_configs(
-            aikito_dir=aikito_dir,
-            home=home,
-            dry_run=dry_run,
-        )
-        if not sub_ok:
-            overall_success = False
-            print("[ERROR] Subagents sync failed.\n", file=sys.stderr)
-        else:
-            print()
-    except SubagentConfigError as exc:
-        print(f"[ERROR] Subagent config error: {exc}\n", file=sys.stderr)
-        overall_success = False
-
-    # 3. MCP sync (host-gated, tolerant of missing credentials)
-    print("[INFO] --- [3/4] MCP Configurations ---")
-    try:
-        mcp_ok = sync_mcp_configs(
-            aikito_dir=aikito_dir,
-            home=home,
-            dry_run=dry_run,
-        )
-        if not mcp_ok:
-            overall_success = False
-            print("[ERROR] MCP sync failed.\n", file=sys.stderr)
-        else:
-            print()
-    except MCPConfigError as exc:
-        print(f"[ERROR] MCP config error: {exc}\n", file=sys.stderr)
-        overall_success = False
-
-    # 4. Project sync (active projects only)
-    print("[INFO] --- [4/4] Projects ---")
-    projects_dir = aikito_dir / "projects"
-    synced_active = 0
-    if projects_dir.is_dir():
-        proj_entries = sorted(
-            [
-                p
-                for p in projects_dir.iterdir()
-                if p.is_dir() and not p.name.startswith(".")
-            ],
-            key=lambda p: p.name,
-        )
-        for proj_dir in proj_entries:
-            project_name = proj_dir.name
-            agent_toml_path = proj_dir / "agent.toml"
-            if not agent_toml_path.is_file():
-                continue
-            try:
-                with open(agent_toml_path, "rb") as f:
-                    data = tomllib.load(f)
-            except (OSError, tomllib.TOMLDecodeError) as exc:
-                print(
-                    f"[ERROR] Failed to read {agent_toml_path}: {exc}", file=sys.stderr
-                )
-                overall_success = False
-                continue
-
-            binding = resolve_project_binding(data, home)
-            if not binding.entries:
-                print(
-                    f"[INFO] Project '{project_name}': no configured paths (unbound), skipping."
-                )
-                continue
-            if not binding.active_entries:
-                candidates_str = (
-                    ", ".join(
-                        f"[{e.label}] {e.raw_path}"
-                        if e.label != "default"
-                        else e.raw_path
-                        for e in binding.offline_entries
-                    )
-                    or "-"
-                )
-                print(
-                    f"[INFO] Project '{project_name}': offline on this host ({candidates_str}), skipping."
-                )
-                continue
-
-            # Sync active entries for this project
-            p_ok = _sync_project_active_entries(
-                aikito_dir,
-                project_name,
-                binding,
-                data,
-                home,
-                dry_run=dry_run,
-                force=False,
-            )
-            if not p_ok:
-                overall_success = False
-            else:
-                synced_active += 1
-    if synced_active == 0:
-        print("[INFO] No active projects to synchronize on this host.")
-    print()
-
-    if not overall_success:
-        print("[ERROR] Full workspace sync finished with errors.", file=sys.stderr)
-        return False
-
-    result = "preview completed successfully" if dry_run else "completed successfully"
-    print(f"[SUCCESS] Full workspace sync {result}.")
-    return True
-
-
 def cmd_sync_all(args: argparse.Namespace) -> None:
     require_symlink_support()
     aikito_dir = get_aikito_dir()
@@ -695,8 +449,11 @@ def cmd_sync_all(args: argparse.Namespace) -> None:
     dry_run = getattr(args, "dry_run", False)
     verbose = getattr(args, "verbose", False)
 
-    plan = capture_sync_plan(
-        lambda: _run_workspace_sync(aikito_dir, home, dry_run=True)
+    plan = build_workspace_sync_plan(
+        aikito_dir,
+        home=home,
+        build_subagent_plan_fn=build_subagent_plan,
+        build_mcp_plan_fn=build_mcp_plan,
     )
     print(plan.render(verbose=verbose))
     if not plan.can_apply:
@@ -704,34 +461,10 @@ def cmd_sync_all(args: argparse.Namespace) -> None:
     if dry_run:
         return
 
-    stdout = io.StringIO()
-    stderr = io.StringIO()
-    with redirect_stdout(stdout), redirect_stderr(stderr):
-        applied = _run_workspace_sync(aikito_dir, home, dry_run=False)
-    if verbose:
-        details = "\n".join(
-            part.rstrip()
-            for part in (stdout.getvalue(), stderr.getvalue())
-            if part.strip()
-        )
-        if details:
-            print("\nApply details\n")
-            print(details)
-    else:
-        follow_up_lines = [
-            line
-            for line in stdout.getvalue().splitlines()
-            if "[AUTH]" in line or "[BACKUP]" in line or "[REFRESH]" in line
-        ]
-        if follow_up_lines:
-            print("\n".join(follow_up_lines))
-        if stderr.getvalue().strip():
-            print(stderr.getvalue().rstrip(), file=sys.stderr)
-    if not applied:
-        print(
-            "[ERROR] Workspace changed during apply; sync did not complete.",
-            file=sys.stderr,
-        )
+    res = execute_workspace_sync_plan(plan, aikito_dir, home=home, dry_run=False)
+    if not res.success:
+        if res.error_message:
+            print(f"[ERROR] {res.error_message}", file=sys.stderr)
         sys.exit(1)
     print("\n[SUCCESS] Full workspace sync completed successfully.")
 
@@ -740,7 +473,6 @@ def cmd_status(args: argparse.Namespace) -> None:
     aikito_dir, workspace_source = resolve_workspace_with_source(Path.home())
     home = Path.home()
     use_unicode, use_color = resolve_color_flags(args)
-    print_bundled_skill_notice(aikito_dir)
 
     # Top-level Dashboard report
     report_data = get_status_report_data(aikito_dir, home)
@@ -752,6 +484,7 @@ def cmd_status(args: argparse.Namespace) -> None:
         workspace_source=workspace_source,
     )
     print(rendered)
+    print_bundled_skill_notice(aikito_dir)
 
 
 def cmd_web(args: argparse.Namespace) -> None:
@@ -822,6 +555,39 @@ def cmd_path_workspace(args: argparse.Namespace) -> None:
     print(get_aikito_dir())
 
 
+def cmd_git(args: argparse.Namespace) -> None:
+    workspace = get_aikito_dir()
+    if not workspace.exists():
+        print(
+            f"[ERROR] Workspace does not exist: {workspace}. Run 'aikito init workspace' first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if not (workspace / ".git").exists():
+        print(
+            f"[ERROR] Workspace '{workspace}' is not a Git repository. Run 'aikito init workspace' first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    git_bin = shutil.which("git")
+    if not git_bin:
+        print("[ERROR] 'git' executable not found in PATH.", file=sys.stderr)
+        sys.exit(1)
+
+    git_args = list(getattr(args, "git_args", []) or [])
+    if git_args and git_args[0] == "--":
+        git_args = git_args[1:]
+
+    command = resolve_executable([git_bin, "-C", str(workspace), *git_args])
+    try:
+        proc = subprocess.run(command)
+        if proc.returncode != 0:
+            sys.exit(proc.returncode)
+    except KeyboardInterrupt:
+        sys.exit(130)
+
+
 def cmd_init_project(args: argparse.Namespace) -> None:
     require_symlink_support()
     project_path = Path(args.project_path) if args.project_path else Path.cwd()
@@ -845,12 +611,19 @@ def cmd_init_project(args: argparse.Namespace) -> None:
 
 def cmd_add_skill(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
+    project_arg = getattr(args, "project", None)
+    projects = None
+    if project_arg:
+        projects = [p.strip() for p in project_arg.split(",") if p.strip()]
     success = add_skill(
         aikito_dir=aikito_dir,
         home=Path.home(),
         name=args.name,
         description=getattr(args, "description", None),
-        project_name=getattr(args, "project", None),
+        projects=projects,
+        from_source=getattr(args, "from_source", None),
+        sync=getattr(args, "sync", False),
+        force=getattr(args, "force", False),
     )
     if not success:
         sys.exit(1)
@@ -867,6 +640,9 @@ def cmd_add_subagent(args: argparse.Namespace) -> None:
         name=args.name,
         description=getattr(args, "description", None),
         agents=agents_list,
+        from_source=getattr(args, "from_source", None),
+        sync=getattr(args, "sync", False),
+        force=getattr(args, "force", False),
     )
     if not success:
         sys.exit(1)
@@ -880,11 +656,14 @@ def cmd_add_mcp(args: argparse.Namespace) -> None:
     success = add_mcp(
         aikito_dir=aikito_dir,
         home=Path.home(),
-        name=args.name,
+        name=getattr(args, "name", None),
         transport=getattr(args, "transport", None),
         command=getattr(args, "command", None),
         url=getattr(args, "url", None),
         agents=agents_list,
+        from_source=getattr(args, "from_source", None),
+        sync=getattr(args, "sync", False),
+        force=getattr(args, "force", False),
     )
     if not success:
         sys.exit(1)
@@ -920,15 +699,14 @@ def cmd_show_skill(args: argparse.Namespace) -> None:
     target = getattr(args, "target", None)
 
     if not target:
-        print_bundled_skill_notice(aikito_dir)
         use_unicode, use_color = resolve_color_flags(args)
         skill_rows = collect_skills_rows(aikito_dir=aikito_dir)
         table_str = render_skills_table(skill_rows, use_unicode, use_color)
         print(table_str)
+        print_bundled_skill_notice(aikito_dir)
         return
 
     skill_file = resolve_skill_target_for_command(aikito_dir, target, operation="show")
-    print_bundled_skill_notice(aikito_dir, names=(skill_file.parent.name,))
 
     try:
         print(skill_file.read_text(encoding="utf-8"), end="")
@@ -938,6 +716,8 @@ def cmd_show_skill(args: argparse.Namespace) -> None:
             file=sys.stderr,
         )
         sys.exit(1)
+
+    print_bundled_skill_notice(aikito_dir, names=(skill_file.parent.name,))
 
 
 def cmd_show_instructions(args: argparse.Namespace) -> None:
@@ -1402,6 +1182,49 @@ def cmd_rm_memory(args: argparse.Namespace) -> None:
         print("  - No inbound references found.")
 
 
+def cmd_rm_skill(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    project_arg = getattr(args, "project", None)
+    projects = None
+    if project_arg:
+        projects = [p.strip() for p in project_arg.split(",") if p.strip()]
+    success = remove_skill(
+        aikito_dir=aikito_dir,
+        home=Path.home(),
+        name=args.name,
+        projects=projects,
+        force=getattr(args, "force", False),
+        sync=getattr(args, "sync", False),
+    )
+    if not success:
+        sys.exit(1)
+
+
+def cmd_rm_subagent(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    success = remove_subagent(
+        aikito_dir=aikito_dir,
+        home=Path.home(),
+        name=args.name,
+        sync=getattr(args, "sync", False),
+    )
+    if not success:
+        sys.exit(1)
+
+
+def cmd_rm_mcp(args: argparse.Namespace) -> None:
+    aikito_dir = get_aikito_dir()
+    success = remove_mcp(
+        aikito_dir=aikito_dir,
+        home=Path.home(),
+        name=args.name,
+        sync=getattr(args, "sync", False),
+        force=getattr(args, "force", False),
+    )
+    if not success:
+        sys.exit(1)
+
+
 def cmd_adopt(args: argparse.Namespace) -> None:
     target = Path(args.target) if args.target else get_aikito_dir()
     home = Path.home()
@@ -1426,7 +1249,6 @@ def cmd_adopt(args: argparse.Namespace) -> None:
 def cmd_doctor(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
     home = Path.home()
-    print_bundled_skill_notice(aikito_dir)
 
     use_unicode, use_color = resolve_color_flags(args)
 
@@ -1496,6 +1318,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         print(json.dumps(_report_to_dict(report), ensure_ascii=False, indent=2))
     else:
         print(render_doctor_report(report, is_tty=use_unicode, no_color=not use_color))
+        print_bundled_skill_notice(aikito_dir)
 
     if report.fail_count > 0:
         sys.exit(1)
@@ -1590,9 +1413,25 @@ def build_parser() -> argparse.ArgumentParser:
     # version
     p_version = subparsers.add_parser(
         "version",
-        help="Print Aikito CLI version",
+        help="Print Aikito CLI version and check for updates",
     )
-    p_version.set_defaults(func=lambda args: print(f"aikito {__version__}"))
+    p_version.add_argument(
+        "-c",
+        "--check",
+        action="store_true",
+        help="Check remote repository for latest available release",
+    )
+    p_version.add_argument(
+        "--force",
+        action="store_true",
+        help="Bypass cache and force check remote release",
+    )
+    p_version.add_argument(
+        "--json",
+        action="store_true",
+        help="Output version and update status in JSON format",
+    )
+    p_version.set_defaults(func=cmd_version)
 
     # path
     p_path = subparsers.add_parser(
@@ -1603,6 +1442,20 @@ def build_parser() -> argparse.ArgumentParser:
         "workspace", help="Print the active workspace directory"
     )
     p_path_workspace.set_defaults(func=cmd_path_workspace)
+
+    # git
+    p_git = subparsers.add_parser(
+        "git",
+        help="Run git commands directly in the active Aikito workspace",
+        description="Forward git commands and arguments directly to the active Aikito workspace.",
+    )
+    p_git.add_argument(
+        "git_args",
+        nargs=argparse.REMAINDER,
+        metavar="[args...]",
+        help="Arguments forwarded directly to git",
+    )
+    p_git.set_defaults(func=cmd_git)
 
     # init
     p_init = subparsers.add_parser("init", help="Initialize a workspace or project")
@@ -1657,9 +1510,20 @@ def build_parser() -> argparse.ArgumentParser:
     # add skill
     p_add_skill = add_subparsers.add_parser(
         "skill",
-        help="Add a new canonical skill skeleton and register it",
+        help="Add a new canonical skill skeleton or import from external source, and register it",
     )
-    p_add_skill.add_argument("name", help="Name of the skill in kebab-case")
+    p_add_skill.add_argument(
+        "name",
+        nargs="?",
+        default=None,
+        help="Name of the skill in kebab-case (inferred from --from if omitted)",
+    )
+    p_add_skill.add_argument(
+        "--from",
+        dest="from_source",
+        default=None,
+        help="Path to an external skill directory or markdown file to import",
+    )
     p_add_skill.add_argument(
         "--description",
         default=None,
@@ -1668,34 +1532,77 @@ def build_parser() -> argparse.ArgumentParser:
     p_add_skill.add_argument(
         "--project",
         default=None,
-        help="Register skill under a specific project instead of globally",
+        help="Register skill under specific project(s) instead of globally (comma-separated for multiple projects)",
+    )
+    p_add_skill.add_argument(
+        "--sync",
+        action="store_true",
+        help="Automatically synchronize affected project(s) or global runtime after adding",
+    )
+    p_add_skill.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace an existing canonical skill with the complete --from snapshot",
     )
     p_add_skill.set_defaults(func=cmd_add_skill)
 
     # add subagent
     p_add_subagent = add_subparsers.add_parser(
         "subagent",
-        help="Add a new canonical subagent skeleton and register it",
+        aliases=["subagents"],
+        help="Add a new canonical subagent skeleton or import from external source, and register it",
     )
-    p_add_subagent.add_argument("name", help="Name of the subagent in kebab-case")
+    p_add_subagent.add_argument(
+        "name",
+        nargs="?",
+        default=None,
+        help="Name of the subagent in kebab-case (inferred from --from if omitted)",
+    )
+    p_add_subagent.add_argument(
+        "--from",
+        dest="from_source",
+        default=None,
+        help="Path to an external markdown prompt file or directory to import",
+    )
     p_add_subagent.add_argument(
         "--description",
         default=None,
-        help="Description for the subagent",
+        help="Description for the subagent (inferred from --from if omitted)",
     )
     p_add_subagent.add_argument(
         "--agents",
         default=None,
         help="Comma-separated list of target agent platforms (default: all configured)",
     )
+    p_add_subagent.add_argument(
+        "--sync",
+        action="store_true",
+        help="Immediately synchronize the subagent to configured agent runtimes",
+    )
+    p_add_subagent.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace an existing subagent definition with the --from source",
+    )
     p_add_subagent.set_defaults(func=cmd_add_subagent)
 
     # add mcp
     p_add_mcp = add_subparsers.add_parser(
         "mcp",
-        help="Add a new canonical MCP server configuration",
+        help="Add a new canonical MCP server configuration or import from external source",
     )
-    p_add_mcp.add_argument("name", help="Name of the MCP server in kebab-case")
+    p_add_mcp.add_argument(
+        "name",
+        nargs="?",
+        default=None,
+        help="Name of the MCP server in kebab-case (inferred from --from if omitted)",
+    )
+    p_add_mcp.add_argument(
+        "--from",
+        dest="from_source",
+        default=None,
+        help="Path to an external configuration file (.json, .toml) or remote URL to import",
+    )
     p_add_mcp.add_argument(
         "--transport",
         choices=["stdio", "remote"],
@@ -1716,6 +1623,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--agents",
         default=None,
         help="Comma-separated list of target agent platforms (default: all configured)",
+    )
+    p_add_mcp.add_argument(
+        "--sync",
+        action="store_true",
+        help="Immediately synchronize the MCP server to configured agent runtimes",
+    )
+    p_add_mcp.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace an existing canonical MCP server configuration (does not bypass agent conflict protections)",
     )
     p_add_mcp.set_defaults(func=cmd_add_mcp)
 
@@ -1866,7 +1783,7 @@ def build_parser() -> argparse.ArgumentParser:
         "project_path",
         nargs="?",
         default=None,
-        help="Path to the actual codebase directory (optional if already specified in agent.toml)",
+        help="Path to the actual codebase directory (optional if already configured for the project)",
     )
     p_sync_project.add_argument(
         "--dry-run",
@@ -2161,6 +2078,69 @@ def build_parser() -> argparse.ArgumentParser:
             help=f"{'Remove' if cmd_name == 'remove' else 'Delete'} a managed canonical resource",
         )
         rm_subparsers = p_rm.add_subparsers(dest=f"{cmd_name}_target", required=True)
+        p_rm_skill = rm_subparsers.add_parser(
+            "skill",
+            aliases=["skills"],
+            help="Remove a skill globally or unregister it from specific project(s)",
+        )
+        p_rm_skill.add_argument(
+            "name",
+            help="Name of the skill to remove or unregister",
+        )
+        p_rm_skill.add_argument(
+            "--project",
+            default=None,
+            help="Unregister skill from specific project(s) instead of globally (comma-separated)",
+        )
+        p_rm_skill.add_argument(
+            "--sync",
+            action="store_true",
+            help="Automatically synchronize affected project(s) or global runtime after removing",
+        )
+        p_rm_skill.add_argument(
+            "--force",
+            action="store_true",
+            help="Force global removal even if referenced by projects (unregisters from all referencing projects)",
+        )
+        p_rm_skill.set_defaults(func=cmd_rm_skill)
+
+        p_rm_subagent = rm_subparsers.add_parser(
+            "subagent",
+            aliases=["subagents"],
+            help="Remove a subagent and unregister it from workspace",
+        )
+        p_rm_subagent.add_argument(
+            "name",
+            help="Name of the subagent to remove",
+        )
+        p_rm_subagent.add_argument(
+            "--sync",
+            action="store_true",
+            help="Automatically synchronize and prune subagent from target agent platforms after removing",
+        )
+        p_rm_subagent.set_defaults(func=cmd_rm_subagent)
+
+        p_rm_mcp = rm_subparsers.add_parser(
+            "mcp",
+            aliases=["mcps"],
+            help="Remove a canonical MCP server configuration from workspace",
+        )
+        p_rm_mcp.add_argument(
+            "name",
+            help="Name of the MCP server configuration to remove",
+        )
+        p_rm_mcp.add_argument(
+            "--sync",
+            action="store_true",
+            help="Automatically synchronize and remove MCP server from target agent platforms after removing",
+        )
+        p_rm_mcp.add_argument(
+            "--force",
+            action="store_true",
+            help="Force removal from target agents even if config was modified outside aikito",
+        )
+        p_rm_mcp.set_defaults(func=cmd_rm_mcp)
+
         p_rm_memory = rm_subparsers.add_parser(
             "memory",
             help="Remove a memory note and check for inbound wikilinks",
@@ -2291,6 +2271,15 @@ def main() -> None:
             "Hint: Run with AIKITO_DEBUG=1 to see the full traceback.", file=sys.stderr
         )
         sys.exit(1)
+
+    try:
+        check_and_notify_update(
+            aikito_dir=get_aikito_dir(),
+            command=getattr(args, "command", None),
+            args=args,
+        )
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

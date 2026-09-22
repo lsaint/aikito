@@ -1,0 +1,395 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 1.44.1)"
+        required: true
+        type: string
+      commit_sha:
+        description: "Release commit SHA"
+        required: true
+        type: string
+      publish_homebrew:
+        description: "Trigger Homebrew formula release"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  actions: read
+  id-token: write
+
+jobs:
+  verify-gates:
+    name: Verify Release Gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.commit_sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.12"
+
+      - name: "Gate 1: Verify version consistency and non-existence"
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          PYTHONPATH: src
+        run: |
+          python3 - << 'EOF'
+          import os
+          import re
+          import sys
+          import urllib.error
+          import urllib.request
+          from aikito import __version__
+
+          input_version = os.environ.get("INPUT_VERSION", "").strip().lstrip("v")
+          if not input_version:
+              sys.exit("Error: inputs.version is required")
+
+          print(f"Checking version consistency for: {input_version}")
+          if __version__ != input_version:
+              sys.exit(f"Version mismatch: src/aikito/__init__.py ({__version__}) != inputs.version ({input_version})")
+
+          # Check CHANGELOG.md
+          changelog_path = "CHANGELOG.md"
+          if not os.path.exists(changelog_path):
+              sys.exit("Error: CHANGELOG.md not found")
+
+          with open(changelog_path, "r", encoding="utf-8") as f:
+              changelog = f.read()
+
+          target_header = f"## [{input_version}]"
+          if target_header not in changelog:
+              sys.exit(f"Error: {target_header} section not found in {changelog_path}")
+
+          print("Version matches package constants and CHANGELOG.")
+
+          # Check remote tag non-existence
+          tag_name = f"v{input_version}"
+          cmd = f"git ls-remote --tags origin refs/tags/{tag_name}"
+          import subprocess
+          out = subprocess.check_output(cmd, shell=True, text=True).strip()
+          if out:
+              sys.exit(f"Error: Tag {tag_name} already exists remotely: {out}")
+
+          print(f"Verified tag {tag_name} does not exist.")
+
+          # Check PyPI non-existence
+          pypi_url = f"https://pypi.org/pypi/aikito/{input_version}/json"
+          try:
+              req = urllib.request.Request(pypi_url, headers={"User-Agent": "aikito-release-check/1.0"})
+              with urllib.request.urlopen(req) as resp:
+                  if resp.status == 200:
+                      sys.exit(f"Error: Version {input_version} already exists on PyPI!")
+          except urllib.error.HTTPError as e:
+              if e.code == 404:
+                  print(f"Verified version {input_version} does not exist on PyPI (404 as expected).")
+              else:
+                  print(f"Warning: Unexpected PyPI HTTP response {e.code}")
+          EOF
+
+      - name: "Gate 2: Verify release commit exists on main"
+        run: |
+          RELEASE_COMMIT="${{ inputs.commit_sha }}"
+          HEAD_COMMIT="$(git rev-parse HEAD)"
+          echo "Release commit: $RELEASE_COMMIT"
+          echo "Checkout commit: $HEAD_COMMIT"
+
+          if [ "$RELEASE_COMMIT" != "$HEAD_COMMIT" ]; then
+            echo "Error: inputs.commit_sha ($RELEASE_COMMIT) does not match checkout HEAD ($HEAD_COMMIT)"
+            exit 1
+          fi
+
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$RELEASE_COMMIT" origin/main; then
+            echo "Error: Release commit $RELEASE_COMMIT is not an ancestor of origin/main"
+            exit 1
+          fi
+          echo "Gate 2 passed: commit exists on main."
+
+      - name: "Gate 3: Verify required CI conclusion is success"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          COMMIT_SHA="${{ inputs.commit_sha }}"
+          echo "Checking CI status for commit: $COMMIT_SHA"
+
+          CI_RUNS=$(gh run list -R "${{ github.repository }}" -w "CI" -c "$COMMIT_SHA" --json status,conclusion,url)
+          echo "CI runs query result: $CI_RUNS"
+
+          RUN_COUNT=$(echo "$CI_RUNS" | jq 'length')
+          if [ "$RUN_COUNT" -eq 0 ]; then
+            echo "Error: No 'CI' workflow run found for commit $COMMIT_SHA"
+            exit 1
+          fi
+
+          LATEST_STATUS=$(echo "$CI_RUNS" | jq -r '.[0].status')
+          LATEST_CONCLUSION=$(echo "$CI_RUNS" | jq -r '.[0].conclusion')
+          RUN_URL=$(echo "$CI_RUNS" | jq -r '.[0].url')
+
+          echo "Latest CI status: $LATEST_STATUS, conclusion: $LATEST_CONCLUSION ($RUN_URL)"
+
+          if [ "$LATEST_STATUS" != "completed" ] || [ "$LATEST_CONCLUSION" != "success" ]; then
+            echo "Error: Required CI run is not green! status=$LATEST_STATUS, conclusion=$LATEST_CONCLUSION ($RUN_URL)"
+            exit 1
+          fi
+
+          echo "Gate 3 passed: Required CI workflow succeeded ($RUN_URL)."
+
+  tag-and-release:
+    name: Create Tag and GitHub Release
+    needs: verify-gates
+    runs-on: ubuntu-latest
+    outputs:
+      release_url: ${{ steps.create-release.outputs.release_url }}
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.commit_sha }}
+          fetch-depth: 0
+
+      - name: Create and push annotated tag
+        run: |
+          VERSION="${{ inputs.version }}"
+          COMMIT_SHA="${{ inputs.commit_sha }}"
+          TAG_NAME="v${VERSION}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          echo "Creating annotated tag $TAG_NAME at $COMMIT_SHA..."
+          git tag -a "$TAG_NAME" "$COMMIT_SHA" -m "Release $TAG_NAME"
+          git push origin "$TAG_NAME"
+
+          echo "Verifying remote tag..."
+          PEELED=$(git ls-remote origin "refs/tags/${TAG_NAME}^{}" | awk '{print $1}')
+          if [ -z "$PEELED" ]; then
+            PEELED=$(git ls-remote origin "refs/tags/${TAG_NAME}" | awk '{print $1}')
+          fi
+
+          echo "Remote peeled tag commit: $PEELED"
+          if [ "$PEELED" != "$COMMIT_SHA" ]; then
+            echo "Error: Peeled tag commit ($PEELED) does not match expected commit ($COMMIT_SHA)!"
+            exit 1
+          fi
+          echo "Tag $TAG_NAME successfully created and verified."
+
+      - name: Extract release notes from CHANGELOG
+        run: |
+          python3 - << 'EOF'
+          import os, re, sys
+
+          version = os.environ.get("VERSION", "").strip().lstrip("v")
+          with open("CHANGELOG.md", "r", encoding="utf-8") as f:
+              lines = f.readlines()
+
+          target_header = f"## [{version}]"
+          capturing = False
+          notes = []
+
+          for line in lines:
+              if line.startswith(target_header):
+                  capturing = True
+                  continue
+              elif capturing and line.startswith("## ["):
+                  break
+              elif capturing:
+                  notes.append(line)
+
+          body = "".join(notes).strip()
+          if not body:
+              sys.exit(f"Error: Could not extract release notes for version {version}")
+
+          with open("release-notes.md", "w", encoding="utf-8") as f:
+              f.write(body + "\n")
+          print(f"Extracted {len(notes)} lines of release notes for {version}.")
+          EOF
+        env:
+          VERSION: ${{ inputs.version }}
+
+      - name: Create GitHub Release
+        id: create-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG_NAME="v${{ inputs.version }}"
+          TITLE="Aikito ${TAG_NAME}"
+
+          echo "Creating GitHub Release for $TAG_NAME..."
+          gh release create "$TAG_NAME" \
+            --title "$TITLE" \
+            --notes-file release-notes.md \
+            --verify-tag
+
+          RELEASE_URL=$(gh release view "$TAG_NAME" --json url -q '.url')
+          echo "release_url=$RELEASE_URL" >> "$GITHUB_OUTPUT"
+          echo "Created GitHub Release: $RELEASE_URL"
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: tag-and-release
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/aikito
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: v${{ inputs.version }}
+
+      - name: Set up Python
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools and test dependencies
+        run: python -m pip install --upgrade build hatchling pytest twine
+
+      - name: Run test suite
+        env:
+          PYTHONPATH: src
+        run: python -m pytest -q
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: Check package distribution metadata
+        run: python -m twine check --strict dist/*
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # v1.12.4
+        with:
+          verbose: true
+
+  trigger-homebrew:
+    name: Trigger Homebrew Tap Release
+    needs: [tag-and-release, publish-pypi]
+    if: ${{ inputs.publish_homebrew }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify PyPI availability before triggering Homebrew
+        run: |
+          python3 - << 'EOF'
+          import urllib.request, json, time, sys, os
+
+          version = os.environ["VERSION"].strip().lstrip("v")
+          api_url = f"https://pypi.org/pypi/aikito/{version}/json"
+          print(f"Waiting for PyPI to index aikito {version}...")
+
+          max_attempts = 15
+          delay = 10
+          for attempt in range(1, max_attempts + 1):
+              try:
+                  req = urllib.request.Request(api_url, headers={"User-Agent": "aikito-pypi-verify/1.0"})
+                  with urllib.request.urlopen(req, timeout=15) as resp:
+                      if resp.status == 200:
+                          data = json.loads(resp.read().decode("utf-8"))
+                          urls = data.get("urls", [])
+                          sdist = next((u for u in urls if u.get("packagetype") == "sdist"), None)
+                          if sdist:
+                              print(f"PyPI confirmed ready: {sdist['url']}")
+                              sys.exit(0)
+              except Exception as e:
+                  print(f"Attempt {attempt}/{max_attempts}: {e}")
+              time.sleep(delay)
+
+          sys.exit(f"Error: PyPI verification timed out for version {version}")
+          EOF
+        env:
+          VERSION: ${{ inputs.version }}
+
+      - name: Generate Homebrew GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: lsaint
+          repositories: homebrew-tap
+          permission-actions: write
+
+      - name: Dispatch Homebrew update-aikito workflow
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          VERSION="${{ inputs.version }}"
+          echo "Dispatching update-aikito.yml on lsaint/homebrew-tap for version $VERSION..."
+
+          gh api \
+            --method POST \
+            repos/lsaint/homebrew-tap/actions/workflows/update-aikito.yml/dispatches \
+            -f ref=main \
+            -F inputs[version]="$VERSION"
+
+          echo "Dispatch request accepted."
+
+      - name: Wait for Homebrew workflow to complete
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          VERSION="${{ inputs.version }}"
+          echo "Polling lsaint/homebrew-tap workflow run..."
+
+          # Sleep briefly to give GitHub time to queue the workflow
+          sleep 10
+
+          MAX_WAIT=600
+          ELAPSED=0
+          INTERVAL=15
+
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
+            RUNS=$(gh api repos/lsaint/homebrew-tap/actions/workflows/update-aikito.yml/runs)
+            LATEST_STATUS=$(echo "$RUNS" | jq -r '.workflow_runs[0].status // empty')
+            LATEST_CONCLUSION=$(echo "$RUNS" | jq -r '.workflow_runs[0].conclusion // empty')
+            RUN_URL=$(echo "$RUNS" | jq -r '.workflow_runs[0].html_url // empty')
+
+            echo "Homebrew workflow status: $LATEST_STATUS, conclusion: $LATEST_CONCLUSION ($RUN_URL)"
+
+            if [ "$LATEST_STATUS" = "completed" ]; then
+              if [ "$LATEST_CONCLUSION" = "success" ]; then
+                echo "Homebrew Formula release succeeded! Run URL: $RUN_URL"
+                exit 0
+              else
+                echo "Error: Homebrew Formula release failed with conclusion: $LATEST_CONCLUSION ($RUN_URL)"
+                exit 1
+              fi
+            fi
+
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+
+          echo "Error: Timed out waiting for Homebrew workflow after ${MAX_WAIT}s"
+          exit 1
+
+  summary:
+    name: Release Summary
+    needs: [verify-gates, tag-and-release, publish-pypi]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate summary report
+        run: |
+          cat << 'EOF' >> "$GITHUB_STEP_SUMMARY"
+          # Aikito Release Summary
+
+          - **Version**: `v${{ inputs.version }}`
+          - **Commit SHA**: `${{ inputs.commit_sha }}`
+          - **Tag Status**: ${{ needs.tag-and-release.result }}
+          - **PyPI Status**: ${{ needs.publish-pypi.result }}
+          - **Release URL**: ${{ needs.tag-and-release.outputs.release_url || 'N/A' }}
+          EOF

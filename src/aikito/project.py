@@ -7,8 +7,11 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from .mcp import MCPConfigError, collect_project_instruction_targets
-from .compat import safe_relative_path
+from .instructions import build_project_instruction_batch, plan_instructions
+from .memory_runtime import build_project_memory_batch, plan_project_memory
+from .compat import _resolve_symlink_target, safe_relative_path
+from .skill_plan import SkillOperation, SkillTarget, plan_single_skill
+from .skill_runtime import ObservedSkill, inspect_skill_target
 
 
 @dataclass(frozen=True)
@@ -430,6 +433,9 @@ def _file_inventory(root: Path) -> tuple[dict[str, Path], str | None]:
     return files, None
 
 
+# NOTE: Retired from project skill classification in Phase 3 (unified under inspect_skill_target).
+# Remaining callers: plan_runtime_cleanup (memory) and find_selected_runtime_conflicts (memory).
+# Scheduled for removal in Phase 5 (project memory migration).
 def _directories_match(canonical: Path, runtime: Path) -> tuple[bool, str | None]:
     canonical_files, canonical_error = _file_inventory(canonical)
     if canonical_error:
@@ -448,11 +454,20 @@ def _directories_match(canonical: Path, runtime: Path) -> tuple[bool, str | None
         return False, str(exc)
 
 
-def _symlink_points_within(path: Path, roots: tuple[Path, ...]) -> bool:
+def _symlink_points_within(path: Path, expected_targets: tuple[Path, ...]) -> bool:
+    """Check if a symlink precisely resolves to one of the expected canonical target paths."""
     if not path.is_symlink():
         return False
-    target = path.resolve(strict=False)
-    return any(target.is_relative_to(root.resolve()) for root in roots)
+    target = _resolve_symlink_target(path)
+    fallback = path.resolve(strict=False)
+    for expected in expected_targets:
+        try:
+            resolved_expected = expected.resolve(strict=False)
+            if target == resolved_expected or fallback == resolved_expected:
+                return True
+        except (ValueError, OSError):
+            continue
+    return False
 
 
 def plan_runtime_cleanup(
@@ -471,7 +486,8 @@ def plan_runtime_cleanup(
     for item in sorted(runtime_dir.iterdir()):
         if item.name in selected_names:
             continue
-        owned = _symlink_points_within(item, canonical_roots)
+        expected_targets = tuple(root / item.name for root in canonical_roots)
+        owned = _symlink_points_within(item, expected_targets)
         if not owned and allow_matching_copies and item.is_dir():
             canonical = canonical_roots[0] / item.name
             if canonical.is_dir():
@@ -494,7 +510,7 @@ def find_selected_runtime_conflicts(
         target = runtime_dir / name
         if not target.exists() and not target.is_symlink():
             continue
-        if _symlink_points_within(target, (canonical_root,)):
+        if _symlink_points_within(target, (canonical_root / name,)):
             continue
         if target.is_dir():
             if allow_drifted_copies:
@@ -611,51 +627,72 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
                 agents_dir = project_path / ".agents"
                 statuses: list[str] = []
                 try:
-                    instruction_targets = collect_project_instruction_targets(
-                        aikito_dir, project_path, home, active_only=True
+                    inst_batch = build_project_instruction_batch(
+                        aikito_dir,
+                        project_dir.name,
+                        checkout=project_path,
+                        home=home,
                     )
-                except MCPConfigError:
-                    # An unreadable agent registry is reported by doctor, not here.
-                    instruction_targets = {}
-                if instructions_status == "OK":
-                    for target, agent_names in instruction_targets.items():
-                        status = _link_status(target, instructions)
-                        statuses.append(status)
-                        details.append(
-                            ProjectResourceDetail(
-                                f"Instructions ({', '.join(agent_names)}){p_tag}",
-                                instructions,
-                                target,
-                                status,
-                                _link_issue(target, instructions, status),
-                            )
-                        )
-                elif instructions_status == "EMPTY":
-                    for target, agent_names in instruction_targets.items():
-                        if target.is_symlink() and target.resolve(
-                            strict=False
-                        ) == instructions.resolve(strict=False):
-                            statuses.append("DRIFT")
+                    inst_plan = plan_instructions(inst_batch, home)
+                except Exception:
+                    inst_plan = None
+
+                if inst_plan is not None:
+                    if instructions_status == "OK":
+                        for op in inst_plan.operations:
+                            if op.action in ("NOOP", "SHARED_PATH"):
+                                status = "OK"
+                                issue = ""
+                            elif op.action == "CREATE":
+                                status = "MISSING"
+                                issue = f"Missing {op.target_path}"
+                            elif op.action == "CONFLICT":
+                                status = "CONFLICT"
+                                issue = (
+                                    op.finding
+                                    or f"Expected {op.target_path} to link to {instructions}"
+                                )
+                            elif op.action == "SKIP":
+                                status = "SKIP"
+                                issue = op.reason or ""
+                            else:
+                                status = op.action
+                                issue = op.reason or ""
+                            statuses.append(status)
                             details.append(
                                 ProjectResourceDetail(
-                                    f"Instructions ({', '.join(agent_names)}){p_tag}",
+                                    f"Instructions ({op.resource_name}){p_tag}",
                                     instructions,
-                                    target,
-                                    "DRIFT",
-                                    f"Empty canonical instructions no longer require {target}",
+                                    op.target_path,
+                                    status,
+                                    issue,
                                 )
                             )
-                    project_agents_md = project_path / "AGENTS.md"
-                    if project_agents_md.exists() and not (
-                        project_agents_md.is_symlink()
-                        and project_agents_md.resolve(strict=False)
-                        == instructions.resolve(strict=False)
-                    ):
-                        tag_str = f" in {active_entry.label}" if multi_active else ""
-                        instructions_notices.append(
-                            f"Project-owned AGENTS.md detected{tag_str}: {project_agents_md} "
-                            "(not managed because canonical instructions are empty)"
-                        )
+                    elif instructions_status == "EMPTY":
+                        for op in inst_plan.operations:
+                            if op.action == "UNLINK":
+                                statuses.append("DRIFT")
+                                details.append(
+                                    ProjectResourceDetail(
+                                        f"Instructions ({op.resource_name}){p_tag}",
+                                        instructions,
+                                        op.target_path,
+                                        "DRIFT",
+                                        f"Empty canonical instructions no longer require {op.target_path}",
+                                    )
+                                )
+                            elif (
+                                op.action == "NOOP"
+                                and op.expected_representation == "file"
+                                and op.target_path.name == "AGENTS.md"
+                            ):
+                                tag_str = (
+                                    f" in {active_entry.label}" if multi_active else ""
+                                )
+                                instructions_notices.append(
+                                    f"Project-owned AGENTS.md detected{tag_str}: {op.target_path} "
+                                    "(not managed because canonical instructions are empty)"
+                                )
 
                 skills_runtime = agents_dir / "skills"
                 selected_skills = set(skill_names)
@@ -726,42 +763,37 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
 
                 project_memory = project_dir / "memory"
                 memory_runtime = agents_dir / "memory"
-                expected_memory: dict[str, Path] = {
-                    Path(reference).parts[0]: aikito_dir / "memory" / reference
-                    for reference in memory_refs
-                    if Path(reference).parts
-                }
-                if (project_memory / "notes").is_dir():
-                    expected_memory["notes"] = project_memory / "notes"
+                mem_batch = build_project_memory_batch(
+                    aikito_dir,
+                    project_dir.name,
+                    {"memory": memory_refs},
+                    active_checkouts=[active_entry.resolved_path],
+                )
+                mem_plan = plan_project_memory(mem_batch)
+
                 memory_statuses: list[str] = []
                 memory_issues: list[str] = []
-                for name, source in sorted(expected_memory.items()):
-                    target = memory_runtime / name
-                    status = _link_status(target, source)
-                    memory_statuses.append(status)
-                    issue = _link_issue(target, source, status)
-                    if issue:
-                        memory_issues.append(f"{name}: {issue}")
-                memory_cleanup = plan_runtime_cleanup(
-                    memory_runtime,
-                    set(expected_memory),
-                    (aikito_dir / "memory", project_memory),
-                    allow_matching_copies=False,
+                for op in mem_plan.operations:
+                    prefix = f"{op.resource_name}: " if op.resource_name else ""
+                    if op.action in ("NOOP", "SHARED_PATH"):
+                        memory_statuses.append("OK")
+                    elif op.action == "CREATE":
+                        memory_statuses.append("MISSING")
+                        memory_issues.append(f"{prefix}target is missing")
+                    elif op.action == "UNLINK":
+                        memory_statuses.append("DRIFT")
+                        memory_issues.append(f"Stale managed memory: {op.target_path}")
+                    elif op.action == "CONFLICT":
+                        memory_statuses.append("CONFLICT")
+                        memory_issues.append(f"{prefix}{op.finding or op.reason}")
+                    elif op.action == "SKIP":
+                        memory_statuses.append("SKIP")
+
+                memory_status = (
+                    _aggregate_runtime_status(memory_statuses)
+                    if memory_statuses
+                    else "OK"
                 )
-                if memory_cleanup.conflicts:
-                    memory_status = "CONFLICT"
-                    memory_issues.extend(
-                        f"Unmanaged runtime entry: {path}"
-                        for path in memory_cleanup.conflicts
-                    )
-                elif memory_cleanup.cleanup:
-                    memory_status = "DRIFT"
-                    memory_issues.extend(
-                        f"Stale managed memory: {path}"
-                        for path in memory_cleanup.cleanup
-                    )
-                else:
-                    memory_status = _aggregate_runtime_status(memory_statuses)
                 statuses.append(memory_status)
                 details.append(
                     ProjectResourceDetail(
@@ -802,41 +834,99 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
     return summaries
 
 
+def map_skill_operation_to_project_state(
+    op: SkillOperation,
+    observed: ObservedSkill,
+) -> tuple[str, str]:
+    """Map SkillOperation and ObservedSkill to (status, reason) for ProjectSkillState.
+
+    Explicit mapping table:
+    - NOOP (INV-TR-07, 11, 18) -> ("OK", "")
+    - RECONCILE_STATE (INV-TR-10) -> ("OK", "")
+    - CREATE (INV-TR-01) -> ("MISSING", "Runtime skill is missing")
+    - UPDATE (INV-TR-08) -> ("UPDATE", "Canonical skill updated upstream; safe to sync without --force")
+    - UPDATE (INV-TR-20) -> ("UPDATE", op.reason)
+    - CONFLICT (INV-TR-09, 12, 19) -> ("DRIFT", "Copied project skill drifted from workspace skill")
+    - CONFLICT (INV-TR-14 with missing source) -> ("MISSING", "Canonical skill is missing")
+    - CONFLICT (INV-TR-13 with unsupported entry) -> ("CONFLICT", "Runtime skill is not a directory")
+    - Other CONFLICT -> ("CONFLICT", op.reason)
+    """
+    if op.action in ("NOOP", "RECONCILE_STATE"):
+        return "OK", ""
+    if op.action == "CREATE":
+        return "MISSING", "Runtime skill is missing"
+    if op.rule_id == "INV-TR-08":
+        return (
+            "UPDATE",
+            "Canonical skill updated upstream; safe to sync without --force",
+        )
+    if op.rule_id == "INV-TR-20" and op.action == "UPDATE":
+        return "UPDATE", op.reason
+    if op.rule_id in ("INV-TR-09", "INV-TR-12", "INV-TR-19"):
+        return "DRIFT", "Copied project skill drifted from workspace skill"
+    if op.rule_id == "INV-TR-14":
+        if observed.canonical_error and (
+            "does not exist" in observed.canonical_error
+            or "missing" in observed.canonical_error.lower()
+        ):
+            return "MISSING", "Canonical skill is missing"
+        return "CONFLICT", op.reason
+    if op.rule_id == "INV-TR-13":
+        if observed.entry_type == "unsupported":
+            return "CONFLICT", "Runtime skill is not a directory"
+        return "CONFLICT", op.reason
+    if op.action == "CONFLICT":
+        return "CONFLICT", op.reason
+    return op.action, op.reason
+
+
 def classify_project_skill_state(
     aikito_dir: Path,
     project_name: str,
     project_path: Path | None,
     skill_name: str,
+    home: Path | None = None,
 ) -> ProjectSkillState:
     """Classify the synchronization state of a single copied skill for a project path."""
+    if home is None:
+        home = Path.home()
     canonical = aikito_dir / "skills" / skill_name
     runtime = (
         project_path / ".agents" / "skills" / skill_name
         if project_path is not None
         else Path("<unbound>") / skill_name
     )
-    status = "OK"
-    reason = ""
     if Path(skill_name).name != skill_name or skill_name in ("", ".", ".."):
-        status, reason = (
-            "CONFLICT",
-            "Skill name must be a single path component",
+        return ProjectSkillState(
+            project_name=project_name,
+            skill_name=skill_name,
+            canonical_path=canonical,
+            runtime_path=runtime,
+            status="CONFLICT",
+            reason="Skill name must be a single path component",
         )
-    elif project_path is None:
-        status, reason = "CONFLICT", "Project path is not configured"
-    elif not canonical.is_dir():
-        status, reason = "MISSING", "Canonical skill is missing"
-    elif not runtime.exists():
-        status, reason = "MISSING", "Runtime skill is missing"
-    elif not runtime.is_dir():
-        status, reason = "CONFLICT", "Runtime skill is not a directory"
-    else:
-        matches, error = _directories_match(canonical, runtime)
-        if error:
-            status, reason = "CONFLICT", error
-        elif not matches:
-            status = "DRIFT"
-            reason = "Copied project skill drifted from workspace skill"
+    if project_path is None:
+        return ProjectSkillState(
+            project_name=project_name,
+            skill_name=skill_name,
+            canonical_path=canonical,
+            runtime_path=runtime,
+            status="CONFLICT",
+            reason="Project path is not configured",
+        )
+
+    target = SkillTarget(
+        workspace_root=aikito_dir,
+        workspace_id=aikito_dir.name,
+        project_name=project_name,
+        physical_checkout=project_path,
+        skill_name=skill_name,
+        target_path=runtime,
+    )
+    observed, desired = inspect_skill_target(target, "copy", home)
+    op = plan_single_skill(target, desired, observed, force=False, is_offline=False)
+    status, reason = map_skill_operation_to_project_state(op, observed)
+
     return ProjectSkillState(
         project_name=project_name,
         skill_name=skill_name,
@@ -852,11 +942,12 @@ def collect_single_project_skill_states(
     project_name: str,
     project_path: Path | None,
     skills: list[str],
+    home: Path | None = None,
 ) -> list[ProjectSkillState]:
     """Classify copied runtime skills for a single project path."""
     return [
         classify_project_skill_state(
-            aikito_dir, project_name, project_path, str(skill_name)
+            aikito_dir, project_name, project_path, str(skill_name), home=home
         )
         for skill_name in sorted(skills)
     ]
@@ -890,7 +981,7 @@ def collect_project_skill_states(
         for entry in binding.active_entries:
             states.extend(
                 collect_single_project_skill_states(
-                    aikito_dir, project_dir.name, entry.resolved_path, skills
+                    aikito_dir, project_dir.name, entry.resolved_path, skills, home=home
                 )
             )
     return states

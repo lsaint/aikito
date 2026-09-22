@@ -13,6 +13,7 @@ from urllib.error import HTTPError, URLError
 from unittest.mock import MagicMock, patch
 
 from aikito.mcp import (
+    BACKUP_DIR,
     STATE_FILE,
     AgentSpec,
     MCPConfigError,
@@ -27,6 +28,7 @@ from aikito.mcp import (
     authenticate_mcp,
     describe_mcp_auth,
     evaluate_spec_status,
+    _parse_jsonc,
     get_agy_json_server,
     get_claude_json_server,
     get_copilot_json_server,
@@ -40,6 +42,10 @@ from aikito.mcp import (
     probe_mcp_tools_for_specs,
     read_all_entries,
     redact_mcp_entry,
+    remove_claude_json_server,
+    remove_dsh_cordis_server,
+    remove_jsonc_server,
+    remove_toml_server,
     sync_mcp_configs,
     update_agy_json_server,
     update_claude_json_server,
@@ -304,6 +310,86 @@ enabled = true
         entries = read_all_entries("dsh_cordis", updated)
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries["atlassian-rovo"], desired)
+
+    def test_jsonc_remove_preserves_unmanaged_content_and_comments(self) -> None:
+        source = """{
+  // Root comment
+  "theme": "dark",
+  "mcp": {
+    // Server comment
+    "serverA": {
+      "type": "remote",
+      "url": "https://a.example.com"
+    },
+    "serverB": {
+      "type": "remote",
+      "url": "https://b.example.com"
+    }
+  }
+}
+"""
+        after_a = remove_jsonc_server(source, "serverA")
+        self.assertIn("// Root comment", after_a)
+        self.assertIn("// Server comment", after_a)
+        self.assertNotIn("serverA", after_a)
+        self.assertIn("serverB", after_a)
+        self.assertEqual(
+            get_jsonc_server(after_a, "serverB")["url"], "https://b.example.com"
+        )
+
+        after_b = remove_jsonc_server(after_a, "serverB")
+        self.assertNotIn("serverB", after_b)
+        self.assertEqual(_parse_jsonc(after_b)["theme"], "dark")
+
+    def test_toml_remove_preserves_other_sections(self) -> None:
+        source = """model = "gpt"
+
+[mcp_servers.alpha]
+url = "https://alpha.example.com"
+
+[mcp_servers.beta]
+url = "https://beta.example.com"
+
+[other]
+flag = true
+"""
+        updated = remove_toml_server(source, "alpha")
+        self.assertNotIn("[mcp_servers.alpha]", updated)
+        self.assertIn("[mcp_servers.beta]", updated)
+        self.assertIn("[other]", updated)
+        self.assertEqual(
+            get_toml_server(updated, "beta")["url"], "https://beta.example.com"
+        )
+
+    def test_mcp_json_remove_server(self) -> None:
+        source = json.dumps(
+            {
+                "mcpServers": {
+                    "server1": {"command": "npx"},
+                    "server2": {"command": "uvx"},
+                }
+            }
+        )
+        updated = remove_claude_json_server(source, "server1")
+        data = json.loads(updated)
+        self.assertNotIn("server1", data["mcpServers"])
+        self.assertIn("server2", data["mcpServers"])
+
+    def test_dsh_cordis_remove_server(self) -> None:
+        source = """- id: aikito-mcp-s1
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: s1
+    url: https://s1.example.com
+- id: aikito-mcp-s2
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: s2
+    url: https://s2.example.com
+"""
+        updated = remove_dsh_cordis_server(source, "s1")
+        self.assertNotIn("aikito-mcp-s1", updated)
+        self.assertIn("aikito-mcp-s2", updated)
 
 
 class SynchronizationTest(unittest.TestCase):
@@ -610,6 +696,303 @@ printf '%s\\n' 'callback: http://127.0.0.1/callback?code=secret'
             any("did not expose an authorization URL" in line for line in output)
         )
 
+    def test_sync_multiple_mcps_share_same_agent_config(self) -> None:
+        (self.aikito_dir / "mcps/managed.toml").unlink(missing_ok=True)
+        (self.aikito_dir / "mcps/alpha.toml").write_text(
+            'transport = "remote"\nurl = "https://alpha.example.com/mcp"\nagents = ["codex"]\n',
+            encoding="utf-8",
+        )
+        (self.aikito_dir / "mcps/beta.toml").write_text(
+            'transport = "remote"\nurl = "https://beta.example.com/mcp"\nagents = ["codex"]\n',
+            encoding="utf-8",
+        )
+        codex_config = self.home / ".codex/config.toml"
+        codex_config.write_text('model = "initial"\n', encoding="utf-8")
+
+        result = sync_mcp_configs(aikito_dir=self.aikito_dir, home=self.home)
+
+        self.assertTrue(result)
+        content = codex_config.read_text(encoding="utf-8")
+        self.assertIn('model = "initial"', content)
+        self.assertIn("alpha.example.com/mcp", content)
+        self.assertIn("beta.example.com/mcp", content)
+        state_entries = json.loads(
+            (self.home / STATE_FILE).read_text(encoding="utf-8")
+        )["entries"]
+        self.assertIn("codex:alpha", state_entries)
+        self.assertIn("codex:beta", state_entries)
+
+    def test_sync_state_promotion_failure_rolls_back_runtime_configs(self) -> None:
+        codex_config = self.home / ".codex/config.toml"
+        initial_text = 'model = "pre-sync"\n'
+        codex_config.write_text(initial_text, encoding="utf-8")
+        state_path = self.home / STATE_FILE
+
+        real_replace = os.replace
+
+        def fake_replace(src, dst):
+            if Path(dst) == state_path:
+                raise OSError("Simulated state file promotion failure")
+            return real_replace(src, dst)
+
+        with patch("aikito.mcp.os.replace", side_effect=fake_replace):
+            result = sync_mcp_configs(aikito_dir=self.aikito_dir, home=self.home)
+
+        self.assertFalse(result)
+        self.assertEqual(codex_config.read_text(encoding="utf-8"), initial_text)
+        if state_path.exists():
+            state_entries = json.loads(state_path.read_text(encoding="utf-8")).get(
+                "entries", {}
+            )
+            self.assertNotIn("codex:managed", state_entries)
+
+    def test_sync_runtime_write_failure_rolls_back_already_written_agents(
+        self,
+    ) -> None:
+        codex_config = self.home / ".codex/config.toml"
+        initial_codex = 'model = "codex-original"\n'
+        codex_config.write_text(initial_codex, encoding="utf-8")
+        claude_config = self.home / ".claude.json"
+        claude_config.write_text('{"initial": true}\n', encoding="utf-8")
+
+        from aikito.mcp import _atomic_write as real_atomic_write
+
+        call_count = [0]
+
+        def failing_atomic_write(path, content, secure_permissions=False):
+            call_count[0] += 1
+            if call_count[0] == 2:
+                raise IOError("Disk write error")
+            return real_atomic_write(path, content, secure_permissions)
+
+        with patch("aikito.mcp._atomic_write", side_effect=failing_atomic_write):
+            result = sync_mcp_configs(aikito_dir=self.aikito_dir, home=self.home)
+
+        self.assertFalse(result)
+        self.assertEqual(codex_config.read_text(encoding="utf-8"), initial_codex)
+
+    def test_sync_rollback_preserves_preexisting_empty_file_and_fingerprint(
+        self,
+    ) -> None:
+        (self.aikito_dir / "mcps/s1.toml").write_text(
+            'transport = "remote"\nurl = "https://s1.com"\nagents = ["codex"]\n',
+            encoding="utf-8",
+        )
+        (self.aikito_dir / "mcps/managed.toml").unlink(missing_ok=True)
+        codex_config = self.home / ".codex/config.toml"
+        codex_config.write_text('model = "gpt"\n', encoding="utf-8")
+        sync_mcp_configs(aikito_dir=self.aikito_dir, home=self.home)
+        initial_state = json.loads((self.home / STATE_FILE).read_text(encoding="utf-8"))
+        saved_fp = initial_state["entries"]["codex:s1"]["fingerprint"]
+
+        claude_config = self.home / ".claude.json"
+        claude_config.write_text("", encoding="utf-8")
+
+        (self.aikito_dir / "mcps/s2.toml").write_text(
+            'transport = "remote"\nurl = "https://s2.com"\nagents = ["codex", "claude-code"]\n',
+            encoding="utf-8",
+        )
+
+        from aikito.mcp import _atomic_write as real_atomic_write
+
+        def fail_on_claude(path, content, secure_permissions=False):
+            if Path(path) == claude_config:
+                raise IOError("Cannot write claude config")
+            return real_atomic_write(path, content, secure_permissions)
+
+        with patch("aikito.mcp._atomic_write", side_effect=fail_on_claude):
+            result = sync_mcp_configs(aikito_dir=self.aikito_dir, home=self.home)
+
+        self.assertFalse(result)
+        self.assertTrue(claude_config.exists())
+        self.assertEqual(claude_config.read_text(encoding="utf-8"), "")
+        final_state = json.loads((self.home / STATE_FILE).read_text(encoding="utf-8"))
+        self.assertEqual(final_state["entries"]["codex:s1"]["fingerprint"], saved_fp)
+        self.assertNotIn("codex:s2", final_state["entries"])
+
+    def test_sync_multiple_mcps_same_file_or_merges_contains_secret_and_suppresses_backup(
+        self,
+    ) -> None:
+        (self.aikito_dir / "mcps/managed.toml").unlink(missing_ok=True)
+        # Server 1: non-sensitive server targeting agy
+        (self.aikito_dir / "mcps/public_server.toml").write_text(
+            'transport = "remote"\nurl = "https://public.example.com/mcp"\nagents = ["agy"]\n',
+            encoding="utf-8",
+        )
+        # Server 2: sensitive server targeting agy with credentials
+        (self.aikito_dir / "mcps/secret_server.toml").write_text(
+            """
+transport = "remote"
+url = "https://secret.example.com/mcp"
+agents = ["agy"]
+
+[authentication]
+method = "basic_api_token"
+account_email = "user@example.com"
+token_env = "TEST_MCP_TOKEN"
+authorization_env = "TEST_MCP_AUTHORIZATION"
+""".lstrip(),
+            encoding="utf-8",
+        )
+
+        agy_config = self.home / ".gemini/config/mcp_config.json"
+        agy_config.write_text('{"mcpServers": {}}\n', encoding="utf-8")
+        backup_dir = self.home / ".local/state/aikito/backups"
+
+        atomic_writes: list[tuple[Path, bool]] = []
+        from aikito.mcp import _atomic_write as real_atomic_write
+
+        def tracking_atomic_write(path, content, secure_permissions=False):
+            atomic_writes.append((Path(path), secure_permissions))
+            return real_atomic_write(path, content, secure_permissions)
+
+        os.environ["TEST_MCP_TOKEN"] = "token123"
+        try:
+            with patch("aikito.mcp._atomic_write", side_effect=tracking_atomic_write):
+                result = sync_mcp_configs(aikito_dir=self.aikito_dir, home=self.home)
+        finally:
+            os.environ.pop("TEST_MCP_TOKEN", None)
+
+        self.assertTrue(result)
+        # secure_permissions must be True for agy config because secret_server has credentials
+        agy_writes = [sp for p, sp in atomic_writes if p == agy_config]
+        self.assertEqual(len(agy_writes), 1)
+        self.assertTrue(
+            agy_writes[0], "Expected secure_permissions=True for shared agy config"
+        )
+        # No backup should have been created because the file contains a sensitive server
+        if backup_dir.exists():
+            backup_files = list(backup_dir.rglob("mcp_config.json"))
+            self.assertEqual(backup_files, [])
+
+    def test_sync_backup_failure_aborts_before_any_runtime_file_is_written(
+        self,
+    ) -> None:
+        codex_config = self.home / ".codex/config.toml"
+        initial_content = 'model = "unmodified-initial"\n'
+        codex_config.write_text(initial_content, encoding="utf-8")
+
+        with patch(
+            "aikito.mcp._backup_config",
+            side_effect=OSError("Simulated backup failure: disk full"),
+        ):
+            result = sync_mcp_configs(aikito_dir=self.aikito_dir, home=self.home)
+
+        self.assertFalse(result)
+        # Runtime config must remain completely untouched
+        self.assertEqual(codex_config.read_text(encoding="utf-8"), initial_content)
+        # State file must not have been created or modified
+        self.assertFalse((self.home / STATE_FILE).exists())
+
+    def test_sync_existing_ok_sensitive_spec_preserves_secure_permissions_on_non_sensitive_update(
+        self,
+    ) -> None:
+        (self.aikito_dir / "mcps/managed.toml").unlink(missing_ok=True)
+        # Server 1: sensitive server targeting agy
+        (self.aikito_dir / "mcps/s1_secret.toml").write_text(
+            """
+transport = "remote"
+url = "https://secret.example.com/mcp"
+agents = ["agy"]
+
+[authentication]
+method = "basic_api_token"
+account_email = "user@example.com"
+token_env = "TEST_MCP_TOKEN"
+authorization_env = "TEST_MCP_AUTHORIZATION"
+""".lstrip(),
+            encoding="utf-8",
+        )
+        agy_config = self.home / ".gemini/config/mcp_config.json"
+        agy_config.write_text('{"mcpServers": {}}\n', encoding="utf-8")
+        backup_dir = self.home / ".local/state/aikito/backups"
+
+        os.environ["TEST_MCP_TOKEN"] = "secret_tok"
+        try:
+            # Sync 1: s1_secret is synced and becomes OK
+            sync_ok = sync_mcp_configs(aikito_dir=self.aikito_dir, home=self.home)
+            self.assertTrue(sync_ok)
+
+            # Server 2: non-sensitive server added to the same file
+            (self.aikito_dir / "mcps/s2_public.toml").write_text(
+                'transport = "remote"\nurl = "https://public.example.com/mcp"\nagents = ["agy"]\n',
+                encoding="utf-8",
+            )
+
+            atomic_writes: list[tuple[Path, bool]] = []
+            from aikito.mcp import _atomic_write as real_atomic_write
+
+            def tracking_atomic_write(path, content, secure_permissions=False):
+                atomic_writes.append((Path(path), secure_permissions))
+                return real_atomic_write(path, content, secure_permissions)
+
+            with patch("aikito.mcp._atomic_write", side_effect=tracking_atomic_write):
+                result = sync_mcp_configs(aikito_dir=self.aikito_dir, home=self.home)
+
+            self.assertTrue(result)
+            # Even though s2_public is non-sensitive, s1_secret in the same file is sensitive.
+            # Thus secure_permissions MUST still be True!
+            agy_writes = [sp for p, sp in atomic_writes if p == agy_config]
+            self.assertEqual(len(agy_writes), 1)
+            self.assertTrue(
+                agy_writes[0],
+                "Expected secure_permissions=True when updating non-sensitive spec in file with existing sensitive spec",
+            )
+            # agy_json must never be backed up
+            if backup_dir.exists():
+                backup_files = list(backup_dir.rglob("mcp_config.json"))
+                self.assertEqual(backup_files, [])
+        finally:
+            os.environ.pop("TEST_MCP_TOKEN", None)
+
+    def test_sync_rollback_failure_retains_backup_for_manual_recovery(self) -> None:
+        (self.aikito_dir / "mcps/managed.toml").write_text(
+            'transport = "remote"\n'
+            'url = "https://example.com/mcp"\n'
+            'agents = ["codex", "claude-code"]\n',
+            encoding="utf-8",
+        )
+        codex_config = self.home / ".codex/config.toml"
+        codex_config.write_text('model = "before-sync"\n', encoding="utf-8")
+        claude_config = self.home / ".claude.json"
+        claude_config.write_text('{"before": true}\n', encoding="utf-8")
+        backup_dir = self.home / BACKUP_DIR
+        output: list[str] = []
+
+        from aikito.mcp import _atomic_write as real_atomic_write
+
+        codex_write_count = 0
+
+        def fail_write_and_rollback(path, content, secure_permissions=False):
+            nonlocal codex_write_count
+            path = Path(path)
+            if path == claude_config:
+                raise OSError("Simulated runtime write failure")
+            if path == codex_config:
+                codex_write_count += 1
+                if codex_write_count == 2:
+                    raise OSError("Simulated rollback failure")
+            return real_atomic_write(path, content, secure_permissions)
+
+        with patch("aikito.mcp._atomic_write", side_effect=fail_write_and_rollback):
+            result = sync_mcp_configs(
+                aikito_dir=self.aikito_dir,
+                home=self.home,
+                output=output.append,
+            )
+
+        self.assertFalse(result)
+        backups = list(backup_dir.rglob("*-config.toml"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(
+            backups[0].read_text(encoding="utf-8"), 'model = "before-sync"\n'
+        )
+        self.assertTrue(
+            any(
+                "rollback failed" in line and str(backups[0]) in line for line in output
+            )
+        )
+
 
 class AgentRegistryTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -669,6 +1052,42 @@ class AgentRegistryTest(unittest.TestCase):
         (self.aikito_dir / "agents.toml").write_text("[agents]\n", encoding="utf-8")
 
         self.assertEqual(load_agents(self.aikito_dir, self.home), {})
+
+    def test_load_agents_parses_builtin_mcps(self) -> None:
+        (self.aikito_dir / "agents.toml").write_text(
+            """
+[agents.codex]
+display_name = "Codex"
+[agents.codex.mcp]
+config_path = ".codex/config.toml"
+config_format = "toml"
+builtin_mcps = ["openaiDeveloperDocs", "other"]
+""".lstrip(),
+            encoding="utf-8",
+        )
+        agents = load_agents(self.aikito_dir, self.home)
+        self.assertEqual(
+            agents["codex"].mcp_builtin_servers,
+            ("openaiDeveloperDocs", "other"),
+        )
+
+    def test_load_agents_rejects_invalid_builtin_mcps(self) -> None:
+        (self.aikito_dir / "agents.toml").write_text(
+            """
+[agents.codex]
+display_name = "Codex"
+[agents.codex.mcp]
+config_path = ".codex/config.toml"
+config_format = "toml"
+builtin_mcps = [1]
+""".lstrip(),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(
+            MCPConfigError, "mcp.builtin_mcps must be a list of strings"
+        ):
+            load_agents(self.aikito_dir, self.home)
 
     def test_specs_synthesized_from_registry_and_servers(self) -> None:
         self.write_servers(
@@ -774,6 +1193,65 @@ authorization_env = "TEST_MCP_AUTHORIZATION"
         self.assertNotIn(token, json.dumps(specs["codex"].desired))
         self.assertNotIn(token, json.dumps(specs["claude-code"].desired))
         self.assertNotIn(token, json.dumps(specs["opencode"].desired))
+
+    def test_custom_headers_specs_across_agents(self) -> None:
+        self.write_servers(
+            """
+[servers.header-server]
+transport = "remote"
+url = "https://example.com/mcp"
+agents = ["codex", "grok", "opencode", "claude-code", "agy"]
+headers = { Authorization = "${API_TOKEN}", "X-Static" = "fixed-value" }
+"""
+        )
+
+        previous = os.environ.get("API_TOKEN")
+        try:
+            os.environ["API_TOKEN"] = "runtime-secret-xyz"
+            specs = {
+                spec.agent: spec
+                for spec in load_agent_specs(self.aikito_dir, self.home)
+            }
+        finally:
+            if previous is None:
+                os.environ.pop("API_TOKEN", None)
+            else:
+                os.environ["API_TOKEN"] = previous
+
+        # Codex: static in headers, env in env_http_headers
+        self.assertEqual(
+            specs["codex"].desired["headers"],
+            {"X-Static": "fixed-value"},
+        )
+        self.assertEqual(
+            specs["codex"].desired["env_http_headers"],
+            {"Authorization": "API_TOKEN"},
+        )
+
+        # Grok: all in headers with ${VAR}
+        self.assertEqual(
+            specs["grok"].desired["headers"],
+            {"Authorization": "${API_TOKEN}", "X-Static": "fixed-value"},
+        )
+
+        # OpenCode: {env:VAR} for env vars
+        self.assertEqual(
+            specs["opencode"].desired["headers"],
+            {"Authorization": "{env:API_TOKEN}", "X-Static": "fixed-value"},
+        )
+
+        # Claude Code: ${VAR} for env vars
+        self.assertEqual(
+            specs["claude-code"].desired["headers"],
+            {"Authorization": "${API_TOKEN}", "X-Static": "fixed-value"},
+        )
+
+        # Antigravity: runtime resolution of env vars
+        self.assertEqual(
+            specs["agy"].desired["headers"],
+            {"Authorization": "runtime-secret-xyz", "X-Static": "fixed-value"},
+        )
+        self.assertTrue(specs["agy"].contains_secret)
 
     def test_unknown_agent_reference_raises(self) -> None:
         self.write_servers(
@@ -1336,7 +1814,7 @@ class AgentDetectionTest(unittest.TestCase):
             stream=stream, animate=True, use_color=True, interval=0.05
         ) as indicator:
             indicator.add("codex")
-            time.sleep(0.18)
+            time.sleep(0.35)
 
         output = stream.getvalue()
         self.assertIn("\033[2mcodex loading .\033[0m", output)

@@ -1,3 +1,4 @@
+import ctypes
 import os
 import sys
 import tempfile
@@ -12,6 +13,7 @@ from aikito.compat import (
     get_permission_fix_cmd,
     get_workspace_config_dir,
     init_console_encoding,
+    is_reparse_point,
     is_windows,
     launch_browser,
     resolve_executable,
@@ -304,6 +306,100 @@ class AikitoPlatformTest(unittest.TestCase):
 
         other_drive = Path("/other/path")
         self.assertEqual(safe_relative_path(other_drive, home), other_drive.as_posix())
+
+    def test_is_directory_case_sensitive_windows_read_only(self) -> None:
+        from aikito.compat import is_directory_case_sensitive
+
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td)
+            # When on Windows and NtQueryInformationFile reports case-sensitive flag
+            with patch("aikito.compat.is_windows", return_value=True):
+                mock_kernel32 = MagicMock()
+                mock_kernel32.CreateFileW.return_value = 123
+                mock_ntdll = MagicMock()
+
+                def mock_nt_query(handle, io_status, info_ptr, size, info_cls):
+                    # Set Flags = 1 (case-sensitive)
+                    info_ptr._obj.Flags = 1
+                    return 0
+
+                mock_ntdll.NtQueryInformationFile.side_effect = mock_nt_query
+                with patch.dict(
+                    "sys.modules",
+                    {
+                        "ctypes": MagicMock(
+                            windll=MagicMock(kernel32=mock_kernel32, ntdll=mock_ntdll),
+                            Structure=MagicMock(),
+                            byref=lambda x: MagicMock(_obj=x),
+                            sizeof=lambda x: 4,
+                            c_ulong=MagicMock,
+                            c_void_p=MagicMock,
+                            c_uint32=MagicMock,
+                        )
+                    },
+                ):
+                    # Pure read-only, verifies without writing files
+                    is_directory_case_sensitive(p)
+                    # Verify no temporary files were created in td
+                    self.assertEqual(len(list(p.iterdir())), 0)
+
+    def test_normalize_identity_path_preserves_case_sensitive_windows_dir(self) -> None:
+        from aikito.skill_state import _normalize_identity_path
+
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "CheckoutA"
+            p.mkdir()
+            with patch("aikito.skill_state.is_windows", return_value=True):
+                # If case-sensitive directory, do NOT lowercase
+                with patch(
+                    "aikito.compat.is_directory_case_sensitive", return_value=True
+                ):
+                    norm = _normalize_identity_path(p)
+                    self.assertIn("CheckoutA", norm)
+
+                # If case-insensitive directory, lowercase
+                with patch(
+                    "aikito.compat.is_directory_case_sensitive", return_value=False
+                ):
+                    norm = _normalize_identity_path(p)
+                    self.assertNotIn("CheckoutA", norm)
+                    self.assertIn("checkouta", norm)
+
+    def test_is_reparse_point(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            regular_file = root / "regular.txt"
+            regular_file.write_text("content", encoding="utf-8")
+            non_existent = root / "does_not_exist.txt"
+
+            # POSIX checks
+            with patch("aikito.compat.is_windows", return_value=False):
+                self.assertFalse(is_reparse_point(regular_file))
+                self.assertFalse(is_reparse_point(non_existent))
+                symlink = root / "link.txt"
+                symlink.symlink_to(regular_file)
+                self.assertTrue(is_reparse_point(symlink))
+
+            # Windows checks
+            with patch("aikito.compat.is_windows", return_value=True):
+                # Non-existent file must never be a reparse point
+                self.assertFalse(is_reparse_point(non_existent))
+
+                mock_kernel32 = MagicMock()
+                mock_windll = MagicMock(kernel32=mock_kernel32)
+                with patch.object(ctypes, "windll", mock_windll, create=True):
+                    # Regular file returning 0x80 (NORMAL)
+                    mock_kernel32.GetFileAttributesW.return_value = 0x80
+                    self.assertFalse(is_reparse_point(regular_file))
+
+                    # Reparse point returning 0x400
+                    mock_kernel32.GetFileAttributesW.return_value = 0x400
+                    self.assertTrue(is_reparse_point(regular_file))
+
+                    # Signed -1 error return (INVALID_FILE_ATTRIBUTES) fallback to is_symlink
+                    mock_kernel32.GetFileAttributesW.return_value = -1
+                    self.assertFalse(is_reparse_point(regular_file))
+                    self.assertTrue(is_reparse_point(symlink))
 
 
 if __name__ == "__main__":

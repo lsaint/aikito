@@ -1,9 +1,284 @@
-"""Resolve and persist the active Aikito workspace."""
+"""Resolve and persist the active Aikito workspace, and provide public Workspace facade."""
+
+from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 from .compat import get_workspace_config_dir
+from .doctor import run_doctor
+from .mcp import load_agents
+from .project import collect_project_summaries
+from .subagent import load_subagent_definitions
+from .workspace_sync import plan_workspace_sync
+
+
+class WorkspaceError(RuntimeError):
+    """Base class for public Aikito workspace API errors."""
+
+
+class WorkspaceNotFoundError(WorkspaceError, FileNotFoundError):
+    """Raised when a specified or resolved workspace directory does not exist."""
+
+
+class InvalidWorkspaceError(WorkspaceError, ValueError):
+    """Raised when a workspace path is relative or malformed."""
+
+
+@dataclass(frozen=True)
+class WorkspaceFinding:
+    """Read-only diagnostic finding presented by the public Workspace API."""
+
+    status: str
+    code: str
+    message: str
+    resource: str = ""
+    fix_hint: str = ""
+
+
+@dataclass(frozen=True)
+class WorkspaceProjectView:
+    """Read-only view of a project configured in an Aikito workspace."""
+
+    name: str
+    status: str
+    active_paths: tuple[str, ...] = ()
+    offline_paths: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class WorkspaceInspection:
+    """Read-only diagnostic and configuration snapshot of an Aikito workspace."""
+
+    workspace_dir: Path
+    configured_agents: tuple[str, ...] = ()
+    projects: tuple[WorkspaceProjectView, ...] = ()
+    diagnostics: tuple[WorkspaceFinding, ...] = ()
+    mcps: tuple[str, ...] = ()
+    skills: tuple[str, ...] = ()
+    subagents: tuple[str, ...] = ()
+    ready_for_sync: bool = True
+
+
+@dataclass(frozen=True)
+class WorkspaceSyncPreview:
+    """Read-only preview of workspace synchronization operations."""
+
+    workspace_path: Path
+    changes: int
+    unchanged: int
+    offline: int
+    warnings: int
+    conflicts: int
+    errors: int
+    can_apply: bool
+    will_mutate: bool
+    findings: tuple[WorkspaceFinding, ...] = ()
+    operations: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class Workspace:
+    """Public facade for inspecting and planning operations on an Aikito workspace."""
+
+    path: Path
+    home: Path
+
+    @classmethod
+    def load(
+        cls,
+        workspace: Path | str | None = None,
+        home: Path | str | None = None,
+    ) -> Workspace:
+        """Load a workspace strictly read-only without modifying pointers or files."""
+        home_path = (
+            Path.home().resolve() if home is None else Path(home).expanduser().resolve()
+        )
+        if workspace is None:
+            workspace_path = resolve_workspace(home_path)
+        else:
+            supplied = Path(workspace).expanduser()
+            if not supplied.is_absolute():
+                raise InvalidWorkspaceError(
+                    f"Aikito workspace path must be absolute: {workspace}"
+                )
+            workspace_path = supplied.resolve()
+
+        if not workspace_path.is_dir():
+            raise WorkspaceNotFoundError(
+                f"Aikito workspace directory not found: {workspace_path}"
+            )
+
+        return cls(path=workspace_path, home=home_path)
+
+    def inspect(self) -> WorkspaceInspection:
+        """Return a strictly read-only structured inspection of the workspace."""
+        # 1. Configured agents
+        agents_file = self.path / "agents.toml"
+        if agents_file.is_file():
+            try:
+                agents_def = load_agents(self.path, self.home)
+                configured_agents = tuple(sorted(agents_def.keys()))
+            except Exception:
+                configured_agents = ()
+        else:
+            configured_agents = ()
+
+        # 2. Projects
+        project_summaries = collect_project_summaries(self.path, self.home)
+        projects = tuple(
+            WorkspaceProjectView(
+                name=p.name,
+                status=p.runtime_status,
+                active_paths=tuple(str(path) for _, path in p.active_paths),
+                offline_paths=tuple(str(path) for _, path in p.offline_paths),
+            )
+            for p in project_summaries
+        )
+
+        # 3. MCPs
+        mcps_dir = self.path / "mcps"
+        mcps = (
+            tuple(sorted(p.stem for p in mcps_dir.glob("*.toml") if p.is_file()))
+            if mcps_dir.is_dir()
+            else ()
+        )
+
+        # 4. Skills
+        skills_dir = self.path / "skills"
+        skills = (
+            tuple(
+                sorted(
+                    p.name
+                    for p in skills_dir.iterdir()
+                    if p.is_dir() and not p.name.startswith(".")
+                )
+            )
+            if skills_dir.is_dir()
+            else ()
+        )
+
+        # 5. Subagents
+        subagents_set: set[str] = set()
+        subagents_toml = self.path / "subagents.toml"
+        if subagents_toml.is_file():
+            try:
+                subs = load_subagent_definitions(self.path)
+                subagents_set.update(subs.keys())
+            except Exception:
+                pass
+        subagents_dir = self.path / "subagents"
+        if subagents_dir.is_dir():
+            for p in subagents_dir.glob("*.md"):
+                if p.is_file():
+                    subagents_set.add(p.stem)
+        subagents = tuple(sorted(subagents_set))
+
+        # 6. Diagnostics & readiness
+        doctor_report = run_doctor(self.path, self.home)
+        findings: list[WorkspaceFinding] = []
+        for section in doctor_report.sections:
+            for f in section.findings:
+                if f.status in ("FAIL", "WARN"):
+                    findings.append(
+                        WorkspaceFinding(
+                            status=f.status,
+                            code=f.code,
+                            message=f.message,
+                            resource=f.resource,
+                            fix_hint=f.fix_hint,
+                        )
+                    )
+
+        return WorkspaceInspection(
+            workspace_dir=self.path,
+            configured_agents=configured_agents,
+            projects=projects,
+            diagnostics=tuple(findings),
+            mcps=mcps,
+            skills=skills,
+            subagents=subagents,
+            ready_for_sync=doctor_report.fail_count == 0,
+        )
+
+    def plan_sync(self) -> WorkspaceSyncPreview:
+        """Return a strictly read-only synchronization preview."""
+        plan = plan_workspace_sync(self.path, self.home)
+
+        operations: list[str] = []
+        if plan.global_plan.bundled_refresh_plan:
+            for op in plan.global_plan.bundled_refresh_plan.operations:
+                if op.action == "REFRESH":
+                    operations.append(f"Bundled Skill {op.skill_name}: REFRESH")
+
+        if plan.global_plan.skill_plan:
+            for op in plan.global_plan.skill_plan.all_operations:
+                if op.action in ("CREATE", "UNLINK", "MIGRATE_CONTAINER", "CONFLICT"):
+                    name = op.resource_name or op.target_path.name
+                    operations.append(f"Global Skill {op.action}: {name}")
+
+        if plan.global_plan.instruction_plan:
+            for op in plan.global_plan.instruction_plan.operations:
+                if op.action in ("CREATE", "UNLINK", "CONFLICT"):
+                    name = op.resource_name or op.target_path.name
+                    operations.append(f"Global Instructions {op.action}: {name}")
+
+        if plan.subagent_plan:
+            for op in plan.subagent_plan.operations:
+                if op.is_authorized:
+                    agent = getattr(getattr(op, "target", None), "agent", "")
+                    identity = getattr(
+                        getattr(op, "target", None), "logical_identity", ""
+                    )
+                    operations.append(f"Subagent {op.action}: {agent}/{identity}")
+
+        if plan.mcp_plan:
+            for op in getattr(plan.mcp_plan, "operations", ()):
+                if getattr(op, "is_authorized", True):
+                    agent = getattr(getattr(op, "target", None), "agent", "")
+                    identity = getattr(
+                        getattr(op, "target", None), "logical_identity", ""
+                    )
+                    operations.append(f"MCP {op.action}: {agent}/{identity}")
+
+        for entry in plan.project_entries:
+            if entry.batch:
+                b = entry.batch
+                if b.active_checkouts:
+                    checkouts_str = ", ".join(str(c) for c in b.active_checkouts)
+                    operations.append(f"Project {entry.project_name}: {checkouts_str}")
+                else:
+                    operations.append(
+                        f"Project {entry.project_name}: no active checkouts"
+                    )
+            elif entry.binding_status == "offline":
+                operations.append(f"Project {entry.project_name}: offline")
+
+        preview_findings = tuple(
+            WorkspaceFinding(
+                status=f.status,
+                code=f.code,
+                message=f.message,
+                resource=f.resource,
+                fix_hint=f.fix_hint,
+            )
+            for f in plan.findings
+        )
+
+        return WorkspaceSyncPreview(
+            workspace_path=self.path,
+            changes=plan.changes,
+            unchanged=plan.unchanged,
+            offline=plan.offline,
+            warnings=len(plan.warnings),
+            conflicts=len(plan.conflicts),
+            errors=len(plan.errors),
+            can_apply=plan.can_apply,
+            will_mutate=plan.changes > 0,
+            findings=preview_findings,
+            operations=tuple(operations),
+        )
 
 
 def get_workspace_pointer_path(home: Path) -> Path:

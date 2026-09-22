@@ -10,8 +10,14 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from .link import SymlinkVerdict, classify_symlink, symlink_verdict_to_status
+from .agents import AgentRegistry
+from .global_skills import build_global_skill_batch, plan_global_skills
+from .instructions import (
+    build_global_instruction_batch,
+    plan_instructions,
+)
 from .mcp import (
+    build_mcp_plan,
     evaluate_spec_status,
     load_agent_specs,
     load_agents,
@@ -21,6 +27,7 @@ from .mcp import (
     redact_mcp_entry,
 )
 from .memory import extract_note_title
+from .memory_runtime import build_project_memory_batch, plan_project_memory
 from .project import resolve_project_binding
 from .render import (
     AgentStatusRow,
@@ -32,7 +39,7 @@ from .render import (
     StatusReportData,
     SubagentRow,
 )
-from .subagent import build_plan
+from .subagent import SubagentConfigError, build_subagent_plan
 
 
 @dataclass(frozen=True)
@@ -91,7 +98,12 @@ def collect_mcp_details(
     agent_target: str | None = None,
 ) -> list[MCPDetailRow]:
     agents = load_agents(aikito_dir, home)
-    specs = load_agent_specs(aikito_dir, home)
+    try:
+        specs = load_agent_specs(aikito_dir, home)
+        mcp_plan = build_mcp_plan(aikito_dir, home=home, specs=specs)
+    except Exception:
+        specs = []
+        mcp_plan = None
     server_names = sorted({spec.server for spec in specs if spec.enabled})
     server_name = (
         _resolve_name(server_target, server_names, "MCP server")
@@ -120,7 +132,7 @@ def collect_mcp_details(
                 agent_name=spec.agent,
                 agent_display_name=definition.display_name,
                 source="managed",
-                status=evaluate_spec_status(spec),
+                status=evaluate_spec_status(spec, home=home, plan=mcp_plan),
                 config_path=spec.config_path,
                 config_format=spec.config_format,
                 entry=redact_mcp_entry(current) if current is not None else None,
@@ -208,7 +220,11 @@ def collect_subagent_details(
 
     agent_configs, all_agent_names = load_all_agents(aikito_dir, home)
     subagent_defs = load_subagent_definitions(aikito_dir, allow_empty=True)
-    plan_items, _ = build_plan(aikito_dir, home, allow_empty=True)
+    try:
+        subagent_plan = build_subagent_plan(aikito_dir, home, allow_empty=True)
+        plan_ops = subagent_plan.operations
+    except SubagentConfigError:
+        plan_ops = ()
 
     subagent_names = sorted(subagent_defs.keys())
     subagent_name = (
@@ -223,7 +239,7 @@ def collect_subagent_details(
     )
 
     plan_map: dict[tuple[str, str], Any] = {
-        (item.subagent_name, item.agent_name): item for item in plan_items
+        (op.target.logical_identity, op.target.agent): op for op in plan_ops
     }
 
     rows: list[SubagentDetailRow] = []
@@ -240,25 +256,25 @@ def collect_subagent_details(
             if ag_key not in sub_def.agents and not (subagent_name and agent_name):
                 continue
 
-            plan_item = plan_map.get((name, ag_key))
+            plan_op = plan_map.get((name, ag_key))
             if ag_key not in sub_def.agents:
                 status = "NOT_TARGETED"
                 ext = FORMAT_EXTENSIONS.get(ag_cfg.config_format, ".md")
                 target_path = ag_cfg.config_path / f"{name}{ext}"
-            elif plan_item:
-                if plan_item.action == "OK":
+            elif plan_op:
+                if plan_op.action in ("OK", "NOOP"):
                     status = "OK"
-                elif plan_item.action in ("UPDATE", "FORCE UPDATE"):
+                elif plan_op.action in ("UPDATE", "FORCE UPDATE"):
                     status = "DRIFT"
-                elif plan_item.action == "CREATE":
+                elif plan_op.action == "CREATE":
                     status = "MISSING"
-                elif plan_item.action == "CONFLICT":
+                elif plan_op.action == "CONFLICT":
                     status = "CONFLICT"
-                elif plan_item.action == "SKIP":
+                elif plan_op.action == "SKIP":
                     status = "SKIP"
                 else:
-                    status = plan_item.action
-                target_path = plan_item.target_path
+                    status = plan_op.action
+                target_path = plan_op.target.path
             else:
                 status = "MISSING"
                 ext = FORMAT_EXTENSIONS.get(ag_cfg.config_format, ".md")
@@ -295,7 +311,10 @@ def _get_skills_list(aikito_dir: Path) -> list[str]:
         if isinstance(skills, list):
             return [str(s) for s in skills]
     except (tomllib.TOMLDecodeError, OSError) as exc:
-        print(f"[WARN] Failed to read {skills_toml_path}: {exc}", file=sys.stderr)
+        print(
+            f"[WARN] Failed to read global skills configuration: {exc}",
+            file=sys.stderr,
+        )
     return []
 
 
@@ -319,13 +338,59 @@ def collect_agent_status_rows(
     aikito_dir: Path, home: Path
 ) -> tuple[list[AgentStatusRow], int, int, int]:
     agents_dict = load_agents(aikito_dir, home)
-    global_instruction_source = aikito_dir / "global" / "AGENTS.md"
+    instruction_batch = build_global_instruction_batch(
+        aikito_dir, home, registry=AgentRegistry(agents_dict)
+    )
+    instruction_plan = plan_instructions(instruction_batch, home)
+
+    instruction_target_status: dict[Path, str] = {}
+    for op in instruction_plan.operations:
+        if op.action in ("NOOP", "SHARED_PATH"):
+            st = "OK"
+        elif op.action == "CREATE":
+            st = "MISSING"
+        elif op.action == "CONFLICT":
+            st = "CONFLICT"
+        elif op.action == "SKIP":
+            st = "SKIP"
+        elif op.action == "UNLINK":
+            st = "DRIFT"
+        else:
+            st = op.action
+        instruction_target_status[op.target_path] = st
+
     global_skills = _get_skills_list(aikito_dir)
     total_global_skills = len(global_skills)
 
+    global_skill_batch = build_global_skill_batch(
+        aikito_dir,
+        home,
+        skills=global_skills,
+        registry=AgentRegistry(agents_dict),
+        container_path=home / ".agents" / "skills",
+    )
+    global_skill_plan = plan_global_skills(global_skill_batch, home, dry_run=True)
+
+    agent_issues = 0
+
     # Pre-fetch MCP specs and Subagent plan items
-    mcp_specs = load_agent_specs(aikito_dir, home)
-    subagent_plan, subagent_configs = build_plan(aikito_dir, home, allow_empty=True)
+    try:
+        mcp_specs = load_agent_specs(aikito_dir, home)
+        mcp_plan = build_mcp_plan(aikito_dir, home=home, specs=mcp_specs)
+    except Exception:
+        mcp_specs = []
+        mcp_plan = None
+        agent_issues += 1
+
+    try:
+        subagent_plan = build_subagent_plan(aikito_dir, home, allow_empty=True)
+        subagent_ops = subagent_plan.operations
+        subagent_configs = dict(subagent_plan.agent_configs)
+    except SubagentConfigError:
+        subagent_plan = None
+        subagent_ops = ()
+        subagent_configs = {}
+        agent_issues += 1
 
     # Unique enabled MCP servers
     enabled_mcp_servers = set(spec.server for spec in mcp_specs if spec.enabled)
@@ -333,51 +398,70 @@ def collect_agent_status_rows(
 
     # Unique active subagents
     active_subagents = set(
-        item.subagent_name for item in subagent_plan if item.action != "SKIP"
+        op.target.logical_identity for op in subagent_ops if op.action != "SKIP"
     )
     total_subagents_count = len(active_subagents)
 
     rows: list[AgentStatusRow] = []
-    agent_issues = 0
 
     for name, definition in agents_dict.items():
         # 1. Instructions Status
         instructions_status = "SKIP"
         if definition.instruction_path is not None:
-            target = definition.instruction_path
-            if not target.parent.exists():
-                instructions_status = "SKIP"
-            else:
-                verdict = classify_symlink(target, global_instruction_source)
-                instructions_status = symlink_verdict_to_status(verdict)
-                if instructions_status != "OK":
-                    agent_issues += 1
+            instructions_status = instruction_target_status.get(
+                definition.instruction_path, "SKIP"
+            )
+            if instructions_status not in ("OK", "SKIP"):
+                agent_issues += 1
 
         # 2. Skills Status
         skills_status = "SKIP"
         if definition.skills_path is not None:
-            skills_dir = definition.skills_path
-            if not skills_dir.parent.exists():
+            consumer_op = next(
+                (
+                    op
+                    for op in global_skill_plan.consumer_ops
+                    if op.target_path == definition.skills_path
+                ),
+                None,
+            )
+            if consumer_op is None or consumer_op.action == "SKIP":
                 skills_status = "SKIP"
-            elif not skills_dir.exists() and not skills_dir.is_symlink():
+            elif consumer_op.action == "CREATE":
                 skills_status = "MISSING"
                 agent_issues += 1
+            elif consumer_op.action == "CONFLICT":
+                skills_status = (
+                    f"CONFLICT (0/{total_global_skills})"
+                    if total_global_skills > 0
+                    else "CONFLICT"
+                )
+                agent_issues += 1
             else:
-                ok_skills = 0
-                for skill_name in global_skills:
-                    skill_target = skills_dir / skill_name
-                    expected_source = aikito_dir / "skills" / skill_name
-                    verdict = classify_symlink(skill_target, expected_source)
-                    if verdict == SymlinkVerdict.OK:
-                        ok_skills += 1
-
-                if ok_skills == total_global_skills and total_global_skills > 0:
-                    skills_status = f"OK ({total_global_skills})"
-                elif total_global_skills > 0:
-                    skills_status = f"CONFLICT ({ok_skills}/{total_global_skills})"
+                # Consumer link is OK (NOOP or SHARED_PATH). Now check container & managed entries.
+                if global_skill_plan.container_op.action == "CONFLICT":
+                    skills_status = (
+                        f"CONFLICT (0/{total_global_skills})"
+                        if total_global_skills > 0
+                        else "CONFLICT"
+                    )
+                    agent_issues += 1
+                elif global_skill_plan.container_op.action == "CREATE":
+                    skills_status = "MISSING"
                     agent_issues += 1
                 else:
-                    skills_status = "OK (0)"
+                    ok_skills = sum(
+                        1
+                        for op in global_skill_plan.entry_ops
+                        if op.desired_representation == "link" and op.action == "NOOP"
+                    )
+                    if ok_skills == total_global_skills and total_global_skills > 0:
+                        skills_status = f"OK ({total_global_skills})"
+                    elif total_global_skills > 0:
+                        skills_status = f"CONFLICT ({ok_skills}/{total_global_skills})"
+                        agent_issues += 1
+                    else:
+                        skills_status = "OK (0)"
 
         # 3. MCP Status
         mcp_status = "SKIP"
@@ -394,12 +478,12 @@ def collect_agent_status_rows(
                 has_error = False
 
                 for spec in agent_mcp_specs:
-                    st = evaluate_spec_status(spec)
+                    st = evaluate_spec_status(spec, home=home, plan=mcp_plan)
                     if st == "OK":
                         ok_mcp += 1
                     elif st == "SKIP":
                         skip_mcp += 1
-                    elif st == "DRIFT":
+                    elif st in ("DRIFT", "UPDATE"):
                         has_drift = True
                     elif st == "MISSING":
                         has_missing = True
@@ -425,13 +509,15 @@ def collect_agent_status_rows(
 
         # 4. Subagent Status
         subagent_status = "SKIP"
-        agent_subagent_items = [
-            i for i in subagent_plan if i.agent_name in (name, definition.display_name)
+        agent_subagent_ops = [
+            op
+            for op in subagent_ops
+            if op.target.agent in (name, definition.display_name)
         ]
-        active_items = [i for i in agent_subagent_items if i.action != "SKIP"]
-        if active_items:
+        active_ops = [op for op in agent_subagent_ops if op.action != "SKIP"]
+        if active_ops:
             subagent_status = _summarize_subagent_status(
-                [item.action for item in active_items]
+                ["OK" if op.action == "NOOP" else op.action for op in active_ops]
             )
             if not subagent_status.startswith("OK"):
                 agent_issues += 1
@@ -487,7 +573,7 @@ def collect_memory_status_rows(
 
     rows.append(
         MemoryStatusRow(
-            name="Global Memory",
+            name="Global",
             scope="Global",
             status=global_status,
             notes_count=global_notes_count,
@@ -521,7 +607,7 @@ def collect_memory_status_rows(
                         binding = resolve_project_binding(toml_data, Path.home())
                     except (tomllib.TOMLDecodeError, OSError) as exc:
                         print(
-                            f"[WARN] Failed to read {agent_toml}: {exc}",
+                            f"[WARN] Failed to read configuration for project '{proj_folder.name}': {exc}",
                             file=sys.stderr,
                         )
                         binding = None
@@ -529,17 +615,27 @@ def collect_memory_status_rows(
                     if binding and binding.active_entries:
                         active_statuses = []
                         for entry in binding.active_entries:
-                            proj_agents_mem = entry.resolved_path / ".agents" / "memory"
-                            if proj_agents_mem.is_symlink():
-                                active_statuses.append("OK")
-                            elif proj_agents_mem.is_dir():
-                                notes_link = proj_agents_mem / "notes"
-                                if notes_link.is_symlink():
-                                    active_statuses.append("OK")
-                                else:
-                                    active_statuses.append("CONFLICT")
-                            else:
+                            mem_batch = build_project_memory_batch(
+                                aikito_dir,
+                                proj_folder.name,
+                                toml_data,
+                                active_checkouts=[entry.resolved_path],
+                            )
+                            mem_plan = plan_project_memory(mem_batch)
+                            entry_statuses = []
+                            for op in mem_plan.operations:
+                                if op.action in ("NOOP", "SHARED_PATH"):
+                                    entry_statuses.append("OK")
+                                elif op.action == "CREATE":
+                                    entry_statuses.append("MISSING")
+                                elif op.action in ("UNLINK", "CONFLICT"):
+                                    entry_statuses.append("CONFLICT")
+                            if "CONFLICT" in entry_statuses:
+                                active_statuses.append("CONFLICT")
+                            elif "MISSING" in entry_statuses:
                                 active_statuses.append("MISSING")
+                            else:
+                                active_statuses.append("OK")
                         if "CONFLICT" in active_statuses:
                             p_link_status = "CONFLICT"
                             mem_issues += 1
@@ -596,7 +692,12 @@ def collect_mcp_matrix(
     aikito_dir: Path, home: Path, live: bool = False
 ) -> tuple[list[MCPServerRow], list[str]]:
     agents_dict = load_agents(aikito_dir, home)
-    specs = load_agent_specs(aikito_dir, home)
+    try:
+        specs = load_agent_specs(aikito_dir, home)
+        mcp_plan = build_mcp_plan(aikito_dir, home=home, specs=specs)
+    except Exception:
+        specs = []
+        mcp_plan = None
     agent_names = [a.display_name for a in agents_dict.values()]
     agent_key_to_display = {k: v.display_name for k, v in agents_dict.items()}
 
@@ -609,7 +710,7 @@ def collect_mcp_matrix(
             servers[srv_name] = {}
 
         if spec.agent in agents_dict:
-            st = evaluate_spec_status(spec)
+            st = evaluate_spec_status(spec, home=home, plan=mcp_plan)
         else:
             st = "SKIP"
 
@@ -651,21 +752,27 @@ def collect_mcp_matrix(
 def collect_subagents_matrix(
     aikito_dir: Path, home: Path
 ) -> tuple[list[SubagentRow], list[OrphanSubagentFile], list[str]]:
-    plan_items, _ = build_plan(aikito_dir=aikito_dir, home=home, allow_empty=True)
+    try:
+        subagent_plan = build_subagent_plan(
+            aikito_dir=aikito_dir, home=home, allow_empty=True
+        )
+        plan_ops = subagent_plan.operations
+    except SubagentConfigError:
+        plan_ops = ()
     agents_dict = load_agents(aikito_dir, home)
     agent_names = [a.display_name for a in agents_dict.values()]
 
     subagents_map: dict[str, dict[str, str]] = {}
     orphan_files: list[OrphanSubagentFile] = []
 
-    for item in plan_items:
-        ag_def = agents_dict.get(item.agent_name)
-        ag_display = ag_def.display_name if ag_def else item.agent_name
+    for op in plan_ops:
+        ag_def = agents_dict.get(op.target.agent)
+        ag_display = ag_def.display_name if ag_def else op.target.agent
 
-        if item.action == "ORPHAN":
-            rel_path = str(item.target_path)
+        if op.action in ("ORPHAN", "REMOVE"):
+            rel_path = str(op.target.path)
             try:
-                rel_path = f"~/{item.target_path.relative_to(home)}"
+                rel_path = f"~/{op.target.path.relative_to(home)}"
             except ValueError:
                 pass
             orphan_files.append(
@@ -673,20 +780,20 @@ def collect_subagents_matrix(
             )
             continue
 
-        if item.subagent_name == "*":
+        if op.target.logical_identity == "*":
             continue
 
-        sub_name = item.subagent_name
+        sub_name = op.target.logical_identity
         if sub_name not in subagents_map:
             subagents_map[sub_name] = {}
 
-        if item.action in ("CREATE", "UPDATE", "FORCE UPDATE"):
+        if op.action in ("CREATE", "UPDATE"):
             subagents_map[sub_name][ag_display] = "MISSING"
-        elif item.action == "CONFLICT":
+        elif op.action == "CONFLICT":
             subagents_map[sub_name][ag_display] = "CONFLICT"
-        elif item.action == "OK":
+        elif op.action in ("OK", "NOOP"):
             subagents_map[sub_name][ag_display] = "OK"
-        elif item.action == "SKIP":
+        elif op.action == "SKIP":
             subagents_map[sub_name][ag_display] = "SKIP"
 
     for sub_name, st_dict in subagents_map.items():
@@ -773,14 +880,19 @@ def _parse_skill_description(skill_dir: Path) -> str:
         return "-"
     try:
         content = skill_md.read_text(encoding="utf-8", errors="ignore")
-        if content.startswith("---"):
-            parts = content.split("---", 2)
-            if len(parts) >= 3:
-                frontmatter = parts[1]
-                for line in frontmatter.splitlines():
-                    if line.startswith("description:"):
-                        desc = line.split("description:", 1)[1].strip()
-                        return desc
+        lines = content.lstrip("\ufeff").splitlines()
+        if (
+            lines
+            and lines[0].rstrip() == "---"
+            and not lines[0].startswith((" ", "\t"))
+        ):
+            for line in lines[1:]:
+                line_stripped = line.rstrip()
+                if line_stripped == "---" and not line.startswith((" ", "\t")):
+                    break
+                if line.strip().startswith("description:"):
+                    desc = line.strip().split("description:", 1)[1].strip().strip("\"'")
+                    return desc
     except Exception:
         pass
     return "-"
@@ -806,7 +918,7 @@ def collect_skills_rows(aikito_dir: Path) -> list[SkillRow]:
                                 )
                     except (tomllib.TOMLDecodeError, OSError) as exc:
                         print(
-                            f"[WARN] Failed to read {agent_toml}: {exc}",
+                            f"[WARN] Failed to read configuration for project '{proj_folder.name}': {exc}",
                             file=sys.stderr,
                         )
 

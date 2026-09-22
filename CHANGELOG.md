@@ -7,6 +7,205 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.49.0] - 2026-09-22
+
+### Added
+
+- Migrated workspace synchronization coordination and adoption engines to the structured application and coordination model (Core Model Phase 8), introducing `WorkspaceSyncPlan`, `WorkspaceSyncRequest`, `WorkspaceSyncExecutionResult`, `GlobalSyncPlan`, `BundledSkillRefreshPlan`, `AdoptRequest`, `AdoptPlan`, `AdoptFilePlan`, and `AdoptExecutionResult`.
+- Formalized application architecture invariants `INV-APP-01` through `INV-APP-09`, adoption engine invariants `INV-ADOPT-01` through `INV-ADOPT-08`, and public API invariants `INV-API-08` through `INV-API-11`.
+- Formal public Python API facade: Introduced strictly read-only `Workspace.load()`, `Workspace.inspect()`, and `Workspace.plan_sync()` with frozen models `WorkspaceInspection`, `WorkspaceSyncPreview`, and exception hierarchy `WorkspaceError`, `WorkspaceNotFoundError`, and `InvalidWorkspaceError`.
+- Structured Adoption Engine: Adoption plans now evaluate explicit `AdoptFilePlan` entries with pre-image validation and zero-write guarantees against stale target or source files (`INV-ADOPT-04`, `INV-ADOPT-06`), structured backup reporting (`INV-ADOPT-05`, `INV-ADOPT-08`), and purely functional summary evaluation.
+- Multi-Resource Workspace Coordinator: Unified `aikito sync` orchestration via `build_workspace_sync_plan` and `execute_workspace_sync_plan`, executing bundled skills refresh, global instructions, global skills, subagents, MCP servers, and project checkouts through a single coherent coordinator (`INV-APP-01`, `INV-APP-02`).
+- Presentation Stream Independence: Completely eliminated stdout marker parsing (`_CHANGE_MARKERS`, `_WARNING_MARKERS`, etc.) for synchronization decisions; all plan decisions and dry-run summaries derive directly from structured plan properties (`INV-APP-03`).
+- Unified Read-only Web Console: Connected Web Console inspection endpoints to shared application views and unified sensitive credential desensitization to `<redacted>` across console endpoints, Doctor diagnostics, and plan previews (`INV-APP-08`, `INV-APP-09`).
+
+### Changed
+
+- Retired legacy Subagent compatibility view (`PlanItem`, `build_plan()`) in `subagent.py`; aligned `doctor.py`, `diff.py`, and status matrix to evaluate subagents directly through structured `SubagentPlan`.
+- Completed and archived Core Model Migration Inventory (`docs/architecture/archive/core-model-migration.md`) marking all planned subsystems as migrated.
+
+
+## [1.48.0] - 2026-09-21
+
+### Added
+
+- Migrated subagent configuration and MCP server configuration engines to the structured configuration model (Core Model Phase 7), introducing `SubagentPlan`, `SubagentFilePlan`, `SubagentExecutionResult`, `MCPPlan`, `MCPFilePlan`, and `MCPExecutionResult`.
+- Formalized structured configuration invariants `INV-CFG-01` through `INV-CFG-05`, subagent invariants `INV-SUB-01` through `INV-SUB-06`, and MCP invariants `INV-MCP-01` through `INV-MCP-08`.
+- Multi-resource same-file aggregation: Multiple subagents in DSH `cordis.patch.yml` and multiple MCP servers in shared agent configuration files (e.g. `~/.claude.json`, `.config/opencode/opencode.jsonc`, `~/.codex/config.toml`) are chained and merged in-memory from a single pre-image and written exactly once, eliminating overwrites and race conditions.
+- Stale plan detection: Runtime configuration file or state store modifications between preview/planning and execution halt execution without mutating files or state (`INV-CFG-04`, `INV-MCP-04`).
+- Scoped subagent `--force`: `--force <agent>/<subagent>` authorizes overwriting only the specific targeted subagent file or block rather than granting broad file-level overwrite permissions (`INV-SUB-02`).
+- Prune safety: `aikito sync subagents --prune` strictly prunes only subagent definitions containing an Aikito ownership marker, preserving unmanaged agent definitions (`INV-SUB-03`).
+- MCP Desired Absent removal: `aikito rm mcp <name> --sync` operates via the unified MCP Planner and Executor (`Desired Absent`), reusing transactional file aggregation, backup, and state commit consistency (`INV-MCP-07`).
+- Display redaction: Sensitive credential tokens and headers are redacted across all MCP plan previews, table displays, error outputs, and structured views (`INV-MCP-05`).
+- Rollback and recovery assurance: If an error occurs during runtime file rollback or state recovery, backup files are strictly preserved and `recovery_required=True` provides clear manual recovery steps (`INV-MCP-08`).
+
+### Changed
+
+- Retired direct per-item write loops in `subagent.py` and `mcp.py` in favor of structured transactional executors (`execute_subagent_plan`, `execute_mcp_plan`).
+- Subagent availability checks in `subagent.py` now reuse the canonical registry from `agents.py` rather than importing from `mcp.py`.
+- Unified status, diff, and Doctor to evaluate subagent and MCP configuration state through unified inspection and plans.
+
+## [1.47.0] - 2026-09-21
+
+### Added
+
+- Migrated project memory runtime visibility (`.agents/memory/` links for workspace memory references and project `notes/`) to the unified Target → Inspect → Plan → Execute model (Core Model Phase 6), introducing `MemoryResource`, `MemoryBatch`, `MemoryPlan`, and `MemoryExecutionResult`.
+- Formalized project memory engineering invariants `INV-MEM-01` through `INV-MEM-12` covering pure link-only semantics, canonical notes source precedence, exact canonical ownership, conflict preservation of unmanaged files and external symlinks, and segmented execution results.
+- Added structured memory execution results to `ProjectSyncExecutionResult.memory_result`, fully isolating memory synchronization outcomes from skills and instructions.
+- Unified project diagnostics, project summary, status rows, and `Project.prepare()` to evaluate memory link status through `MemoryPlan`, eliminating diverging symlink status heuristics.
+
+### Changed
+
+- Retired and deleted legacy synchronization primitives `sync_resource()` and `apply_runtime_cleanup()`, routing all project memory filesystem modifications through the unified link executor.
+- Deleted `LegacySyncResult` dataclass and removed `legacy_results` from `ProjectSyncExecutionResult`.
+- Deleted obsolete preflight helpers `_ProjectSyncInputs`, `_resolve_project_sync_inputs()`, and `collect_project_prepare_errors()` from `project_runtime.py`.
+- Replaced unconditional overwrite of unmanaged files/directories at memory target paths with safe `CONFLICT` preservation (`INV-MEM-07`).
+
+### Fixed
+
+- Validated state store root directory and raised actionable errors on validation failure during `SkillWriterLock.acquire()`.
+- Hardened multi-threaded skill writer lock serialization tests against thread scheduling latency and ensured guaranteed thread cleanup.
+
+## [1.46.0] - 2026-09-21
+
+### Added
+
+- Unified global and project instruction synchronization under the Target → Inspect → Plan → Execute architecture (Core Model Phase 5), introducing `InstructionBatch`, `InstructionPlan`, and `InstructionExecutionResult`.
+- Formalized instruction engineering invariants `INV-INST-01` through `INV-INST-15` covering pure link-only semantics, exact canonical ownership, same-object non-management, multi-agent consumer deduplication, empty canonical cleanup, and segmented execution results.
+- Added multi-agent instruction target deduplication via `resolve_targets("global_instructions")` and `resolve_targets("project_instructions")`, collapsing shared agent instruction targets (such as `AGENTS.md`) into a single physical link operation while preserving consumer tracking.
+- Added structured instruction execution results to `GlobalSyncResult.instruction_result` and `ProjectSyncExecutionResult.instruction_result`, isolating instruction failures from skills and memory.
+- Unified Doctor, status, project summary, and `Project.prepare()` to rely on a single canonical instruction inspection and planning layer, removing duplicate symlink classification paths.
+
+### Changed
+
+- Replaced and removed ad-hoc `sync_global_entry()` and `sync_project_instruction()` in favor of atomic link operations (`LinkOperation`).
+- Empty project canonical `AGENTS.md` safely removes only exact owned symlinks, strictly preserving project-owned regular files and unmanaged symlinks.
+- Legacy Grok instruction paths and `.agents/AGENTS.md` cleanup are fully integrated into `InstructionPlan` and require exact canonical ownership proof.
+
+## [1.45.0] - 2026-09-21
+
+### Added
+
+- Migrated global skills to the unified Target → Inspect → Plan → Execute model (Core Model Phase 4), introducing `GlobalSkillBatch`, three-tier planning (managed container `~/.agents/skills`, managed entries, and consumer links), and `GlobalSkillExecutionResult`.
+- Formalized global skill invariants `INV-GLB-01` through `INV-GLB-09` covering canonical ownership, link-only baseline avoidance, non-destructive container management, matching directory conflict preservation, cross-workspace isolation, and execution segmentation.
+- Serialized bundled skills refresh and global skill link application under a single outer `SkillWriterLock`, verifying canonical refresh completion before mutating runtime links.
+- Unified Doctor and status global skill health reporting to consume `GlobalSkillBatchPlan`, guaranteeing identical target, conflict, and NOOP evaluations across read-only and mutating commands.
+- Upgraded global skill idempotency assertions across repeat synchronizations to guarantee zero-write preservation of symlink inodes, `mtime_ns`, and targets.
+
+### Changed
+
+- Retired `sync_resource()` and `sync_global_entry()` invocations from global skills management, routing all destructive filesystem operations through the unified link executor (`apply_link_operation`).
+- Transitioned unexpected or external consumer symlinks from destructive silent relinking to explicit conflicts (`INV-GLB-05`).
+
+## [1.44.2] - 2026-09-20
+
+### Added
+
+- Added automated GitHub Actions release workflow (`release.yml`) orchestrating release gate validation, atomic tagging, GitHub release notes extraction, PyPI publishing, and downstream Homebrew tap dispatch.
+- Added `workflow_call` support to `publish-pypi.yml` for reusable CD pipeline execution.
+
+## [1.44.1] - 2026-09-20
+
+### Added
+
+- Extracted clean, read-only `Agent`, `AgentRegistry`, and `AgentAvailability` models into `aikito.agents`, eliminating ad-hoc fallback heuristics across synchronization and diagnostics.
+- Introduced `Target` model with `is_same_object` evaluation and deduplication in `resolve_targets()`, collapsing 8 bundled agent consumers into 3 physical filesystem operations.
+- Partitioned batch project synchronization execution results into isolated segments (`ProjectSyncExecutionResult`), preserving committed skill synchronization results against downstream legacy failures.
+- Cataloged engineering invariant rule groups for selection transactions (`INV-TX-01..04`), transaction journals (`INV-PEND-01..03`), recovery passes (`INV-REC-01..04`), writer locks (`INV-LOCK-01..03`), segmented execution results (`INV-RES-01..02`), and global binding identity (`INV-BIND-01..03`).
+
+### Changed
+
+- Tightened symlink ownership verification to exact canonical targets (`canonical_root / name`), preserving cross-skill and cross-resource links upon deselection.
+- Converged `classify_project_skill_state()` to a thin read-only wrapper around `inspect_skill_target()` and `plan_single_skill()`, eliminating redundant heuristic state classification.
+- Held `SkillWriterLock` during bundled skill and init template refreshes, preventing race conditions with concurrent operations.
+- Aligned synchronization output and diagnostic reports to distinguish logical resource counts, agent consumers, and physical target operations.
+- Made `SkillWriterLock` thread-aware and kept composite `add skill --sync` workflows under one outer writer lock.
+- Deduplicated Agent targets by physical filesystem identity, including symlink aliases and case-insensitive paths, and unified Doctor target inspection with synchronization.
+
+## [1.44.0] - 2026-09-19
+
+### Added
+
+- Implemented project skill synchronization engine supporting both symlink (`link`) and directory snapshot (`copy`) deployment modes.
+- Introduced transactional skill state management with atomic staging, generation tracking, compare-and-swap (CAS) verification, and crash recovery journals.
+- Added platform-specific path compatibility and atomic replacement primitives across macOS, Linux, and Windows.
+- Expanded CI test matrix with cross-platform smoke test assertions for project skill synchronization.
+
+### Changed
+
+- Integrated project skill synchronization into `aikito sync`, `aikito add skill`, and `aikito rm skill` workflows.
+- Formalized skill synchronization and transactional state invariants in core model architecture documentation.
+
+## [1.43.0] - 2026-09-18
+
+### Added
+
+- Supported external MCP server configuration ingestion via `aikito add mcp [name] --from <path>`, with automatic format detection across JSON, TOML, and YAML formats.
+- Added `--sync` flag to `aikito add mcp` for immediate runtime agent configuration deployment upon server creation.
+- Added `--force` flag to `aikito add mcp` to safely overwrite and update existing canonical MCP server definitions.
+- Enabled Mermaid diagram rendering support in documentation.
+
+### Changed
+
+- Hardened `aikito add mcp` transactional safety with atomic state promotion, automatic rollback on write or state failure, and empty file preservation.
+- Sequentially chained configuration updates when adding multiple MCP servers to shared agent configurations to prevent overwrite conflicts.
+- Refined URL credential and sensitive attribute detection to avoid false positives on non-credential fields while strictly sanitizing credentials and suppressing sensitive file backups.
+- Excluded agent JSON configs (`agy_json`, `claude_json`) from whole-file backups to prevent leaking credentials.
+- Standardized global memory scope naming to `Global` in status output and documentation.
+
+## [1.42.0] - 2026-09-18
+
+### Added
+
+- Enhanced `aikito add subagent` to support external ingestion with `--from <path>`, automatic frontmatter parsing (name, description, platform options), `--sync` for immediate agent runtime deployment, and `--force` for transactional snapshot overwrites.
+- Added `aikito rm subagent <name> [--sync]` command to safely remove canonical subagents, unregister them from workspace configuration, and optionally prune rendered definitions across configured Agent runtimes.
+- Added `aikito rm mcp <name> [--sync] [--force]` command to safely remove canonical MCP server configurations (`mcps/<name>.toml`) and optionally unregister the server from target Agent configurations with fingerprint conflict protection.
+- Added shell completion support for `aikito rm subagent` and `aikito rm mcp` across Bash, Zsh, Fish, and PowerShell.
+
+## [1.41.0] - 2026-09-17
+
+### Added
+
+- Added `aikito rm skill [name]` command to remove skill definitions and unregister them from workspace configuration or specific projects (`--project p1,p2`).
+- Supported updating and refreshing existing imported skills from external directories or markdown sources using `aikito add skill --from <path> --force`.
+- Protected bundled system skills (`aikito`, `durable-memory`) from accidental deletion or overwriting.
+- Added shell completion support for `aikito rm skill` across Bash, Zsh, Fish, and PowerShell.
+
+### Changed
+
+- Aligned CLI output messaging, error hints, and terminology with product standards across `add`, `remove`, `status`, and project runtime commands.
+
+## [1.40.0] - 2026-09-17
+
+### Added
+
+- Added CLI update checking to `aikito version` with `--check` (`-c`), `--force`, and `--json` flags to check for upstream releases and output structured version metadata.
+- Added lightweight, non-blocking background update notifications with a 24-hour local cache.
+- Supported configuring or suppressing update checks via `[update] check = false` in workspace `config.toml` or `AIKITO_NO_UPDATE_NOTIFIER` / `NO_UPDATE_NOTIFIER` environment variables.
+
+## [1.39.0] - 2026-09-17
+
+### Added
+
+- Supported importing external skill directories or markdown files via `aikito add skill [name] --from <path>`, with automatic name and description inference from YAML frontmatter.
+- Supported distributing skills across multiple projects using comma-separated project names (`--project p1,p2`) and optional immediate synchronization (`--sync`).
+- Supported synchronizing multiple projects in a single invocation via comma-separated project names in `aikito sync project`.
+
+### Fixed
+
+- Robustly parsed markdown YAML frontmatter across BOM markers, multi-line values, and horizontal rule separators in skill and agent documentation.
+
+## [1.38.0] - 2026-09-17
+
+### Added
+
+- Supported `builtin_mcps` in agent MCP configurations, allowing `aikito adopt` to safely skip agent-bundled MCP servers unless shared across multiple agents.
+
+### Fixed
+
+- Canonicalized hyphen and underscore naming variants for MCP servers during `aikito adopt` to prevent duplicate or conflicting configurations across agents.
+- Compared MCP server configurations by target URL in `aikito adopt` to accurately detect existing server definitions and avoid redundant imports.
+
 ## [1.37.0] - 2026-09-16
 
 ### Changed
@@ -689,7 +888,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.37.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.49.0...HEAD
+[1.49.0]: https://github.com/lsaint/aikito/compare/v1.48.0...v1.49.0
+[1.48.0]: https://github.com/lsaint/aikito/compare/v1.47.0...v1.48.0
+[1.47.0]: https://github.com/lsaint/aikito/compare/v1.46.0...v1.47.0
+[1.46.0]: https://github.com/lsaint/aikito/compare/v1.45.0...v1.46.0
+[1.45.0]: https://github.com/lsaint/aikito/compare/v1.44.2...v1.45.0
+[1.44.2]: https://github.com/lsaint/aikito/compare/v1.44.1...v1.44.2
+[1.44.1]: https://github.com/lsaint/aikito/compare/v1.44.0...v1.44.1
+[1.44.0]: https://github.com/lsaint/aikito/compare/v1.43.0...v1.44.0
+[1.43.0]: https://github.com/lsaint/aikito/compare/v1.42.0...v1.43.0
+[1.42.0]: https://github.com/lsaint/aikito/compare/v1.41.0...v1.42.0
+[1.41.0]: https://github.com/lsaint/aikito/compare/v1.40.0...v1.41.0
+[1.40.0]: https://github.com/lsaint/aikito/compare/v1.39.0...v1.40.0
+[1.39.0]: https://github.com/lsaint/aikito/compare/v1.38.0...v1.39.0
+[1.38.0]: https://github.com/lsaint/aikito/compare/v1.37.0...v1.38.0
 [1.37.0]: https://github.com/lsaint/aikito/compare/v1.36.1...v1.37.0
 [1.36.1]: https://github.com/lsaint/aikito/compare/v1.36.0...v1.36.1
 [1.36.0]: https://github.com/lsaint/aikito/compare/v1.35.0...v1.36.0

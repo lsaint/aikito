@@ -30,7 +30,7 @@ For a cloned workspace on another machine, follow
 Adopt the configuration those Agents already use:
 
 ```bash
-aikito adopt
+aikito adopt  # use --dry-run to preview, --verbose for full paths
 ```
 
 Adoption validates every detected resource before creating a backup or writing.
@@ -39,6 +39,8 @@ but leaves the original Agent configuration unchanged. If sources disagree or a
 resource is invalid, the entire operation stops and reports the source, reason,
 and available action. Repair resources you want to keep; use the displayed
 resource-level `--skip` only when you intentionally do not want to adopt one.
+Agent-native default servers configured in `agents.toml` under `builtin_mcps`
+(such as `openaiDeveloperDocs` for Codex) are automatically excluded from adoption.
 
 Existing skill directories are not imported automatically. After this onboarding
 flow, review them separately, use `aikito add skill` to create a canonical

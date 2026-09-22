@@ -36,13 +36,23 @@ from .conflict import (
     find_conflict_marker_lines,
     has_any_conflict_markers as _has_conflict_markers,
 )
-from .diagnostics import Finding, FindingAction
-from .link import SymlinkVerdict, classify_symlink
-from .mcp import (
+from .agents import (
     AGENT_INSTALL_MARKERS,
+    AgentRegistry,
+    check_target_availability,
+)
+from .instructions import (
+    build_global_instruction_batch,
+    plan_instructions,
+)
+from .diagnostics import Finding, FindingAction
+from .global_skills import build_global_skill_batch, plan_global_skills
+from .link import classify_symlink  # noqa: F401
+from .mcp import (
     MCPConfigError,
     _load_document,
     _parse_jsonc,
+    build_mcp_plan,
     evaluate_spec_status,
     is_agent_installed,
     load_agent_specs,
@@ -62,7 +72,7 @@ from .render import DoctorFinding, DoctorReport, DoctorSection
 from .status import collect_subagents_matrix
 from .subagent import (
     SubagentConfigError,
-    build_plan,
+    build_subagent_plan,
     load_subagent_definitions,
     validate_platform_opts,
 )
@@ -151,64 +161,88 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
         findings.append(_fail(f"Cannot load agents.toml: {exc}"))
         return DoctorSection(name="Symlinks", findings=findings)
 
-    global_instruction_source = aikito_dir / "global" / "AGENTS.md"
     agents_skills_dir = home / ".agents" / "skills"
 
-    # 1a. Per-agent instruction symlinks
+    registry = AgentRegistry(agents)
+
+    # 1a. Per-target instruction symlinks
+    instruction_batch = build_global_instruction_batch(
+        aikito_dir, home, registry=registry
+    )
+    instruction_plan = plan_instructions(instruction_batch, home)
+
     inst_fail_count = 0
     instr_total = 0
-    for definition in agents.values():
-        if definition.instruction_path is None:
-            continue
-        target = definition.instruction_path
-        if not target.parent.exists():
-            continue  # agent not installed — not a symlink issue
-        instr_total += 1
-        verdict = classify_symlink(target, global_instruction_source)
-        display = _home_rel(target, home)
-        if verdict == SymlinkVerdict.OK:
-            pass
+    instr_target_total = 0
 
-        elif verdict == SymlinkVerdict.DANGLING:
-            inst_fail_count += 1
+    formal_target_paths = {
+        t.path.resolve(strict=False): t for t in instruction_batch.targets
+    }
+
+    for target in instruction_batch.targets:
+        avail = check_target_availability(target, home)
+        if not avail.is_installed:
+            continue
+        instr_total += len(target.consumers)
+        instr_target_total += 1
+
+    for op in instruction_plan.operations:
+        resolved_op_path = op.target_path.resolve(strict=False)
+        if resolved_op_path not in formal_target_paths:
+            continue
+        target = formal_target_paths[resolved_op_path]
+        avail = check_target_availability(target, home)
+        if not avail.is_installed:
+            continue
+        if op.action in ("NOOP", "SHARED_PATH", "SKIP"):
+            continue
+
+        display = _home_rel(op.target_path, home)
+        display_name = op.resource_name
+        inst_fail_count += 1
+
+        if op.action == "CREATE":
             findings.append(
                 _fail(
-                    f"{definition.display_name}: dangling symlink ({display})",
+                    f"{display_name}: missing ({display})",
                     "aikito sync global",
                 )
             )
-        elif verdict == SymlinkVerdict.WRONG_TARGET:
-            inst_fail_count += 1
-            findings.append(
-                _fail(
-                    f"{definition.display_name}: points elsewhere ({display})",
-                    "aikito sync global",
+        elif op.action == "CONFLICT":
+            if op.expected_representation == "symlink":
+                if op.target_path.is_symlink() and not op.target_path.exists():
+                    findings.append(
+                        _fail(
+                            f"{display_name}: dangling symlink ({display})",
+                            "aikito sync global",
+                        )
+                    )
+                else:
+                    findings.append(
+                        _fail(
+                            f"{display_name}: points elsewhere ({display})",
+                            "aikito sync global",
+                        )
+                    )
+            else:
+                findings.append(
+                    _fail(
+                        f"{display_name}: not a symlink ({display})",
+                        "aikito sync global",
+                    )
                 )
-            )
-        elif verdict == SymlinkVerdict.NOT_SYMLINK:
-            inst_fail_count += 1
-            findings.append(
-                _fail(
-                    f"{definition.display_name}: not a symlink ({display})",
-                    "aikito sync global",
-                )
-            )
-        elif verdict == SymlinkVerdict.MISSING:
-            inst_fail_count += 1
-            findings.append(
-                _fail(
-                    f"{definition.display_name}: missing ({display})",
-                    "aikito sync global",
-                )
-            )
 
     if instr_total > 0 and inst_fail_count == 0:
-        findings.append(_ok(f"Global instructions OK ({instr_total} agents)"))
+        findings.append(
+            _ok(
+                f"Global instructions OK ({instr_target_total} targets across "
+                f"{instr_total} agents)"
+            )
+        )
 
     # 1b. Check skills directories and entries
     skills_checked_count = 0
     skills_fail_count = 0
-    seen_skill_targets: set[Path] = set()
     skills_toml_path = aikito_dir / "skills.toml"
     global_skills: list[str] = []
     if skills_toml_path.exists():
@@ -219,78 +253,106 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
         except tomllib.TOMLDecodeError:
             pass
 
-    for definition in agents.values():
-        if definition.skills_path is None:
-            continue
-        skills_dir = definition.skills_path
-        if not skills_dir.parent.exists():
-            continue
-        for skill_name in global_skills:
-            skill_target = skills_dir / skill_name
-            if skill_target in seen_skill_targets:
-                continue
-            seen_skill_targets.add(skill_target)
-            expected = aikito_dir / "skills" / skill_name
-            verdict = classify_symlink(skill_target, expected)
-            display = _home_rel(skill_target, home)
-            skills_checked_count += 1
-            if verdict == SymlinkVerdict.OK:
-                pass
+    global_skill_batch = build_global_skill_batch(
+        aikito_dir,
+        home,
+        skills=global_skills,
+        registry=registry,
+        container_path=agents_skills_dir,
+    )
+    global_skill_plan = plan_global_skills(global_skill_batch, home, dry_run=True)
 
-            elif verdict == SymlinkVerdict.DANGLING:
-                skills_fail_count += 1
-                findings.append(
-                    _fail(
-                        f"{definition.display_name}/{skill_name}: dangling symlink ({display})",
-                        "aikito sync global",
-                    )
-                )
-            elif verdict == SymlinkVerdict.WRONG_TARGET:
-                skills_fail_count += 1
-                findings.append(
-                    _fail(
-                        f"{definition.display_name}/{skill_name}: points elsewhere ({display})",
-                        "aikito sync global",
-                    )
-                )
-            elif verdict == SymlinkVerdict.NOT_SYMLINK:
-                skills_fail_count += 1
-                findings.append(
-                    _fail(
-                        f"{definition.display_name}/{skill_name}: not a symlink ({display})",
-                        "aikito sync global",
-                    )
-                )
-            elif verdict == SymlinkVerdict.MISSING:
-                skills_fail_count += 1
-                findings.append(
-                    _fail(
-                        f"{definition.display_name}/{skill_name}: missing symlink ({display})",
-                        "aikito sync global",
-                    )
-                )
-
-    if global_skills and skills_fail_count == 0 and skills_checked_count > 0:
+    # 1. Managed container
+    cop = global_skill_plan.container_op
+    display_container = _home_rel(cop.target_path, home)
+    if cop.action == "CONFLICT":
+        skills_fail_count += 1
         findings.append(
-            _ok(
-                f"Global skills OK ({len(global_skills)} skills, "
-                f"{sum(1 for d in agents.values() if d.skills_path and d.skills_path.parent.exists())} agents)"
+            _fail(
+                f"Global skills container: {cop.reason} ({display_container})",
+                "aikito sync global",
+            )
+        )
+    elif cop.action == "CREATE":
+        skills_fail_count += 1
+        findings.append(
+            _fail(
+                f"Global skills container: missing directory ({display_container})",
+                "aikito sync global",
+            )
+        )
+    elif cop.action == "MIGRATE_CONTAINER":
+        findings.append(
+            _warn(
+                f"Global skills container: legacy symlink ({display_container})",
+                "aikito sync global",
             )
         )
 
-    # 1c. Global ~/.agents/skills/ aggregation directory entries
-    if agents_skills_dir.is_dir():
-        for item in sorted(agents_skills_dir.iterdir()):
-            if item.is_symlink():
-                try:
-                    item.resolve(strict=True)
-                except OSError:
-                    findings.append(
-                        _fail(
-                            f"~/.agents/skills/{item.name}: dangling symlink",
-                            "aikito sync global",
-                        )
+    # 2. Managed entries
+    for op in global_skill_plan.entry_ops:
+        if op.desired_representation == "link":
+            skills_checked_count += 1
+            display = _home_rel(op.target_path, home)
+            if op.action == "NOOP":
+                pass
+            elif op.action == "CREATE":
+                skills_fail_count += 1
+                findings.append(
+                    _fail(
+                        f"Global skill '{op.resource_name}': missing symlink ({display})",
+                        "aikito sync global",
                     )
+                )
+            elif op.action == "CONFLICT":
+                skills_fail_count += 1
+                findings.append(
+                    _fail(
+                        f"Global skill '{op.resource_name}': {op.reason} ({display})",
+                        "aikito sync global",
+                    )
+                )
+
+    # 3. Consumer links
+    for op in global_skill_plan.consumer_ops:
+        if op.action == "SHARED_PATH":
+            continue
+        if op.action == "SKIP":
+            continue
+        display = _home_rel(op.target_path, home)
+        skills_checked_count += 1
+        if op.action == "NOOP":
+            pass
+        elif op.action == "CREATE":
+            skills_fail_count += 1
+            findings.append(
+                _fail(
+                    f"{op.resource_name} skills: missing symlink ({display})",
+                    "aikito sync global",
+                )
+            )
+        elif op.action == "CONFLICT":
+            skills_fail_count += 1
+            findings.append(
+                _fail(
+                    f"{op.resource_name} skills: {op.reason} ({display})",
+                    "aikito sync global",
+                )
+            )
+
+    if global_skills and skills_fail_count == 0 and skills_checked_count > 0:
+        installed_targets = [
+            t
+            for t in global_skill_batch.consumers
+            if check_target_availability(t, home).is_installed
+        ]
+        total_installed_consumers = sum(len(t.consumers) for t in installed_targets)
+        findings.append(
+            _ok(
+                f"Global skills OK ({len(global_skills)} skills, "
+                f"{total_installed_consumers} agents)"
+            )
+        )
 
     # 1d. Project .agents/memory and .agents/skills symlinks
     projects_dir = aikito_dir / "projects"
@@ -408,18 +470,38 @@ def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
 
     agents_skills_dir = home / ".agents" / "skills"
     if agents_skills_dir.is_dir():
-        stale: list[str] = []
-        for item in sorted(agents_skills_dir.iterdir()):
-            if item.name not in global_skills:
-                stale.append(item.name)
-        if stale:
-            for name in stale:
-                findings.append(
-                    _fail(
-                        f"~/.agents/skills/{name}: not in skills.toml",
-                        "aikito sync global",
+        try:
+            agents_dict = load_agents(aikito_dir, home)
+            reg = AgentRegistry(agents_dict)
+        except Exception:
+            reg = None
+        s_batch = build_global_skill_batch(
+            aikito_dir,
+            home,
+            skills=sorted(global_skills),
+            registry=reg,
+            container_path=agents_skills_dir,
+        )
+        s_plan = plan_global_skills(s_batch, home, dry_run=True)
+        stale_ops = [
+            op for op in s_plan.entry_ops if op.desired_representation == "absent"
+        ]
+        if stale_ops:
+            for op in stale_ops:
+                if op.action == "CONFLICT":
+                    findings.append(
+                        _fail(
+                            f"~/.agents/skills/{op.resource_name}: unmanaged item: {op.reason}",
+                            "aikito sync global",
+                        )
                     )
-                )
+                else:
+                    findings.append(
+                        _fail(
+                            f"~/.agents/skills/{op.resource_name}: not in skills.toml",
+                            "aikito sync global",
+                        )
+                    )
         else:
             findings.append(_ok("No stale entries in ~/.agents/skills/"))
 
@@ -979,12 +1061,17 @@ def check_drift(aikito_dir: Path, home: Path) -> DoctorSection:
         findings.append(_fail(f"Cannot load MCP specs: {exc}"))
         return DoctorSection(name="Drift", findings=findings)
 
+    try:
+        plan = build_mcp_plan(aikito_dir, home, specs=specs)
+    except Exception:
+        plan = None
+
     drift_count = 0
     checked = 0
     for spec in specs:
         if not spec.enabled:
             continue
-        st = evaluate_spec_status(spec)
+        st = evaluate_spec_status(spec, home=home, plan=plan)
         if st == "SKIP":
             continue
         checked += 1
@@ -1003,10 +1090,18 @@ def check_drift(aikito_dir: Path, home: Path) -> DoctorSection:
             else:
                 findings.append(
                     _fail(
-                        f"{spec.agent} × {spec.server}: managed MCP config differs",
-                        "aikito sync mcp",
+                        f"{spec.agent} × {spec.server}: managed MCP config differs (unmanaged modification)",
+                        "aikito sync mcp --force",
                     )
                 )
+        elif st == "UPDATE":
+            drift_count += 1
+            findings.append(
+                _fail(
+                    f"{spec.agent} × {spec.server}: managed MCP config differs",
+                    "aikito sync mcp",
+                )
+            )
         elif st == "MISSING":
             if spec.missing_credential_env:
                 findings.append(
@@ -1036,48 +1131,56 @@ def check_drift(aikito_dir: Path, home: Path) -> DoctorSection:
         findings.append(_ok("No managed MCP entries to check"))
 
     try:
-        subagent_plan, _ = build_plan(aikito_dir, home, allow_empty=True)
+        subagent_plan = build_subagent_plan(aikito_dir, home, allow_empty=True)
     except SubagentConfigError as exc:
         findings.append(_fail(f"Cannot build subagent synchronization plan: {exc}"))
         return DoctorSection(name="Drift", findings=findings)
 
     subagent_checked = 0
     subagent_issues = 0
-    for item in subagent_plan:
-        if item.action in ("SKIP", "ORPHAN") or item.subagent_name == "*":
+    for op in subagent_plan.operations:
+        if op.action in ("SKIP", "ORPHAN"):
             continue
+        subagent_name = op.target.logical_identity
+        if subagent_name == "*":
+            continue
+
+        agent_name = op.target.agent
+        target_path = op.target.path
+        reason = op.reason
         subagent_checked += 1
-        target = _home_rel(item.target_path, home)
-        if item.action == "CREATE":
+        target = _home_rel(target_path, home) if target_path else ""
+        target_key = f"{agent_name}/{subagent_name}"
+        if op.action == "CREATE":
             subagent_issues += 1
             findings.append(
                 _fail(
-                    f"{item.agent_name}/{item.subagent_name}: managed subagent missing ({target})",
+                    f"{target_key}: managed subagent missing ({target})",
                     "aikito sync subagents",
                 )
             )
-        elif item.action in ("UPDATE", "FORCE UPDATE"):
+        elif op.action in ("UPDATE", "FORCE UPDATE"):
             subagent_issues += 1
             findings.append(
                 _fail(
-                    f"{item.agent_name}/{item.subagent_name}: managed subagent drift ({target})",
+                    f"{target_key}: managed subagent drift ({target})",
                     "aikito sync subagents",
                 )
             )
-        elif item.action == "CONFLICT":
+        elif op.action == "CONFLICT":
             subagent_issues += 1
             findings.append(
                 _fail(
-                    f"{item.agent_name}/{item.subagent_name}: unmanaged target conflict ({target})",
-                    f"aikito sync subagents --force {item.agent_name}/{item.subagent_name}",
+                    f"{target_key}: unmanaged target conflict ({target})",
+                    f"aikito sync subagents --force {target_key}",
                 )
             )
-        elif item.action == "ERROR":
+        elif op.action == "ERROR":
             subagent_issues += 1
             findings.append(
                 _fail(
-                    f"{item.agent_name}/{item.subagent_name}: {item.reason}",
-                    "Review subagents.toml and the target agent configuration",
+                    f"{target_key}: {reason}",
+                    f"Check subagents/{subagent_name}.md",
                 )
             )
 

@@ -1,0 +1,312 @@
+"""Characterization tests for Subagents and MCP configuration management in Aikito 1.47.0.
+
+Freezes baseline behavior: ownership markers, unmanaged conflict detection,
+explicit force authorization, orphan pruning, DSH multi-subagent patching,
+MCP fingerprinting and drift detection, same-file multi-server merging,
+and sensitive configuration redaction.
+"""
+
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from aikito.mcp import (
+    STATE_FILE,
+    evaluate_spec_status,
+    load_agent_specs,
+    redact_mcp_entry,
+    sync_mcp_configs,
+)
+from aikito.subagent import (
+    build_subagent_plan,
+    has_aikito_marker,
+    render_claude_markdown,
+    sync_subagent_configs,
+)
+
+
+class ConfigCharacterizationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.td = tempfile.TemporaryDirectory()
+        self.root = Path(self.td.name).resolve()
+        self.ws = self.root / "workspace"
+        self.home = self.root / "home"
+        self.ws.mkdir()
+        self.home.mkdir()
+
+        # Agents config
+        self.agents_toml = """
+[agents.claude-code]
+display_name = "Claude Code"
+instruction_path = ".claude/CLAUDE.md"
+
+[agents.claude-code.subagents]
+config_path = ".claude/agents"
+config_format = "claude_markdown"
+
+[agents.claude-code.mcp]
+config_path = ".claude.json"
+config_format = "claude_json"
+name_style = "verbatim"
+
+[agents.opencode]
+display_name = "OpenCode"
+instruction_path = ".config/opencode/AGENTS.md"
+
+[agents.opencode.subagents]
+config_path = ".config/opencode/agents"
+config_format = "opencode_markdown"
+
+[agents.opencode.mcp]
+config_path = ".config/opencode/opencode.jsonc"
+config_format = "jsonc"
+name_style = "verbatim"
+
+[agents.dsh]
+display_name = "DeepSeek Harness"
+instruction_path = ".dsh/INSTRUCTIONS.md"
+
+[agents.dsh.subagents]
+config_path = ".dsh/cordis.patch.yml"
+config_format = "dsh_cordis_subagent"
+
+[agents.dsh.mcp]
+config_path = ".dsh/cordis.patch.yml"
+config_format = "dsh_cordis_patch"
+name_style = "verbatim"
+"""
+        (self.ws / "agents.toml").write_text(self.agents_toml.strip(), encoding="utf-8")
+
+        # Create home agent directories
+        (self.home / ".claude").mkdir(parents=True)
+        (self.home / ".config" / "opencode").mkdir(parents=True)
+        (self.home / ".dsh").mkdir(parents=True)
+
+        # Canonical subagents
+        (self.ws / "subagents").mkdir()
+        (self.ws / "subagents.toml").write_text(
+            "[subagents.verifier]\n"
+            'description = "Verifier agent"\n'
+            'agents = ["claude-code", "opencode", "dsh"]\n',
+            encoding="utf-8",
+        )
+        (self.ws / "subagents" / "verifier.md").write_text(
+            "You are a verifier subagent.\n", encoding="utf-8"
+        )
+
+        # Canonical MCPs
+        (self.ws / "mcps").mkdir()
+        (self.ws / "mcps" / "github.toml").write_text(
+            'transport = "remote"\n'
+            'url = "https://api.github.com/mcp"\n'
+            'agents = ["claude-code", "opencode"]\n',
+            encoding="utf-8",
+        )
+        (self.ws / "mcps" / "slack.toml").write_text(
+            'transport = "remote"\n'
+            'url = "https://api.slack.com/mcp"\n'
+            'agents = ["claude-code", "opencode"]\n',
+            encoding="utf-8",
+        )
+
+    def tearDown(self) -> None:
+        self.td.cleanup()
+
+    # -------------------------------------------------------------------------
+    # Subagent Characterization Tests
+    # -------------------------------------------------------------------------
+
+    def test_subagent_marker_ownership_and_unmanaged_conflict(self) -> None:
+        """INV-SUB-01 baseline: unmanaged file at target causes conflict; marker identifies ownership."""
+        target_dir = self.home / ".claude" / "agents"
+        target_dir.mkdir(parents=True)
+        target_file = target_dir / "verifier.md"
+
+        # 1. Unmanaged content without marker
+        target_file.write_text(
+            "User custom verifier prompt without marker\n", encoding="utf-8"
+        )
+        self.assertFalse(has_aikito_marker(target_file))
+
+        plan = build_subagent_plan(self.ws, self.home)
+        claude_items = [
+            op
+            for op in plan.operations
+            if op.target.agent == "claude-code"
+            and op.target.logical_identity == "verifier"
+        ]
+        self.assertEqual(len(claude_items), 1)
+        self.assertEqual(claude_items[0].action, "CONFLICT")
+
+        # Sync should not overwrite conflict without force
+        sync_subagent_configs(self.ws, self.home)
+        self.assertEqual(
+            target_file.read_text(encoding="utf-8"),
+            "User custom verifier prompt without marker\n",
+        )
+
+        # 2. Managed content with aikito marker but differing content -> UPDATE
+        with_marker = (
+            "<!-- generated by aikito from subagents/verifier.md - edits will be overwritten -->\n"
+            "Old different content.\n"
+        )
+        target_file.write_text(with_marker, encoding="utf-8")
+        self.assertTrue(has_aikito_marker(target_file))
+
+        plan = build_subagent_plan(self.ws, self.home)
+        claude_items = [
+            op
+            for op in plan.operations
+            if op.target.agent == "claude-code"
+            and op.target.logical_identity == "verifier"
+        ]
+        self.assertEqual(claude_items[0].action, "UPDATE")
+
+        # 3. Exact matching rendered content -> NOOP
+        exact_rendered = render_claude_markdown(
+            "verifier", "Verifier agent", {}, "You are a verifier subagent."
+        )
+        target_file.write_text(exact_rendered, encoding="utf-8")
+        plan_synced = build_subagent_plan(self.ws, self.home)
+        claude_items_synced = [
+            op
+            for op in plan_synced.operations
+            if op.target.agent == "claude-code"
+            and op.target.logical_identity == "verifier"
+        ]
+        self.assertEqual(claude_items_synced[0].action, "NOOP")
+
+    def test_subagent_explicit_force_authorization(self) -> None:
+        """INV-SUB-02 baseline: explicit --force <agent>/<subagent> authorizes overwrite."""
+        target_dir = self.home / ".claude" / "agents"
+        target_dir.mkdir(parents=True)
+        target_file = target_dir / "verifier.md"
+        target_file.write_text("Custom prompt\n", encoding="utf-8")
+
+        # Sync without force fails
+        success = sync_subagent_configs(self.ws, self.home)
+        self.assertFalse(success)
+        self.assertEqual(target_file.read_text(encoding="utf-8"), "Custom prompt\n")
+
+        # Sync with explicit force succeeds and overwrites
+        success_force = sync_subagent_configs(
+            self.ws, self.home, force_targets=["claude-code/verifier"]
+        )
+        self.assertTrue(success_force)
+        content = target_file.read_text(encoding="utf-8")
+        self.assertIn("generated by aikito", content)
+        self.assertIn("You are a verifier subagent", content)
+
+    def test_subagent_orphan_prune_managed_only(self) -> None:
+        """INV-SUB-03 baseline: prune only removes managed orphans, preserves unmanaged files."""
+        target_dir = self.home / ".claude" / "agents"
+        target_dir.mkdir(parents=True)
+
+        managed_orphan = target_dir / "old-managed.md"
+        managed_orphan.write_text(
+            "<!-- generated by aikito from subagents/old-managed.md - edits will be overwritten -->\n"
+            "Old content\n",
+            encoding="utf-8",
+        )
+
+        unmanaged_orphan = target_dir / "user-custom.md"
+        unmanaged_orphan.write_text("User custom subagent\n", encoding="utf-8")
+
+        plan = build_subagent_plan(self.ws, self.home)
+        orphan_items = [op for op in plan.operations if op.action == "ORPHAN"]
+        orphan_names = [op.target.logical_identity for op in orphan_items]
+        self.assertIn("old-managed", orphan_names)
+        self.assertNotIn("user-custom", orphan_names)
+
+        sync_subagent_configs(self.ws, self.home, prune=True)
+        self.assertFalse(managed_orphan.exists())
+        self.assertTrue(unmanaged_orphan.exists())
+
+    def test_subagent_dsh_cordis_patch_preserves_unmanaged_block(self) -> None:
+        """INV-SUB-04 baseline: DSH cordis.patch.yml preserves unmanaged sections and blocks."""
+        dsh_dir = self.home / ".dsh"
+        dsh_dir.mkdir(parents=True, exist_ok=True)
+        initial_content = (
+            "- id: custom-manual\n"
+            "  name: '@deepseek-ai/dsh-tool-subagent'\n"
+            "  config:\n"
+            "    provider: spawn\n"
+            "    toolName: manual\n"
+            "    persona: Keep me intact\n"
+        )
+        (dsh_dir / "cordis.patch.yml").write_text(initial_content, encoding="utf-8")
+
+        sync_subagent_configs(self.ws, self.home)
+
+        updated_content = (dsh_dir / "cordis.patch.yml").read_text(encoding="utf-8")
+        self.assertIn("custom-manual", updated_content)
+        self.assertIn("Keep me intact", updated_content)
+        self.assertIn("aikito-subagent-verifier", updated_content)
+
+    # -------------------------------------------------------------------------
+    # MCP Characterization Tests
+    # -------------------------------------------------------------------------
+
+    def test_mcp_managed_state_and_drift_detection(self) -> None:
+        """INV-MCP-01 baseline: state tracking and drift detection."""
+        # 1. First sync establishes state
+        with patch("sys.stdout"):
+            sync_mcp_configs(aikito_dir=self.ws, home=self.home)
+
+        state_path = self.home / STATE_FILE
+        self.assertTrue(state_path.exists())
+        state_data = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertIn("entries", state_data)
+
+        # 2. Check that specs evaluate to synced
+        specs = load_agent_specs(self.ws, self.home)
+        github_claude = [
+            s for s in specs if s.server == "github" and s.agent == "claude-code"
+        ][0]
+        status = evaluate_spec_status(github_claude)
+        self.assertEqual(status, "OK")
+
+        # 3. Simulate external drift by tampering with runtime config
+        claude_config_path = self.home / ".claude.json"
+        cfg = json.loads(claude_config_path.read_text(encoding="utf-8"))
+        cfg["mcpServers"]["github"]["url"] = "https://tampered.example.com/mcp"
+        claude_config_path.write_text(json.dumps(cfg), encoding="utf-8")
+
+        status_tampered = evaluate_spec_status(github_claude)
+        self.assertEqual(status_tampered, "DRIFT")
+
+        # 4. Sync without force should detect conflict and not overwrite
+        with patch("sys.stdout"):
+            sync_mcp_configs(aikito_dir=self.ws, home=self.home)
+        cfg_after = json.loads(claude_config_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            cfg_after["mcpServers"]["github"]["url"], "https://tampered.example.com/mcp"
+        )
+
+    def test_mcp_same_file_multi_server_merging(self) -> None:
+        """INV-MCP-02 baseline: multiple servers in same config file merge without overwrite."""
+        with patch("sys.stdout"):
+            sync_mcp_configs(aikito_dir=self.ws, home=self.home)
+
+        claude_config_path = self.home / ".claude.json"
+        cfg = json.loads(claude_config_path.read_text(encoding="utf-8"))
+        self.assertIn("github", cfg["mcpServers"])
+        self.assertIn("slack", cfg["mcpServers"])
+
+    def test_mcp_secret_redaction(self) -> None:
+        """INV-MCP-05 baseline: sensitive environment variable values are redacted."""
+        entry = {
+            "command": "node",
+            "args": ["server.js"],
+            "env": {
+                "API_KEY": "sk-secret-12345",
+                "PUBLIC_URL": "https://api.example.com",
+            },
+        }
+        redacted = redact_mcp_entry(entry)
+        self.assertEqual(redacted["env"]["API_KEY"], "<redacted>")
+        self.assertEqual(redacted["env"]["PUBLIC_URL"], "https://api.example.com")

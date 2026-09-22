@@ -3,6 +3,7 @@ import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 from aikito.doctor import (
@@ -31,7 +32,8 @@ from aikito.render import (
     DoctorSection,
     render_doctor_report,
 )
-from aikito.subagent import PlanItem
+from aikito.config_runtime import ConfigOperation, ConfigTarget
+from aikito.subagent import SubagentPlan
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -548,10 +550,116 @@ skills_path = ".claude/skills"
         fail_findings = [f for f in section.findings if f.status == "FAIL"]
         self.assertTrue(
             any(
-                "Claude Code/my-skill: missing symlink" in f.message
+                "Claude Code skills" in f.message
+                or "Global skill 'my-skill': missing symlink" in f.message
                 for f in fail_findings
             ),
-            msg=f"Expected missing skill symlink failure, got: {[f.message for f in fail_findings]}",
+            msg=f"Expected missing/conflict skill symlink failure, got: {[f.message for f in fail_findings]}",
+        )
+
+    def test_doctor_global_skills_parity_with_plan(self) -> None:
+        container = self.home / ".agents" / "skills"
+        container.mkdir(parents=True)
+        # Create correct managed entry
+        (container / "my-skill").symlink_to(self.aikito_dir / "skills" / "my-skill")
+        # Create correct consumer link
+        claude_skills = self.home / ".claude" / "skills"
+        claude_skills.parent.mkdir(parents=True, exist_ok=True)
+        claude_skills.symlink_to(container)
+
+        section = check_symlinks(self.aikito_dir, self.home)
+        fail_findings = [f for f in section.findings if f.status == "FAIL"]
+        self.assertEqual(len(fail_findings), 0)
+        self.assertTrue(
+            any(
+                "Global skills OK" in f.message
+                for f in section.findings
+                if f.status == "OK"
+            )
+        )
+
+    def test_doctor_and_sync_dry_run_parity_on_unmanaged_directory_and_wrong_link(
+        self,
+    ) -> None:
+        container = self.home / ".agents" / "skills"
+        container.mkdir(parents=True)
+        # Create unmanaged directory inside container (INV-GLB-03)
+        (container / "unmanaged-dir").mkdir()
+        # Create external symlink for consumer (INV-GLB-05)
+        claude_skills = self.home / ".claude" / "skills"
+        claude_skills.parent.mkdir(parents=True, exist_ok=True)
+        external = self.root / "external"
+        external.mkdir()
+        claude_skills.symlink_to(external)
+
+        # 1. Doctor explanation
+        section = check_symlinks(self.aikito_dir, self.home)
+        fail_findings = [f for f in section.findings if f.status == "FAIL"]
+        self.assertTrue(
+            any(
+                "Claude Code skills" in f.message
+                and "unauthorized destination" in f.message
+                for f in fail_findings
+            )
+        )
+
+        orphans = check_orphans(self.aikito_dir, self.home)
+        orphan_fails = [f for f in orphans.findings if f.status == "FAIL"]
+        self.assertTrue(
+            any(
+                "unmanaged-dir" in f.message and "unmanaged item" in f.message
+                for f in orphan_fails
+            )
+        )
+
+        # 2. Plan / dry-run explanation
+        from aikito.global_skills import build_global_skill_batch, plan_global_skills
+
+        batch = build_global_skill_batch(
+            self.aikito_dir, self.home, skills=["my-skill"], container_path=container
+        )
+        plan = plan_global_skills(batch, self.home, dry_run=True)
+        consumer_conflicts = [op for op in plan.consumer_ops if op.action == "CONFLICT"]
+        self.assertTrue(
+            any("unauthorized destination" in op.reason for op in consumer_conflicts)
+        )
+        entry_conflicts = [op for op in plan.entry_ops if op.action == "CONFLICT"]
+        self.assertTrue(
+            any("unmanaged-dir" in str(op.target_path) for op in entry_conflicts)
+        )
+
+    def test_shared_same_object_instruction_target_is_not_rechecked(self) -> None:
+        shared = self.home / ".shared" / "AGENTS.md"
+        shared.parent.mkdir()
+        global_source = self.aikito_dir / "global" / "AGENTS.md"
+        global_source.parent.mkdir()
+        global_source.write_text("# Global\n", encoding="utf-8")
+        shared.symlink_to(global_source)
+        (self.aikito_dir / "agents.toml").write_text(
+            """
+[agents.custom-a]
+display_name = "Custom A"
+instruction_path = ".shared/AGENTS.md"
+
+[agents.custom-b]
+display_name = "Custom B"
+instruction_path = ".shared/AGENTS.md"
+""".strip(),
+            encoding="utf-8",
+        )
+
+        with patch(
+            "aikito.doctor.classify_symlink", wraps=classify_symlink
+        ) as classify:
+            section = check_symlinks(self.aikito_dir, self.home)
+
+        self.assertEqual(classify.call_count, 0)
+        self.assertTrue(
+            any(
+                f.status == "OK"
+                and "Global instructions OK (1 targets across 2 agents)" in f.message
+                for f in section.findings
+            )
         )
 
 
@@ -921,17 +1029,19 @@ agents = ["claude-code"]
 
     def test_missing_managed_subagent_is_reported_in_drift(self) -> None:
         missing_target = self.home / ".copilot" / "agents" / "formatter.agent.md"
-        plan = [
-            PlanItem(
-                agent_name="github-copilot",
-                subagent_name="formatter",
-                target_path=missing_target,
-                action="CREATE",
-                reason="Target file does not exist",
-            )
-        ]
+        target = ConfigTarget(
+            path=missing_target,
+            logical_identity="formatter",
+            agent="github-copilot",
+        )
+        op = ConfigOperation(
+            target=target,
+            action="CREATE",
+            reason="Target file does not exist",
+        )
+        plan = SubagentPlan(operations=(op,), file_plans=())
 
-        with patch("aikito.doctor.build_plan", return_value=(plan, {})):
+        with patch("aikito.doctor.build_subagent_plan", return_value=plan):
             section = check_drift(self.aikito_dir, self.home)
 
         failures = [finding for finding in section.findings if finding.status == "FAIL"]
@@ -957,7 +1067,10 @@ agents = ["claude-code"]
         with (
             patch("aikito.doctor.load_agent_specs", return_value=[spec]),
             patch("aikito.doctor.evaluate_spec_status", return_value="DRIFT"),
-            patch("aikito.doctor.build_plan", return_value=([], {})),
+            patch(
+                "aikito.doctor.build_subagent_plan",
+                return_value=SubagentPlan(operations=(), file_plans=()),
+            ),
         ):
             section = check_drift(self.aikito_dir, self.home)
 
@@ -973,6 +1086,48 @@ agents = ["claude-code"]
         self.assertFalse(
             any(finding.fix_hint == "aikito sync mcp" for finding in warnings)
         )
+
+    def test_check_drift_distinguishes_update_and_drift_hints(self) -> None:
+        spec_update = AgentSpec(
+            agent="claude",
+            server="srv1",
+            config_path=self.home / ".claude.json",
+            config_format="claude_json",
+            target_name="srv1",
+            desired={"url": "https://v2.com"},
+        )
+        spec_drift = AgentSpec(
+            agent="claude",
+            server="srv2",
+            config_path=self.home / ".claude.json",
+            config_format="claude_json",
+            target_name="srv2",
+            desired={"url": "https://v1.com"},
+        )
+
+        def eval_status(spec: AgentSpec, **kwargs: Any) -> str:
+            return "UPDATE" if spec.server == "srv1" else "DRIFT"
+
+        with (
+            patch(
+                "aikito.doctor.load_agent_specs", return_value=[spec_update, spec_drift]
+            ),
+            patch("aikito.doctor.evaluate_spec_status", side_effect=eval_status),
+            patch(
+                "aikito.doctor.build_subagent_plan",
+                return_value=SubagentPlan(operations=(), file_plans=()),
+            ),
+        ):
+            section = check_drift(self.aikito_dir, self.home)
+
+        failures = [f for f in section.findings if f.status == "FAIL"]
+        self.assertEqual(len(failures), 2)
+        f_update = next(f for f in failures if "srv1" in f.message)
+        f_drift = next(f for f in failures if "srv2" in f.message)
+
+        # UPDATE suggests normal sync; DRIFT suggests --force
+        self.assertEqual(f_update.fix_hint, "aikito sync mcp")
+        self.assertEqual(f_drift.fix_hint, "aikito sync mcp --force")
 
 
 # ---------------------------------------------------------------------------

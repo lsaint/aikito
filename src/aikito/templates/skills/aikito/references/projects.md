@@ -22,6 +22,10 @@ skills use the configured `sync_mode`:
 - `link` keeps symbolic links to canonical skills;
 - `copy` creates managed copies suitable for project Git tracking.
 
+Register canonical or external skills for projects with
+`aikito add skill <name> --project <name>` (supports `--from <path>`,
+`--from <path> --force` for snapshot refresh, and `--sync`).
+
 `aikito status` detects drift in copied skills and `aikito diff` displays it.
 Synchronization must not replace a drifted copy unless the changes that should
 survive have been merged and the user intentionally authorizes `--force`.

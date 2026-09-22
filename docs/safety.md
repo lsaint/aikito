@@ -83,19 +83,53 @@ review is useful.
 ## Conflict and Drift Protection
 
 - Unmanaged targets are reported as conflicts rather than silently replaced.
-- Deselected skills are removed only when a workspace symlink or unchanged
-  canonical copy proves they were managed by Aikito.
+- Deselected project skills are removed only when a workspace symlink points specifically
+  to this resource's exact canonical path (`canonical_root / name`), proving prior Aikito
+  management ([INV-OWN-03](architecture/invariants-ownership.md#inv-own-03),
+  [INV-TR-14](architecture/invariants-skills.md)). Deselected links pointing to other
+  workspace resources, external locations, or unmanaged targets are preserved rather than removed.
+  Deselected copy skills and unmanaged entries in project checkouts are always preserved as project-owned
+  - Deselected global skills follow strict link ownership ([INV-GLB-03](architecture/invariants-skills.md#inv-glb-03)):
+    only symlinks pointing specifically to the active workspace's canonical skill are unlinked upon deselection.
+    Pre-existing normal directories (even with identical content) are strictly preserved as unmanaged conflicts,
+    eliminating the previous `allow_matching_copies=True` heuristic.
+  - Unexpected or external consumer symlinks (e.g. `~/.claude/skills` pointing elsewhere) are reported as
+    conflicts and preserved untouched ([INV-GLB-05](architecture/invariants-skills.md#inv-glb-05)), eliminating
+    automatic relinking.
+- Shared targets across Agent runtimes are deduplicated prior to synchronization (e.g. 8 bundled
+  agent skill consumers resolve into 3 physical target paths), preventing redundant filesystem writes
+  and distinguishing logical resource counts, agent consumers, and physical target operations.
 - Managed-entry fingerprints expose local drift.
 - Copied project skill drift is shown by `aikito diff` and blocks project sync
-  unless the user supplies `--force` after review.
+  unless the user supplies `--force` after review ([INV-AUTH-01](architecture/invariants-execution.md#inv-auth-01)).
+- Instructions operate strictly in link mode without copy baselines ([INV-INST-01](architecture/invariants-instructions.md#inv-inst-01));
+  unexpected global instruction symlinks cause conflicts rather than automatic relinking ([INV-INST-06](architecture/invariants-instructions.md#inv-inst-06)).
+- When project instructions are empty/disabled, only exact owned symlinks are unlinked ([INV-INST-08](architecture/invariants-instructions.md#inv-inst-08));
+  pre-existing regular files at instruction targets are strictly preserved as project-owned ([INV-INST-10](architecture/invariants-instructions.md#inv-inst-10)).
+- Project memory operates strictly in link mode without copy baselines ([INV-MEM-01](architecture/invariants-memory.md#inv-mem-01));
+  pre-existing regular files, directories, or foreign symlinks at memory targets cause conflicts rather than automatic replacement ([INV-MEM-07](architecture/invariants-memory.md#inv-mem-07)).
+- Deselected memory entries are unlinked only when proven to be exact owned symlinks to canonical candidates ([INV-MEM-06](architecture/invariants-memory.md#inv-mem-06));
+  stale unmanaged items are preserved untouched.
 - Conflicting instruction sources require user judgment.
-- Explicit force or prune options should be scoped to a reviewed target.
+- Explicit force or prune options are strictly scoped to reviewed targets ([INV-AUTH-02](architecture/invariants-execution.md#inv-auth-02));
+  `--force` never authorizes overwriting instructions or memory ([INV-AUTH-05](architecture/invariants-execution.md#inv-auth-05), [INV-MEM-07](architecture/invariants-memory.md#inv-mem-07)).
+- Unmanaged subagent definition files and unmanaged MCP server blocks are preserved by default; synchronization reports a conflict rather than silently overwriting them.
+- Subagent `--force <agent>/<subagent>` strictly authorizes only the specified agent/subagent target ([INV-SUB-02](architecture/invariants-subagents.md#inv-sub-02)), preventing broad file-level overwrite permissions.
+- Subagent `--prune` deletes only managed orphan definitions carrying an Aikito ownership marker ([INV-SUB-03](architecture/invariants-subagents.md#inv-sub-03)); pre-existing unmanaged definitions are never deleted.
+- MCP server configuration drift (where runtime configuration differs from the recorded managed fingerprint in `.local/state/aikito/mcp-state.json`) evaluates to a conflict by default ([INV-MCP-01](architecture/invariants-mcp.md#inv-mcp-01)); `--force` explicitly authorizes overwriting only the specific drifted server node.
+- Multiple MCP servers targeting the same physical configuration file (e.g. `~/.claude.json`, `.config/opencode/opencode.jsonc`) are merged in memory and written once, preserving unmanaged sibling servers, comments, and other non-MCP configurations ([INV-MCP-02](architecture/invariants-mcp.md#inv-mcp-02)).
+- Runtime write or state promotion failures automatically trigger atomic rollback of modified runtime configuration files; if rollback cannot be completed cleanly, created backups are strictly preserved and `recovery_required=True` outputs explicit recovery instructions for manual inspection ([INV-MCP-08](architecture/invariants-mcp.md#inv-mcp-08)).
+- For formal verification rules and state transition tables, see the
+  [Engineering Invariants](architecture/invariants.md).
 
 ## Credentials
 
 Canonical MCP configuration should contain environment-variable references,
 not plaintext credentials. Adoption converts recognized secrets to references,
 but users must still inspect imported configuration before committing it.
+
+- Sensitive credential tokens, authorization headers, and environment variables are redacted in all plan summaries, CLI outputs, error messages, and public structured views ([INV-MCP-05](architecture/invariants-mcp.md#inv-mcp-05)).
+- Configuration files containing sensitive credentials or marked as sensitive suppress standard whole-file backups to prevent plaintext secrets leaking into backup directories, and enforce secure filesystem permissions (`0600` on POSIX, restricted ACLs on Windows) ([INV-MCP-06](architecture/invariants-mcp.md#inv-mcp-06)).
 
 ## Platform Support and Constraints
 
@@ -119,9 +153,11 @@ Command Prompt):
 
 Project `.agents/skills/` is shared at entry level. Aikito manages only selected
 skill names, preserves other project-owned entries, and reports a conflict only
-when a selected name is already owned by the project. `.agents/memory/` remains
-exclusively managed by Aikito. Matching file contents alone never prove copy
-ownership, and synchronization never deletes unknown content.
+when a selected name is already owned by the project. Project `.agents/memory/`
+manages selected memory references and project `notes/`. Pre-existing unmanaged entries
+evaluate to conflicts and are strictly preserved ([INV-MEM-07](architecture/invariants-memory.md#inv-mem-07)).
+Matching file contents alone never prove ownership ([INV-OWN-01](architecture/invariants-ownership.md#inv-own-01)),
+and synchronization never deletes unknown content.
 
 ## Recovery Practice
 

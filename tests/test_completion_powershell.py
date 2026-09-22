@@ -37,6 +37,9 @@ class AikitoCompletionPowerShellTest(unittest.TestCase):
         self.assertIn("projects", script)
         self.assertIn("subagents", script)
         self.assertIn("mcps", script)
+        self.assertIn("'^(show|edit|rm|remove|add) skills?$'", script)
+        self.assertIn("'^(show|edit|rm|remove|add) subagents?$'", script)
+        self.assertIn("'^(show|edit|rm|remove|add) mcps?$'", script)
 
         # AST extraction fix and platform guards
         self.assertIn("$commandAst.CommandElements", script)

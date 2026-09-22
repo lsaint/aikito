@@ -44,6 +44,5 @@ aikito show subagents
 The setup you already relied on is now governed from one Git-managed source.
 Future edits happen in the workspace and flow outward through synchronization.
 
-Next, [connect a code project](project-setup.md),
-[keep a durable decision](durable-memory.md), or review
-[workspace ownership and synchronization](architecture.md).
+Next, [connect a code project](project-setup.md) to bring your first
+repository into the workspace.

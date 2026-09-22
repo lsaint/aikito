@@ -11,12 +11,23 @@ from .project_runtime import (
     ProjectPrepareConflictError,
     UnsupportedProjectAgentError,
 )
+from .workspace import (
+    InvalidWorkspaceError,
+    Workspace,
+    WorkspaceError,
+    WorkspaceFinding,
+    WorkspaceInspection,
+    WorkspaceNotFoundError,
+    WorkspaceProjectView,
+    WorkspaceSyncPreview,
+)
 
-__version__ = "1.37.0"
+__version__ = "1.49.0"
 
 __all__ = [
     "AmbiguousProjectPathError",
     "InvalidProjectConfigError",
+    "InvalidWorkspaceError",
     "NoAvailableProjectPathError",
     "PreparedProject",
     "Project",
@@ -24,5 +35,12 @@ __all__ = [
     "ProjectNotFoundError",
     "ProjectPrepareConflictError",
     "UnsupportedProjectAgentError",
+    "Workspace",
+    "WorkspaceError",
+    "WorkspaceFinding",
+    "WorkspaceInspection",
+    "WorkspaceNotFoundError",
+    "WorkspaceProjectView",
+    "WorkspaceSyncPreview",
     "__version__",
 ]

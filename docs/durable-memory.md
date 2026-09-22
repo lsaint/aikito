@@ -1,97 +1,103 @@
-# Work with Memory
+# Use Durable Memory
 
-Use the memory commands to inspect available scopes, find a note, and edit the
-canonical file without navigating the workspace manually.
+Aikito Memory gives an Agent a small, durable knowledge base that survives
+across conversations and works across supported Agent tools. It is not a chat
+archive or a background service. Memory is a collection of curated Markdown
+notes in your Aikito workspace, governed by a skill and versioned with Git.
 
-## Default Behavior and Opt-Out
+## What Becomes Memory
 
-Aikito separates Memory storage, Agent capability, and Agent behavior:
+The Agent decides autonomously whether a conclusion becomes Memory. The
+`durable-memory` skill gives supported Agents the same criteria, but it does not
+make that judgment deterministic. Different models may retrieve, select, and
+summarize knowledge differently, so model capability affects the quality and
+consistency of the resulting Memory.
 
-| Layer | Configuration | Effect |
+Under that policy, the Agent favors conclusions that are verified, likely to
+matter again, and difficult enough to rediscover that they could change a future
+decision. Examples include a user preference, an architectural constraint, or a
+non-obvious debugging lesson.
+
+The Agent skips task progress, raw logs, full conversations, secrets, unverified
+guesses, and facts that are obvious from the current code. When it does write a
+note, the skill directs it to capture one durable conclusion rather than narrate
+how the task unfolded.
+
+See [Memory scope and lifecycle](memory-workflow.md) for the complete persistence
+and retirement criteria.
+
+## How Aikito Memory Works
+
+During a task, the normal flow is:
+
+```text
+new task
+   ↓
+Agent checks whether earlier knowledge could affect the work
+   ↓
+Agent searches only the relevant global and project notes
+   ↓
+Agent completes and verifies the work
+   ↓
+Reusable conclusion?
+   ├── No: leave Memory unchanged
+   └── Yes: update one focused note in the correct scope and commit it with Git
+```
+
+Three pieces make this possible:
+
+1. **Markdown notes hold the knowledge.** The workspace is the canonical source;
+   there is no separate database or hidden Agent-specific copy.
+1. **The `durable-memory` skill supplies the judgment.** It tells the Agent when
+   to retrieve Memory, what is worth keeping, which scope owns it, and when an
+   obsolete note should be updated or retired.
+1. **Agent instructions activate the workflow.** A rule in `AGENTS.md` requires
+   the Agent to apply the skill. This does not inject every note into every
+   prompt. The Agent searches relevant notes only when they could affect the
+   task.
+
+Aikito creates and connects these resources; the Agent reads and curates them
+while doing real work. Git makes every Memory change reviewable and recoverable.
+
+## Where Memory Lives
+
+Memory has two scopes:
+
+| Scope | Canonical location | Use it for |
 | --- | --- | --- |
-| Storage | `aikito init workspace` or `aikito init project` | Creates the canonical Memory note directories. |
-| Capability | `durable-memory` in global `skills.toml` or project `agent.toml` | Makes the skill available to the selected Agents after synchronization. |
-| Behavior | A rule in global or project `AGENTS.md` | Tells Agents when they must apply the skill, including whether every task should evaluate Memory relevance. |
+| Global | `<workspace>/memory/notes/` | Preferences and knowledge that remain valid across projects |
+| Project | `<workspace>/projects/<name>/memory/notes/` | Decisions, constraints, and lessons specific to one project |
 
-`aikito init workspace` configures all three layers by default. It copies the
-bundled `aikito` and `durable-memory` skills into `skills/`, selects both in
-`skills.toml`, and writes this rule to `global/AGENTS.md`:
+When a project is synchronized, Aikito links its `.agents/memory/notes` entry to
+the canonical project notes. This gives Agents working in the repository a
+stable runtime path without creating another copy:
 
-```markdown
-- All tasks must follow the `durable-memory` skill as the single source of truth
-  for durable memory boundaries, retrieval, evaluation, and persistence.
+```text
+<project>/.agents/memory/notes
+└── linked to: <workspace>/projects/example/memory/notes
 ```
 
-Initialization changes only the Aikito workspace. The integration becomes
-active only after an explicit synchronization:
+Global Memory remains in the workspace and is available across registered
+projects. Project-specific knowledge should not be placed in Global Memory just
+because a project has not been registered yet.
 
-```bash
-aikito sync
-```
+## Inspect Memory
 
-Full workspace sync preflights every scope before applying changes. Use
-`aikito sync --dry-run --verbose` when you need a read-only path-level review.
-
-If existing Agent instructions are detected, run `aikito adopt` before
-synchronizing. When all detected Agent instructions agree and the canonical
-file is still Aikito's default, adoption preserves the user content and appends
-the default Memory rule exactly once. Different Agent instructions or a
-separately customized canonical file remain conflicts for manual review; Aikito
-does not overwrite them.
-
-For project-only use, remove the global selection and rule, then add the skill
-to `projects/<name>/agent.toml`:
-
-```toml
-skills = ["durable-memory"]
-```
-
-Place the behavior rule in `projects/<name>/AGENTS.md`, then run:
-
-```bash
-aikito sync project <name> --dry-run
-aikito sync project <name>
-```
-
-The instruction does not mean reading or writing Memory on every task. The
-skill still decides when historical knowledge is relevant and when a conclusion
-has enough future value to persist. The instruction makes that evaluation
-mandatory rather than leaving the workflow merely available.
-
-To opt out, remove the Persistent Memory rule and remove `durable-memory` from
-the relevant skill list, then synchronize that scope again. The bundled skill
-directory, existing notes, and canonical Memory directories are retained as
-user data; opting out does not delete them. Aikito has no background Memory
-service, so no automatic capture or prompt injection continues after the Agent
-integration is disabled.
-
-## Use or Adapt the Prompt
-
-The complete [durable-memory prompt](https://github.com/lsaint/aikito/blob/main/src/aikito/templates/skills/durable-memory/SKILL.md)
-is plain Markdown. You can use it as provided or copy and adapt it to match your
-own storage layout, naming conventions, review process, and criteria for what
-deserves persistent memory. Review the prompt before enabling it so its scope
-and write behavior match your workflow.
-
-## List Memory
+List notes from every scope:
 
 ```bash
 aikito show memory
 ```
 
-The output lists global and project scopes, note identifiers, titles, and
-project link state. You can also narrow output to a specific project or the
-project bound to the current working directory:
+Narrow the list to a named project or the project containing the current
+directory:
 
 ```bash
-# Filter memory notes to a specific project
 aikito show memory --project example
-
-# Filter memory notes to the current directory's project
 aikito show memory --project
 ```
 
-Example output from a configured workspace:
+The output shows each note's scope, identifier, title, and project link state:
 
 ```text
 ┌─────────┬────────────────────────────┬────────────────────────────────┬──────┐
@@ -105,30 +111,26 @@ Example output from a configured workspace:
 └─────────┴────────────────────────────┴────────────────────────────────┴──────┘
 ```
 
-## Show a Note
+Show one note by exact name, unique prefix, or project-qualified target:
 
 ```bash
 aikito show memory skill-authoring
-
-# Disambiguate or resolve directly within a project scope
 aikito show memory release-checklist --project example
+aikito show memory example/release-checklist
 ```
 
-Targets may be an exact note name, a qualified project path, or any unique
-prefix displayed in the `Note File` column. A copied truncated value such as
-`skill-authoring-guideli…` also works. Ambiguous prefixes are rejected with the
-matching full identifiers. Specifying `--project <project>` restricts the lookup
-to that project, avoiding naming collisions with global or other projects' notes.
+Ambiguous prefixes are rejected with the matching full identifiers.
 
-## Edit a Note
+## Edit, Rename, or Retire a Note
+
+Open the canonical note with `$VISUAL` or `$EDITOR`:
 
 ```bash
 aikito edit memory example/release-checklist
 ```
 
-The command opens the canonical note with `$VISUAL` or `$EDITOR`. Its first
-`#` heading supplies the display title. Optional `category` frontmatter can be
-used by custom tools for grouping, but missing category never invalidates a note:
+The first `#` heading supplies its display title. Optional `category`
+frontmatter can support custom grouping, but is not required:
 
 ```markdown
 ---
@@ -138,56 +140,82 @@ category: Project Decisions
 # Retry external APIs safely
 ```
 
-Review and commit the note after verifying the conclusion.
-
-## Rename a Note
+Rename a note and update inbound `[[wikilinks]]` in the same scope:
 
 ```bash
 aikito rename memory old-note-name new-note-name
 ```
 
-The command renames the note file and refactors inbound `[[wikilinks]]` in the
-same memory scope.
-
-## Retire a Note
+Retire a note that no longer has decision value:
 
 ```bash
 aikito rm memory example/release-checklist
 ```
 
-The command deletes the note file and scans the same scope for remaining
-inbound `[[wikilinks]]`, reporting their exact
-file and line numbers so you can review and adjust referencing notes.
+Removal reports any remaining inbound wikilinks with their file and line
+numbers. Review and commit Memory changes after verifying them.
 
-## Memory Integrity and Auto-Repair
+## Enable or Disable Agent Integration
 
-Run `aikito doctor` to inspect memory note filename validity, cross-note links,
-and staleness:
+Aikito separates storage, Agent capability, and Agent behavior:
+
+| Layer | Configuration | Effect |
+| --- | --- | --- |
+| Storage | `aikito init workspace` or `aikito init project` | Creates the canonical note directories |
+| Capability | `durable-memory` in `skills.toml` or `agent.toml` | Makes the skill available to selected Agents after synchronization |
+| Behavior | The Persistent Memory rule in `AGENTS.md` | Requires Agents to evaluate Memory relevance during tasks |
+
+`aikito init workspace` configures all three layers by default. The integration
+becomes active after synchronization:
+
+```bash
+aikito sync
+```
+
+Use `aikito sync --dry-run --verbose` for a read-only path-level preview. If the
+workspace already contains Agent configuration, follow
+[Adopt your existing setup](workspace-setup.md) before synchronizing.
+
+For project-only use, select `durable-memory` in
+`projects/<name>/agent.toml`, place the Persistent Memory rule in the project's
+`AGENTS.md`, and synchronize that project:
+
+```toml
+skills = ["durable-memory"]
+```
+
+```bash
+aikito sync project <name> --dry-run
+aikito sync project <name>
+```
+
+To opt out, remove the rule and skill selection from the relevant scope, then
+synchronize it again. Aikito retains existing notes as user data. Because there
+is no background Memory service, disabling the Agent integration means Agents
+are no longer instructed to retrieve or curate those notes.
+
+The complete [durable-memory skill](https://github.com/lsaint/aikito/blob/main/src/aikito/templates/skills/durable-memory/SKILL.md)
+is plain Markdown and documents the exact retrieval, persistence, and retirement
+policy.
+
+## Check Memory Integrity
+
+Use `doctor` to inspect note filenames, wikilinks, staleness, and project links:
 
 ```bash
 aikito doctor
 aikito doctor --fix
 ```
 
-Dangling wikilinks are reported without destructive repair. `doctor --fix`
-repairs supported workspace configuration issues but does not rewrite notes.
+`doctor --fix` repairs supported workspace configuration issues but does not
+rewrite note content or remove dangling wikilinks. Older workspaces may retain
+`memory/index.md`; Aikito preserves it as user data but no longer reads,
+synchronizes, or requires it.
 
-Older workspaces may retain `memory/index.md` files. Aikito preserves these
-files as user data but no longer reads, updates, synchronizes, or requires them.
+## Review a Complete Scope
 
-Memory has two scopes:
-
-- `memory/` for cross-project knowledge;
-- `projects/<name>/memory/` for project-specific decisions and constraints.
-
-## Proactive Scope Maintenance
-
-Use an interactive Agent to review every note in one selected scope:
-
-> **Usage note:** A complete-scope review consumes model usage in proportion to
-> the number and size of notes. Run it selectively, and prefer a capable
-> reasoning model for more reliable decisions about accuracy, duplication,
-> consolidation, and retirement.
+Normal Agent work retrieves and updates only relevant notes. To deliberately
+review every note in one scope, launch proactive maintenance:
 
 ```bash
 aikito maintain memory .
@@ -195,21 +223,13 @@ aikito maintain memory global
 aikito maintain memory example --agent codex
 ```
 
-This is the semantic counterpart to `aikito doctor`: doctor detects structural
-and freshness signals, while the Agent evaluates accuracy, duplication, scope
-ownership, and continued decision value. The generated prompt requires a
-proposal first and forbids file changes or commits until you confirm it.
-It also compares memory with relevant canonical skills and instructions,
-reports upstream corrections separately, and asks you to resolve conflicts
-that cannot be verified from objective evidence.
+`.` selects the project containing the current directory. The Agent first
+proposes updates, merges, moves, or retirements and waits for confirmation
+before changing files. This semantic review complements `aikito doctor`, which
+checks structure and freshness signals.
 
-The default target, `.`, resolves the registered project whose locally present
-candidate path contains the current directory. Use `global` or a registered
-project name to select another scope,
-and `--agent` to choose a configured runner. Aikito invokes the runner command
-directly, so shell aliases are not expanded; put required arguments and
-environment overrides in `agents.toml`. See the
-[CLI reference](cli-reference.md) for runner configuration and placeholders.
+Complete-scope review consumes model usage in proportion to the number and size
+of notes. Run it selectively and prefer a capable reasoning model. Runner
+configuration is documented in the [CLI reference](cli-reference.md).
 
-Read [Memory workflow](memory-workflow.md) before deciding what to persist and
-[Safety model](safety.md) before pushing memory to a remote repository.
+Read the [Safety model](safety.md) before pushing Memory to a remote repository.

@@ -21,5 +21,6 @@ config_format = "codex_toml"
 config_path = ".codex/config.toml"
 config_format = "toml"
 name_style = "underscore"                       # server-name -> server_name
+builtin_mcps = ["openaiDeveloperDocs"]
 live_command = ["codex", "mcp", "list"]
 auth_command = ["codex", "mcp", "login", "{target}"]

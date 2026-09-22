@@ -82,14 +82,18 @@ orchestrates the entire workspace.
 
 Use `aikito <command> --help` for exact arguments.
 
-- Global instructions and skills: `aikito add skill`, `aikito show skill`, and
-  `aikito sync global`.
+- Global instructions and skills: `aikito add skill` (supports `--from <path>` to
+  import, `--from <path> --force` to refresh an imported snapshot, and
+  `--project <A,B>` / `--sync` to distribute), `aikito rm skill` (supports
+  unregistering via `--project <A,B>` and global deletion via `--force`),
+  `aikito show skill`, and `aikito sync global`.
 - Projects: `aikito init project`, `aikito show project`,
   `aikito sync project`, `aikito status`, and `aikito diff`.
-- MCP servers: `aikito add mcp`, `aikito show mcp`, `aikito sync mcp`, and
+- MCP servers: `aikito add mcp` (supports `--from <source>`, `--sync`, and `--force`),
+  `aikito rm mcp` (supports `--sync`), `aikito show mcp`, `aikito sync mcp`, and
   `aikito auth mcp`.
-- Subagents: `aikito add subagent`, `aikito show subagent`, and
-  `aikito sync subagents`.
+- Subagents: `aikito add subagent`, `aikito rm subagent` (supports `--sync`),
+  `aikito show subagent`, and `aikito sync subagents`.
 - Memory: `aikito show|edit|rename|rm memory`; use the `durable-memory` skill to
   decide scope, content, and versioning.
 - Inbox notes: `aikito show|edit|rm inbox`.

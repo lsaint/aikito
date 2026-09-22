@@ -17,7 +17,9 @@ from typing import Optional
 
 from .bundled_skills import BundledSkillRefreshError, refresh_bundled_skills
 from .compat import safe_relative_path
-from .mcp import MCPConfigError, collect_project_instruction_targets
+from .skill_state import SkillWriterLock
+from .agents import AgentRegistry, AgentRegistryError, resolve_targets
+from .mcp import MCPConfigError, load_agents
 from .project import resolve_project_binding
 from .templating import (
     BUNDLED_SKILL_NAMES,
@@ -187,7 +189,8 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
 
     if existing_workspace:
         try:
-            refresh_bundled_skills(target_dir, home)
+            with SkillWriterLock(home):
+                refresh_bundled_skills(target_dir, home)
         except BundledSkillRefreshError as exc:
             print(f"[ERROR] {exc}", file=sys.stderr)
             return False
@@ -348,26 +351,34 @@ def _project_validation_error(
 
     canonical_instructions = aikito_dir / "projects" / project_name / "AGENTS.md"
     try:
-        instruction_targets = collect_project_instruction_targets(
-            aikito_dir, project_path, home
+        agents = load_agents(aikito_dir, home)
+        instruction_targets = resolve_targets(
+            "project_instructions",
+            aikito_dir,
+            home,
+            project_path=project_path,
+            project_name=project_name,
+            registry=AgentRegistry(agents),
         )
-    except MCPConfigError as exc:
+    except (MCPConfigError, AgentRegistryError) as exc:
         return str(exc)
     instructions_enabled = canonical_instructions.is_file() and bool(
         canonical_instructions.read_text(encoding="utf-8", errors="replace").strip()
     )
     if instructions_enabled:
-        for target, agent_names in instruction_targets.items():
-            if target.is_symlink():
-                if target.resolve(strict=False) == canonical_instructions.resolve(
+        for target in instruction_targets:
+            if target.is_same_object:
+                continue
+            if target.path.is_symlink():
+                if target.path.resolve(strict=False) == canonical_instructions.resolve(
                     strict=False
                 ):
                     continue
-            elif not target.exists():
+            elif not target.path.exists():
                 continue
             return (
-                f"Unmanaged project instructions for {', '.join(agent_names)} "
-                f"already exist: {target}"
+                f"Unmanaged project instructions for {', '.join(target.consumer_display_names)} "
+                f"already exist: {target.path}"
             )
 
     expected_entries = {"skills": set(), "memory": set()}

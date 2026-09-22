@@ -3,7 +3,7 @@
 ## Development Philosophy
 
 Aikito is developed with AI assistance, but it is not an AI-directed project.
-Its author, Ethan St Lee, has 20 years of experience as a software engineer,
+Its author, [Ethan St Lee](https://github.com/lsaint), has 20 years of experience as a software engineer,
 architect, and technology director.
 
 Aikito grew out of problems encountered while using coding agents in daily
@@ -32,3 +32,7 @@ directories, and configuration identifiers use lowercase `aikito`.
 Ethan St Lee also writes about AI, software engineering, reading, and durable
 knowledge practices on WeChat. Search for the official account `不是很南` to
 follow it.
+
+## Support
+
+If you find Aikito useful, you can [support its development](https://lsaint.github.io/donation/?utm_source=github&utm_medium=readme&utm_campaign=aikito).

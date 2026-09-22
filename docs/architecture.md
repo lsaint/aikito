@@ -87,6 +87,12 @@ to `~/.pi/agent/agents`; without it, the capability is skipped and no target
 files are written. Pi has no MCP section and is omitted from MCP
 synchronization.
 
+An Agent's `[agents.<name>.mcp]` table supports optional configuration keys:
+`name_style` (e.g. `"underscore"` for runtimes requiring snake_case identifiers)
+and `builtin_mcps` (a list of Agent-native default server names, such as
+`["openaiDeveloperDocs"]` for Codex, that `aikito adopt` automatically omits from
+workspace adoption).
+
 ## Project Runtime Directory
 
 Project synchronization creates a managed `.agents/` directory in the target
