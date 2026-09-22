@@ -76,6 +76,8 @@ nav:
           - MCP Servers: architecture/invariants-mcp.md
           - Execution & Recovery: architecture/invariants-execution.md
           - Python API: architecture/invariants-api.md
+          - Application Coordination: architecture/invariants-application.md
+          - Adoption Engine: architecture/invariants-adopt.md
           - Migration Inventory: architecture/migration-inventory.md
   - About:
       - Comparison: comparison.md

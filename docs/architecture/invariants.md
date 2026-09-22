@@ -56,6 +56,8 @@ Each Rule ID is permanent. The table below maps every prefix to its canonical do
 | `INV-LOCK-*` | Writer locking | [invariants-execution.md](invariants-execution.md) |
 | `INV-RES-*` | Result segmentation | [invariants-execution.md](invariants-execution.md) |
 | `INV-API-*` | Public Python API | [invariants-api.md](invariants-api.md) |
+| `INV-APP-*` | Application coordination | [invariants-application.md](invariants-application.md) |
+| `INV-ADOPT-*` | Adoption engine | [invariants-adopt.md](invariants-adopt.md) |
 
 ---
 
@@ -73,6 +75,8 @@ Each Rule ID is permanent. The table below maps every prefix to its canonical do
 | [invariants-mcp.md](invariants-mcp.md) | MCP server state management, fingerprints, same-file merge, sensitive config, and transaction recovery |
 | [invariants-execution.md](invariants-execution.md) | Authorization, transactions, journals, recovery, locks, results |
 | [invariants-api.md](invariants-api.md) | Public Python API invariants |
+| [invariants-application.md](invariants-application.md) | Application layer coordination and workspace synchronization |
+| [invariants-adopt.md](invariants-adopt.md) | Adoption engine, discovery, conflict resolution, and backups |
 | [migration-inventory.md](migration-inventory.md) | Temporary Core Model migration tracker (not a permanent contract) |
 
 ---

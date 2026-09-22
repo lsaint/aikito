@@ -70,5 +70,30 @@ All public exceptions inherit from `ProjectError -> RuntimeError`.
 - `AmbiguousProjectPathError`: Exposes `project_name: str`, `paths: tuple[Path, ...]`.
 - `ProjectPrepareConflictError`: Exposes `project_name: str`, `conflicts: tuple[str, ...]`.
 
+### INV-API-08: `Workspace.load` Contract `[planned]` {: #inv-api-08 }
+
+- Signature: `Workspace.load(workspace: Path | str | None = None, home: Path | str | None = None) -> Workspace`
+- Strictly read-only: Loads workspace configuration and resolves root without modifying the pointer file (`~/.config/aikito/workspace`) or creating files/directories.
+- Validates that the workspace exists and contains valid configuration.
+
+### INV-API-09: `Workspace.inspect` Contract `[planned]` {: #inv-api-09 }
+
+- Signature: `Workspace.inspect() -> WorkspaceInspection`
+- Strictly read-only inspection returning frozen structured status of agents, projects, and managed resources.
+- Zero write operations, zero locks, zero backups, zero recovery mutations.
+
+### INV-API-10: `Workspace.plan_sync` Contract `[planned]` {: #inv-api-10 }
+
+- Signature: `Workspace.plan_sync() -> WorkspaceSyncPreview`
+- Returns a frozen, sanitized synchronization preview containing statistics (`changes`, `unchanged`, `offline`, `warnings`, `conflicts`, `errors`, `can_apply`) and sanitized operation summaries.
+- Produces identical statistics to `aikito sync --dry-run`.
+- Strictly read-only; does not mutate files or create locks.
+
+### INV-API-11: Public View Immutability and Sanitization `[planned]` {: #inv-api-11 }
+
+- Public models (`WorkspaceInspection`, `WorkspaceSyncPreview`) are immutable dataclasses exposing high-level metrics and sanitized summaries.
+- Must not expose private internal execution payloads, credentials, auth tokens, sensitive environment variables, lock files, or journal paths.
+- Does not expose internal resource plan types (`SkillPlan`, `MCPPlan`, `SubagentPlan`) directly.
+
 ---
 
