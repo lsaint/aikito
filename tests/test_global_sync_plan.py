@@ -67,7 +67,9 @@ skills_path = ".claude/skills"
 
     def test_bundled_refresh_plan_refresh_when_divergent(self) -> None:
         """When a bundled skill diverges, plan produces REFRESH and replan_required=True."""
-        (self.ws / "skills" / "aikito" / "SKILL.md").write_text("custom\n", encoding="utf-8")
+        (self.ws / "skills" / "aikito" / "SKILL.md").write_text(
+            "custom\n", encoding="utf-8"
+        )
         plan = build_bundled_refresh_plan(self.ws, self.home)
         self.assertTrue(plan.can_apply)
         self.assertTrue(plan.replan_required)
@@ -77,7 +79,9 @@ skills_path = ".claude/skills"
 
     def test_execute_bundled_refresh_plan_dry_run_zero_write(self) -> None:
         """Dry-run bundled refresh plan creates no backups and makes no disk changes."""
-        (self.ws / "skills" / "aikito" / "SKILL.md").write_text("custom\n", encoding="utf-8")
+        (self.ws / "skills" / "aikito" / "SKILL.md").write_text(
+            "custom\n", encoding="utf-8"
+        )
         plan = build_bundled_refresh_plan(self.ws, self.home)
         refreshed = execute_bundled_refresh_plan(plan, self.ws, self.home, dry_run=True)
         self.assertEqual(refreshed, ("aikito",))
@@ -90,9 +94,13 @@ skills_path = ".claude/skills"
 
     def test_execute_bundled_refresh_plan_apply_refreshes_and_backs_up(self) -> None:
         """Applying bundled refresh plan updates skill from package and creates timestamped backup."""
-        (self.ws / "skills" / "aikito" / "SKILL.md").write_text("custom\n", encoding="utf-8")
+        (self.ws / "skills" / "aikito" / "SKILL.md").write_text(
+            "custom\n", encoding="utf-8"
+        )
         plan = build_bundled_refresh_plan(self.ws, self.home)
-        refreshed = execute_bundled_refresh_plan(plan, self.ws, self.home, dry_run=False)
+        refreshed = execute_bundled_refresh_plan(
+            plan, self.ws, self.home, dry_run=False
+        )
         self.assertEqual(refreshed, ("aikito",))
         # Updated from package
         self.assertNotEqual(
@@ -143,7 +151,9 @@ skills_path = ".claude/skills"
 
     def test_global_sync_plan_replan_required_propagates(self) -> None:
         """When bundled skill needs refresh, replan_required_after_apply is True in plan and result."""
-        (self.ws / "skills" / "aikito" / "SKILL.md").write_text("custom\n", encoding="utf-8")
+        (self.ws / "skills" / "aikito" / "SKILL.md").write_text(
+            "custom\n", encoding="utf-8"
+        )
         container_path = self.home / ".agents" / "skills"
         plan = build_global_sync_plan(
             self.ws, self.home, dry_run=True, container_path=container_path
@@ -156,10 +166,14 @@ skills_path = ".claude/skills"
         self.assertTrue(result.replan_required)
         self.assertIn("aikito", result.refreshed_bundled)
 
-    def test_workspace_sync_aborts_on_bundled_refresh_when_replan_required(self) -> None:
+    def test_workspace_sync_aborts_on_bundled_refresh_when_replan_required(
+        self,
+    ) -> None:
         """execute_workspace_sync_plan invalidates plan when global sync requires replan and projects have batches."""
         # Cause bundled skill to need refresh
-        (self.ws / "skills" / "aikito" / "SKILL.md").write_text("custom\n", encoding="utf-8")
+        (self.ws / "skills" / "aikito" / "SKILL.md").write_text(
+            "custom\n", encoding="utf-8"
+        )
 
         # Create a mock project entry with batch on plan
         from aikito.workspace_sync import ProjectSyncEntry
@@ -174,11 +188,15 @@ skills_path = ".claude/skills"
             preflight_findings=(),
             can_apply=True,
         )
-        entry = ProjectSyncEntry(project_name="p1", binding_status="active", batch=dummy_batch)
+        entry = ProjectSyncEntry(
+            project_name="p1", binding_status="active", batch=dummy_batch
+        )
         plan_with_project = build_workspace_sync_plan(self.ws, home=self.home)
         object.__setattr__(plan_with_project, "project_entries", (entry,))
 
-        res = execute_workspace_sync_plan(plan_with_project, self.ws, self.home, dry_run=False)
+        res = execute_workspace_sync_plan(
+            plan_with_project, self.ws, self.home, dry_run=False
+        )
         self.assertFalse(res.success)
         self.assertTrue(res.replan_required)
         self.assertIn("workspace sync plan invalidated", res.error_message or "")

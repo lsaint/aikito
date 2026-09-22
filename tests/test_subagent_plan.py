@@ -65,10 +65,10 @@ config_format = "dsh_cordis_subagent"
 
         (self.ws / "subagents").mkdir()
         (self.ws / "subagents.toml").write_text(
-            '[subagents.verifier]\n'
+            "[subagents.verifier]\n"
             'description = "Verifier agent"\n'
             'agents = ["claude-code", "opencode", "dsh"]\n'
-            '[subagents.reviewer]\n'
+            "[subagents.reviewer]\n"
             'description = "Reviewer agent"\n'
             'agents = ["dsh"]\n',
             encoding="utf-8",
@@ -99,11 +99,15 @@ config_format = "dsh_cordis_subagent"
         """INV-SUB-02: --force <agent>/<subagent> only authorizes that exact target."""
         claude_agents = self.home / ".claude" / "agents"
         claude_agents.mkdir(parents=True)
-        (claude_agents / "verifier.md").write_text("Unmanaged custom content\n", encoding="utf-8")
+        (claude_agents / "verifier.md").write_text(
+            "Unmanaged custom content\n", encoding="utf-8"
+        )
 
         opencode_agents = self.home / ".config" / "opencode" / "agents"
         opencode_agents.mkdir(parents=True)
-        (opencode_agents / "verifier.md").write_text("Unmanaged custom content\n", encoding="utf-8")
+        (opencode_agents / "verifier.md").write_text(
+            "Unmanaged custom content\n", encoding="utf-8"
+        )
 
         # 1. Without force: both are unauthorized conflicts, can_apply is False
         plan_no_force = build_subagent_plan(self.ws, self.home)
@@ -119,15 +123,19 @@ config_format = "dsh_cordis_subagent"
         self.assertEqual(plan_force_claude.conflicts_count, 1)
 
         claude_op = [
-            op for op in plan_force_claude.operations
-            if op.target.agent == "claude-code" and op.target.logical_identity == "verifier"
+            op
+            for op in plan_force_claude.operations
+            if op.target.agent == "claude-code"
+            and op.target.logical_identity == "verifier"
         ][0]
         self.assertTrue(claude_op.is_authorized)
         self.assertTrue(claude_op.requires_force)
 
         opencode_op = [
-            op for op in plan_force_claude.operations
-            if op.target.agent == "opencode" and op.target.logical_identity == "verifier"
+            op
+            for op in plan_force_claude.operations
+            if op.target.agent == "opencode"
+            and op.target.logical_identity == "verifier"
         ][0]
         self.assertFalse(opencode_op.is_authorized)
         self.assertEqual(opencode_op.action, "CONFLICT")
@@ -165,7 +173,9 @@ config_format = "dsh_cordis_subagent"
         self.assertTrue(remove_ops[0].is_authorized)
 
         # unmanaged_file is never planned for prune/remove
-        all_planned_identities = {op.target.logical_identity for op in plan_prune.operations}
+        all_planned_identities = {
+            op.target.logical_identity for op in plan_prune.operations
+        }
         self.assertNotIn("user_notes", all_planned_identities)
 
     def test_dsh_shared_file_aggregated_into_single_file_plan(self) -> None:
@@ -177,7 +187,8 @@ config_format = "dsh_cordis_subagent"
         self.assertEqual(len(dsh_ops), 2)
 
         dsh_file_plans = [
-            fp for fp in plan.file_plans
+            fp
+            for fp in plan.file_plans
             if fp.path == self.home / ".dsh" / "cordis.patch.yml"
         ]
         self.assertEqual(len(dsh_file_plans), 1)

@@ -228,14 +228,18 @@ class Workspace:
             for op in plan.subagent_plan.operations:
                 if op.is_authorized:
                     agent = getattr(getattr(op, "target", None), "agent", "")
-                    identity = getattr(getattr(op, "target", None), "logical_identity", "")
+                    identity = getattr(
+                        getattr(op, "target", None), "logical_identity", ""
+                    )
                     operations.append(f"Subagent {op.action}: {agent}/{identity}")
 
         if plan.mcp_plan:
             for op in getattr(plan.mcp_plan, "operations", ()):
                 if getattr(op, "is_authorized", True):
                     agent = getattr(getattr(op, "target", None), "agent", "")
-                    identity = getattr(getattr(op, "target", None), "logical_identity", "")
+                    identity = getattr(
+                        getattr(op, "target", None), "logical_identity", ""
+                    )
                     operations.append(f"MCP {op.action}: {agent}/{identity}")
 
         for entry in plan.project_entries:
@@ -245,7 +249,9 @@ class Workspace:
                     checkouts_str = ", ".join(str(c) for c in b.active_checkouts)
                     operations.append(f"Project {entry.project_name}: {checkouts_str}")
                 else:
-                    operations.append(f"Project {entry.project_name}: no active checkouts")
+                    operations.append(
+                        f"Project {entry.project_name}: no active checkouts"
+                    )
             elif entry.binding_status == "offline":
                 operations.append(f"Project {entry.project_name}: offline")
 

@@ -379,7 +379,9 @@ invalid_field = "value"
 
     def test_dry_run_and_plan_consistency(self) -> None:
         plan_before = build_subagent_plan(self.aikito_dir, self.home_dir)
-        create_actions = [op.action for op in plan_before.operations if op.action != "SKIP"]
+        create_actions = [
+            op.action for op in plan_before.operations if op.action != "SKIP"
+        ]
         self.assertEqual(create_actions, ["CREATE", "CREATE", "CREATE", "CREATE"])
 
         success = sync_subagent_configs(self.aikito_dir, self.home_dir, dry_run=True)
@@ -704,7 +706,9 @@ config_format = "dsh_cordis_subagent"
         uninstalled_home = self.base_path / "uninstalled_home"
         uninstalled_home.mkdir()
         with patch("aikito.subagent.is_agent_installed", return_value=False):
-            plan = build_subagent_plan(self.aikito_dir, uninstalled_home, gate_installed=True)
+            plan = build_subagent_plan(
+                self.aikito_dir, uninstalled_home, gate_installed=True
+            )
             codex_items = [op for op in plan.operations if op.target.agent == "codex"]
             self.assertTrue(all(op.action == "SKIP" for op in codex_items))
             self.assertTrue(

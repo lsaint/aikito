@@ -37,9 +37,7 @@ from .agents import (
 from .compat import resolve_executable, secure_file_permissions
 from .config_runtime import (
     ConfigCollisionError,
-    ConfigOperation,
     ConfigTarget,
-    FileMutationPlan,
     FileSnapshot,
     StaleConfigPlanError,
     capture_file_snapshot,
@@ -1148,13 +1146,13 @@ def _load_basic_token_auth(
         )
 
     fields = {}
-    for field in ("account_email", "token_env", "authorization_env"):
-        value = authentication.get(field)
+    for auth_field in ("account_email", "token_env", "authorization_env"):
+        value = authentication.get(auth_field)
         if not isinstance(value, str) or not value:
             raise MCPConfigError(
-                f"Server '{server_name}' authentication requires '{field}'"
+                f"Server '{server_name}' authentication requires '{auth_field}'"
             )
-        fields[field] = value
+        fields[auth_field] = value
     return BasicTokenAuth(**fields)
 
 
@@ -2557,8 +2555,7 @@ class MCPPlan:
     @property
     def can_apply(self) -> bool:
         return not any(
-            (op.action == "CONFLICT" and not op.is_authorized)
-            or op.action == "ERROR"
+            (op.action == "CONFLICT" and not op.is_authorized) or op.action == "ERROR"
             for op in self.operations
         )
 
@@ -2642,7 +2639,9 @@ def build_mcp_plan(
             is_absent = (s.server in absent_servers) or (s.desired is None)
             if t_name in seen_target_names:
                 prev_s = seen_target_names[t_name]
-                prev_is_absent = (prev_s.server in absent_servers) or (prev_s.desired is None)
+                prev_is_absent = (prev_s.server in absent_servers) or (
+                    prev_s.desired is None
+                )
                 if prev_s.server != s.server:
                     raise ConfigCollisionError(
                         f"Colliding MCP server names: '{prev_s.server}' and '{s.server}' both map to target name '{t_name}' in '{canonical_path}'"
@@ -2661,7 +2660,8 @@ def build_mcp_plan(
         canonical_path = canonical_paths[phys_id]
         resolved_format = g_specs[0].config_format if g_specs else ""
         file_sensitive = any(
-            s.contains_secret or s.config_format in ("claude_json", "agy_json") for s in g_specs
+            s.contains_secret or s.config_format in ("claude_json", "agy_json")
+            for s in g_specs
         )
         file_snapshot = capture_file_snapshot(
             canonical_path, format=resolved_format, sensitive=file_sensitive
@@ -2673,7 +2673,11 @@ def build_mcp_plan(
 
         for spec in g_specs:
             target_key = f"{spec.agent}/{spec.server}"
-            is_authorized = force or (target_key in force_targets_set) or (spec.server in force_targets_set)
+            is_authorized = (
+                force
+                or (target_key in force_targets_set)
+                or (spec.server in force_targets_set)
+            )
             is_absent = (spec.server in absent_servers) or (spec.desired is None)
             config_target = MCPConfigTarget(
                 path=canonical_path,
@@ -2681,7 +2685,8 @@ def build_mcp_plan(
                 key_path=("mcpServers", spec.target_name),
                 format=spec.config_format,
                 agent=spec.agent,
-                sensitive=spec.contains_secret or spec.config_format in ("claude_json", "agy_json"),
+                sensitive=spec.contains_secret
+                or spec.config_format in ("claude_json", "agy_json"),
                 target_name=spec.target_name,
             )
 
@@ -2774,7 +2779,9 @@ def build_mcp_plan(
                             observed=observed,
                             desired=None,
                             spec=spec,
-                            requires_force=(managed_fp is None or current_fp != managed_fp),
+                            requires_force=(
+                                managed_fp is None or current_fp != managed_fp
+                            ),
                             force_identity=target_key,
                             is_authorized=True,
                             state_transition=(spec.state_key, None),
@@ -2908,7 +2915,9 @@ def build_mcp_plan(
 
             action = "CREATE" if current is None else "UPDATE"
             reason = "New server entry" if current is None else "Configuration updated"
-            requires_force_flag = current is not None and (managed_fp is None or managed_fp != current_fp)
+            requires_force_flag = current is not None and (
+                managed_fp is None or managed_fp != current_fp
+            )
             op = MCPOperation(
                 target=config_target,
                 action=action,
@@ -2993,7 +3002,10 @@ def evaluate_spec_status(
     """
     if plan is not None:
         for op in plan.operations:
-            if op.target.agent == spec.agent and op.target.logical_identity == spec.server:
+            if (
+                op.target.agent == spec.agent
+                and op.target.logical_identity == spec.server
+            ):
                 return _map_operation_to_status(op)
 
     effective_home = home or spec.home
@@ -3116,7 +3128,10 @@ def execute_mcp_plan(
             encoding="utf-8",
             suffix=".tmp",
         ) as sf:
-            sf.write(json.dumps(new_state, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+            sf.write(
+                json.dumps(new_state, ensure_ascii=False, indent=2, sort_keys=True)
+                + "\n"
+            )
             state_tmp = Path(sf.name)
     except Exception as exc:
         output(f"[ERROR] Failed to prepare state file for atomic save: {exc}")
@@ -3168,15 +3183,27 @@ def execute_mcp_plan(
         if not fp.should_backup:
             continue
         try:
-            first_spec = fp.operations[0].spec if fp.operations and fp.operations[0].spec else None
-            bk = _backup_config(home, first_spec) if first_spec else _backup_file_plan(home, fp)
+            first_spec = (
+                fp.operations[0].spec
+                if fp.operations and fp.operations[0].spec
+                else None
+            )
+            bk = (
+                _backup_config(home, first_spec)
+                if first_spec
+                else _backup_file_plan(home, fp)
+            )
             if bk:
                 backups_created.append((fp, bk))
         except Exception as exc:
             backup_error = exc
             failed_fp = fp
             first_op = fp.operations[0] if fp.operations else None
-            agent_srv = f"{first_op.target.agent}/{first_op.target.logical_identity}" if first_op else str(fp.path)
+            agent_srv = (
+                f"{first_op.target.agent}/{first_op.target.logical_identity}"
+                if first_op
+                else str(fp.path)
+            )
             output(
                 f"[ERROR] {agent_srv}: backup failed ({exc}); "
                 "aborting before modifying runtime files"
@@ -3213,13 +3240,19 @@ def execute_mcp_plan(
     for fp in mutating_files:
         backup_path = next((b for f, b in backups_created if f.path == fp.path), None)
         try:
-            _atomic_write(fp.path, fp.final_content or "", secure_permissions=fp.sensitive)
+            _atomic_write(
+                fp.path, fp.final_content or "", secure_permissions=fp.sensitive
+            )
             committed.append((fp, backup_path))
         except Exception as exc:
             write_error = exc
             failed_write_fp = fp
             first_op = fp.operations[0] if fp.operations else None
-            agent_srv = f"{first_op.target.agent}/{first_op.target.logical_identity}" if first_op else str(fp.path)
+            agent_srv = (
+                f"{first_op.target.agent}/{first_op.target.logical_identity}"
+                if first_op
+                else str(fp.path)
+            )
             output(
                 f"[ERROR] {agent_srv}: write failed ({exc}); "
                 "rolling back all committed agent configs"
@@ -3244,9 +3277,15 @@ def execute_mcp_plan(
                 rb_ok = True
             except Exception as rb_exc:
                 all_succeeded = False
-                recovery_hint = f"; backup retained at {c_bk}" if c_bk is not None else ""
+                recovery_hint = (
+                    f"; backup retained at {c_bk}" if c_bk is not None else ""
+                )
                 first_op = c_fp.operations[0] if c_fp.operations else None
-                agent_srv = f"{first_op.target.agent}/{first_op.target.logical_identity}" if first_op else str(c_fp.path)
+                agent_srv = (
+                    f"{first_op.target.agent}/{first_op.target.logical_identity}"
+                    if first_op
+                    else str(c_fp.path)
+                )
                 msg = f"{agent_srv}: rollback failed ({rb_exc}); manual inspection required{recovery_hint}"
                 output(f"[WARN] {msg}")
                 warnings.append(msg)
@@ -3328,13 +3367,19 @@ def execute_mcp_plan(
         first_spec = True
         for op in fp.operations:
             if op.is_authorized and op.action in ("CREATE", "UPDATE", "REMOVE"):
-                action_str = f"{op.action.lower()}d" if op.action != "REMOVE" else "removed from"
-                output(f"[SYNC] {op.target.agent}/{op.target.logical_identity}: {action_str} {fp.path}")
+                action_str = (
+                    f"{op.action.lower()}d" if op.action != "REMOVE" else "removed from"
+                )
+                output(
+                    f"[SYNC] {op.target.agent}/{op.target.logical_identity}: {action_str} {fp.path}"
+                )
                 if first_spec and bk:
                     output(f"[BACKUP] {bk}")
                     first_spec = False
                 if op.spec and op.spec.auth_command:
-                    output(f"[AUTH] aikito auth mcp {op.target.agent} {op.target.logical_identity}")
+                    output(
+                        f"[AUTH] aikito auth mcp {op.target.agent} {op.target.logical_identity}"
+                    )
 
     all_backups = tuple(b for _f, b in backups_created)
     return MCPExecutionResult(
@@ -3372,7 +3417,9 @@ def sync_mcp_configs(
             elif op.spec and not op.spec.enabled:
                 output(f"[SKIP] {target_key}: {op.reason}")
             else:
-                output(f"[SKIP] {op.target.agent} not detected: {op.target.path.parent}")
+                output(
+                    f"[SKIP] {op.target.agent} not detected: {op.target.path.parent}"
+                )
         elif op.action == "NOOP":
             output(f"[OK] {target_key}: already synchronized")
         elif op.action == "CONFLICT":
@@ -3385,13 +3432,14 @@ def sync_mcp_configs(
         for op in plan.operations:
             if op.action in ("CREATE", "UPDATE") and op.is_authorized:
                 action_name = "create" if op.action == "CREATE" else "update"
-                output(f"[DRY-RUN] {op.target.agent}/{op.target.logical_identity}: would {action_name} entry")
+                output(
+                    f"[DRY-RUN] {op.target.agent}/{op.target.logical_identity}: would {action_name} entry"
+                )
         if not plan.can_apply:
             return False
         # In dry run, converge state for already OK entries just like legacy sync
         state = _load_state(home)
         entries = state.get("entries", {})
-        state_changed = False
         for op in plan.operations:
             if op.action == "NOOP" and op.state_transition:
                 state_key, fp = op.state_transition
@@ -3401,7 +3449,6 @@ def sync_mcp_configs(
                         "config_path": str(op.target.path),
                         "target_name": op.target.target_name,
                     }
-                    state_changed = True
         return plan.can_apply
 
     if not plan.can_apply:

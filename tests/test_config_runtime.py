@@ -18,8 +18,6 @@ from aikito.config_runtime import (
     ConfigCollisionError,
     ConfigOperation,
     ConfigTarget,
-    FileMutationPlan,
-    FileSnapshot,
     StaleConfigPlanError,
     aggregate_file_plans,
     capture_file_snapshot,
@@ -255,7 +253,9 @@ class ConfigRuntimeTests(unittest.TestCase):
             aggregate_file_plans([op1, op2])
         self.assertIn("whole-file", str(ctx.exception))
 
-    def test_aggregate_file_plans_detects_whole_file_and_section_collision(self) -> None:
+    def test_aggregate_file_plans_detects_whole_file_and_section_collision(
+        self,
+    ) -> None:
         """A mutating whole-file operation and a section-level operation in the same file collide (INV-CFG-03)."""
         cfg_file = self.root / "config.toml"
         cfg_file.write_text("[section]\n", encoding="utf-8")

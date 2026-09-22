@@ -817,7 +817,9 @@ config_format = "claude_json"
                 result = execute_adoption(plan, dry_run=False)
                 self.assertIsInstance(result, AdoptExecutionResult)
                 self.assertFalse(result.success)
-                self.assertIn("Simulated backup storage failure", result.error_message or "")
+                self.assertIn(
+                    "Simulated backup storage failure", result.error_message or ""
+                )
 
     def test_adopt_copilot_cli_resources(self) -> None:
         copilot_dir = self.fake_home / ".copilot"
@@ -937,7 +939,9 @@ config_format = "claude_json"
         self.assertTrue(plan.can_apply)
         self.assertGreater(len(plan.file_plans), 0)
 
-        inst_plan = next(fp for fp in plan.file_plans if fp.resource_kind == "instructions")
+        inst_plan = next(
+            fp for fp in plan.file_plans if fp.resource_kind == "instructions"
+        )
         self.assertIsInstance(inst_plan, AdoptFilePlan)
         self.assertIsNone(inst_plan.expected_pre_image)
         self.assertEqual(inst_plan.action, "CREATE")
@@ -1005,13 +1009,18 @@ config_format = "claude_json"
         plan = build_adopt_plan(self.target_path, self.fake_home)
         self.assertTrue(plan.can_apply)
 
-        with patch("aikito.adopt.create_adopt_backup", side_effect=OSError("Disk error during backup")):
+        with patch(
+            "aikito.adopt.create_adopt_backup",
+            side_effect=OSError("Disk error during backup"),
+        ):
             result = execute_adoption(plan, dry_run=False)
             self.assertIsInstance(result, AdoptExecutionResult)
             self.assertFalse(result.success)
             self.assertIn("Failed during adoption backup", result.error_message or "")
 
-    def test_adopt_partial_write_failure_tracks_written_and_unwritten_files(self) -> None:
+    def test_adopt_partial_write_failure_tracks_written_and_unwritten_files(
+        self,
+    ) -> None:
         codex_dir = self.fake_home / ".codex"
         codex_dir.mkdir(parents=True)
         (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
@@ -1047,4 +1056,3 @@ config_format = "claude_json"
 
 if __name__ == "__main__":
     unittest.main()
-

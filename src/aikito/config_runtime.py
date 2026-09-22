@@ -12,10 +12,9 @@ from __future__ import annotations
 
 import hashlib
 import os
-import sys
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -86,7 +85,9 @@ class FileSnapshot:
     is_file: bool = False
     is_dir: bool = False
 
-    def validate_precondition(self, current_path: Path | None = None) -> tuple[bool, str]:
+    def validate_precondition(
+        self, current_path: Path | None = None
+    ) -> tuple[bool, str]:
         """Validate whether current disk state matches this frozen pre-image."""
         target = current_path or self.path
         target_lexists = os.path.lexists(target)
@@ -136,7 +137,10 @@ class FileSnapshot:
                         f"File '{target}' content has been modified externally since plan generation",
                     )
             except OSError as e:
-                return False, f"Cannot read file '{target}' for precondition validation: {e}"
+                return (
+                    False,
+                    f"Cannot read file '{target}' for precondition validation: {e}",
+                )
 
         return True, ""
 
@@ -227,8 +231,7 @@ class FileMutationPlan:
     @property
     def has_conflicts(self) -> bool:
         return any(
-            op.action == "CONFLICT" or not op.is_authorized
-            for op in self.operations
+            op.action == "CONFLICT" or not op.is_authorized for op in self.operations
         )
 
     def validate_precondition(self) -> None:
@@ -262,7 +265,9 @@ def aggregate_file_plans(
     file_plans: list[FileMutationPlan] = []
     snapshots = existing_snapshots or {}
 
-    for phys_id, ops in sorted(grouped_ops.items(), key=lambda x: str(canonical_paths[x[0]])):
+    for phys_id, ops in sorted(
+        grouped_ops.items(), key=lambda x: str(canonical_paths[x[0]])
+    ):
         canonical_path = canonical_paths[phys_id]
 
         # Check format consistency

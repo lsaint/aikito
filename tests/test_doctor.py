@@ -1067,7 +1067,10 @@ agents = ["claude-code"]
         with (
             patch("aikito.doctor.load_agent_specs", return_value=[spec]),
             patch("aikito.doctor.evaluate_spec_status", return_value="DRIFT"),
-            patch("aikito.doctor.build_subagent_plan", return_value=SubagentPlan(operations=(), file_plans=())),
+            patch(
+                "aikito.doctor.build_subagent_plan",
+                return_value=SubagentPlan(operations=(), file_plans=()),
+            ),
         ):
             section = check_drift(self.aikito_dir, self.home)
 
@@ -1106,9 +1109,14 @@ agents = ["claude-code"]
             return "UPDATE" if spec.server == "srv1" else "DRIFT"
 
         with (
-            patch("aikito.doctor.load_agent_specs", return_value=[spec_update, spec_drift]),
+            patch(
+                "aikito.doctor.load_agent_specs", return_value=[spec_update, spec_drift]
+            ),
             patch("aikito.doctor.evaluate_spec_status", side_effect=eval_status),
-            patch("aikito.doctor.build_subagent_plan", return_value=SubagentPlan(operations=(), file_plans=())),
+            patch(
+                "aikito.doctor.build_subagent_plan",
+                return_value=SubagentPlan(operations=(), file_plans=()),
+            ),
         ):
             section = check_drift(self.aikito_dir, self.home)
 

@@ -136,7 +136,9 @@ def test_inv_app_04_partial_failure_segmented_results(tmp_path: Path) -> None:
     proj_dir.mkdir(parents=True, exist_ok=True)
     checkout = tmp_path / "p1_checkout"
     checkout.mkdir(parents=True, exist_ok=True)
-    (proj_dir / "agent.toml").write_text(f'path = "{checkout}"\nskills = []\n', encoding="utf-8")
+    (proj_dir / "agent.toml").write_text(
+        f'path = "{checkout}"\nskills = []\n', encoding="utf-8"
+    )
 
     plan = build_workspace_sync_plan(ws, home=home)
 
@@ -227,13 +229,17 @@ def test_inv_app_06_structured_project_binding_and_offline(tmp_path: Path) -> No
     p_act.mkdir(parents=True, exist_ok=True)
     c_act = tmp_path / "active_checkout"
     c_act.mkdir(parents=True, exist_ok=True)
-    (p_act / "agent.toml").write_text(f'path = "{c_act}"\nskills = []\n', encoding="utf-8")
+    (p_act / "agent.toml").write_text(
+        f'path = "{c_act}"\nskills = []\n', encoding="utf-8"
+    )
 
     # 2. Offline project (path does not exist on host)
     p_off = ws / "projects" / "offline_proj"
     p_off.mkdir(parents=True, exist_ok=True)
     c_off = tmp_path / "nonexistent_checkout"
-    (p_off / "agent.toml").write_text(f'path = "{c_off}"\nskills = []\n', encoding="utf-8")
+    (p_off / "agent.toml").write_text(
+        f'path = "{c_off}"\nskills = []\n', encoding="utf-8"
+    )
 
     # 3. Unbound project (no paths defined)
     p_unb = ws / "projects" / "unbound_proj"
@@ -265,7 +271,9 @@ def test_inv_app_06_structured_project_binding_and_offline(tmp_path: Path) -> No
     assert len(plan.errors) == 0
 
 
-def test_inv_app_07_bundled_refresh_replan_boundary_in_workspace(tmp_path: Path) -> None:
+def test_inv_app_07_bundled_refresh_replan_boundary_in_workspace(
+    tmp_path: Path,
+) -> None:
     """INV-APP-07: Bundled skill refresh halts before project sync and requires replan."""
     ws = tmp_path / "workspace"
     home = tmp_path / "home"
@@ -277,7 +285,9 @@ def test_inv_app_07_bundled_refresh_replan_boundary_in_workspace(tmp_path: Path)
     proj_dir.mkdir(parents=True, exist_ok=True)
     checkout = tmp_path / "p1_checkout"
     checkout.mkdir(parents=True, exist_ok=True)
-    (proj_dir / "agent.toml").write_text(f'path = "{checkout}"\nskills = []\n', encoding="utf-8")
+    (proj_dir / "agent.toml").write_text(
+        f'path = "{checkout}"\nskills = []\n', encoding="utf-8"
+    )
 
     plan = build_workspace_sync_plan(ws, home=home)
 
@@ -324,11 +334,15 @@ def test_bundled_skill_refresh_fingerprint_divergence_fails(tmp_path: Path) -> N
     # Diverge target fingerprint before execution
     (aikito_skill / "SKILL.md").write_text("Mutated after plan\n", encoding="utf-8")
 
-    with pytest.raises(BundledSkillRefreshError, match="state diverged from plan snapshot"):
+    with pytest.raises(
+        BundledSkillRefreshError, match="state diverged from plan snapshot"
+    ):
         execute_bundled_refresh_plan(plan, ws, home, dry_run=False)
 
 
-def test_sync_global_resources_application_service_and_bundled_verification(tmp_path: Path) -> None:
+def test_sync_global_resources_application_service_and_bundled_verification(
+    tmp_path: Path,
+) -> None:
     """sync_global_resources in workspace_sync functions as an application service and enforces fingerprint verification."""
     ws = tmp_path / "workspace"
     home = tmp_path / "home"
@@ -346,10 +360,12 @@ def test_sync_global_resources_application_service_and_bundled_verification(tmp_
     (aikito_skill / "SKILL.md").write_text("Old content\n", encoding="utf-8")
 
     from unittest.mock import patch
-    with patch("aikito.workspace_sync.execute_bundled_refresh_plan", side_effect=BundledSkillRefreshError("Mock fingerprint divergence")):
+
+    with patch(
+        "aikito.workspace_sync.execute_bundled_refresh_plan",
+        side_effect=BundledSkillRefreshError("Mock fingerprint divergence"),
+    ):
         res_fail = sync_global_resources(ws, home, dry_run=False)
         assert isinstance(res_fail, GlobalSyncExecutionResult)
         assert res_fail.success is False
         assert "Mock fingerprint divergence" in (res_fail.error_message or "")
-
-

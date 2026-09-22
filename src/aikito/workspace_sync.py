@@ -92,6 +92,7 @@ class GlobalSyncExecutionResult:
 
     def __bool__(self) -> bool:
         return self.success
+
     skill_result: Any | None = None
     instruction_result: Any | None = None
     refreshed_bundled: tuple[str, ...] = ()
@@ -111,7 +112,11 @@ def build_bundled_refresh_plan(
     outdated_bundled_skills_fn: Optional[Callable[[Path], Sequence[str]]] = None,
 ) -> BundledSkillRefreshPlan:
     skills_root = workspace_root / "skills"
-    outdated_set = set(outdated_bundled_skills_fn(workspace_root)) if outdated_bundled_skills_fn else None
+    outdated_set = (
+        set(outdated_bundled_skills_fn(workspace_root))
+        if outdated_bundled_skills_fn
+        else None
+    )
 
     operations: list[BundledSkillRefreshOperation] = []
     outdated: list[str] = []
@@ -203,7 +208,9 @@ def execute_bundled_refresh_plan(
                     _backup_target(target, backup)
                     print(f"[BACKUP] Bundled skill '{op.skill_name}': {backup}")
                 _replace_directory(source, target)
-                print(f"[REFRESH] Bundled skill '{op.skill_name}' updated from installed Aikito")
+                print(
+                    f"[REFRESH] Bundled skill '{op.skill_name}' updated from installed Aikito"
+                )
                 refreshed.append(op.skill_name)
         except OSError as exc:
             raise BundledSkillRefreshError(
@@ -230,7 +237,9 @@ def build_global_sync_plan(
 
     if container_path is None:
         agents_env = os.environ.get("AIKITO_AGENTS_DIR")
-        container_path = Path(agents_env) / "skills" if agents_env else home / ".agents" / "skills"
+        container_path = (
+            Path(agents_env) / "skills" if agents_env else home / ".agents" / "skills"
+        )
 
     if not skills_toml_path.exists():
         finding = Finding(
@@ -381,7 +390,10 @@ def build_global_sync_plan(
                     status="CONFLICT",
                     code=op.rule_id or "SKILL_CONFLICT",
                     message=op.reason,
-                    resource=str(getattr(op, "canonical_path", None) or getattr(op, "target_path", "")),
+                    resource=str(
+                        getattr(op, "canonical_path", None)
+                        or getattr(op, "target_path", "")
+                    ),
                 )
             )
 
@@ -425,13 +437,16 @@ def execute_global_sync_plan(
     home: Path,
     *,
     dry_run: bool = False,
-    execute_global_skills_fn: Optional[Callable[..., GlobalSkillExecutionResult]] = None,
-    execute_instruction_plan_fn: Optional[Callable[..., InstructionExecutionResult]] = None,
+    execute_global_skills_fn: Optional[
+        Callable[..., GlobalSkillExecutionResult]
+    ] = None,
+    execute_instruction_plan_fn: Optional[
+        Callable[..., InstructionExecutionResult]
+    ] = None,
 ) -> GlobalSyncExecutionResult:
     """Execute global skill, instruction, and bundled refresh plans under proper lock boundaries."""
-    has_skill_conflicts = (
-        plan.skill_plan is not None
-        and any(op.action == "CONFLICT" for op in plan.skill_plan.all_operations)
+    has_skill_conflicts = plan.skill_plan is not None and any(
+        op.action == "CONFLICT" for op in plan.skill_plan.all_operations
     )
     if plan.skill_plan is None or has_skill_conflicts:
         return GlobalSyncExecutionResult(
@@ -513,7 +528,9 @@ def execute_global_sync_plan(
 
     if not global_instruction_source.is_file():
         instruction_res = InstructionExecutionResult(
-            operations=plan.instruction_plan.operations if plan.instruction_plan else (),
+            operations=plan.instruction_plan.operations
+            if plan.instruction_plan
+            else (),
             success=False,
             conflict_count=1,
             error_message=f"Global instruction file not found: {global_instruction_source}",
@@ -580,8 +597,12 @@ def sync_global_resources(
     dry_run: bool = False,
     container_path: Optional[Path] = None,
     load_agents_fn: Optional[Callable] = None,
-    execute_global_skills_fn: Optional[Callable[..., GlobalSkillExecutionResult]] = None,
-    execute_instruction_plan_fn: Optional[Callable[..., InstructionExecutionResult]] = None,
+    execute_global_skills_fn: Optional[
+        Callable[..., GlobalSkillExecutionResult]
+    ] = None,
+    execute_instruction_plan_fn: Optional[
+        Callable[..., InstructionExecutionResult]
+    ] = None,
 ) -> GlobalSyncExecutionResult:
     """Synchronize global resources (skills and instructions) via structured execution plan."""
     if container_path is None:
@@ -691,7 +712,9 @@ class WorkspaceSyncPlan:
         if self.global_plan.skill_plan:
             count += getattr(self.global_plan.skill_plan, "planned_change_count", 0)
         if self.global_plan.instruction_plan:
-            count += getattr(self.global_plan.instruction_plan, "planned_change_count", 0)
+            count += getattr(
+                self.global_plan.instruction_plan, "planned_change_count", 0
+            )
 
         # 2. Subagents
         if self.subagent_plan:
@@ -713,7 +736,8 @@ class WorkspaceSyncPlan:
                     count += sum(
                         1
                         for op in b.skill_plan.operations
-                        if op.action in ("CREATE", "UPDATE", "UNLINK") and op.is_authorized
+                        if op.action in ("CREATE", "UPDATE", "UNLINK")
+                        and op.is_authorized
                     )
                 if b.instruction_plan:
                     count += getattr(b.instruction_plan, "planned_change_count", 0)
@@ -739,7 +763,9 @@ class WorkspaceSyncPlan:
 
         # 2. Subagents
         if self.subagent_plan:
-            count += sum(1 for op in self.subagent_plan.operations if op.action == "NOOP")
+            count += sum(
+                1 for op in self.subagent_plan.operations if op.action == "NOOP"
+            )
 
         # 3. MCP
         if self.mcp_plan:
@@ -750,7 +776,9 @@ class WorkspaceSyncPlan:
             if entry.batch is not None:
                 b = entry.batch
                 if b.skill_plan:
-                    count += sum(1 for op in b.skill_plan.operations if op.action == "NOOP")
+                    count += sum(
+                        1 for op in b.skill_plan.operations if op.action == "NOOP"
+                    )
                 if b.instruction_plan:
                     count += getattr(b.instruction_plan, "noop_count", 0)
                 if b.memory_plan:
@@ -760,18 +788,24 @@ class WorkspaceSyncPlan:
 
     @property
     def offline(self) -> int:
-        return sum(1 for entry in self.project_entries if entry.binding_status == "offline")
+        return sum(
+            1 for entry in self.project_entries if entry.binding_status == "offline"
+        )
 
     @property
     def conflicts(self) -> tuple[str, ...]:
         result: list[str] = []
         # Global
-        if self.global_plan.skill_plan and hasattr(self.global_plan.skill_plan, "conflicts"):
+        if self.global_plan.skill_plan and hasattr(
+            self.global_plan.skill_plan, "conflicts"
+        ):
             for op in self.global_plan.skill_plan.conflicts:
                 msg = getattr(op, "finding", None) or getattr(op, "reason", str(op))
                 if msg not in result:
                     result.append(msg)
-        if self.global_plan.instruction_plan and hasattr(self.global_plan.instruction_plan, "conflicts"):
+        if self.global_plan.instruction_plan and hasattr(
+            self.global_plan.instruction_plan, "conflicts"
+        ):
             for op in self.global_plan.instruction_plan.conflicts:
                 msg = getattr(op, "finding", None) or getattr(op, "reason", str(op))
                 if msg not in result:
@@ -780,7 +814,9 @@ class WorkspaceSyncPlan:
         # Subagents
         if self.subagent_plan:
             for op in self.subagent_plan.operations:
-                if op.action == "CONFLICT" or (op.requires_force and not op.is_authorized):
+                if op.action == "CONFLICT" or (
+                    op.requires_force and not op.is_authorized
+                ):
                     msg = f"{op.target.agent}/{op.target.logical_identity}: {op.reason}"
                     if msg not in result:
                         result.append(msg)
@@ -788,7 +824,9 @@ class WorkspaceSyncPlan:
         # MCP
         if self.mcp_plan:
             for op in self.mcp_plan.operations:
-                if (op.action == "CONFLICT" and not op.is_authorized) or op.action == "ERROR":
+                if (
+                    op.action == "CONFLICT" and not op.is_authorized
+                ) or op.action == "ERROR":
                     msg = f"{op.target.agent}/{op.target.logical_identity}: {op.reason}"
                     if msg not in result:
                         result.append(msg)
@@ -799,18 +837,24 @@ class WorkspaceSyncPlan:
                 b = entry.batch
                 if b.skill_plan:
                     for op in b.skill_plan.operations:
-                        if op.action == "CONFLICT" or (op.requires_force and not op.is_authorized):
+                        if op.action == "CONFLICT" or (
+                            op.requires_force and not op.is_authorized
+                        ):
                             msg = getattr(op, "finding", None) or op.reason
                             if msg not in result:
                                 result.append(msg)
                 if b.instruction_plan and hasattr(b.instruction_plan, "conflicts"):
                     for op in b.instruction_plan.conflicts:
-                        msg = getattr(op, "finding", None) or getattr(op, "reason", str(op))
+                        msg = getattr(op, "finding", None) or getattr(
+                            op, "reason", str(op)
+                        )
                         if msg not in result:
                             result.append(msg)
                 if b.memory_plan and hasattr(b.memory_plan, "conflicts"):
                     for op in b.memory_plan.conflicts:
-                        msg = getattr(op, "finding", None) or getattr(op, "reason", str(op))
+                        msg = getattr(op, "finding", None) or getattr(
+                            op, "reason", str(op)
+                        )
                         if msg not in result:
                             result.append(msg)
 
@@ -823,7 +867,10 @@ class WorkspaceSyncPlan:
     @property
     def errors(self) -> tuple[str, ...]:
         result: list[str] = []
-        if self.global_plan.error_message and self.global_plan.error_message not in result:
+        if (
+            self.global_plan.error_message
+            and self.global_plan.error_message not in result
+        ):
             result.append(self.global_plan.error_message)
 
         if self.subagent_plan:
@@ -893,29 +940,43 @@ class WorkspaceSyncPlan:
             if self.global_plan.skill_plan:
                 for op in getattr(self.global_plan.skill_plan, "all_operations", ()):
                     if op.action != "NOOP":
-                        details.append(f"  [{op.action}] {op.canonical_path} -> {op.target_path}")
+                        details.append(
+                            f"  [{op.action}] {op.canonical_path} -> {op.target_path}"
+                        )
             if self.global_plan.instruction_plan:
                 for op in self.global_plan.instruction_plan.operations:
                     if op.action != "NOOP":
-                        details.append(f"  [{op.action}] {op.canonical_path} -> {op.target_path}")
+                        details.append(
+                            f"  [{op.action}] {op.canonical_path} -> {op.target_path}"
+                        )
             if self.subagent_plan:
                 for op in self.subagent_plan.operations:
                     if op.action != "NOOP":
-                        details.append(f"  [{op.action}] {op.target.agent}/{op.target.logical_identity} -> {op.target.path}")
+                        details.append(
+                            f"  [{op.action}] {op.target.agent}/{op.target.logical_identity} -> {op.target.path}"
+                        )
             if self.mcp_plan:
                 for op in self.mcp_plan.operations:
                     if op.action != "NOOP":
-                        details.append(f"  [{op.action}] {op.target.agent}/{op.target.logical_identity} ({op.reason})")
+                        details.append(
+                            f"  [{op.action}] {op.target.agent}/{op.target.logical_identity} ({op.reason})"
+                        )
             for entry in self.project_entries:
                 if entry.binding_status == "offline":
                     candidates_str = ", ".join(entry.offline_paths) or "-"
-                    details.append(f"  Project '{entry.project_name}': offline on this host ({candidates_str}), skipping.")
+                    details.append(
+                        f"  Project '{entry.project_name}': offline on this host ({candidates_str}), skipping."
+                    )
                 elif entry.binding_status == "unbound":
-                    details.append(f"  Project '{entry.project_name}': no configured paths (unbound), skipping.")
+                    details.append(
+                        f"  Project '{entry.project_name}': no configured paths (unbound), skipping."
+                    )
                 elif entry.binding_status == "active" and entry.batch:
                     for op in entry.batch.skill_plan.operations:
                         if op.action != "NOOP":
-                            details.append(f"  [{op.action}] {entry.project_name}/{op.target.skill_name} -> {op.target.path}")
+                            details.append(
+                                f"  [{op.action}] {entry.project_name}/{op.target.skill_name} -> {op.target.path}"
+                            )
             if details:
                 lines.extend(("", "Details", "", *details))
         return "\n".join(lines)
@@ -1040,7 +1101,11 @@ def build_workspace_sync_plan(
 
     if projects_dir.is_dir():
         proj_dirs = sorted(
-            [p for p in projects_dir.iterdir() if p.is_dir() and not p.name.startswith(".")],
+            [
+                p
+                for p in projects_dir.iterdir()
+                if p.is_dir() and not p.name.startswith(".")
+            ],
             key=lambda p: p.name,
         )
         for proj_dir in proj_dirs:
@@ -1053,9 +1118,16 @@ def build_workspace_sync_plan(
                 with open(agent_toml, "rb") as f:
                     data = tomllib.load(f)
             except (OSError, tomllib.TOMLDecodeError) as exc:
-                err_msg = f"Failed to read configuration for project '{project_name}': {exc}"
+                err_msg = (
+                    f"Failed to read configuration for project '{project_name}': {exc}"
+                )
                 project_findings.append(
-                    Finding(status="error", message=err_msg, resource=project_name, code="PROJECT_CONFIG_ERROR")
+                    Finding(
+                        status="error",
+                        message=err_msg,
+                        resource=project_name,
+                        code="PROJECT_CONFIG_ERROR",
+                    )
                 )
                 project_entries.append(
                     ProjectSyncEntry(
@@ -1098,13 +1170,25 @@ def build_workspace_sync_plan(
             )
             for err in batch.preflight_findings:
                 project_findings.append(
-                    Finding(status="error", message=err, resource=project_name, code="PREFLIGHT_ERROR")
+                    Finding(
+                        status="error",
+                        message=err,
+                        resource=project_name,
+                        code="PREFLIGHT_ERROR",
+                    )
                 )
             for op in batch.skill_plan.operations:
-                if op.action == "CONFLICT" or (op.requires_force and not op.is_authorized):
+                if op.action == "CONFLICT" or (
+                    op.requires_force and not op.is_authorized
+                ):
                     msg = op.finding or op.reason
                     project_findings.append(
-                        Finding(status="conflict", message=msg, resource=project_name, code="SKILL_CONFLICT")
+                        Finding(
+                            status="conflict",
+                            message=msg,
+                            resource=project_name,
+                            code="SKILL_CONFLICT",
+                        )
                     )
 
             project_entries.append(
@@ -1127,9 +1211,8 @@ def build_workspace_sync_plan(
         and not any(f.status.lower() in ("error", "fail") for f in all_findings)
     )
 
-    replan_required_after_apply = (
-        global_plan.replan_required_after_apply
-        and any(e.batch is not None for e in project_entries)
+    replan_required_after_apply = global_plan.replan_required_after_apply and any(
+        e.batch is not None for e in project_entries
     )
 
     return WorkspaceSyncPlan(
@@ -1201,8 +1284,12 @@ def execute_workspace_sync_plan(
             sub_res = SubagentExecutionResult(
                 success=plan.subagent_plan.can_apply,
                 applied_count=0,
-                noop_count=sum(1 for op in plan.subagent_plan.operations if op.action == "NOOP"),
-                skipped_count=sum(1 for op in plan.subagent_plan.operations if op.action == "SKIP"),
+                noop_count=sum(
+                    1 for op in plan.subagent_plan.operations if op.action == "NOOP"
+                ),
+                skipped_count=sum(
+                    1 for op in plan.subagent_plan.operations if op.action == "SKIP"
+                ),
                 conflict_count=plan.subagent_plan.conflicts_count,
                 failed_count=0,
             )
@@ -1226,8 +1313,12 @@ def execute_workspace_sync_plan(
             mcp_res = MCPExecutionResult(
                 success=plan.mcp_plan.can_apply,
                 applied_count=0,
-                noop_count=sum(1 for op in plan.mcp_plan.operations if op.action == "NOOP"),
-                skipped_count=sum(1 for op in plan.mcp_plan.operations if op.action == "SKIP"),
+                noop_count=sum(
+                    1 for op in plan.mcp_plan.operations if op.action == "NOOP"
+                ),
+                skipped_count=sum(
+                    1 for op in plan.mcp_plan.operations if op.action == "SKIP"
+                ),
                 conflict_count=plan.mcp_plan.conflicts_count,
                 failed_count=0,
             )
@@ -1259,7 +1350,10 @@ def execute_workspace_sync_plan(
         if not p_res.is_success:
             projects_ok = False
             if first_proj_error is None:
-                first_proj_error = p_res.error_message or f"Project '{entry.project_name}' sync failed."
+                first_proj_error = (
+                    p_res.error_message
+                    or f"Project '{entry.project_name}' sync failed."
+                )
 
     overall_success = projects_ok and plan.can_apply
     return WorkspaceSyncExecutionResult(
@@ -1275,4 +1369,3 @@ def execute_workspace_sync_plan(
 
 
 plan_workspace_sync = build_workspace_sync_plan
-

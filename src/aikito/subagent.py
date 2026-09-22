@@ -93,7 +93,6 @@ class SubagentDefinition:
     instructions: str
 
 
-
 @dataclass(frozen=True)
 class SubagentPlan:
     """Immutable, fully-evaluated synchronization plan for Subagents."""
@@ -105,8 +104,7 @@ class SubagentPlan:
     @property
     def can_apply(self) -> bool:
         return not any(
-            (op.action == "CONFLICT" and not op.is_authorized)
-            or op.action == "ERROR"
+            (op.action == "CONFLICT" and not op.is_authorized) or op.action == "ERROR"
             for op in self.operations
         )
 
@@ -1203,7 +1201,6 @@ def build_subagent_plan(
     )
 
 
-
 def _backup_file(home: Path, agent_name: str, target_path: Path) -> Path | None:
     if not target_path.is_file():
         return None
@@ -1247,7 +1244,9 @@ def execute_subagent_plan(
                     success=False,
                     applied_count=0,
                     noop_count=sum(1 for op in plan.operations if op.action == "NOOP"),
-                    skipped_count=sum(1 for op in plan.operations if op.action == "SKIP"),
+                    skipped_count=sum(
+                        1 for op in plan.operations if op.action == "SKIP"
+                    ),
                     conflict_count=0,
                     failed_count=1,
                     failed_files=(fp.path,),
@@ -1278,7 +1277,8 @@ def execute_subagent_plan(
                 applied_count += sum(
                     1
                     for op in fp.operations
-                    if op.is_authorized and op.action in ("CREATE", "UPDATE", "REMOVE", "ORPHAN")
+                    if op.is_authorized
+                    and op.action in ("CREATE", "UPDATE", "REMOVE", "ORPHAN")
                 )
 
             else:
@@ -1418,7 +1418,10 @@ def sync_subagent_configs(
 
     result = execute_subagent_plan(plan, home)
     if not result.success:
-        print(f"[ERROR] Subagent synchronization failed: {result.error_message}", file=sys.stderr)
+        print(
+            f"[ERROR] Subagent synchronization failed: {result.error_message}",
+            file=sys.stderr,
+        )
         return False
 
     print("[SUCCESS] Subagent synchronization completed successfully.")
@@ -1438,9 +1441,7 @@ def status_subagent_configs(aikito_dir: Path, home: Path) -> bool:
             print(f"  [OK] {target_key}")
         elif op.action in ("CREATE", "UPDATE"):
             all_ok = False
-            print(
-                f"  [{op.action}] {target_key} -> {op.target.path} ({op.reason})"
-            )
+            print(f"  [{op.action}] {target_key} -> {op.target.path} ({op.reason})")
         elif op.action == "CONFLICT":
             all_ok = False
             print(f"  [CONFLICT] {target_key} -> {op.target.path}")

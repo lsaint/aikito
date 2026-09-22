@@ -45,9 +45,7 @@ class Phase8CharacterizationTests(unittest.TestCase):
         (self.ws / "config.toml").write_text(
             '[workspace]\nversion = "1.0"\n', encoding="utf-8"
         )
-        (self.ws / "skills.toml").write_text(
-            "skills = []\n", encoding="utf-8"
-        )
+        (self.ws / "skills.toml").write_text("skills = []\n", encoding="utf-8")
         (self.ws / "subagents.toml").write_text(
             '[subagents.reviewer]\ndescription = "Code reviewer"\nagents = ["claude-code"]\n',
             encoding="utf-8",
@@ -102,13 +100,10 @@ name_style = "verbatim"
 
     def test_subagent_legacy_plan_compatibility_characterization(self) -> None:
         """Verify subagent build_subagent_plan returns SubagentPlan and legacy view is retired."""
-        subagent_md = (
-            "---\n"
-            "description: Code reviewer\n"
-            "---\n"
-            "Review prompt\n"
+        subagent_md = "---\ndescription: Code reviewer\n---\nReview prompt\n"
+        (self.ws / "subagents" / "reviewer.md").write_text(
+            subagent_md, encoding="utf-8"
         )
-        (self.ws / "subagents" / "reviewer.md").write_text(subagent_md, encoding="utf-8")
 
         # Formal structured plan
         formal_plan = build_subagent_plan(self.ws, home=self.home, gate_installed=False)

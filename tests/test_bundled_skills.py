@@ -210,7 +210,10 @@ class BundledSkillWriterLockTest(unittest.TestCase):
 
         with (
             patch("aikito.cli.get_agents_dir", return_value=self.home / ".agents"),
-            patch("aikito.workspace_sync.execute_bundled_refresh_plan", return_value=("missing-skill",)),
+            patch(
+                "aikito.workspace_sync.execute_bundled_refresh_plan",
+                return_value=("missing-skill",),
+            ),
         ):
             res = sync_global_resources(self.workspace, self.home, dry_run=False)
             self.assertFalse(res)

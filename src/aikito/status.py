@@ -510,7 +510,9 @@ def collect_agent_status_rows(
         # 4. Subagent Status
         subagent_status = "SKIP"
         agent_subagent_ops = [
-            op for op in subagent_ops if op.target.agent in (name, definition.display_name)
+            op
+            for op in subagent_ops
+            if op.target.agent in (name, definition.display_name)
         ]
         active_ops = [op for op in agent_subagent_ops if op.action != "SKIP"]
         if active_ops:
@@ -751,7 +753,9 @@ def collect_subagents_matrix(
     aikito_dir: Path, home: Path
 ) -> tuple[list[SubagentRow], list[OrphanSubagentFile], list[str]]:
     try:
-        subagent_plan = build_subagent_plan(aikito_dir=aikito_dir, home=home, allow_empty=True)
+        subagent_plan = build_subagent_plan(
+            aikito_dir=aikito_dir, home=home, allow_empty=True
+        )
         plan_ops = subagent_plan.operations
     except SubagentConfigError:
         plan_ops = ()

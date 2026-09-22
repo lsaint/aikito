@@ -973,13 +973,9 @@ def _build_file_plans(
     if subagents:
         sub_toml_path = aikito_dir / "subagents.toml"
         existing_subs = (
-            sub_toml_path.read_text(encoding="utf-8")
-            if sub_toml_path.is_file()
-            else ""
+            sub_toml_path.read_text(encoding="utf-8") if sub_toml_path.is_file() else ""
         )
-        new_subs_content, sub_logs = render_subagents_block(
-            existing_subs, subagents
-        )
+        new_subs_content, sub_logs = render_subagents_block(existing_subs, subagents)
 
         if new_subs_content != existing_subs:
             plans.append(
@@ -1049,9 +1045,7 @@ def _collect_adopt_findings(
     findings = list(errors)
     if instructions.has_conflict:
         source_paths = ", ".join(str(path) for _, path, _ in instructions.sources)
-        target = (
-            instructions.target_path or aikito_dir / "global" / "AGENTS.md"
-        )
+        target = instructions.target_path or aikito_dir / "global" / "AGENTS.md"
         findings.append(
             Finding(
                 status="FAIL",
@@ -1086,9 +1080,7 @@ def _collect_adopt_findings(
 
     subagents_path = aikito_dir / "subagents.toml"
     existing_subagents = (
-        subagents_path.read_text(encoding="utf-8")
-        if subagents_path.is_file()
-        else ""
+        subagents_path.read_text(encoding="utf-8") if subagents_path.is_file() else ""
     )
     _, subagent_logs = render_subagents_block(existing_subagents, subagents)
     subagents_by_name = {sub.subagent_name: sub for sub in subagents}
@@ -1147,7 +1139,9 @@ def _create_adopt_plan(
     for src in backup_sources:
         if src.is_file():
             try:
-                source_fingerprints.append((src, hashlib.sha256(src.read_bytes()).hexdigest()))
+                source_fingerprints.append(
+                    (src, hashlib.sha256(src.read_bytes()).hexdigest())
+                )
             except OSError:
                 pass
     can_apply = len(findings) == 0
@@ -1353,7 +1347,9 @@ def execute_adoption(
     for fp in plan.file_plans:
         if fp.expected_pre_image is None:
             if fp.path.exists():
-                err_msg = f"Target file '{fp.path}' was created after plan was generated"
+                err_msg = (
+                    f"Target file '{fp.path}' was created after plan was generated"
+                )
                 print(
                     f"[ERROR] Adoption plan is stale: {err_msg}. Re-run 'aikito adopt' to plan against the current workspace state.",
                     file=sys.stderr,
@@ -1366,7 +1362,9 @@ def execute_adoption(
                 )
         else:
             if not fp.path.exists():
-                err_msg = f"Target file '{fp.path}' was deleted after plan was generated"
+                err_msg = (
+                    f"Target file '{fp.path}' was deleted after plan was generated"
+                )
                 print(
                     f"[ERROR] Adoption plan is stale: {err_msg}. Re-run 'aikito adopt' to plan against the current workspace state.",
                     file=sys.stderr,
@@ -1379,7 +1377,9 @@ def execute_adoption(
                 )
             current_text = fp.path.read_text(encoding="utf-8")
             if current_text != fp.expected_pre_image:
-                err_msg = f"Target file '{fp.path}' was modified after plan was generated"
+                err_msg = (
+                    f"Target file '{fp.path}' was modified after plan was generated"
+                )
                 print(
                     f"[ERROR] Adoption plan is stale: {err_msg}. Re-run 'aikito adopt' to plan against the current workspace state.",
                     file=sys.stderr,
@@ -1458,7 +1458,9 @@ def execute_adoption(
             except ValueError:
                 backups.append(actual_backup_dir / src.name)
 
-    planned_targets = [fp.path for fp in plan.file_plans if fp.action in ("CREATE", "UPDATE")]
+    planned_targets = [
+        fp.path for fp in plan.file_plans if fp.action in ("CREATE", "UPDATE")
+    ]
     written_files: list[Path] = []
     failed_files: list[str] = []
     adopted_instructions: list[str] = []
@@ -1497,7 +1499,9 @@ def execute_adoption(
                     )
             else:
                 if not _write_fp(inst_fp):
-                    unwritten = tuple(p for p in planned_targets if p not in written_files)
+                    unwritten = tuple(
+                        p for p in planned_targets if p not in written_files
+                    )
                     return AdoptExecutionResult(
                         success=False,
                         instructions=(),
@@ -1547,7 +1551,9 @@ def execute_adoption(
                 print(log_msg)
             if not dry_run:
                 if not _write_fp(mcp_fp):
-                    unwritten = tuple(p for p in planned_targets if p not in written_files)
+                    unwritten = tuple(
+                        p for p in planned_targets if p not in written_files
+                    )
                     return AdoptExecutionResult(
                         success=False,
                         instructions=tuple(adopted_instructions),
@@ -1605,7 +1611,9 @@ def execute_adoption(
             for fp in plan.file_plans:
                 if fp.resource_kind == "subagent_prompt" and fp.action == "CREATE":
                     if not _write_fp(fp):
-                        unwritten = tuple(p for p in planned_targets if p not in written_files)
+                        unwritten = tuple(
+                            p for p in planned_targets if p not in written_files
+                        )
                         return AdoptExecutionResult(
                             success=False,
                             instructions=tuple(adopted_instructions),

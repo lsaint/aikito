@@ -89,7 +89,7 @@ name_style = "verbatim"
         # Canonical subagents
         (self.ws / "subagents").mkdir()
         (self.ws / "subagents.toml").write_text(
-            '[subagents.verifier]\n'
+            "[subagents.verifier]\n"
             'description = "Verifier agent"\n'
             'agents = ["claude-code", "opencode", "dsh"]\n',
             encoding="utf-8",
@@ -127,11 +127,18 @@ name_style = "verbatim"
         target_file = target_dir / "verifier.md"
 
         # 1. Unmanaged content without marker
-        target_file.write_text("User custom verifier prompt without marker\n", encoding="utf-8")
+        target_file.write_text(
+            "User custom verifier prompt without marker\n", encoding="utf-8"
+        )
         self.assertFalse(has_aikito_marker(target_file))
 
         plan = build_subagent_plan(self.ws, self.home)
-        claude_items = [op for op in plan.operations if op.target.agent == "claude-code" and op.target.logical_identity == "verifier"]
+        claude_items = [
+            op
+            for op in plan.operations
+            if op.target.agent == "claude-code"
+            and op.target.logical_identity == "verifier"
+        ]
         self.assertEqual(len(claude_items), 1)
         self.assertEqual(claude_items[0].action, "CONFLICT")
 
@@ -151,7 +158,12 @@ name_style = "verbatim"
         self.assertTrue(has_aikito_marker(target_file))
 
         plan = build_subagent_plan(self.ws, self.home)
-        claude_items = [op for op in plan.operations if op.target.agent == "claude-code" and op.target.logical_identity == "verifier"]
+        claude_items = [
+            op
+            for op in plan.operations
+            if op.target.agent == "claude-code"
+            and op.target.logical_identity == "verifier"
+        ]
         self.assertEqual(claude_items[0].action, "UPDATE")
 
         # 3. Exact matching rendered content -> NOOP
@@ -160,7 +172,12 @@ name_style = "verbatim"
         )
         target_file.write_text(exact_rendered, encoding="utf-8")
         plan_synced = build_subagent_plan(self.ws, self.home)
-        claude_items_synced = [op for op in plan_synced.operations if op.target.agent == "claude-code" and op.target.logical_identity == "verifier"]
+        claude_items_synced = [
+            op
+            for op in plan_synced.operations
+            if op.target.agent == "claude-code"
+            and op.target.logical_identity == "verifier"
+        ]
         self.assertEqual(claude_items_synced[0].action, "NOOP")
 
     def test_subagent_explicit_force_authorization(self) -> None:
@@ -247,7 +264,9 @@ name_style = "verbatim"
 
         # 2. Check that specs evaluate to synced
         specs = load_agent_specs(self.ws, self.home)
-        github_claude = [s for s in specs if s.server == "github" and s.agent == "claude-code"][0]
+        github_claude = [
+            s for s in specs if s.server == "github" and s.agent == "claude-code"
+        ][0]
         status = evaluate_spec_status(github_claude)
         self.assertEqual(status, "OK")
 
@@ -264,7 +283,9 @@ name_style = "verbatim"
         with patch("sys.stdout"):
             sync_mcp_configs(aikito_dir=self.ws, home=self.home)
         cfg_after = json.loads(claude_config_path.read_text(encoding="utf-8"))
-        self.assertEqual(cfg_after["mcpServers"]["github"]["url"], "https://tampered.example.com/mcp")
+        self.assertEqual(
+            cfg_after["mcpServers"]["github"]["url"], "https://tampered.example.com/mcp"
+        )
 
     def test_mcp_same_file_multi_server_merging(self) -> None:
         """INV-MCP-02 baseline: multiple servers in same config file merge without overwrite."""

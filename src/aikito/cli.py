@@ -219,7 +219,9 @@ def sync_global_resources(
         ):
             return GlobalSyncResult(success=False, error_message=plan.error_message)
 
-        if any(f.code in ("TOML_DECODE_ERROR", "MCP_CONFIG_ERROR") for f in plan.findings):
+        if any(
+            f.code in ("TOML_DECODE_ERROR", "MCP_CONFIG_ERROR") for f in plan.findings
+        ):
             return GlobalSyncResult(success=False, error_message=plan.error_message)
 
         if plan.skill_plan and plan.skill_plan.all_operations:
@@ -295,9 +297,15 @@ def sync_global_resources(
         return res
 
     if plan.skill_plan:
-        valid_targets = tuple(str(s.path.name) for s in plan.skill_plan.batch.selected_entries)
-        skill_consumer_count = sum(len(t.consumers) for t in plan.skill_plan.batch.consumers)
-        consumer_count = res.skill_result.consumer_target_count if res.skill_result else 0
+        valid_targets = tuple(
+            str(s.path.name) for s in plan.skill_plan.batch.selected_entries
+        )
+        skill_consumer_count = sum(
+            len(t.consumers) for t in plan.skill_plan.batch.consumers
+        )
+        consumer_count = (
+            res.skill_result.consumer_target_count if res.skill_result else 0
+        )
         print(
             f"[SUCCESS] Global resources synced successfully "
             f"({len(valid_targets)} skills, 1 instruction source, "

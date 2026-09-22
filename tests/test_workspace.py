@@ -44,7 +44,9 @@ class AikitoWorkspaceTest(unittest.TestCase):
             self.assertEqual(resolve_workspace(self.home), environment.resolve())
             self.assertEqual(resolve_workspace_with_source(self.home)[1], "AIKITO_DIR")
 
-    def test_workspace_plan_sync_operations_include_global_skills_and_instructions(self) -> None:
+    def test_workspace_plan_sync_operations_include_global_skills_and_instructions(
+        self,
+    ) -> None:
         """INV-API-11 / Public API: plan_sync operations must include sanitized global skill and instruction summaries."""
         from aikito import (
             Workspace,
@@ -56,10 +58,12 @@ class AikitoWorkspaceTest(unittest.TestCase):
 
         ws_dir = self.home / "my-workspace"
         ws_dir.mkdir(parents=True, exist_ok=True)
-        (ws_dir / "config.toml").write_text('[workspace]\nversion = "1.0"\n', encoding="utf-8")
+        (ws_dir / "config.toml").write_text(
+            '[workspace]\nversion = "1.0"\n', encoding="utf-8"
+        )
         (ws_dir / "skills.toml").write_text('skills = ["my-skill"]\n', encoding="utf-8")
         (ws_dir / "agents.toml").write_text(
-            '[agents.claude-code]\n'
+            "[agents.claude-code]\n"
             'display_name = "Claude Code"\n'
             'instruction_path = ".claude/CLAUDE.md"\n'
             'skills_path = ".claude/skills"\n',
@@ -76,14 +80,18 @@ class AikitoWorkspaceTest(unittest.TestCase):
         # Create global skill source
         skill_dir = ws_dir / "skills" / "my-skill"
         skill_dir.mkdir(parents=True, exist_ok=True)
-        (skill_dir / "SKILL.md").write_text("---\nname: my-skill\n---\n", encoding="utf-8")
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: my-skill\n---\n", encoding="utf-8"
+        )
 
         # Also add a project
         proj_dir = ws_dir / "projects" / "test-proj"
         proj_dir.mkdir(parents=True, exist_ok=True)
         checkout = self.home / "checkouts" / "test-proj"
         checkout.mkdir(parents=True, exist_ok=True)
-        (proj_dir / "agent.toml").write_text(f'path = "{checkout}"\nskills = []\n', encoding="utf-8")
+        (proj_dir / "agent.toml").write_text(
+            f'path = "{checkout}"\nskills = []\n', encoding="utf-8"
+        )
 
         ws = Workspace.load(ws_dir, home=self.home)
 
@@ -118,4 +126,3 @@ class AikitoWorkspaceTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -19,10 +19,8 @@ from unittest.mock import patch
 
 from aikito.config_runtime import ConfigCollisionError, StaleConfigPlanError
 from aikito.mcp import (
-    BACKUP_DIR,
     STATE_FILE,
     AgentSpec,
-    MCPExecutionResult,
     MCPPlan,
     build_mcp_plan,
     evaluate_spec_status,
@@ -385,7 +383,9 @@ agents = ["claude"]
         second_plan = build_mcp_plan(self.ws, self.home)
         self.assertTrue(all(op.action == "NOOP" for op in second_plan.operations))
 
-    def test_execute_backup_suppression_and_secure_permissions_for_sensitive(self) -> None:
+    def test_execute_backup_suppression_and_secure_permissions_for_sensitive(
+        self,
+    ) -> None:
         """Sensitive configs suppress backups and enforce 0o600 permissions (INV-MCP-06)."""
         (self.mcps_dir / "secret-srv.toml").write_text(
             """transport = "remote"
@@ -490,10 +490,15 @@ agents = ["claude"]
         plan = build_mcp_plan(self.ws, self.home, specs=[spec1, spec2])
         self.assertEqual(len(plan.file_plans), 2)
 
-        original_atomic_write = __import__("aikito.mcp", fromlist=["_atomic_write"])._atomic_write
+        original_atomic_write = __import__(
+            "aikito.mcp", fromlist=["_atomic_write"]
+        )._atomic_write
 
         call_count = [0]
-        def failing_write(path: Path, content: str, secure_permissions: bool = False) -> None:
+
+        def failing_write(
+            path: Path, content: str, secure_permissions: bool = False
+        ) -> None:
             call_count[0] += 1
             if call_count[0] == 2:
                 raise OSError("Write error on file 2")
@@ -534,7 +539,9 @@ agents = ["claude"]
         # State file must not exist
         self.assertFalse((self.home / STATE_FILE).exists())
 
-    def test_execute_rollback_failure_retains_backup_and_sets_recovery_required(self) -> None:
+    def test_execute_rollback_failure_retains_backup_and_sets_recovery_required(
+        self,
+    ) -> None:
         """If rollback fails, backups are strictly retained and recovery_required=True (INV-MCP-08)."""
         file1 = self.home / "agent_config.toml"
         file2 = self.home / "fail_write.toml"
@@ -560,10 +567,15 @@ agents = ["claude"]
 
         plan = build_mcp_plan(self.ws, self.home, specs=[spec1, spec2])
 
-        original_atomic_write = __import__("aikito.mcp", fromlist=["_atomic_write"])._atomic_write
+        original_atomic_write = __import__(
+            "aikito.mcp", fromlist=["_atomic_write"]
+        )._atomic_write
 
         write_calls = [0]
-        def simulate_write_and_rollback_failure(path: Path, content: str, secure_permissions: bool = False) -> None:
+
+        def simulate_write_and_rollback_failure(
+            path: Path, content: str, secure_permissions: bool = False
+        ) -> None:
             write_calls[0] += 1
             if write_calls[0] == 2:
                 # file2 write fails
@@ -573,7 +585,9 @@ agents = ["claude"]
                 raise OSError("Simulated disk error during rollback")
             original_atomic_write(path, content, secure_permissions=secure_permissions)
 
-        with patch("aikito.mcp._atomic_write", side_effect=simulate_write_and_rollback_failure):
+        with patch(
+            "aikito.mcp._atomic_write", side_effect=simulate_write_and_rollback_failure
+        ):
             result = execute_mcp_plan(plan, self.home)
 
         self.assertFalse(result.success)
@@ -662,12 +676,16 @@ agents = ["claude"]
         )
 
         out_lines: list[str] = []
-        ok = sync_remove_mcp_from_agents(home=self.home, specs=[spec], output=out_lines.append, force=False)
+        ok = sync_remove_mcp_from_agents(
+            home=self.home, specs=[spec], output=out_lines.append, force=False
+        )
         self.assertFalse(ok)
         self.assertTrue(any("[CONFLICT]" in line for line in out_lines))
 
         # With force=True, it succeeds
-        ok_forced = sync_remove_mcp_from_agents(home=self.home, specs=[spec], force=True)
+        ok_forced = sync_remove_mcp_from_agents(
+            home=self.home, specs=[spec], force=True
+        )
         self.assertTrue(ok_forced)
         data_after = json.loads(claude_file.read_text(encoding="utf-8"))
         self.assertNotIn("drifted", data_after.get("mcpServers", {}))
@@ -745,4 +763,3 @@ agents = ["claude"]
 
 if __name__ == "__main__":
     unittest.main()
-

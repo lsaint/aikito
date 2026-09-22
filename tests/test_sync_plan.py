@@ -32,19 +32,25 @@ class SyncPlanIndependenceTest(unittest.TestCase):
         (self.ws / "mcps").mkdir()
         (self.ws / "skills").mkdir()
         (self.ws / "global").mkdir()
-        (self.ws / "global" / "AGENTS.md").write_text("# Global Rules\n", encoding="utf-8")
+        (self.ws / "global" / "AGENTS.md").write_text(
+            "# Global Rules\n", encoding="utf-8"
+        )
 
         # 1 active project
         p_act = self.ws / "projects" / "active_proj"
         p_act.mkdir(parents=True)
         c_act = self.root / "active_checkout"
         c_act.mkdir()
-        (p_act / "agent.toml").write_text(f'path = "{c_act}"\nskills = []\n', encoding="utf-8")
+        (p_act / "agent.toml").write_text(
+            f'path = "{c_act}"\nskills = []\n', encoding="utf-8"
+        )
 
         # 1 offline project
         p_off = self.ws / "projects" / "offline_proj"
         p_off.mkdir(parents=True)
-        (p_off / "agent.toml").write_text('path = "/nonexistent/path"\nskills = []\n', encoding="utf-8")
+        (p_off / "agent.toml").write_text(
+            'path = "/nonexistent/path"\nskills = []\n', encoding="utf-8"
+        )
 
     def tearDown(self) -> None:
         self.td.cleanup()

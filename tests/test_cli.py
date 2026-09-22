@@ -293,7 +293,14 @@ class SyncAllExecutionTest(unittest.TestCase):
         blocked_plan = WorkspaceSyncPlan(
             workspace_root=self.aikito_dir,
             home=self.home,
-            global_plan=Mock(can_apply=False, bundled_refresh_plan=None, skill_plan=None, instruction_plan=None, findings=(), error_message=None),
+            global_plan=Mock(
+                can_apply=False,
+                bundled_refresh_plan=None,
+                skill_plan=None,
+                instruction_plan=None,
+                findings=(),
+                error_message=None,
+            ),
             subagent_plan=None,
             mcp_plan=None,
             project_entries=(),
@@ -306,8 +313,12 @@ class SyncAllExecutionTest(unittest.TestCase):
             patch("sys.stderr", new_callable=io.StringIO),
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
             patch("pathlib.Path.home", return_value=self.home),
-            patch.object(AIKITO_CLI, "build_workspace_sync_plan", return_value=blocked_plan),
-            patch.object(AIKITO_CLI, "execute_workspace_sync_plan", side_effect=run_sync),
+            patch.object(
+                AIKITO_CLI, "build_workspace_sync_plan", return_value=blocked_plan
+            ),
+            patch.object(
+                AIKITO_CLI, "execute_workspace_sync_plan", side_effect=run_sync
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["sync"])
             with self.assertRaises(SystemExit) as raised:
@@ -366,17 +377,25 @@ skills_path = ".agents/skills"
         calls: list[bool] = []
 
         def run_sync(
-            _plan: Any, _aikito_dir: Path, home: Path | None = None, *, dry_run: bool = False, **_kwargs: Any
+            _plan: Any,
+            _aikito_dir: Path,
+            home: Path | None = None,
+            *,
+            dry_run: bool = False,
+            **_kwargs: Any,
         ) -> Any:
             calls.append(dry_run)
             from aikito.workspace_sync import WorkspaceSyncExecutionResult
+
             return WorkspaceSyncExecutionResult(success=True)
 
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
             patch("pathlib.Path.home", return_value=self.home),
-            patch.object(AIKITO_CLI, "execute_workspace_sync_plan", side_effect=run_sync),
+            patch.object(
+                AIKITO_CLI, "execute_workspace_sync_plan", side_effect=run_sync
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["sync"])
             args.func(args)
@@ -386,7 +405,9 @@ skills_path = ".agents/skills"
             "Full workspace sync completed successfully", mock_stdout.getvalue()
         )
 
-    def test_cmd_sync_all_caches_subagent_and_mcp_plans_across_preview_and_apply(self) -> None:
+    def test_cmd_sync_all_caches_subagent_and_mcp_plans_across_preview_and_apply(
+        self,
+    ) -> None:
         subagent_plan_calls = []
         mcp_plan_calls = []
 

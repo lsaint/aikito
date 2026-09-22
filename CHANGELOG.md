@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.49.0] - 2026-09-22
+
 ### Added
 
 - Migrated workspace synchronization coordination and adoption engines to the structured application and coordination model (Core Model Phase 8), introducing `WorkspaceSyncPlan`, `WorkspaceSyncRequest`, `WorkspaceSyncExecutionResult`, `GlobalSyncPlan`, `BundledSkillRefreshPlan`, `AdoptRequest`, `AdoptPlan`, `AdoptFilePlan`, and `AdoptExecutionResult`.
@@ -886,7 +888,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.48.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.49.0...HEAD
+[1.49.0]: https://github.com/lsaint/aikito/compare/v1.48.0...v1.49.0
 [1.48.0]: https://github.com/lsaint/aikito/compare/v1.47.0...v1.48.0
 [1.47.0]: https://github.com/lsaint/aikito/compare/v1.46.0...v1.47.0
 [1.46.0]: https://github.com/lsaint/aikito/compare/v1.45.0...v1.46.0
