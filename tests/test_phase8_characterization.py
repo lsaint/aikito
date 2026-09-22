@@ -28,13 +28,7 @@ from aikito.cli import GlobalSyncResult, sync_global_resources
 from aikito.doctor import run_doctor
 from aikito.mcp import redact_mcp_entry
 from aikito.subagent import PlanItem, build_plan, build_subagent_plan
-from aikito.sync_plan import (
-    _CHANGE_MARKERS,
-    _CONFLICT_MARKERS,
-    _WARNING_MARKERS,
-    SyncPlan,
-    capture_sync_plan,
-)
+from aikito.sync_plan import SyncPlan
 from aikito.web_console import ConsoleData, _redact
 
 
@@ -87,43 +81,11 @@ name_style = "verbatim"
     def tearDown(self) -> None:
         self.td.cleanup()
 
-    def test_sync_plan_marker_based_characterization(self) -> None:
-        """Freeze existing stdout marker parsing in SyncPlan."""
-        stdout_sample = (
-            "--- Global Skills ---\n"
-            "  [CREATE] skill-a -> /home/.claude/skills/skill-a\n"
-            "--- Instructions ---\n"
-            "  [DRY RUN LINK] AGENTS.md\n"
-            "--- Subagents ---\n"
-            "  [CREATE] reviewer\n"
-            "  [WARN] orphan subagent found\n"
-        )
-        stderr_sample = "  [CONFLICT] conflict on file\n"
+    def test_sync_plan_is_workspace_sync_plan(self) -> None:
+        """Verify SyncPlan is unified with WorkspaceSyncPlan under INV-APP-03."""
+        from aikito.workspace_sync import WorkspaceSyncPlan
 
-        plan = SyncPlan(stdout=stdout_sample, stderr=stderr_sample, can_apply=True)
-        self.assertTrue(plan.can_apply)
-        # In baseline sync_plan.py, conflicts and warnings return tuples of matching line strings
-        self.assertEqual(len(plan.conflicts), 1)
-        self.assertEqual(len(plan.warnings), 1)
-        self.assertEqual(plan.conflicts[0], "[CONFLICT] conflict on file")
-        self.assertEqual(plan.warnings[0], "[WARN] orphan subagent found")
-
-        # Verify that legacy marker constants match baseline
-        self.assertIn("[CREATE]", _CHANGE_MARKERS)
-        self.assertIn("[CONFLICT]", _CONFLICT_MARKERS)
-        self.assertIn("[WARN]", _WARNING_MARKERS)
-
-    def test_capture_sync_plan_characterization(self) -> None:
-        """Freeze capture_sync_plan redirection and capture mechanism."""
-        def dummy_sync() -> None:
-            print("  [CREATE] test-item")
-            print("  [WARN] warning-item")
-
-        plan = capture_sync_plan(dummy_sync)
-        self.assertIn("[CREATE] test-item", plan.stdout)
-        self.assertEqual(plan.changes, 1)
-        self.assertEqual(len(plan.warnings), 1)
-        self.assertEqual(plan.warnings[0], "[WARN] warning-item")
+        self.assertIs(SyncPlan, WorkspaceSyncPlan)
 
     def test_global_sync_cli_orchestration_characterization(self) -> None:
         """Freeze sync_global_resources in cli.py returning GlobalSyncResult."""

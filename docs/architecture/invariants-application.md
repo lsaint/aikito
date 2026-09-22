@@ -18,7 +18,7 @@
 - Authorizations granted to a plan cannot be implicitly transferred to a newly recomputed plan.
 - Verified by: `tests/test_workspace_sync_plan.py`.
 
-### INV-APP-03: Structured State Independence from Output Rendering `[planned]` {: #inv-app-03 }
+### INV-APP-03: Structured State Independence from Output Rendering `[current]` {: #inv-app-03 }
 
 - All synchronization statistics (`changes`, `unchanged`, `offline`, `warnings`, `conflicts`, `errors`, `can_apply`) are derived directly from structured domain objects:
   - Resource operation actions (`CREATE`, `UPDATE`, `UNLINK`, `REMOVE`, `NOOP`)
@@ -28,6 +28,7 @@
   - Structured execution results
 - Synchronization planning and decision making must never parse stdout, stderr, or terminal formatting markers (such as `[CREATE]`, `[CONFLICT]`, `[WARN]`).
 - Output rendering (terminal markers, tables, colors) is strictly presentation-tier and has zero influence on execution decisions or exit codes.
+- Verified by: `tests/test_sync_plan.py`.
 
 ### INV-APP-04: Partial Failure and Segmented Results `[current]` {: #inv-app-04 }
 

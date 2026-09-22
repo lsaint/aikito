@@ -1,148 +1,116 @@
+"""Tests for SyncPlan and stdout independence invariant (INV-APP-03)."""
+
+from __future__ import annotations
+
+import sys
 import unittest
+from io import StringIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
-from aikito.sync_plan import SyncPlan, capture_sync_plan
+from aikito.sync_plan import SyncPlan
+from aikito.workspace_sync import (
+    WorkspaceSyncPlan,
+    build_workspace_sync_plan,
+)
 
 
-class SyncPlanTest(unittest.TestCase):
-    def test_default_render_is_concise_but_keeps_attention_items(self) -> None:
-        plan = SyncPlan(
-            stdout=(
-                "[DRY RUN LINK] /workspace/skill -> /home/.agents/skills/skill\n"
-                "[OK] codex instructions\n"
-                "[SKIP] pi not detected: /home/.pi\n"
-                "[WARN] codex/server: missing credential TOKEN\n"
-            ),
-            stderr="[CONFLICT] unmanaged target: /home/.codex/AGENTS.md\n",
-            can_apply=False,
+class SyncPlanIndependenceTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.td = TemporaryDirectory()
+        self.root = Path(self.td.name).resolve()
+        self.ws = self.root / "ws"
+        self.home = self.root / "home"
+        self.home.mkdir(parents=True)
+        self.ws.mkdir(parents=True)
+
+        # Minimal valid workspace
+        (self.ws / "skills.toml").write_text("skills = []\n", encoding="utf-8")
+        (self.ws / "agents.toml").write_text("[agents]\n", encoding="utf-8")
+        (self.ws / "subagents.toml").write_text("[subagents]\n", encoding="utf-8")
+        (self.ws / "mcps").mkdir()
+        (self.ws / "skills").mkdir()
+        (self.ws / "global").mkdir()
+        (self.ws / "global" / "AGENTS.md").write_text("# Global Rules\n", encoding="utf-8")
+
+        # 1 active project
+        p_act = self.ws / "projects" / "active_proj"
+        p_act.mkdir(parents=True)
+        c_act = self.root / "active_checkout"
+        c_act.mkdir()
+        (p_act / "agent.toml").write_text(f'path = "{c_act}"\nskills = []\n', encoding="utf-8")
+
+        # 1 offline project
+        p_off = self.ws / "projects" / "offline_proj"
+        p_off.mkdir(parents=True)
+        (p_off / "agent.toml").write_text('path = "/nonexistent/path"\nskills = []\n', encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.td.cleanup()
+
+    def test_sync_plan_is_workspace_sync_plan(self) -> None:
+        """INV-APP-03: SyncPlan is the presentation-tier alias of WorkspaceSyncPlan."""
+        self.assertIs(SyncPlan, WorkspaceSyncPlan)
+
+    def test_stdout_stderr_pollution_has_zero_effect_on_plan(self) -> None:
+        """INV-APP-03: Arbitrary output in stdout/stderr does not influence plan decisions or counts."""
+        # 1. Baseline plan build
+        baseline_plan = build_workspace_sync_plan(self.ws, home=self.home)
+        baseline_metrics = (
+            baseline_plan.changes,
+            baseline_plan.unchanged,
+            baseline_plan.offline,
+            len(baseline_plan.warnings),
+            len(baseline_plan.conflicts),
+            len(baseline_plan.errors),
+            baseline_plan.can_apply,
         )
 
-        rendered = plan.render()
+        # 2. Build plan while stdout/stderr are polluted with conflicting legacy markers
+        stdout_trap = StringIO()
+        stderr_trap = StringIO()
+        with patch("sys.stdout", stdout_trap), patch("sys.stderr", stderr_trap):
+            print("[CONFLICT] fake unmanaged target", file=sys.stderr)
+            print("[ERROR] fake fatal error", file=sys.stderr)
+            print("[CREATE] /fake/path -> /dest", file=sys.stdout)
+            print("[WARN] fake warning", file=sys.stdout)
+            print("[DRY RUN LINK] fake", file=sys.stdout)
+            polluted_plan = build_workspace_sync_plan(self.ws, home=self.home)
 
-        self.assertIn("Changes:   1", rendered)
-        self.assertIn("Unchanged: 1", rendered)
-        self.assertIn("Offline:   1", rendered)
-        self.assertIn("missing credential TOKEN", rendered)
-        self.assertIn("unmanaged target", rendered)
-        self.assertIn("Blocked; no changes were made", rendered)
-        self.assertNotIn("/workspace/skill ->", rendered)
-        self.assertNotIn("pi not detected", rendered)
-
-    def test_verbose_render_includes_complete_details(self) -> None:
-        plan = SyncPlan(
-            stdout="[DRY RUN LINK] /source -> /target\n",
-            stderr="",
-            can_apply=True,
+        polluted_metrics = (
+            polluted_plan.changes,
+            polluted_plan.unchanged,
+            polluted_plan.offline,
+            len(polluted_plan.warnings),
+            len(polluted_plan.conflicts),
+            len(polluted_plan.errors),
+            polluted_plan.can_apply,
         )
 
-        rendered = plan.render(verbose=True)
+        # Plan metrics MUST be 100% identical and independent of printed output
+        self.assertEqual(baseline_metrics, polluted_metrics)
+        self.assertTrue(polluted_plan.can_apply)
+        self.assertEqual(polluted_plan.offline, 1)
+        self.assertEqual(len(polluted_plan.conflicts), 0)
+        self.assertEqual(len(polluted_plan.errors), 0)
 
-        self.assertIn("Safe to apply", rendered)
-        self.assertIn("Details", rendered)
-        self.assertIn("/source -> /target", rendered)
+    def test_render_presentation_concise_and_verbose(self) -> None:
+        """INV-APP-03: Output rendering formats structured domain items directly."""
+        plan = build_workspace_sync_plan(self.ws, home=self.home)
 
-    def test_capture_redirects_preview_output(self) -> None:
-        def preview() -> bool:
-            print("[OK] ready")
-            return True
+        # Concise rendering
+        concise = plan.render(verbose=False)
+        self.assertIn("Sync plan", concise)
+        self.assertIn("Offline:   1", concise)
+        self.assertIn("Safe to apply", concise)
+        self.assertNotIn("Details", concise)
 
-        plan = capture_sync_plan(preview)
-
-        self.assertTrue(plan.can_apply)
-        self.assertEqual(plan.unchanged, 1)
-
-    def test_structured_plans_drive_changes_and_conflicts(self) -> None:
-        from unittest.mock import MagicMock
-        from aikito.subagent import SubagentPlan
-        from aikito.config_runtime import ConfigOperation, ConfigTarget
-        from aikito.mcp import MCPPlan, MCPOperation, MCPConfigTarget
-
-        sub_op = ConfigOperation(
-            target=ConfigTarget(path=None, logical_identity="claude/verifier", agent="claude"),
-            action="CREATE",
-            reason="new subagent",
-            is_authorized=True,
-        )
-        sub_plan = SubagentPlan(
-            operations=(sub_op,),
-            file_plans=(),
-        )
-
-        mcp_op = MCPOperation(
-            target=MCPConfigTarget(path=None, logical_identity="myserver", agent="claude"),
-            action="CONFLICT",
-            reason="external drift",
-            is_authorized=False,
-        )
-        mcp_plan = MCPPlan(
-            operations=(mcp_op,),
-            file_plans=(),
-            state_snapshot_hash="dummy",
-        )
-
-        plan = SyncPlan(
-            stdout="preview text",
-            stderr="",
-            can_apply=True,
-            subagent_plan=sub_plan,
-            mcp_plan=mcp_plan,
-        )
-
-        self.assertFalse(plan.can_apply)
-        self.assertEqual(plan.changes, 1)  # 1 from subagent
-        self.assertEqual(len(plan.conflicts), 1)
-        self.assertIn("claude/myserver: external drift", plan.conflicts[0])
-
-    def test_capture_evaluates_plan_lambdas_after_preview(self) -> None:
-        from unittest.mock import MagicMock
-        holder = {"sub": None, "mcp": None}
-
-        def preview() -> bool:
-            sub = MagicMock()
-            sub.can_apply = True
-            sub.operations = ()
-            mcp = MagicMock()
-            mcp.can_apply = False
-            mcp.operations = ()
-            mcp.changes_count = 0
-            holder["sub"] = sub
-            holder["mcp"] = mcp
-            return True
-
-        plan = capture_sync_plan(
-            preview,
-            subagent_plan_fn=lambda: holder["sub"],
-            mcp_plan_fn=lambda: holder["mcp"],
-        )
-
-        self.assertFalse(plan.can_apply)
-        self.assertIs(plan.subagent_plan, holder["sub"])
-        self.assertIs(plan.mcp_plan, holder["mcp"])
-
-    def test_mcp_stdout_dry_run_does_not_double_count(self) -> None:
-        """Custom agent MCP dry run in stdout must not double count changes when mcp_plan is present."""
-        from aikito.mcp import MCPPlan, MCPOperation, MCPConfigTarget
-
-        mcp_op = MCPOperation(
-            target=MCPConfigTarget(path=None, logical_identity="srv", agent="custom"),
-            action="CREATE",
-            reason="new server",
-            is_authorized=True,
-        )
-        mcp_plan = MCPPlan(
-            operations=(mcp_op,),
-            file_plans=(),
-            state_snapshot_hash="dummy",
-        )
-
-        plan = SyncPlan(
-            stdout="[DRY-RUN] custom/srv: would create entry\n",
-            stderr="",
-            can_apply=True,
-            mcp_plan=mcp_plan,
-        )
-
-        # Must be exactly 1, not 2!
-        self.assertEqual(plan.changes, 1)
+        # Verbose rendering
+        verbose = plan.render(verbose=True)
+        self.assertIn("Details", verbose)
+        self.assertIn("offline on this host", verbose)
+        self.assertIn("offline_proj", verbose)
 
 
 if __name__ == "__main__":

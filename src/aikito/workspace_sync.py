@@ -753,6 +753,40 @@ class WorkspaceSyncPlan:
                 "Safe to apply" if self.can_apply else "Blocked; no changes were made",
             )
         )
+        if verbose:
+            details: list[str] = []
+            if self.global_plan.bundled_refresh_plan:
+                for op in self.global_plan.bundled_refresh_plan.operations:
+                    if op.action == "REFRESH":
+                        details.append(f"  [REFRESH] bundled skill '{op.skill_name}'")
+            if self.global_plan.skill_plan:
+                for op in getattr(self.global_plan.skill_plan, "all_operations", ()):
+                    if op.action != "NOOP":
+                        details.append(f"  [{op.action}] {op.canonical_path} -> {op.target_path}")
+            if self.global_plan.instruction_plan:
+                for op in self.global_plan.instruction_plan.operations:
+                    if op.action != "NOOP":
+                        details.append(f"  [{op.action}] {op.canonical_path} -> {op.target_path}")
+            if self.subagent_plan:
+                for op in self.subagent_plan.operations:
+                    if op.action != "NOOP":
+                        details.append(f"  [{op.action}] {op.target.agent}/{op.target.logical_identity} -> {op.target.path}")
+            if self.mcp_plan:
+                for op in self.mcp_plan.operations:
+                    if op.action != "NOOP":
+                        details.append(f"  [{op.action}] {op.target.agent}/{op.target.logical_identity} ({op.reason})")
+            for entry in self.project_entries:
+                if entry.binding_status == "offline":
+                    candidates_str = ", ".join(entry.offline_paths) or "-"
+                    details.append(f"  Project '{entry.project_name}': offline on this host ({candidates_str}), skipping.")
+                elif entry.binding_status == "unbound":
+                    details.append(f"  Project '{entry.project_name}': no configured paths (unbound), skipping.")
+                elif entry.binding_status == "active" and entry.batch:
+                    for op in entry.batch.skill_plan.operations:
+                        if op.action != "NOOP":
+                            details.append(f"  [{op.action}] {entry.project_name}/{op.target.skill_name} -> {op.target.path}")
+            if details:
+                lines.extend(("", "Details", "", *details))
         return "\n".join(lines)
 
 
@@ -782,6 +816,8 @@ def build_workspace_sync_plan(
     force_targets: Sequence[str] | None = None,
     load_agents_fn: Optional[Callable[..., Any]] = None,
     outdated_bundled_skills_fn: Optional[Callable[[Path], Sequence[str]]] = None,
+    build_subagent_plan_fn: Optional[Callable[..., Any]] = None,
+    build_mcp_plan_fn: Optional[Callable[..., Any]] = None,
 ) -> WorkspaceSyncPlan:
     """Construct an immutable, fully-evaluated WorkspaceSyncPlan strictly read-only.
 
@@ -813,8 +849,9 @@ def build_workspace_sync_plan(
 
     # 2. Subagent plan
     subagent_plan: SubagentPlan | None = None
+    sub_builder = build_subagent_plan_fn or build_subagent_plan
     try:
-        subagent_plan = build_subagent_plan(
+        subagent_plan = sub_builder(
             aikito_dir=workspace_root,
             home=user_home,
             allow_empty=True,
@@ -841,8 +878,9 @@ def build_workspace_sync_plan(
 
     # 3. MCP plan
     mcp_plan: MCPPlan | None = None
+    mcp_builder = build_mcp_plan_fn or build_mcp_plan
     try:
-        mcp_plan = build_mcp_plan(
+        mcp_plan = mcp_builder(
             aikito_dir=workspace_root,
             home=user_home,
         )

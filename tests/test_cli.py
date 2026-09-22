@@ -278,20 +278,35 @@ class SyncAllExecutionTest(unittest.TestCase):
         self.assertIn("offline on this host", output)
 
     def test_cmd_sync_all_does_not_apply_a_blocked_plan(self) -> None:
+        from unittest.mock import Mock
+        from aikito.diagnostics import Finding
+        from aikito.workspace_sync import WorkspaceSyncPlan
+
         calls: list[bool] = []
 
         def run_sync(
             _aikito_dir: Path, _home: Path, *, dry_run: bool, **_kwargs: Any
         ) -> bool:
             calls.append(dry_run)
-            print("[CONFLICT] unmanaged target", file=sys.stderr)
             return False
+
+        blocked_plan = WorkspaceSyncPlan(
+            workspace_root=self.aikito_dir,
+            home=self.home,
+            global_plan=Mock(can_apply=False, bundled_refresh_plan=None, skill_plan=None, instruction_plan=None, findings=(), error_message=None),
+            subagent_plan=None,
+            mcp_plan=None,
+            project_entries=(),
+            findings=(Finding(status="conflict", message="unmanaged target"),),
+            can_apply=False,
+        )
 
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
             patch("sys.stderr", new_callable=io.StringIO),
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
             patch("pathlib.Path.home", return_value=self.home),
+            patch.object(AIKITO_CLI, "build_workspace_sync_plan", return_value=blocked_plan),
             patch.object(AIKITO_CLI, "_run_workspace_sync", side_effect=run_sync),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["sync"])
@@ -299,7 +314,7 @@ class SyncAllExecutionTest(unittest.TestCase):
                 args.func(args)
 
         self.assertEqual(raised.exception.code, 1)
-        self.assertEqual(calls, [True])
+        self.assertEqual(calls, [])
         self.assertIn("Blocked; no changes were made", mock_stdout.getvalue())
 
     def test_cmd_sync_all_project_conflict_prevents_global_writes(self) -> None:
@@ -365,7 +380,7 @@ skills_path = ".agents/skills"
             args = AIKITO_CLI.build_parser().parse_args(["sync"])
             args.func(args)
 
-        self.assertEqual(calls, [True, False])
+        self.assertEqual(calls, [False])
         self.assertIn(
             "Full workspace sync completed successfully", mock_stdout.getvalue()
         )

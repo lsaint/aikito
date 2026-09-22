@@ -7,14 +7,11 @@ Supports sync_mode: 'link' (symlinks) or 'copy' (file/directory copy).
 
 import argparse
 import errno
-import io
 import json
 import os
 import shutil
 import subprocess
 import sys
-import tomllib
-from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -51,17 +48,15 @@ from .resolve import (
     resolve_subagent_target_for_command,
 )
 from .project_sync import (
-    ProjectSyncBatch,
-    _render_batch_ops,
-    apply_project_sync_batch,
-    build_project_sync_batch,
     sync_project,
 )
-from .sync_plan import capture_sync_plan
 from .workspace_sync import (
     GlobalSyncResult,
+    WorkspaceSyncPlan,
     build_global_sync_plan,
+    build_workspace_sync_plan,
     execute_global_sync_plan,
+    execute_workspace_sync_plan,
 )
 from .memory import (
     MemoryTargetConflictError,
@@ -84,7 +79,6 @@ from .templating import TemplateError, detect_existing_agents
 from .project import (
     append_candidate_path_to_config,
     collect_project_summaries,
-    resolve_project_binding,
 )
 
 from .config import get_inbox_path
@@ -449,219 +443,31 @@ def _run_workspace_sync(
     home: Path,
     *,
     dry_run: bool,
-    cached_project_batches: Optional[dict[str, tuple[ProjectSyncBatch, dict]]] = None,
-    canonical_snapshots: Optional[dict[str, str]] = None,
-    cached_subagent_plan: Optional[list[Any]] = None,
-    cached_mcp_plan: Optional[list[Any]] = None,
+    force: bool = False,
+    prune: bool = False,
+    plan: WorkspaceSyncPlan | None = None,
+    cached_project_batches: Optional[dict[str, Any]] = None,
+    **_kwargs: Any,
 ) -> bool:
-    """Run all workspace sync scopes without terminating the process."""
-    mode_str = " (dry run)" if dry_run else ""
-    print(f"[INFO] Starting full workspace sync{mode_str}...\n")
-
-    overall_success = True
-
-    # 1. Global sync
-    print("[INFO] --- [1/4] Global Resources ---")
-    global_res = sync_global_resources(aikito_dir, home, dry_run=dry_run)
-    if not global_res.success:
-        overall_success = False
-        print("[ERROR] Global sync failed.\n", file=sys.stderr)
-    else:
-        print()
-
-    # If apply pass, verify that global sync (e.g. bundled skills refresh) did not change planned canonical skills
-    has_cached_projects = (
-        cached_project_batches is not None
-        and any(b for b, _ in cached_project_batches.values())
-    )
-    if not dry_run and global_res.replan_required and has_cached_projects:
+    """Thin wrapper around unified workspace sync coordinator."""
+    if plan is None:
+        plan = build_workspace_sync_plan(aikito_dir, home=home, force=force, prune=prune)
+    res = execute_workspace_sync_plan(plan, aikito_dir, home=home, dry_run=dry_run)
+    if (
+        not dry_run
+        and res.global_result
+        and res.global_result.replan_required
+        and (cached_project_batches or any(e.batch is not None for e in plan.project_entries))
+    ):
         print(
             "[ERROR] Bundled skills refreshed or canonical skills changed during global sync; "
             "workspace sync plan invalidated. Please re-run 'aikito sync'.",
             file=sys.stderr,
         )
         return False
-
-    # 2. Subagent sync (host-gated)
-    print("[INFO] --- [2/4] Subagents ---")
-    try:
-        sub_plan = None
-        if not dry_run and cached_subagent_plan is not None and cached_subagent_plan[0] is not None:
-            sub_plan = cached_subagent_plan[0]
-        elif dry_run:
-            sub_plan = build_subagent_plan(aikito_dir=aikito_dir, home=home, allow_empty=True)
-            if cached_subagent_plan is not None:
-                cached_subagent_plan[0] = sub_plan
-
-        sub_ok = sync_subagent_configs(
-            aikito_dir=aikito_dir,
-            home=home,
-            dry_run=dry_run,
-            plan=sub_plan,
-        )
-        if not sub_ok:
-            overall_success = False
-            print("[ERROR] Subagents sync failed.\n", file=sys.stderr)
-        else:
-            print()
-    except SubagentConfigError as exc:
-        print(f"[ERROR] Subagent config error: {exc}\n", file=sys.stderr)
-        overall_success = False
-
-    # 3. MCP sync (host-gated, tolerant of missing credentials)
-    print("[INFO] --- [3/4] MCP Configurations ---")
-    try:
-        m_plan = None
-        if not dry_run and cached_mcp_plan is not None and cached_mcp_plan[0] is not None:
-            m_plan = cached_mcp_plan[0]
-        elif dry_run:
-            m_plan = build_mcp_plan(aikito_dir=aikito_dir, home=home)
-            if cached_mcp_plan is not None:
-                cached_mcp_plan[0] = m_plan
-
-        mcp_ok = sync_mcp_configs(
-            aikito_dir=aikito_dir,
-            home=home,
-            dry_run=dry_run,
-            plan=m_plan,
-        )
-        if not mcp_ok:
-            overall_success = False
-            print("[ERROR] MCP sync failed.\n", file=sys.stderr)
-        else:
-            print()
-    except MCPConfigError as exc:
-        print(f"[ERROR] MCP config error: {exc}\n", file=sys.stderr)
-        overall_success = False
-
-    # 4. Project sync (active projects only)
-    print("[INFO] --- [4/4] Projects ---")
-    projects_dir = aikito_dir / "projects"
-    synced_active = 0
-    if projects_dir.is_dir():
-        proj_entries = sorted(
-            [
-                p
-                for p in projects_dir.iterdir()
-                if p.is_dir() and not p.name.startswith(".")
-            ],
-            key=lambda p: p.name,
-        )
-        for proj_dir in proj_entries:
-            project_name = proj_dir.name
-            agent_toml_path = proj_dir / "agent.toml"
-            if not agent_toml_path.is_file():
-                continue
-            try:
-                with open(agent_toml_path, "rb") as f:
-                    data = tomllib.load(f)
-            except (OSError, tomllib.TOMLDecodeError) as exc:
-                print(
-                    f"[ERROR] Failed to read configuration for project '{project_name}': {exc}",
-                    file=sys.stderr,
-                )
-                overall_success = False
-                continue
-
-            binding = resolve_project_binding(data, home)
-            if not binding.entries:
-                print(
-                    f"[INFO] Project '{project_name}': no configured paths (unbound), skipping."
-                )
-                continue
-            if not binding.active_entries:
-                candidates_str = (
-                    ", ".join(
-                        f"[{e.label}] {e.raw_path}"
-                        if e.label != "default"
-                        else e.raw_path
-                        for e in binding.offline_entries
-                    )
-                    or "-"
-                )
-                print(
-                    f"[INFO] Project '{project_name}': offline on this host ({candidates_str}), skipping."
-                )
-                continue
-
-            # Project skill synchronization bridge
-            if (
-                not dry_run
-                and cached_project_batches is not None
-                and project_name in cached_project_batches
-            ):
-                batch, cached_data = cached_project_batches[project_name]
-                res = apply_project_sync_batch(batch, cached_data, home, dry_run=False)
-                if not res.is_success:
-                    overall_success = False
-                    if res.error_message:
-                        print(f"[ERROR] {res.error_message}", file=sys.stderr)
-                else:
-                    synced_active += 1
-                    print(f"[SUCCESS] Project '{project_name}' synced successfully.")
-            elif dry_run:
-                batch = build_project_sync_batch(
-                    aikito_dir, home, project_name, data, force=False
-                )
-                if cached_project_batches is not None:
-                    cached_project_batches[project_name] = (batch, data)
-
-                operation = "Previewing sync for"
-                sync_mode = str(data.get("sync_mode", "link")).lower()
-                multi = len(binding.active_entries) > 1
-                if multi:
-                    print(
-                        f"[INFO] {operation} project '{project_name}' across "
-                        f"{len(binding.active_entries)} active paths:"
-                    )
-                for idx, entry in enumerate(binding.active_entries, start=1):
-                    if multi:
-                        count = len(binding.active_entries)
-                        print(
-                            f"\n[INFO] === [{idx}/{count}] Path [{entry.label}]: "
-                            f"{entry.resolved_path} ==="
-                        )
-                    else:
-                        print(
-                            f"[INFO] {operation} project '{project_name}' (mode: {sync_mode})"
-                        )
-                    _render_batch_ops(batch, entry.resolved_path, dry_run=True)
-
-                if not batch.can_apply:
-                    overall_success = False
-                    for err in batch.preflight_findings:
-                        print(f"[ERROR] {err}", file=sys.stderr)
-                    for op in batch.skill_plan.operations:
-                        if op.finding and op.finding not in batch.preflight_findings:
-                            print(f"[ERROR] {op.finding}", file=sys.stderr)
-                else:
-                    synced_active += 1
-                print(f"[SUCCESS] Project '{project_name}' sync preview completed.")
-            else:
-                p_ok = _sync_project_active_entries(
-                    aikito_dir,
-                    project_name,
-                    binding,
-                    data,
-                    home,
-                    dry_run=dry_run,
-                    force=False,
-                )
-                if not p_ok:
-                    overall_success = False
-                else:
-                    synced_active += 1
-    if synced_active == 0:
-        print("[INFO] No active projects to synchronize on this host.")
-    print()
-
-    if not overall_success:
-        print("[ERROR] Full workspace sync finished with errors.", file=sys.stderr)
-        return False
-
-    result = "preview completed successfully" if dry_run else "completed successfully"
-    print(f"[SUCCESS] Full workspace sync {result}.")
-    return True
+    if not res.success and res.error_message:
+        print(f"[ERROR] {res.error_message}", file=sys.stderr)
+    return res.success
 
 
 def cmd_sync_all(args: argparse.Namespace) -> None:
@@ -671,25 +477,11 @@ def cmd_sync_all(args: argparse.Namespace) -> None:
     dry_run = getattr(args, "dry_run", False)
     verbose = getattr(args, "verbose", False)
 
-    cached_project_batches: dict[str, tuple[ProjectSyncBatch, dict]] = {}
-    cached_subagent_plan: list[Any] = [None]
-    cached_mcp_plan: list[Any] = [None]
-
-    def _call_workspace_sync(is_dry_run: bool) -> bool:
-        return _run_workspace_sync(
-            aikito_dir,
-            home,
-            dry_run=is_dry_run,
-            cached_project_batches=cached_project_batches,
-            cached_subagent_plan=cached_subagent_plan,
-            cached_mcp_plan=cached_mcp_plan,
-        )
-
-    plan = capture_sync_plan(
-        lambda: _call_workspace_sync(is_dry_run=True),
-        skill_batches_fn=lambda: [b for b, _ in cached_project_batches.values()],
-        subagent_plan_fn=lambda: cached_subagent_plan[0],
-        mcp_plan_fn=lambda: cached_mcp_plan[0],
+    plan = build_workspace_sync_plan(
+        aikito_dir,
+        home=home,
+        build_subagent_plan_fn=build_subagent_plan,
+        build_mcp_plan_fn=build_mcp_plan,
     )
     print(plan.render(verbose=verbose))
     if not plan.can_apply:
@@ -697,34 +489,8 @@ def cmd_sync_all(args: argparse.Namespace) -> None:
     if dry_run:
         return
 
-    stdout = io.StringIO()
-    stderr = io.StringIO()
-    with redirect_stdout(stdout), redirect_stderr(stderr):
-        applied = _call_workspace_sync(is_dry_run=False)
-    if verbose:
-        details = "\n".join(
-            part.rstrip()
-            for part in (stdout.getvalue(), stderr.getvalue())
-            if part.strip()
-        )
-        if details:
-            print("\nApply details\n")
-            print(details)
-    else:
-        follow_up_lines = [
-            line
-            for line in stdout.getvalue().splitlines()
-            if "[AUTH]" in line or "[BACKUP]" in line or "[REFRESH]" in line
-        ]
-        if follow_up_lines:
-            print("\n".join(follow_up_lines))
-        if stderr.getvalue().strip():
-            print(stderr.getvalue().rstrip(), file=sys.stderr)
+    applied = _run_workspace_sync(aikito_dir, home, dry_run=False, plan=plan)
     if not applied:
-        print(
-            "[ERROR] Workspace changed during apply; sync did not complete.",
-            file=sys.stderr,
-        )
         sys.exit(1)
     print("\n[SUCCESS] Full workspace sync completed successfully.")
 

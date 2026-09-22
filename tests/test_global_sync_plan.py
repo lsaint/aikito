@@ -47,6 +47,8 @@ instruction_path = ".claude/CLAUDE.md"
 skills_path = ".claude/skills"
 """
         (self.ws / "agents.toml").write_text(agents_toml, encoding="utf-8")
+        (self.ws / "subagents.toml").write_text("[subagents]\n", encoding="utf-8")
+        (self.ws / "mcps").mkdir()
 
         # Copy bundled skills to make workspace clean initially
         for name in BUNDLED_SKILL_NAMES:

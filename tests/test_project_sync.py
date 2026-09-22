@@ -132,25 +132,6 @@ class ProjectSyncBatchTests(TestCase):
             self.assertEqual(offline_ops[0].action, "NOOP")
             self.assertEqual(offline_ops[0].rule_id, "INV-AUTH-02")
 
-    def test_capture_sync_plan_evaluates_batches_fn_after_preview(self) -> None:
-        from unittest.mock import MagicMock
-        from aikito.sync_plan import capture_sync_plan
-
-        cached: list[any] = []
-        mock_batch = MagicMock(can_apply=True, skill_plan=MagicMock(operations=()))
-
-        def preview_callback() -> bool:
-            # Populate cached during preview run
-            cached.append(mock_batch)
-            return True
-
-        # Using skill_batches_fn evaluates after callback runs
-        plan = capture_sync_plan(
-            preview_callback,
-            skill_batches_fn=lambda: list(cached),
-        )
-        self.assertEqual(plan.skill_batches, (mock_batch,))
-
     def test_segmented_execution_result_isolates_memory_failure(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td).resolve()
