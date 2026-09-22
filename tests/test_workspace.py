@@ -69,6 +69,7 @@ class AikitoWorkspaceTest(unittest.TestCase):
             'skills_path = ".claude/skills"\n',
             encoding="utf-8",
         )
+        (self.home / ".claude").mkdir(parents=True, exist_ok=True)
         (ws_dir / "subagents.toml").write_text("[subagents]\n", encoding="utf-8")
         (ws_dir / "mcps").mkdir(parents=True, exist_ok=True)
 
