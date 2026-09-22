@@ -47,7 +47,7 @@ def test_inv_app_01_read_only_plan_build(tmp_path: Path) -> None:
     checkout = tmp_path / "myproj_checkout"
     checkout.mkdir(parents=True, exist_ok=True)
     (proj_dir / "agent.toml").write_text(
-        f'path = "{checkout}"\nskills = []\n',
+        f'path = "{checkout.as_posix()}"\nskills = []\n',
         encoding="utf-8",
     )
 
@@ -137,7 +137,7 @@ def test_inv_app_04_partial_failure_segmented_results(tmp_path: Path) -> None:
     checkout = tmp_path / "p1_checkout"
     checkout.mkdir(parents=True, exist_ok=True)
     (proj_dir / "agent.toml").write_text(
-        f'path = "{checkout}"\nskills = []\n', encoding="utf-8"
+        f'path = "{checkout.as_posix()}"\nskills = []\n', encoding="utf-8"
     )
 
     plan = build_workspace_sync_plan(ws, home=home)
@@ -230,7 +230,7 @@ def test_inv_app_06_structured_project_binding_and_offline(tmp_path: Path) -> No
     c_act = tmp_path / "active_checkout"
     c_act.mkdir(parents=True, exist_ok=True)
     (p_act / "agent.toml").write_text(
-        f'path = "{c_act}"\nskills = []\n', encoding="utf-8"
+        f'path = "{c_act.as_posix()}"\nskills = []\n', encoding="utf-8"
     )
 
     # 2. Offline project (path does not exist on host)
@@ -238,7 +238,7 @@ def test_inv_app_06_structured_project_binding_and_offline(tmp_path: Path) -> No
     p_off.mkdir(parents=True, exist_ok=True)
     c_off = tmp_path / "nonexistent_checkout"
     (p_off / "agent.toml").write_text(
-        f'path = "{c_off}"\nskills = []\n', encoding="utf-8"
+        f'path = "{c_off.as_posix()}"\nskills = []\n', encoding="utf-8"
     )
 
     # 3. Unbound project (no paths defined)
@@ -286,7 +286,7 @@ def test_inv_app_07_bundled_refresh_replan_boundary_in_workspace(
     checkout = tmp_path / "p1_checkout"
     checkout.mkdir(parents=True, exist_ok=True)
     (proj_dir / "agent.toml").write_text(
-        f'path = "{checkout}"\nskills = []\n', encoding="utf-8"
+        f'path = "{checkout.as_posix()}"\nskills = []\n', encoding="utf-8"
     )
 
     plan = build_workspace_sync_plan(ws, home=home)

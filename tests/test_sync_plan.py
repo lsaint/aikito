@@ -42,7 +42,7 @@ class SyncPlanIndependenceTest(unittest.TestCase):
         c_act = self.root / "active_checkout"
         c_act.mkdir()
         (p_act / "agent.toml").write_text(
-            f'path = "{c_act}"\nskills = []\n', encoding="utf-8"
+            f'path = "{c_act.as_posix()}"\nskills = []\n', encoding="utf-8"
         )
 
         # 1 offline project

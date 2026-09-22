@@ -91,7 +91,7 @@ class AikitoWorkspaceTest(unittest.TestCase):
         checkout = self.home / "checkouts" / "test-proj"
         checkout.mkdir(parents=True, exist_ok=True)
         (proj_dir / "agent.toml").write_text(
-            f'path = "{checkout}"\nskills = []\n', encoding="utf-8"
+            f'path = "{checkout.as_posix()}"\nskills = []\n', encoding="utf-8"
         )
 
         ws = Workspace.load(ws_dir, home=self.home)
