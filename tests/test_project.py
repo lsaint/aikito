@@ -9,12 +9,15 @@ from unittest.mock import patch
 from aikito import (
     AmbiguousProjectPathError,
     InvalidProjectConfigError,
+    InvalidWorkspaceError,
     NoAvailableProjectPathError,
     Project,
     ProjectError,
     ProjectNotFoundError,
     ProjectPrepareConflictError,
     UnsupportedProjectAgentError,
+    WorkspaceError,
+    WorkspaceNotFoundError,
     __version__,
 )
 from aikito.project import (
@@ -361,6 +364,12 @@ class ProjectApiTest(unittest.TestCase):
             "AmbiguousProjectPathError",
             "UnsupportedProjectAgentError",
             "ProjectPrepareConflictError",
+            "Workspace",
+            "WorkspaceError",
+            "WorkspaceInspection",
+            "WorkspaceNotFoundError",
+            "InvalidWorkspaceError",
+            "WorkspaceSyncPreview",
             "__version__",
         ]
         self.assertEqual(set(aikito.__all__), set(expected_exports))
@@ -376,6 +385,14 @@ class ProjectApiTest(unittest.TestCase):
         ]
         for exc_cls in exception_classes:
             self.assertTrue(issubclass(exc_cls, ProjectError))
+            self.assertTrue(issubclass(exc_cls, RuntimeError))
+
+        workspace_exception_classes = [
+            WorkspaceNotFoundError,
+            InvalidWorkspaceError,
+        ]
+        for exc_cls in workspace_exception_classes:
+            self.assertTrue(issubclass(exc_cls, WorkspaceError))
             self.assertTrue(issubclass(exc_cls, RuntimeError))
 
     def test_prepared_project_immutability_and_dataclass_contract(self) -> None:

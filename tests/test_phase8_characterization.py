@@ -168,10 +168,11 @@ args = ["-y", "@modelcontextprotocol/server-everything"]
         self.assertGreater(len(backup_subdirs), 0)
 
     def test_public_api_export_boundary_characterization(self) -> None:
-        """Freeze public __all__ in aikito package prior to Workspace export."""
+        """Verify public __all__ in aikito package including Workspace exports."""
         expected_exports = {
             "AmbiguousProjectPathError",
             "InvalidProjectConfigError",
+            "InvalidWorkspaceError",
             "NoAvailableProjectPathError",
             "PreparedProject",
             "Project",
@@ -179,10 +180,54 @@ args = ["-y", "@modelcontextprotocol/server-everything"]
             "ProjectNotFoundError",
             "ProjectPrepareConflictError",
             "UnsupportedProjectAgentError",
+            "Workspace",
+            "WorkspaceError",
+            "WorkspaceInspection",
+            "WorkspaceNotFoundError",
+            "WorkspaceSyncPreview",
             "__version__",
         }
         self.assertEqual(set(aikito.__all__), expected_exports)
-        self.assertFalse(hasattr(aikito, "Workspace"))
+        self.assertTrue(hasattr(aikito, "Workspace"))
+
+    def test_workspace_public_api_load_inspect_plan_sync(self) -> None:
+        from aikito import (
+            InvalidWorkspaceError,
+            Workspace,
+            WorkspaceInspection,
+            WorkspaceNotFoundError,
+            WorkspaceSyncPreview,
+        )
+
+        # 1. Invalid relative path raises InvalidWorkspaceError
+        with self.assertRaises(InvalidWorkspaceError):
+            Workspace.load("relative/path")
+
+        # 2. Non-existent path raises WorkspaceNotFoundError
+        with self.assertRaises(WorkspaceNotFoundError):
+            Workspace.load(self.home / "nonexistent", home=self.home)
+
+        # 3. Valid load
+        ws = Workspace.load(self.ws, home=self.home)
+        self.assertEqual(ws.path, self.ws)
+        self.assertEqual(ws.home, self.home)
+
+        # 4. Inspect
+        inspection = ws.inspect()
+        self.assertIsInstance(inspection, WorkspaceInspection)
+        self.assertEqual(inspection.workspace_dir, self.ws)
+        self.assertIsInstance(inspection.configured_agents, tuple)
+        self.assertIsInstance(inspection.projects, tuple)
+        self.assertIsInstance(inspection.diagnostics, tuple)
+        self.assertIsInstance(inspection.ready_for_sync, bool)
+
+        # 5. Plan sync preview
+        preview = ws.plan_sync()
+        self.assertIsInstance(preview, WorkspaceSyncPreview)
+        self.assertIsInstance(preview.changes, int)
+        self.assertIsInstance(preview.will_mutate, bool)
+        self.assertIsInstance(preview.findings, tuple)
+        self.assertIsInstance(preview.operations, tuple)
 
     def test_web_console_read_only_and_redaction_characterization(self) -> None:
         """Freeze ConsoleData read-only collection and credential redaction difference."""

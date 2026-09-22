@@ -1141,3 +1141,7 @@ def execute_workspace_sync_plan(
         replan_required=False,
         error_message=first_proj_error if not overall_success else None,
     )
+
+
+plan_workspace_sync = build_workspace_sync_plan
+
