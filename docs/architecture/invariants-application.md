@@ -70,7 +70,7 @@
   - The CLI informs the user to re-run `aikito sync` to synchronize projects against updated canonical skills.
 - Verified by: `tests/test_global_sync_plan.py`, `tests/test_bundled_skills.py`.
 
-### INV-APP-08: Sensitive Configuration Redaction Across Views `[planned]` {: #inv-app-08 }
+### INV-APP-08: Sensitive Configuration Redaction Across Views `[current]` {: #inv-app-08 }
 
 - Sensitive data (MCP environment variables, header credentials, API tokens) must be redacted across all public and presentation interfaces:
   - CLI verbose output
@@ -79,7 +79,7 @@
   - Doctor diagnostics
 - Desensitization must use a shared redaction policy (`redact_mcp_entry`). Raw secret values are restricted to private execution payloads.
 
-### INV-APP-09: Zero-Write Web Console Inspection `[planned]` {: #inv-app-09 }
+### INV-APP-09: Zero-Write Web Console Inspection `[current]` {: #inv-app-09 }
 
 - Read-only Web Console requests (`GET` endpoints) consume shared application and resource inspection views.
 - Handling a Web Console request must never:

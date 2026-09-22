@@ -241,10 +241,10 @@ args = ["-y", "@modelcontextprotocol/server-everything"]
         self.assertEqual(mcp_redacted["env"]["API_KEY"], "<redacted>")
         self.assertEqual(mcp_redacted["headers"]["Authorization"], "<redacted>")
 
-        # Web console currently uses '[configured]'
+        # Web console now also uses '<redacted>'
         web_redacted = _redact(secret_entry)
-        self.assertEqual(web_redacted["env"]["API_KEY"], "[configured]")
-        self.assertEqual(web_redacted["headers"]["Authorization"], "[configured]")
+        self.assertEqual(web_redacted["env"]["API_KEY"], "<redacted>")
+        self.assertEqual(web_redacted["headers"]["Authorization"], "<redacted>")
 
         console_data = ConsoleData(self.ws, self.home, version="1.48.0")
         overview = console_data.overview()

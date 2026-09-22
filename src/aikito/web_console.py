@@ -19,7 +19,7 @@ from .config import get_inbox_path, load_workspace_config
 from .diff import collect_drift_diffs
 from .doctor import run_doctor
 from .inbox import collect_inbox_rows
-from .mcp import load_agents
+from .mcp import load_agents, redact_mcp_entry
 from .compat import _package_resource_dir, launch_browser
 from .project import collect_project_summaries
 from .status import (
@@ -75,12 +75,7 @@ def _safe_child(root: Path, relative: str) -> Path:
 
 def _redact(value: Any) -> Any:
     if isinstance(value, dict):
-        return {
-            str(key): "[configured]"
-            if _SENSITIVE_KEY.search(str(key))
-            else _redact(item)
-            for key, item in value.items()
-        }
+        return redact_mcp_entry(value)
     if isinstance(value, list):
         return [_redact(item) for item in value]
     return value
