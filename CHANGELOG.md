@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Migrated workspace synchronization coordination and adoption engines to the structured application and coordination model (Core Model Phase 8), introducing `WorkspaceSyncPlan`, `WorkspaceSyncRequest`, `WorkspaceSyncExecutionResult`, `GlobalSyncPlan`, `BundledSkillRefreshPlan`, `AdoptRequest`, `AdoptPlan`, `AdoptFilePlan`, and `AdoptExecutionResult`.
+- Formalized application architecture invariants `INV-APP-01` through `INV-APP-09`, adoption engine invariants `INV-ADOPT-01` through `INV-ADOPT-08`, and public API invariants `INV-API-08` through `INV-API-11`.
+- Formal public Python API facade: Introduced strictly read-only `Workspace.load()`, `Workspace.inspect()`, and `Workspace.plan_sync()` with frozen models `WorkspaceInspection`, `WorkspaceSyncPreview`, and exception hierarchy `WorkspaceError`, `WorkspaceNotFoundError`, and `InvalidWorkspaceError`.
+- Structured Adoption Engine: Adoption plans now evaluate explicit `AdoptFilePlan` entries with pre-image validation and zero-write guarantees against stale target or source files (`INV-ADOPT-04`, `INV-ADOPT-06`), structured backup reporting (`INV-ADOPT-05`, `INV-ADOPT-08`), and purely functional summary evaluation.
+- Multi-Resource Workspace Coordinator: Unified `aikito sync` orchestration via `build_workspace_sync_plan` and `execute_workspace_sync_plan`, executing bundled skills refresh, global instructions, global skills, subagents, MCP servers, and project checkouts through a single coherent coordinator (`INV-APP-01`, `INV-APP-02`).
+- Presentation Stream Independence: Completely eliminated stdout marker parsing (`_CHANGE_MARKERS`, `_WARNING_MARKERS`, etc.) for synchronization decisions; all plan decisions and dry-run summaries derive directly from structured plan properties (`INV-APP-03`).
+- Unified Read-only Web Console: Connected Web Console inspection endpoints to shared application views and unified sensitive credential desensitization to `<redacted>` across console endpoints, Doctor diagnostics, and plan previews (`INV-APP-08`, `INV-APP-09`).
+
+### Changed
+
+- Retired legacy Subagent compatibility view (`PlanItem`, `build_plan()`) in `subagent.py`; aligned `doctor.py`, `diff.py`, and status matrix to evaluate subagents directly through structured `SubagentPlan`.
+- Archived Core Model Migration Inventory (`migration-inventory.md`) marking all planned subsystems as migrated.
+
+
 ## [1.48.0] - 2026-09-21
 
 ### Added

@@ -5,7 +5,7 @@ preparation into external runners and CI pipelines. Import directly from
 `aikito`; internal modules are not part of the public API surface.
 
 ```python
-from aikito import Project, PreparedProject
+from aikito import Project, PreparedProject, Workspace, WorkspaceInspection, WorkspaceSyncPreview
 ```
 
 ---
@@ -192,6 +192,18 @@ Attributes:
 - **`project_name`** `str` — Project name.
 - **`conflicts`** `tuple[str, ...]` — Human-readable conflict descriptions.
 
+### `WorkspaceError`
+
+Base class for all public Aikito workspace API failures (`RuntimeError`).
+
+### `WorkspaceNotFoundError`
+
+Raised when a specified or resolved workspace directory does not exist (`WorkspaceError`, `FileNotFoundError`).
+
+### `InvalidWorkspaceError`
+
+Raised when a workspace path is relative or malformed (`WorkspaceError`, `ValueError`).
+
 ---
 
 ## Usage Examples
@@ -250,9 +262,97 @@ except ProjectPrepareConflictError as e:
 
 ---
 
+## `Workspace`
+
+A public facade for inspecting and planning operations on an Aikito workspace.
+
+### `Workspace.load`
+
+```python
+@classmethod
+def load(
+    workspace: Path | str | None = None,
+    home: Path | str | None = None,
+) -> Workspace
+```
+
+Load an Aikito workspace strictly read-only without modifying the pointer file (`~/.config/aikito/workspace`) or creating files/directories.
+
+**Parameters**
+
+- **`workspace`** `Path | str | None` — Absolute path to the Aikito workspace. Defaults to the resolved workspace.
+- **`home`** `Path | str | None` — Home directory used for workspace resolution. Defaults to user home.
+
+**Returns** a `Workspace` instance.
+
+**Raises**
+
+- [`InvalidWorkspaceError`](#invalidworkspaceerror) – workspace path is relative or malformed.
+- [`WorkspaceNotFoundError`](#workspacenotfounderror) – the specified workspace directory does not exist.
+
+---
+
+### `Workspace.inspect`
+
+```python
+def inspect(self) -> WorkspaceInspection
+```
+
+Return a strictly read-only structured inspection of the workspace, including configured agents, projects, MCP servers, skills, subagents, and doctor findings.
+
+**Returns** a [`WorkspaceInspection`](#workspaceinspection).
+
+---
+
+### `Workspace.plan_sync`
+
+```python
+def plan_sync(self) -> WorkspaceSyncPreview
+```
+
+Return a strictly read-only synchronization preview without mutating files, acquiring writer locks, or creating backups.
+
+**Returns** a [`WorkspaceSyncPreview`](#workspacesyncpreview).
+
+---
+
+## Data Models
+
+### `WorkspaceInspection`
+
+Frozen dataclass exposing:
+
+- **`workspace_dir`** `Path` — Absolute path to the workspace.
+- **`configured_agents`** `tuple[str, ...]` — Configured agent identifiers.
+- **`projects`** `tuple[ProjectSummary, ...]` — Project summaries.
+- **`diagnostics`** `tuple[Finding, ...]` — Actionable warnings or failures.
+- **`mcps`** `tuple[str, ...]` — Canonical MCP server names.
+- **`skills`** `tuple[str, ...]` — Canonical skill names.
+- **`subagents`** `tuple[str, ...]` — Canonical subagent names.
+- **`ready_for_sync`** `bool` — True if no blocking errors prevent synchronization.
+
+### `WorkspaceSyncPreview`
+
+Frozen dataclass exposing:
+
+- **`plan`** `WorkspaceSyncPlan` — Fully evaluated workspace sync plan.
+- **`changes`** `int` — Count of planned changes.
+- **`unchanged`** `int` — Count of unchanged resources.
+- **`offline`** `int` — Count of offline projects.
+- **`warnings`** `int` — Count of warnings.
+- **`conflicts`** `int` — Count of conflicts.
+- **`errors`** `int` — Count of blocking errors.
+- **`can_apply`** `bool` — True if safe to apply.
+- **`will_mutate`** `bool` — True if changes > 0.
+- **`findings`** `tuple[Finding, ...]` — Issues found during planning.
+- **`operations`** `tuple[str, ...]` — Sanitized operation descriptions.
+
+---
+
 !!! note
     `Project.prepare()` accepts no `--force` parameter and does not reuse
     CLI force authorization. For manual project synchronisation or force
     overwrites use `aikito sync project <name> --force`. See
     [Engineering Invariants](architecture/invariants-api.md#inv-api-05)
     for the API invariant specification.
+

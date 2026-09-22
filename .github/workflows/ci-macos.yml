@@ -608,3 +608,35 @@ jobs:
           # Cleanup subagent
           AIKITO_DIR=$WS python3 -m aikito rm subagent macos-sub --sync
           test ! -e ~/.claude/agents/macos-sub.md
+
+      - name: macOS CLI smoke - Workspace public API and unified coordination (Phase 8)
+        run: |
+          WS=${{ runner.temp }}/macos-ws
+          AIKITO_DIR=$WS python3 -c "
+          from aikito import Workspace, WorkspaceNotFoundError, InvalidWorkspaceError
+          import tempfile
+          from pathlib import Path
+
+          ws = Workspace.load('$WS')
+          assert ws.path.resolve() == Path('$WS').resolve()
+          inspection = ws.inspect()
+          assert inspection.workspace_dir.resolve() == ws.path.resolve()
+          assert isinstance(inspection.projects, tuple)
+
+          preview = ws.plan_sync()
+          assert preview.plan.workspace_root.resolve() == Path('$WS').resolve()
+          assert isinstance(preview.can_apply, bool)
+
+          try:
+              Workspace.load('/nonexistent/path/to/ws')
+              raise AssertionError('Expected WorkspaceNotFoundError')
+          except WorkspaceNotFoundError:
+              pass
+
+          try:
+              Workspace.load('relative/path/to/ws')
+              raise AssertionError('Expected InvalidWorkspaceError')
+          except InvalidWorkspaceError:
+              pass
+          "
+

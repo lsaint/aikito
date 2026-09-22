@@ -634,3 +634,38 @@ jobs:
           }
           $global:LASTEXITCODE = 0
           $env:AIKITO_FORCE_NO_SYMLINK = ""
+
+      - name: Windows smoke - Workspace public API and unified coordination (Phase 8)
+        shell: pwsh
+        run: |
+          $ws = Join-Path $env:RUNNER_TEMP "aikito-ws"
+          $env:AIKITO_DIR = $ws
+          python -c "
+          from aikito import Workspace, WorkspaceNotFoundError, InvalidWorkspaceError
+          import os, tempfile
+          from pathlib import Path
+
+          ws_path = os.environ['AIKITO_DIR']
+          ws = Workspace.load(ws_path)
+          assert ws.path.resolve() == Path(ws_path).resolve()
+          insp = ws.inspect()
+          assert insp.workspace_dir.resolve() == ws.path.resolve()
+          assert isinstance(insp.projects, tuple)
+
+          preview = ws.plan_sync()
+          assert preview.plan.workspace_root.resolve() == Path(ws_path).resolve()
+          assert isinstance(preview.can_apply, bool)
+
+          try:
+              Workspace.load('C:/nonexistent/path/to/ws')
+              raise AssertionError('Expected WorkspaceNotFoundError')
+          except WorkspaceNotFoundError:
+              pass
+
+          try:
+              Workspace.load('relative/path/to/ws')
+              raise AssertionError('Expected InvalidWorkspaceError')
+          except InvalidWorkspaceError:
+              pass
+          "
+

@@ -239,7 +239,7 @@ jobs:
           ${{ runner.temp }}/isolated-venv/bin/pip install dist/*.whl
           ${{ runner.temp }}/isolated-venv/bin/aikito --version
           ${{ runner.temp }}/isolated-venv/bin/python -c \
-            "from aikito import PreparedProject, Project; assert Project and PreparedProject"
+            "from aikito import PreparedProject, Project, Workspace, WorkspaceInspection, WorkspaceSyncPreview, WorkspaceError, WorkspaceNotFoundError, InvalidWorkspaceError; assert Project and PreparedProject and Workspace"
           ${{ runner.temp }}/isolated-venv/bin/aikito init workspace ${{ runner.temp }}/wheel-ws
           test -f ${{ runner.temp }}/wheel-ws/agents.toml
           test -f ${{ runner.temp }}/wheel-ws/skills/aikito/SKILL.md
@@ -250,6 +250,14 @@ jobs:
           test -f \
             ${{ runner.temp }}/wheel-ws/skills/aikito/references/projects.md
           test -f ${{ runner.temp }}/wheel-ws/skills/durable-memory/SKILL.md
+          ${{ runner.temp }}/isolated-venv/bin/python -c "
+          from aikito import Workspace
+          ws = Workspace.load('${{ runner.temp }}/wheel-ws')
+          insp = ws.inspect()
+          assert insp.workspace_dir.resolve() == ws.path.resolve()
+          preview = ws.plan_sync()
+          assert preview.plan.workspace_root.resolve() == ws.path.resolve()
+          "
           mkdir -p ${{ runner.temp }}/wheel-project
           mkdir -p ${{ runner.temp }}/wheel-project-second
           AIKITO_DIR=${{ runner.temp }}/wheel-ws \
@@ -1228,3 +1236,35 @@ jobs:
             python3 -m aikito completion candidates skills
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito completion candidates projects
+
+      - name: Workspace public API and unified coordination smoke - Phase 8 invariants
+        run: |
+          WS=${{ runner.temp }}/aikito-ws
+          AIKITO_DIR=$WS python3 -c "
+          from aikito import Workspace, WorkspaceNotFoundError, InvalidWorkspaceError
+          import tempfile
+          from pathlib import Path
+
+          ws = Workspace.load('$WS')
+          assert ws.path.resolve() == Path('$WS').resolve()
+          inspection = ws.inspect()
+          assert inspection.workspace_dir.resolve() == ws.path.resolve()
+          assert isinstance(inspection.projects, tuple)
+
+          preview = ws.plan_sync()
+          assert preview.plan.workspace_root.resolve() == Path('$WS').resolve()
+          assert isinstance(preview.can_apply, bool)
+
+          try:
+              Workspace.load('/nonexistent/path/to/ws')
+              raise AssertionError('Expected WorkspaceNotFoundError')
+          except WorkspaceNotFoundError:
+              pass
+
+          try:
+              Workspace.load('relative/path/to/ws')
+              raise AssertionError('Expected InvalidWorkspaceError')
+          except InvalidWorkspaceError:
+              pass
+          "
+
