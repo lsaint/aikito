@@ -28,40 +28,286 @@ from .templating import (
 )
 
 
-def collect_source_files_for_backup(plan: AdoptPlan) -> List[Path]:
+@dataclass
+class InstructionsAdoption:
+    sources: List[Tuple[str, Path, str]]  # [(agent_name, file_path, content)]
+    has_conflict: bool = False
+    merged_content: Optional[str] = None
+    target_path: Optional[Path] = None
+
+
+@dataclass
+class MCPServerAdoption:
+    server_name: str
+    agents: List[str]
+    config_data: Dict[str, Any]
+    source_agent: str
+    source_file: Optional[Path] = None
+
+
+@dataclass
+class SubagentAdoption:
+    subagent_name: str
+    description: str
+    role: str
+    system_prompt: str
+    target_agents: List[str]
+    source_file: Path
+    platform_configs: Dict[str, Dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class AdoptRequest:
+    workspace: Path
+    home: Path
+    skip: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class AdoptFilePlan:
+    path: Path
+    expected_pre_image: str | None
+    desired_content: str
+    resource_kind: str  # "instructions", "mcp", "subagent_config", "subagent_prompt"
+    resource_name: str
+    action: str  # "CREATE", "UPDATE", "NOOP"
+    log_message: str = ""
+
+
+@dataclass(frozen=True)
+class AdoptExecutionResult:
+    success: bool
+    instructions: tuple[str, ...] = ()
+    mcps: tuple[str, ...] = ()
+    subagents: tuple[str, ...] = ()
+    backups: tuple[Path, ...] = ()
+    skipped: tuple[str, ...] = ()
+    failed: tuple[str, ...] = ()
+    error_message: str | None = None
+
+    def __bool__(self) -> bool:
+        return self.success
+
+
+@dataclass(frozen=True)
+class AdoptPlan:
+    request: AdoptRequest
+    instructions: InstructionsAdoption
+    mcp_servers: List[MCPServerAdoption]
+    subagents: List[SubagentAdoption]
+    file_plans: tuple[AdoptFilePlan, ...] = ()
+    findings: tuple[Finding, ...] = ()
+    errors: tuple[Finding, ...] = ()
+    skipped: tuple[str, ...] = ()
+    builtin_mcps: tuple[Tuple[str, str], ...] = ()
+    backup_sources: tuple[Path, ...] = ()
+    can_apply: bool = True
+
+    @property
+    def aikito_dir(self) -> Path:
+        return self.request.workspace
+
+    @property
+    def home(self) -> Path:
+        return self.request.home
+
+    @property
+    def has_conflicts(self) -> bool:
+        return self.instructions.has_conflict
+
+
+@dataclass(frozen=True)
+class AdoptSummary:
+    instruction_updates: int
+    mcp_imports: int
+    subagent_imports: int
+    conflicts: int
+    errors: int
+    skipped: int
+
+    @property
+    def total_changes(self) -> int:
+        return self.instruction_updates + self.mcp_imports + self.subagent_imports
+
+
+def _write_text_atomic(target: Path, content: str) -> None:
+    """Replace one workspace text file without exposing partial contents."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(f"{target.suffix}.tmp.{os.getpid()}")
+    temporary.write_text(content, encoding="utf-8")
+    temporary.replace(target)
+
+
+def _format_toml_key(key: str) -> str:
+    # Bare key in TOML allows A-Z, a-z, 0-9, _, -
+    is_bare = all(c.isalnum() or c in ("_", "-") for c in key) if key else False
+    if is_bare:
+        return key
+    return json.dumps(key, ensure_ascii=False)
+
+
+def _format_toml_value(val: Any) -> str:
+    if isinstance(val, str):
+        return json.dumps(val, ensure_ascii=False)
+    elif isinstance(val, bool):
+        return "true" if val else "false"
+    elif isinstance(val, (int, float)):
+        return str(val)
+    elif isinstance(val, list):
+        items = [_format_toml_value(x) for x in val]
+        return f"[{', '.join(items)}]"
+    elif isinstance(val, dict):
+        pairs = []
+        for k in sorted(val.keys()):
+            k_repr = _format_toml_key(str(k))
+            v_repr = _format_toml_value(val[k])
+            pairs.append(f"{k_repr} = {v_repr}")
+        return f"{{ {', '.join(pairs)} }}"
+    else:
+        return json.dumps(str(val), ensure_ascii=False)
+
+
+def render_mcp_server_file(
+    srv: MCPServerAdoption,
+) -> Tuple[Optional[str], str]:
+    """
+    Renders valid TOML content for an individual MCP server.
+    Returns (toml_content_or_none, log_message)
+    """
+    cfg = srv.config_data
+    if (
+        not srv.server_name
+        or Path(srv.server_name).name != srv.server_name
+        or "\\" in srv.server_name
+    ):
+        return None, f"[ERROR] Invalid MCP server name: {srv.server_name!r}"
+    lines = [f"agents = {_format_toml_value(srv.agents)}"]
+
+    for key in ("command", "url", "args", "env", "transport", "headers"):
+        if key in cfg and cfg[key] is not None:
+            lines.append(f"{key} = {_format_toml_value(cfg[key])}")
+
+    srv_block = "\n".join(lines) + "\n"
+
+    try:
+        tomllib.loads(srv_block)
+        ag_str = ", ".join(srv.agents)
+        return srv_block, f"[ADOPT MCP] Server '{srv.server_name}' (agents: [{ag_str}])"
+    except Exception as exc:
+        return (
+            None,
+            f"[SKIP MCP] Skipping invalid server name or config '{srv.server_name}': {exc}",
+        )
+
+
+def render_subagents_block(
+    existing_content: str, subagents: List[SubagentAdoption]
+) -> Tuple[str, List[Tuple[str, str]]]:
+    """
+    Renders valid TOML appended block for Subagents in memory.
+    Returns (new_complete_toml_content, status_logs)
+    """
+    lines = []
+    status_logs: List[Tuple[str, str]] = []
+
+    for sub in subagents:
+        safe_key = _format_toml_key(sub.subagent_name)
+        header = f"[subagents.{safe_key}]"
+
+        if header in existing_content:
+            status_logs.append(
+                (
+                    sub.subagent_name,
+                    f"[SKIP SUBAGENT] Subagent '{sub.subagent_name}' already present",
+                )
+            )
+            continue
+
+        sub_lines = [
+            f"\n{header}",
+            f"description = {_format_toml_value(sub.description)}",
+            f"agents = {_format_toml_value(sub.target_agents)}",
+        ]
+        for agent_name, options in sorted(sub.platform_configs.items()):
+            sub_lines.append(f"\n[{header[1:-1]}.{_format_toml_key(agent_name)}]")
+            for key, value in sorted(options.items()):
+                sub_lines.append(
+                    f"{_format_toml_key(key)} = {_format_toml_value(value)}"
+                )
+
+        sub_block = "\n".join(sub_lines) + "\n"
+
+        # Validate syntax
+        try:
+            tomllib.loads("test = true\n" + sub_block)
+            lines.append(sub_block)
+            status_logs.append(
+                (
+                    sub.subagent_name,
+                    f"[ADOPT SUBAGENT] Subagent '{sub.subagent_name}' from {sub.source_file}",
+                )
+            )
+        except Exception as exc:
+            status_logs.append(
+                (
+                    sub.subagent_name,
+                    f"[SKIP SUBAGENT] Skipping invalid subagent name/config '{sub.subagent_name}': {exc}",
+                )
+            )
+
+    new_content = existing_content
+    if lines:
+        if not new_content.endswith("\n"):
+            new_content += "\n"
+        new_content += "".join(lines)
+
+    return new_content, status_logs
+
+
+def _collect_sources_for_backup(
+    home: Path,
+    instructions: InstructionsAdoption | None,
+    subagents: List[SubagentAdoption] | None,
+) -> List[Path]:
     files = set()
 
-    if plan.instructions and plan.instructions.sources:
-        for _, path, _ in plan.instructions.sources:
+    if instructions and instructions.sources:
+        for _, path, _ in instructions.sources:
             if path.is_file():
                 files.add(path)
 
     claude_json_candidates = [
-        plan.home
+        home
         / "Library"
         / "Application Support"
         / "Claude"
         / "claude_desktop_config.json",
-        plan.home / ".claude" / "claude_desktop_config.json",
+        home / ".claude" / "claude_desktop_config.json",
     ]
     for p in claude_json_candidates:
         if p.is_file():
             files.add(p)
 
-    codex_toml = plan.home / ".codex" / "config.toml"
+    codex_toml = home / ".codex" / "config.toml"
     if codex_toml.is_file():
         files.add(codex_toml)
 
-    copilot_mcp = plan.home / ".copilot" / "mcp-config.json"
+    copilot_mcp = home / ".copilot" / "mcp-config.json"
     if copilot_mcp.is_file():
         files.add(copilot_mcp)
 
-    if plan.subagents:
-        for sub in plan.subagents:
+    if subagents:
+        for sub in subagents:
             if sub.source_file.is_file():
                 files.add(sub.source_file)
 
     return sorted(files)
+
+
+def collect_source_files_for_backup(plan: AdoptPlan) -> List[Path]:
+    if plan.backup_sources:
+        return list(plan.backup_sources)
+    return _collect_sources_for_backup(plan.home, plan.instructions, plan.subagents)
 
 
 def create_adopt_backup(
@@ -96,64 +342,6 @@ def create_adopt_backup(
         f"\n[BACKUP] Saved {len(source_files)} local agent config backup(s) to: {backup_dir}"
     )
     return backup_dir
-
-
-@dataclass
-class InstructionsAdoption:
-    sources: List[Tuple[str, Path, str]]  # [(agent_name, file_path, content)]
-    has_conflict: bool = False
-    merged_content: Optional[str] = None
-    target_path: Optional[Path] = None
-
-
-@dataclass
-class MCPServerAdoption:
-    server_name: str
-    agents: List[str]
-    config_data: Dict[str, Any]
-    source_agent: str
-    source_file: Optional[Path] = None
-
-
-@dataclass
-class SubagentAdoption:
-    subagent_name: str
-    description: str
-    role: str
-    system_prompt: str
-    target_agents: List[str]
-    source_file: Path
-    platform_configs: Dict[str, Dict[str, Any]]
-
-
-@dataclass
-class AdoptPlan:
-    aikito_dir: Path
-    home: Path
-    instructions: InstructionsAdoption
-    mcp_servers: List[MCPServerAdoption]
-    subagents: List[SubagentAdoption]
-    errors: tuple[Finding, ...] = ()
-    skipped: tuple[str, ...] = ()
-    builtin_mcps: tuple[Tuple[str, str], ...] = ()
-
-    @property
-    def has_conflicts(self) -> bool:
-        return self.instructions.has_conflict
-
-
-@dataclass(frozen=True)
-class AdoptSummary:
-    instruction_updates: int
-    mcp_imports: int
-    subagent_imports: int
-    conflicts: int
-    errors: int
-    skipped: int
-
-    @property
-    def total_changes(self) -> int:
-        return self.instruction_updates + self.mcp_imports + self.subagent_imports
 
 
 def _normalize_instructions_content(text: str) -> str:
@@ -698,24 +886,315 @@ def scan_subagents(
     return subagents
 
 
-def build_adopt_plan(aikito_dir: Path, home: Path) -> AdoptPlan:
-    errors: list[Finding] = []
-    builtin_mcps: list[Tuple[str, str]] = []
-    instructions = scan_instructions(aikito_dir, home, errors=errors)
-    mcp_servers = scan_mcp_servers(
-        aikito_dir, home, errors=errors, builtin_mcps=builtin_mcps
+def _build_file_plans(
+    aikito_dir: Path,
+    instructions: InstructionsAdoption,
+    mcp_servers: List[MCPServerAdoption],
+    subagents: List[SubagentAdoption],
+) -> tuple[AdoptFilePlan, ...]:
+    plans: list[AdoptFilePlan] = []
+
+    # 1. Instructions
+    inst = instructions
+    if (
+        inst.sources
+        and not inst.has_conflict
+        and inst.merged_content is not None
+        and inst.target_path
+    ):
+        target = inst.target_path
+        expected_pre_image = (
+            target.read_text(encoding="utf-8") if target.is_file() else None
+        )
+        if not target.is_file():
+            action = "CREATE"
+            log_msg = f"[WRITE FILE] Created {target}"
+        elif _normalize_instructions_content(
+            expected_pre_image or ""
+        ) != _normalize_instructions_content(inst.merged_content):
+            action = "UPDATE"
+            log_msg = f"[WRITE FILE] Updated {target}"
+        else:
+            action = "NOOP"
+            log_msg = f"[NOOP] Instructions at {target} already match"
+
+        plans.append(
+            AdoptFilePlan(
+                path=target,
+                expected_pre_image=expected_pre_image,
+                desired_content=inst.merged_content,
+                resource_kind="instructions",
+                resource_name="instructions",
+                action=action,
+                log_message=log_msg,
+            )
+        )
+
+    # 2. MCP servers
+    mcps_dir = aikito_dir / "mcps"
+    for srv in mcp_servers:
+        content, log_msg = render_mcp_server_file(srv)
+        if content is None:
+            continue
+        server_file = mcps_dir / f"{srv.server_name}.toml"
+        expected_pre_image = (
+            server_file.read_text(encoding="utf-8") if server_file.is_file() else None
+        )
+        if not server_file.is_file():
+            action = "CREATE"
+            desired = content
+            log_action = log_msg
+        elif expected_pre_image == content:
+            action = "NOOP"
+            desired = expected_pre_image
+            log_action = f"[SKIP MCP] Server '{srv.server_name}' already present"
+        else:
+            action = "NOOP"
+            desired = expected_pre_image or ""
+            log_action = f"[SKIP MCP] Server '{srv.server_name}' already present"
+
+        plans.append(
+            AdoptFilePlan(
+                path=server_file,
+                expected_pre_image=expected_pre_image,
+                desired_content=desired,
+                resource_kind="mcp",
+                resource_name=srv.server_name,
+                action=action,
+                log_message=log_action,
+            )
+        )
+
+    # 3. Subagents
+    if subagents:
+        sub_toml_path = aikito_dir / "subagents.toml"
+        existing_subs = (
+            sub_toml_path.read_text(encoding="utf-8")
+            if sub_toml_path.is_file()
+            else ""
+        )
+        new_subs_content, sub_logs = render_subagents_block(
+            existing_subs, subagents
+        )
+
+        if new_subs_content != existing_subs:
+            plans.append(
+                AdoptFilePlan(
+                    path=sub_toml_path,
+                    expected_pre_image=(
+                        existing_subs if sub_toml_path.is_file() else None
+                    ),
+                    desired_content=new_subs_content,
+                    resource_kind="subagent_config",
+                    resource_name="subagents.toml",
+                    action="UPDATE" if sub_toml_path.is_file() else "CREATE",
+                    log_message=f"[WRITE FILE] Updated {sub_toml_path}",
+                )
+            )
+
+        instructions_dir = aikito_dir / "subagents"
+        for sub in subagents:
+            instructions_path = instructions_dir / f"{sub.subagent_name}.md"
+            expected_pre_image = (
+                instructions_path.read_text(encoding="utf-8")
+                if instructions_path.is_file()
+                else None
+            )
+            sub_log = next(
+                (msg for name, msg in sub_logs if name == sub.subagent_name), ""
+            )
+            if not instructions_path.is_file():
+                if sub_log.startswith("[ADOPT SUBAGENT]"):
+                    action = "CREATE"
+                    desired = sub.system_prompt.rstrip() + "\n"
+                    log_msg = sub_log
+                else:
+                    action = "NOOP"
+                    desired = ""
+                    log_msg = sub_log
+            else:
+                action = "NOOP"
+                desired = expected_pre_image or ""
+                log_msg = (
+                    sub_log
+                    or f"[SKIP SUBAGENT] Prompt '{sub.subagent_name}.md' already present"
+                )
+
+            plans.append(
+                AdoptFilePlan(
+                    path=instructions_path,
+                    expected_pre_image=expected_pre_image,
+                    desired_content=desired,
+                    resource_kind="subagent_prompt",
+                    resource_name=sub.subagent_name,
+                    action=action,
+                    log_message=log_msg,
+                )
+            )
+
+    return tuple(plans)
+
+
+def _collect_adopt_findings(
+    aikito_dir: Path,
+    instructions: InstructionsAdoption,
+    mcp_servers: List[MCPServerAdoption],
+    subagents: List[SubagentAdoption],
+    errors: list[Finding],
+) -> tuple[Finding, ...]:
+    findings = list(errors)
+    if instructions.has_conflict:
+        source_paths = ", ".join(str(path) for _, path, _ in instructions.sources)
+        target = (
+            instructions.target_path or aikito_dir / "global" / "AGENTS.md"
+        )
+        findings.append(
+            Finding(
+                status="FAIL",
+                code="adopt.instructions_conflict",
+                resource="instructions",
+                source=source_paths,
+                message="Global instructions cannot be adopted automatically",
+                reason="Detected instruction sources do not match",
+                fix_hint=f"Review and merge the sources into {target}",
+                actions=(
+                    FindingAction("Review", "aikito adopt --dry-run --verbose"),
+                    FindingAction("Skip", "aikito adopt --skip instructions"),
+                ),
+            )
+        )
+    for server in mcp_servers:
+        content, log_message = render_mcp_server_file(server)
+        if content is None:
+            resource = f"mcp/{server.server_name}"
+            findings.append(
+                Finding(
+                    status="FAIL",
+                    code="adopt.invalid_mcp",
+                    resource=resource,
+                    source=str(server.source_file or server.source_agent),
+                    message=f"MCP server '{server.server_name}' cannot be adopted",
+                    reason=log_message,
+                    fix_hint="Repair or remove the definition in the source file",
+                    actions=(FindingAction("Skip", f"aikito adopt --skip {resource}"),),
+                )
+            )
+
+    subagents_path = aikito_dir / "subagents.toml"
+    existing_subagents = (
+        subagents_path.read_text(encoding="utf-8")
+        if subagents_path.is_file()
+        else ""
     )
-    subagents = scan_subagents(aikito_dir, home, errors=errors)
+    _, subagent_logs = render_subagents_block(existing_subagents, subagents)
+    subagents_by_name = {sub.subagent_name: sub for sub in subagents}
+    for subagent_name, log_message in subagent_logs:
+        if "Skipping invalid" not in log_message:
+            continue
+        resource = f"subagent/{subagent_name}"
+        source = subagents_by_name[subagent_name].source_file
+        findings.append(
+            Finding(
+                status="FAIL",
+                code="adopt.invalid_subagent",
+                resource=resource,
+                source=str(source),
+                message=f"Subagent '{subagent_name}' cannot be adopted",
+                reason=log_message,
+                fix_hint="Repair or remove the definition in the source file",
+                actions=(FindingAction("Skip", f"aikito adopt --skip {resource}"),),
+            )
+        )
+    return tuple(findings)
+
+
+def collect_adopt_findings(plan: AdoptPlan) -> tuple[Finding, ...]:
+    """Return every actionable issue that blocks the current adoption plan."""
+    if plan.findings:
+        return plan.findings
+    return _collect_adopt_findings(
+        plan.aikito_dir,
+        plan.instructions,
+        plan.mcp_servers,
+        plan.subagents,
+        list(plan.errors),
+    )
+
+
+def _create_adopt_plan(
+    request: AdoptRequest,
+    instructions: InstructionsAdoption,
+    mcp_servers: List[MCPServerAdoption],
+    subagents: List[SubagentAdoption],
+    errors: list[Finding],
+    builtin_mcps: list[Tuple[str, str]],
+    skipped: tuple[str, ...] = (),
+) -> AdoptPlan:
+    file_plans = _build_file_plans(
+        request.workspace, instructions, mcp_servers, subagents
+    )
+    findings = _collect_adopt_findings(
+        request.workspace, instructions, mcp_servers, subagents, errors
+    )
+    backup_sources = tuple(
+        _collect_sources_for_backup(request.home, instructions, subagents)
+    )
+    can_apply = len(findings) == 0
 
     return AdoptPlan(
-        aikito_dir=aikito_dir,
-        home=home,
+        request=request,
         instructions=instructions,
         mcp_servers=mcp_servers,
         subagents=subagents,
+        file_plans=file_plans,
+        findings=findings,
         errors=tuple(errors),
+        skipped=skipped,
         builtin_mcps=tuple(builtin_mcps),
+        backup_sources=backup_sources,
+        can_apply=can_apply,
     )
+
+
+def build_adopt_plan(
+    aikito_dir: Path,
+    home: Path | None = None,
+    *,
+    skip: tuple[str, ...] | list[str] | None = None,
+    request: AdoptRequest | None = None,
+) -> AdoptPlan:
+    if request is not None:
+        workspace = request.workspace
+        resolved_home = request.home
+        skip_tuple = request.skip
+    else:
+        workspace = aikito_dir
+        resolved_home = home or Path.home()
+        skip_tuple = tuple(skip or ())
+        request = AdoptRequest(workspace=workspace, home=resolved_home, skip=skip_tuple)
+
+    errors: list[Finding] = []
+    builtin_mcps: list[Tuple[str, str]] = []
+    instructions = scan_instructions(workspace, resolved_home, errors=errors)
+    mcp_servers = scan_mcp_servers(
+        workspace, resolved_home, errors=errors, builtin_mcps=builtin_mcps
+    )
+    subagents = scan_subagents(workspace, resolved_home, errors=errors)
+
+    plan = _create_adopt_plan(
+        request=request,
+        instructions=instructions,
+        mcp_servers=mcp_servers,
+        subagents=subagents,
+        errors=errors,
+        builtin_mcps=builtin_mcps,
+        skipped=(),
+    )
+
+    if skip_tuple:
+        plan = apply_adopt_skips(plan, list(skip_tuple))
+
+    return plan
 
 
 def apply_adopt_skips(plan: AdoptPlan, requested: list[str] | None) -> AdoptPlan:
@@ -743,125 +1222,59 @@ def apply_adopt_skips(plan: AdoptPlan, requested: list[str] | None) -> AdoptPlan
             sources=[],
             target_path=plan.instructions.target_path,
         )
-    return replace(
-        plan,
+    mcp_servers = [
+        server
+        for server in plan.mcp_servers
+        if f"mcp/{server.server_name}" not in requested_set
+    ]
+    subagents = [
+        sub
+        for sub in plan.subagents
+        if f"subagent/{sub.subagent_name}" not in requested_set
+    ]
+    skipped = tuple(sorted(requested_set))
+    new_request = replace(plan.request, skip=skipped)
+
+    return _create_adopt_plan(
+        request=new_request,
         instructions=instructions,
-        mcp_servers=[
-            server
-            for server in plan.mcp_servers
-            if f"mcp/{server.server_name}" not in requested_set
-        ],
-        subagents=[
-            sub
-            for sub in plan.subagents
-            if f"subagent/{sub.subagent_name}" not in requested_set
-        ],
-        skipped=tuple(sorted(requested_set)),
+        mcp_servers=mcp_servers,
+        subagents=subagents,
+        errors=list(plan.errors),
+        builtin_mcps=list(plan.builtin_mcps),
+        skipped=skipped,
     )
 
 
 def summarize_adopt_plan(plan: AdoptPlan) -> AdoptSummary:
-    instruction_updates = 0
-    inst = plan.instructions
-    if inst.sources and not inst.has_conflict and inst.merged_content is not None:
-        current = ""
-        if inst.target_path and inst.target_path.is_file():
-            current = inst.target_path.read_text(encoding="utf-8")
-        if _normalize_instructions_content(current) != _normalize_instructions_content(
-            inst.merged_content
-        ):
-            instruction_updates = 1
-
-    mcp_imports = 0
-    for server in plan.mcp_servers:
-        target = plan.aikito_dir / "mcps" / f"{server.server_name}.toml"
-        content, _ = render_mcp_server_file(server)
-        if not target.exists() and content is not None:
-            mcp_imports += 1
-
-    subagents_path = plan.aikito_dir / "subagents.toml"
-    existing_subagents = (
-        subagents_path.read_text(encoding="utf-8") if subagents_path.is_file() else ""
+    instruction_updates = sum(
+        1
+        for fp in plan.file_plans
+        if fp.resource_kind == "instructions" and fp.action in ("CREATE", "UPDATE")
     )
-    _, subagent_logs = render_subagents_block(existing_subagents, plan.subagents)
+    mcp_imports = sum(
+        1
+        for fp in plan.file_plans
+        if fp.resource_kind == "mcp" and fp.action == "CREATE"
+    )
     subagent_imports = sum(
-        log.startswith("[ADOPT SUBAGENT]") for _, log in subagent_logs
+        1
+        for fp in plan.file_plans
+        if fp.resource_kind == "subagent_prompt"
+        and fp.log_message.startswith("[ADOPT SUBAGENT]")
     )
+
+    conflicts = 1 if plan.has_conflicts else 0
+    errors = len(plan.findings) - conflicts
 
     return AdoptSummary(
         instruction_updates=instruction_updates,
         mcp_imports=mcp_imports,
         subagent_imports=subagent_imports,
-        conflicts=1 if plan.has_conflicts else 0,
-        errors=len(collect_adopt_findings(plan)) - (1 if plan.has_conflicts else 0),
+        conflicts=conflicts,
+        errors=errors,
         skipped=len(plan.skipped),
     )
-
-
-def collect_adopt_findings(plan: AdoptPlan) -> tuple[Finding, ...]:
-    """Return every actionable issue that blocks the current adoption plan."""
-    findings = list(plan.errors)
-    if plan.has_conflicts:
-        source_paths = ", ".join(str(path) for _, path, _ in plan.instructions.sources)
-        target = (
-            plan.instructions.target_path or plan.aikito_dir / "global" / "AGENTS.md"
-        )
-        findings.append(
-            Finding(
-                status="FAIL",
-                code="adopt.instructions_conflict",
-                resource="instructions",
-                source=source_paths,
-                message="Global instructions cannot be adopted automatically",
-                reason="Detected instruction sources do not match",
-                fix_hint=f"Review and merge the sources into {target}",
-                actions=(
-                    FindingAction("Review", "aikito adopt --dry-run --verbose"),
-                    FindingAction("Skip", "aikito adopt --skip instructions"),
-                ),
-            )
-        )
-    for server in plan.mcp_servers:
-        content, log_message = render_mcp_server_file(server)
-        if content is None:
-            resource = f"mcp/{server.server_name}"
-            findings.append(
-                Finding(
-                    status="FAIL",
-                    code="adopt.invalid_mcp",
-                    resource=resource,
-                    source=str(server.source_file or server.source_agent),
-                    message=f"MCP server '{server.server_name}' cannot be adopted",
-                    reason=log_message,
-                    fix_hint="Repair or remove the definition in the source file",
-                    actions=(FindingAction("Skip", f"aikito adopt --skip {resource}"),),
-                )
-            )
-
-    subagents_path = plan.aikito_dir / "subagents.toml"
-    existing_subagents = (
-        subagents_path.read_text(encoding="utf-8") if subagents_path.is_file() else ""
-    )
-    _, subagent_logs = render_subagents_block(existing_subagents, plan.subagents)
-    subagents_by_name = {sub.subagent_name: sub for sub in plan.subagents}
-    for subagent_name, log_message in subagent_logs:
-        if "Skipping invalid" not in log_message:
-            continue
-        resource = f"subagent/{subagent_name}"
-        source = subagents_by_name[subagent_name].source_file
-        findings.append(
-            Finding(
-                status="FAIL",
-                code="adopt.invalid_subagent",
-                resource=resource,
-                source=str(source),
-                message=f"Subagent '{subagent_name}' cannot be adopted",
-                reason=log_message,
-                fix_hint="Repair or remove the definition in the source file",
-                actions=(FindingAction("Skip", f"aikito adopt --skip {resource}"),),
-            )
-        )
-    return tuple(findings)
 
 
 def _print_adopt_summary(summary: AdoptSummary, skipped: tuple[str, ...]) -> None:
@@ -883,7 +1296,7 @@ def execute_adoption(
     backup_dir: Optional[Path] = None,
     *,
     verbose: bool = True,
-) -> bool:
+) -> AdoptExecutionResult:
     summary = summarize_adopt_plan(plan)
     _print_adopt_summary(summary, plan.skipped)
 
@@ -893,9 +1306,12 @@ def execute_adoption(
             for server_name, agent_name in plan.builtin_mcps:
                 print(f"[SKIP MCP] Server '{server_name}' is built-in to {agent_name}")
         print("\n[OK] No adoptable Agent configuration found. No files were modified.")
-        return True
+        return AdoptExecutionResult(
+            success=True,
+            skipped=plan.skipped,
+        )
 
-    findings = collect_adopt_findings(plan)
+    findings = plan.findings or collect_adopt_findings(plan)
     if findings:
         print("", file=sys.stderr)
         for finding in findings:
@@ -906,23 +1322,92 @@ def execute_adoption(
             "problems above and rerun 'aikito adopt'.",
             file=sys.stderr,
         )
-        return False
+        return AdoptExecutionResult(
+            success=False,
+            skipped=plan.skipped,
+            failed=tuple(f.resource for f in findings),
+            error_message="Adoption blocked by findings",
+        )
 
     print("\nSafe to apply")
     if dry_run and not verbose:
         print("[DRY-RUN] No files were modified.")
-        return True
+        return AdoptExecutionResult(
+            success=True,
+            skipped=plan.skipped,
+        )
 
-    # Create timestamped backup of local agent config files
+    # Verify pre-images before modifying anything (INV-ADOPT-04, INV-ADOPT-06)
+    for fp in plan.file_plans:
+        if fp.expected_pre_image is None:
+            if fp.path.exists():
+                err_msg = f"Target file '{fp.path}' was created after plan was generated"
+                print(
+                    f"[ERROR] Adoption plan is stale: {err_msg}. Re-run 'aikito adopt' to plan against the current workspace state.",
+                    file=sys.stderr,
+                )
+                return AdoptExecutionResult(
+                    success=False,
+                    skipped=plan.skipped,
+                    failed=(str(fp.path),),
+                    error_message=err_msg,
+                )
+        else:
+            if not fp.path.exists():
+                err_msg = f"Target file '{fp.path}' was deleted after plan was generated"
+                print(
+                    f"[ERROR] Adoption plan is stale: {err_msg}. Re-run 'aikito adopt' to plan against the current workspace state.",
+                    file=sys.stderr,
+                )
+                return AdoptExecutionResult(
+                    success=False,
+                    skipped=plan.skipped,
+                    failed=(str(fp.path),),
+                    error_message=err_msg,
+                )
+            current_text = fp.path.read_text(encoding="utf-8")
+            if current_text != fp.expected_pre_image:
+                err_msg = f"Target file '{fp.path}' was modified after plan was generated"
+                print(
+                    f"[ERROR] Adoption plan is stale: {err_msg}. Re-run 'aikito adopt' to plan against the current workspace state.",
+                    file=sys.stderr,
+                )
+                return AdoptExecutionResult(
+                    success=False,
+                    skipped=plan.skipped,
+                    failed=(str(fp.path),),
+                    error_message=err_msg,
+                )
+
+    # Verify source backup availability (INV-ADOPT-06)
+    for src in plan.backup_sources:
+        if not src.is_file():
+            err_msg = f"Source configuration file '{src}' was removed after plan was generated"
+            print(
+                f"[ERROR] Adoption plan is stale: {err_msg}. Re-run 'aikito adopt' to plan against current host state.",
+                file=sys.stderr,
+            )
+            return AdoptExecutionResult(
+                success=False,
+                skipped=plan.skipped,
+                failed=(str(src),),
+                error_message=err_msg,
+            )
+
+    # Create timestamped backup of local agent config files (INV-ADOPT-05)
     try:
-        create_adopt_backup(plan, backup_dir=backup_dir, dry_run=dry_run)
+        actual_backup_dir = create_adopt_backup(
+            plan, backup_dir=backup_dir, dry_run=dry_run
+        )
     except Exception as exc:
         print(f"[ERROR] Failed during adoption backup: {exc}", file=sys.stderr)
         sys.exit(1)
 
     # 1. Instructions Adoption
-
     inst = plan.instructions
+    inst_fp = next(
+        (fp for fp in plan.file_plans if fp.resource_kind == "instructions"), None
+    )
     if inst.sources:
         if verbose:
             print("\n--- Global Instructions Adoption ---")
@@ -930,16 +1415,16 @@ def execute_adoption(
             print(f"[MERGE] Instructions from {ag_names} match perfectly.")
             for agent_name, source_path, _ in inst.sources:
                 print(f"[SOURCE] {agent_name}: {source_path}")
-        if inst.target_path and summary.instruction_updates:
+        if inst_fp and inst_fp.action in ("CREATE", "UPDATE"):
             if dry_run:
                 if verbose:
                     print(
-                        f"[DRY-RUN WRITE] Would write merged instructions to {inst.target_path}"
+                        f"[DRY-RUN WRITE] Would write merged instructions to {inst_fp.path}"
                     )
             else:
-                _write_text_atomic(inst.target_path, inst.merged_content or "")
+                _write_text_atomic(inst_fp.path, inst_fp.desired_content)
                 if verbose:
-                    print(f"[WRITE FILE] Updated {inst.target_path}")
+                    print(f"[WRITE FILE] Updated {inst_fp.path}")
 
     # 2. MCP Servers Adoption
     if plan.mcp_servers or plan.builtin_mcps:
@@ -953,54 +1438,60 @@ def execute_adoption(
             mcps_dir.mkdir(parents=True, exist_ok=True)
 
         for srv in plan.mcp_servers:
-            server_file = mcps_dir / f"{srv.server_name}.toml"
-            if server_file.exists():
+            mcp_fp = next(
+                (
+                    fp
+                    for fp in plan.file_plans
+                    if fp.resource_kind == "mcp" and fp.resource_name == srv.server_name
+                ),
+                None,
+            )
+            if mcp_fp is None:
+                continue
+            if mcp_fp.action == "NOOP":
                 if verbose:
                     print(f"[SKIP MCP] Server '{srv.server_name}' already present")
                 continue
-            content, log_msg = render_mcp_server_file(srv)
+            log_msg = mcp_fp.log_message
             if dry_run and log_msg.startswith("[ADOPT MCP]"):
                 log_msg = log_msg.replace("[ADOPT MCP]", "[DRY-RUN MCP] Would import")
             if verbose:
                 print(log_msg)
-            if not dry_run and content is not None:
-                _write_text_atomic(server_file, content)
+            if not dry_run:
+                _write_text_atomic(mcp_fp.path, mcp_fp.desired_content)
                 if verbose:
-                    print(f"[WRITE FILE] Created {server_file}")
+                    print(f"[WRITE FILE] Created {mcp_fp.path}")
 
-    # 3. Subagents Adoption (Pre-render in memory)
+    # 3. Subagents Adoption
     if plan.subagents:
         if verbose:
             print("\n--- Subagents Adoption ---")
-        sub_toml_path = plan.aikito_dir / "subagents.toml"
-        existing_subs = (
-            sub_toml_path.read_text(encoding="utf-8") if sub_toml_path.exists() else ""
-        )
 
-        new_subs_content, sub_logs = render_subagents_block(
-            existing_subs, plan.subagents
-        )
-        for _, log_msg in sub_logs:
-            if dry_run and log_msg.startswith("[ADOPT SUBAGENT]"):
-                log_msg = log_msg.replace(
-                    "[ADOPT SUBAGENT]", "[DRY-RUN SUBAGENT] Would import"
-                )
-            if verbose:
-                print(log_msg)
-
-        if not dry_run and new_subs_content != existing_subs:
-            _write_text_atomic(sub_toml_path, new_subs_content)
-            if verbose:
-                print(f"[WRITE FILE] Updated {sub_toml_path}")
-            instructions_dir = plan.aikito_dir / "subagents"
-            for sub in plan.subagents:
-                instructions_path = instructions_dir / f"{sub.subagent_name}.md"
-                if not instructions_path.exists():
-                    _write_text_atomic(
-                        instructions_path, sub.system_prompt.rstrip() + "\n"
+        for fp in plan.file_plans:
+            if fp.resource_kind == "subagent_prompt":
+                log_msg = fp.log_message
+                if dry_run and log_msg.startswith("[ADOPT SUBAGENT]"):
+                    log_msg = log_msg.replace(
+                        "[ADOPT SUBAGENT]", "[DRY-RUN SUBAGENT] Would import"
                     )
+                if verbose:
+                    print(log_msg)
+
+        cfg_fp = next(
+            (fp for fp in plan.file_plans if fp.resource_kind == "subagent_config"),
+            None,
+        )
+        if not dry_run and cfg_fp and cfg_fp.action in ("CREATE", "UPDATE"):
+            _write_text_atomic(cfg_fp.path, cfg_fp.desired_content)
+            if verbose:
+                print(f"[WRITE FILE] Updated {cfg_fp.path}")
+
+        if not dry_run:
+            for fp in plan.file_plans:
+                if fp.resource_kind == "subagent_prompt" and fp.action == "CREATE":
+                    _write_text_atomic(fp.path, fp.desired_content)
                     if verbose:
-                        print(f"[WRITE FILE] Created {instructions_path}")
+                        print(f"[WRITE FILE] Created {fp.path}")
 
     if dry_run:
         print("\n[DRY-RUN] No files were modified.")
@@ -1008,138 +1499,40 @@ def execute_adoption(
         print("\n[SUCCESS] Adoption executed successfully!")
         print("Next step: Run 'aikito sync' to check and apply runtime changes.")
 
-    return True
+    backups: list[Path] = []
+    if actual_backup_dir:
+        for src in plan.backup_sources:
+            try:
+                rel_path = src.relative_to(plan.home)
+                backups.append(actual_backup_dir / rel_path)
+            except ValueError:
+                backups.append(actual_backup_dir / src.name)
+
+    adopted_instructions = (
+        (str(inst_fp.path),) if inst_fp and inst_fp.action in ("CREATE", "UPDATE") else ()
+    )
+    adopted_mcps = tuple(
+        fp.resource_name
+        for fp in plan.file_plans
+        if fp.resource_kind == "mcp" and fp.action == "CREATE"
+    )
+    adopted_subagents = tuple(
+        fp.resource_name
+        for fp in plan.file_plans
+        if fp.resource_kind == "subagent_prompt"
+        and fp.log_message.startswith("[ADOPT SUBAGENT]")
+    )
+
+    return AdoptExecutionResult(
+        success=True,
+        instructions=adopted_instructions,
+        mcps=adopted_mcps,
+        subagents=adopted_subagents,
+        backups=tuple(backups),
+        skipped=plan.skipped,
+        failed=(),
+        error_message=None,
+    )
 
 
-def _write_text_atomic(target: Path, content: str) -> None:
-    """Replace one workspace text file without exposing partial contents."""
-    target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_suffix(f"{target.suffix}.tmp.{os.getpid()}")
-    temporary.write_text(content, encoding="utf-8")
-    temporary.replace(target)
-
-
-def _format_toml_key(key: str) -> str:
-    # Bare key in TOML allows A-Z, a-z, 0-9, _, -
-    is_bare = all(c.isalnum() or c in ("_", "-") for c in key) if key else False
-    if is_bare:
-        return key
-    return json.dumps(key, ensure_ascii=False)
-
-
-def _format_toml_value(val: Any) -> str:
-    if isinstance(val, str):
-        return json.dumps(val, ensure_ascii=False)
-    elif isinstance(val, bool):
-        return "true" if val else "false"
-    elif isinstance(val, (int, float)):
-        return str(val)
-    elif isinstance(val, list):
-        items = [_format_toml_value(x) for x in val]
-        return f"[{', '.join(items)}]"
-    elif isinstance(val, dict):
-        pairs = []
-        for k in sorted(val.keys()):
-            k_repr = _format_toml_key(str(k))
-            v_repr = _format_toml_value(val[k])
-            pairs.append(f"{k_repr} = {v_repr}")
-        return f"{{ {', '.join(pairs)} }}"
-    else:
-        return json.dumps(str(val), ensure_ascii=False)
-
-
-def render_mcp_server_file(
-    srv: MCPServerAdoption,
-) -> Tuple[Optional[str], str]:
-    """
-    Renders valid TOML content for an individual MCP server.
-    Returns (toml_content_or_none, log_message)
-    """
-    cfg = srv.config_data
-    if (
-        not srv.server_name
-        or Path(srv.server_name).name != srv.server_name
-        or "\\" in srv.server_name
-    ):
-        return None, f"[ERROR] Invalid MCP server name: {srv.server_name!r}"
-    lines = [f"agents = {_format_toml_value(srv.agents)}"]
-
-    for key in ("command", "url", "args", "env", "transport", "headers"):
-        if key in cfg and cfg[key] is not None:
-            lines.append(f"{key} = {_format_toml_value(cfg[key])}")
-
-    srv_block = "\n".join(lines) + "\n"
-
-    try:
-        tomllib.loads(srv_block)
-        ag_str = ", ".join(srv.agents)
-        return srv_block, f"[ADOPT MCP] Server '{srv.server_name}' (agents: [{ag_str}])"
-    except Exception as exc:
-        return (
-            None,
-            f"[SKIP MCP] Skipping invalid server name or config '{srv.server_name}': {exc}",
-        )
-
-
-def render_subagents_block(
-    existing_content: str, subagents: List[SubagentAdoption]
-) -> Tuple[str, List[Tuple[str, str]]]:
-    """
-    Renders valid TOML appended block for Subagents in memory.
-    Returns (new_complete_toml_content, status_logs)
-    """
-    lines = []
-    status_logs: List[Tuple[str, str]] = []
-
-    for sub in subagents:
-        safe_key = _format_toml_key(sub.subagent_name)
-        header = f"[subagents.{safe_key}]"
-
-        if header in existing_content:
-            status_logs.append(
-                (
-                    sub.subagent_name,
-                    f"[SKIP SUBAGENT] Subagent '{sub.subagent_name}' already present",
-                )
-            )
-            continue
-
-        sub_lines = [
-            f"\n{header}",
-            f"description = {_format_toml_value(sub.description)}",
-            f"agents = {_format_toml_value(sub.target_agents)}",
-        ]
-        for agent_name, options in sorted(sub.platform_configs.items()):
-            sub_lines.append(f"\n[{header[1:-1]}.{_format_toml_key(agent_name)}]")
-            for key, value in sorted(options.items()):
-                sub_lines.append(
-                    f"{_format_toml_key(key)} = {_format_toml_value(value)}"
-                )
-
-        sub_block = "\n".join(sub_lines) + "\n"
-
-        # Validate syntax
-        try:
-            tomllib.loads("test = true\n" + sub_block)
-            lines.append(sub_block)
-            status_logs.append(
-                (
-                    sub.subagent_name,
-                    f"[ADOPT SUBAGENT] Subagent '{sub.subagent_name}' from {sub.source_file}",
-                )
-            )
-        except Exception as exc:
-            status_logs.append(
-                (
-                    sub.subagent_name,
-                    f"[SKIP SUBAGENT] Skipping invalid subagent name/config '{sub.subagent_name}': {exc}",
-                )
-            )
-
-    new_content = existing_content
-    if lines:
-        if not new_content.endswith("\n"):
-            new_content += "\n"
-        new_content += "".join(lines)
-
-    return new_content, status_logs
+execute_adopt_plan = execute_adoption

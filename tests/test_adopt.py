@@ -9,10 +9,14 @@ from unittest.mock import patch
 
 from aikito import cli as AIKITO_CLI
 from aikito.adopt import (
+    AdoptExecutionResult,
+    AdoptFilePlan,
+    AdoptRequest,
     AdoptSkipError,
     apply_adopt_skips,
     build_adopt_plan,
     collect_adopt_findings,
+    execute_adopt_plan,
     execute_adoption,
     summarize_adopt_plan,
 )
@@ -918,6 +922,59 @@ config_format = "claude_json"
             "${AIKITO_PRIVATE_API_AUTHORIZATION}",
         )
         self.assertEqual(server.config_data["headers"]["X-API-Version"], "2026-08-09")
+
+    def test_adopt_request_and_structured_file_plans(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+
+        req = AdoptRequest(workspace=self.target_path, home=self.fake_home)
+        plan = build_adopt_plan(self.target_path, request=req)
+
+        self.assertEqual(plan.request, req)
+        self.assertTrue(plan.can_apply)
+        self.assertGreater(len(plan.file_plans), 0)
+
+        inst_plan = next(fp for fp in plan.file_plans if fp.resource_kind == "instructions")
+        self.assertIsInstance(inst_plan, AdoptFilePlan)
+        self.assertIsNone(inst_plan.expected_pre_image)
+        self.assertEqual(inst_plan.action, "CREATE")
+
+    def test_adopt_pre_image_mismatch_prevents_writes(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        self.assertTrue(plan.can_apply)
+
+        # Simulate workspace file created after planning
+        target_file = self.target_path / "global" / "AGENTS.md"
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        target_file.write_text("Interfering content", encoding="utf-8")
+
+        # Execution must fail due to stale pre-image, zero writes made to that plan
+        result = execute_adopt_plan(plan, dry_run=False, verbose=False)
+        self.assertIsInstance(result, AdoptExecutionResult)
+        self.assertFalse(result.success)
+        self.assertFalse(bool(result))
+        self.assertIn("created after plan", result.error_message or "")
+        # File content was untouched
+        self.assertEqual(target_file.read_text(encoding="utf-8"), "Interfering content")
+
+    def test_execute_adopt_plan_returns_structured_execution_result(self) -> None:
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        result = execute_adopt_plan(plan, dry_run=False, verbose=False)
+
+        self.assertIsInstance(result, AdoptExecutionResult)
+        self.assertTrue(result.success)
+        self.assertTrue(bool(result))
+        self.assertEqual(len(result.instructions), 1)
+        self.assertGreater(len(result.backups), 0)
 
 
 if __name__ == "__main__":
