@@ -11,7 +11,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
+from .diagnostics import Finding
 from .link import LinkOperation, ObservedLink, plan_link_target
+from .plan_observation import (
+    OperationEffect,
+    PlanObservation,
+    PlanOperationView,
+    UnknownPlanActionError,
+)
 from .skill_state import SkillStateRecord
 
 
@@ -129,6 +136,89 @@ class SkillPlan:
         return any(
             op.action == "CONFLICT" or not op.is_authorized for op in self.operations
         )
+
+    def observe(self) -> PlanObservation:
+        """Project plan into a pure PlanObservation."""
+        views: list[PlanOperationView] = []
+        findings: list[Finding] = []
+        for op in self.operations:
+            view, finding = observe_skill_operation(op)
+            views.append(view)
+            if finding is not None:
+                findings.append(finding)
+        return PlanObservation(
+            operations=tuple(views),
+            findings=tuple(findings),
+            can_apply=self.can_apply,
+        )
+
+
+def skill_operation_effect(op: SkillOperation) -> OperationEffect:
+    """Map skill action to canonical OperationEffect."""
+    if not op.is_authorized:
+        return OperationEffect.NONE
+    match op.action:
+        case "CREATE":
+            return OperationEffect.CREATE
+        case "UPDATE":
+            return OperationEffect.UPDATE
+        case "UNLINK":
+            return OperationEffect.REMOVE
+        case "NOOP":
+            return OperationEffect.NOOP
+        case (
+            "RECONCILE_STATE"
+            | "CLAIM_STATE"
+            | "REACTIVATE_STATE"
+            | "DEACTIVATE_STATE"
+        ):
+            return OperationEffect.STATE_ONLY
+        case "CONFLICT":
+            return OperationEffect.NONE
+        case _:
+            raise UnknownPlanActionError(f"Unhandled skill action: {op.action}")
+
+
+def skill_operation_finding(op: SkillOperation) -> Finding | None:
+    """Produce a Finding if the operation represents a conflict or unauthorized mutation."""
+    if op.action == "CONFLICT" or not op.is_authorized:
+        return Finding(
+            status="CONFLICT",
+            code=op.rule_id or "SKILL_CONFLICT",
+            message=op.finding or op.reason,
+            resource=str(op.target.target_path),
+        )
+    return None
+
+
+def observe_skill_operation(
+    op: SkillOperation,
+) -> tuple[PlanOperationView, Finding | None]:
+    """Project a SkillOperation into a PlanOperationView and optional Finding."""
+    try:
+        effect = skill_operation_effect(op)
+        finding = skill_operation_finding(op)
+    except UnknownPlanActionError as err:
+        effect = OperationEffect.NONE
+        finding = Finding(
+            status="ERROR",
+            code="UNKNOWN_PLAN_ACTION",
+            message=str(err),
+            resource=str(op.target.target_path),
+        )
+
+    view = PlanOperationView(
+        resource_type="skill",
+        resource_name=op.target.skill_name,
+        effect=effect,
+        scope="project",
+        project=op.target.project_name,
+        target=str(op.target.target_path),
+        reason=op.reason,
+        domain_action=op.action,
+        authorized=op.is_authorized,
+    )
+    return view, finding
 
 
 def plan_single_skill(

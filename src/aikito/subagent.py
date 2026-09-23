@@ -20,6 +20,13 @@ from .config_runtime import (
     StaleConfigPlanError,
     aggregate_file_plans,
 )
+from .diagnostics import Finding
+from .plan_observation import (
+    OperationEffect,
+    PlanObservation,
+    PlanOperationView,
+    UnknownPlanActionError,
+)
 
 
 DEFAULT_AGENTS_CONFIG = Path("agents.toml")
@@ -123,6 +130,100 @@ class SubagentPlan:
             for op in self.operations
             if op.action == "CONFLICT" and not op.is_authorized
         )
+
+    def observe(self) -> PlanObservation:
+        """Project plan into a pure PlanObservation."""
+        views: list[PlanOperationView] = []
+        findings: list[Finding] = []
+        for op in self.operations:
+            view, finding = observe_subagent_operation(op)
+            views.append(view)
+            if finding is not None:
+                findings.append(finding)
+        return PlanObservation(
+            operations=tuple(views),
+            findings=tuple(findings),
+            can_apply=self.can_apply,
+        )
+
+
+def subagent_operation_effect(op: ConfigOperation) -> OperationEffect:
+    """Map subagent operation action to canonical OperationEffect."""
+    if op.action in ("CREATE", "UPDATE", "REMOVE") and not op.is_authorized:
+        return OperationEffect.NONE
+    match op.action:
+        case "CREATE":
+            return OperationEffect.CREATE
+        case "UPDATE":
+            return OperationEffect.UPDATE
+        case "REMOVE":
+            return OperationEffect.REMOVE
+        case "NOOP":
+            return OperationEffect.NOOP
+        case "SKIP" | "ORPHAN":
+            return OperationEffect.SKIP
+        case "CONFLICT" | "ERROR":
+            return OperationEffect.NONE
+        case _:
+            raise UnknownPlanActionError(f"Unhandled subagent action: {op.action}")
+
+
+def subagent_operation_finding(op: ConfigOperation) -> Finding | None:
+    """Produce a Finding for subagent orphan, conflict, or error conditions."""
+    if op.action == "ORPHAN":
+        return Finding(
+            status="WARNING",
+            code="SUBAGENT_ORPHAN",
+            message=f"{op.target.agent}/{op.target.logical_identity}: {op.reason}",
+            resource=str(op.target.path),
+        )
+    if (op.action == "CONFLICT" and not op.is_authorized) or (
+        op.action in ("CREATE", "UPDATE", "REMOVE") and not op.is_authorized
+    ):
+        return Finding(
+            status="CONFLICT",
+            code="SUBAGENT_CONFLICT",
+            message=f"{op.target.agent}/{op.target.logical_identity}: {op.reason}",
+            resource=str(op.target.path),
+        )
+    if op.action == "ERROR":
+        return Finding(
+            status="ERROR",
+            code="SUBAGENT_ERROR",
+            message=f"{op.target.agent}/{op.target.logical_identity}: {op.reason}",
+            resource=str(op.target.path),
+        )
+    return None
+
+
+def observe_subagent_operation(
+    op: ConfigOperation,
+) -> tuple[PlanOperationView, Finding | None]:
+    """Project a ConfigOperation into a PlanOperationView and optional Finding."""
+    try:
+        effect = subagent_operation_effect(op)
+        finding = subagent_operation_finding(op)
+    except UnknownPlanActionError as err:
+        effect = OperationEffect.NONE
+        finding = Finding(
+            status="ERROR",
+            code="UNKNOWN_PLAN_ACTION",
+            message=str(err),
+            resource=str(op.target.path),
+        )
+
+    view = PlanOperationView(
+        resource_type="subagent",
+        resource_name=op.target.logical_identity,
+        effect=effect,
+        scope="global",
+        agent=op.target.agent,
+        target=str(op.target.path),
+        reason=op.reason,
+        domain_action=op.action,
+        authorized=op.is_authorized,
+    )
+    return view, finding
 
 
 @dataclass(frozen=True)

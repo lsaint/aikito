@@ -448,3 +448,199 @@ def test_bundled_skill_refresh_plan_observe() -> None:
     assert obs.summary.changes == 1
     assert obs.can_apply is True
 
+
+def test_skill_plan_observe(tmp_path: Path) -> None:
+    from aikito.skill_plan import SkillOperation, SkillPlan, SkillTarget
+
+    target = SkillTarget(
+        workspace_root=tmp_path,
+        workspace_id="ws",
+        project_name="projA",
+        physical_checkout=tmp_path / "co",
+        skill_name="s1",
+        target_path=tmp_path / "co" / "s1",
+    )
+
+    ops = (
+        SkillOperation(
+            action="CREATE",
+            rule_id="TR-1",
+            target=target,
+            reason="create",
+            is_authorized=True,
+        ),
+        SkillOperation(
+            action="UPDATE",
+            rule_id="TR-2",
+            target=target,
+            reason="update",
+            is_authorized=True,
+        ),
+        SkillOperation(
+            action="UNLINK",
+            rule_id="TR-3",
+            target=target,
+            reason="unlink",
+            is_authorized=True,
+        ),
+        SkillOperation(
+            action="NOOP",
+            rule_id="TR-4",
+            target=target,
+            reason="noop",
+            is_authorized=True,
+        ),
+        SkillOperation(
+            action="RECONCILE_STATE",
+            rule_id="TR-5",
+            target=target,
+            reason="reconcile",
+            is_authorized=True,
+        ),
+        SkillOperation(
+            action="CLAIM_STATE",
+            rule_id="TR-6",
+            target=target,
+            reason="claim",
+            is_authorized=True,
+        ),
+        SkillOperation(
+            action="REACTIVATE_STATE",
+            rule_id="TR-7",
+            target=target,
+            reason="reactivate",
+            is_authorized=True,
+        ),
+        SkillOperation(
+            action="DEACTIVATE_STATE",
+            rule_id="TR-8",
+            target=target,
+            reason="deactivate",
+            is_authorized=True,
+        ),
+        SkillOperation(
+            action="CONFLICT",
+            rule_id="TR-9",
+            target=target,
+            reason="conflict",
+            is_authorized=False,
+        ),
+    )
+
+    plan = SkillPlan(
+        workspace_root=tmp_path,
+        project_name="projA",
+        operations=ops,
+        findings=(),
+        authorizations=(),
+        can_apply=False,
+    )
+
+    obs = plan.observe()
+    assert isinstance(obs, PlanObservation)
+    assert len(obs.operations) == 9
+    assert obs.summary.creates == 1
+    assert obs.summary.updates == 1
+    assert obs.summary.removes == 1
+    assert obs.summary.state_only == 4
+    assert obs.summary.unchanged == 1
+    assert obs.summary.conflicts == 1
+    # changes excludes state_only
+    assert obs.summary.changes == 3
+    assert obs.can_apply is False
+
+
+def test_mcp_plan_observe(tmp_path: Path) -> None:
+    from aikito.mcp import MCPConfigTarget, MCPOperation, MCPPlan
+
+    def _mcp_op(action: str, name: str, auth: bool = True) -> MCPOperation:
+        target = MCPConfigTarget(
+            path=tmp_path / "mcp.json",
+            format="json",
+            agent="codex",
+            logical_identity=name,
+        )
+        return MCPOperation(
+            target=target,
+            action=action,
+            reason=f"reason_{name}",
+            is_authorized=auth,
+        )
+
+    ops = (
+        _mcp_op("CREATE", "m1"),
+        _mcp_op("UPDATE", "m2"),
+        _mcp_op("REMOVE", "m3"),
+        _mcp_op("NOOP", "m4"),
+        _mcp_op("SKIP", "m5"),
+        _mcp_op("CONFLICT", "m6", auth=False),
+        _mcp_op("ERROR", "m7"),
+        _mcp_op("CREATE", "m8_unauth", auth=False),
+    )
+
+    plan = MCPPlan(
+        operations=ops,
+        file_plans=(),
+        state_snapshot_hash="hash",
+    )
+
+    obs = plan.observe()
+    assert isinstance(obs, PlanObservation)
+    assert len(obs.operations) == 8
+    assert obs.summary.creates == 1  # m8_unauth does not count as create
+    assert obs.summary.updates == 1
+    assert obs.summary.removes == 1
+    assert obs.summary.unchanged == 1
+    assert obs.summary.skipped == 1
+    assert obs.summary.conflicts == 2  # m6 + m8_unauth
+    assert obs.summary.errors == 1  # m7
+    assert obs.summary.changes == 3
+    assert obs.can_apply is False
+
+
+def test_subagent_plan_observe(tmp_path: Path) -> None:
+    from aikito.config_runtime import ConfigOperation, ConfigTarget
+    from aikito.subagent import SubagentPlan
+
+    def _sub_op(action: str, name: str, auth: bool = True) -> ConfigOperation:
+        target = ConfigTarget(
+            path=tmp_path / "subagents.toml",
+            format="codex_toml",
+            agent="codex",
+            logical_identity=name,
+        )
+        return ConfigOperation(
+            target=target,
+            action=action,
+            reason=f"reason_{name}",
+            is_authorized=auth,
+        )
+
+    ops = (
+        _sub_op("CREATE", "s1"),
+        _sub_op("UPDATE", "s2"),
+        _sub_op("REMOVE", "s3"),
+        _sub_op("NOOP", "s4"),
+        _sub_op("SKIP", "s5"),
+        _sub_op("ORPHAN", "s6"),
+        _sub_op("CONFLICT", "s7", auth=False),
+        _sub_op("ERROR", "s8", auth=False),
+    )
+
+    plan = SubagentPlan(operations=ops, file_plans=())
+
+    obs = plan.observe()
+    assert isinstance(obs, PlanObservation)
+    assert len(obs.operations) == 8
+    assert obs.summary.creates == 1
+    assert obs.summary.updates == 1
+    assert obs.summary.removes == 1
+    assert obs.summary.unchanged == 1
+    assert obs.summary.skipped == 2  # SKIP (s5) + ORPHAN (s6)
+    assert obs.summary.warnings == 1  # ORPHAN (s6)
+    assert obs.summary.conflicts == 1  # CONFLICT (s7)
+    assert obs.summary.errors == 1  # ERROR (s8)
+    assert obs.summary.changes == 3
+    assert obs.can_apply is False
+
+
