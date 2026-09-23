@@ -811,12 +811,16 @@ def collect_subagents_matrix(
 
 
 def collect_memory_notes_rows(
-    aikito_dir: Path, home: Path, project: str | None = None
+    aikito_dir: Path,
+    home: Path,
+    project: str | None = None,
+    *,
+    include_global: bool = False,
 ) -> list[MemoryNoteRow]:
     rows = []
 
     # 1. Global Memory Notes
-    if project is None or project.lower() == "global":
+    if project is None or project.lower() == "global" or include_global:
         global_notes_dir = aikito_dir / "memory" / "notes"
         if global_notes_dir.is_dir():
             for note_file in sorted(global_notes_dir.glob("*.md")):

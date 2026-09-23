@@ -991,10 +991,14 @@ def _is_binary(content: bytes) -> bool:
     return b"\0" in content
 
 
-def collect_project_skill_diffs(aikito_dir: Path, home: Path) -> list[tuple[str, str]]:
+def collect_project_skill_diffs(
+    aikito_dir: Path, home: Path, *, project_filter: str | None = None
+) -> list[tuple[str, str]]:
     """Return unified diffs for every drifted copied project skill."""
     results: list[tuple[str, str]] = []
     for state in collect_project_skill_states(aikito_dir, home):
+        if project_filter is not None and state.project_name != project_filter:
+            continue
         if state.status != "DRIFT":
             continue
         canonical_files, canonical_error = _file_inventory(state.canonical_path)

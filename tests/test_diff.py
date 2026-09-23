@@ -158,3 +158,51 @@ class DriftDiffTest(unittest.TestCase):
 
             self.assertEqual(diffs, [])
             self.assertEqual(rendered, "No drift detected.")
+
+    def test_collect_drift_diffs_with_project_filter(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            canonical = root / "skills" / "example"
+            canonical.mkdir(parents=True)
+            (canonical / "SKILL.md").write_text("canonical\n", encoding="utf-8")
+
+            # Project 1
+            p1_path = root / "p1"
+            p1_runtime = p1_path / ".agents" / "skills" / "example"
+            p1_runtime.mkdir(parents=True)
+            (p1_runtime / "SKILL.md").write_text("runtime1\n", encoding="utf-8")
+            p1_config = root / "projects" / "p1"
+            p1_config.mkdir(parents=True)
+            (p1_config / "agent.toml").write_text(
+                f'path = "{p1_path.as_posix()}"\nsync_mode = "copy"\nskills = ["example"]\n',
+                encoding="utf-8",
+            )
+
+            # Project 2
+            p2_path = root / "p2"
+            p2_runtime = p2_path / ".agents" / "skills" / "example"
+            p2_runtime.mkdir(parents=True)
+            (p2_runtime / "SKILL.md").write_text("runtime2\n", encoding="utf-8")
+            p2_config = root / "projects" / "p2"
+            p2_config.mkdir(parents=True)
+            (p2_config / "agent.toml").write_text(
+                f'path = "{p2_path.as_posix()}"\nsync_mode = "copy"\nskills = ["example"]\n',
+                encoding="utf-8",
+            )
+
+            with (
+                patch("aikito.diff.load_agent_specs", return_value=[]),
+                patch(
+                    "aikito.diff.build_subagent_plan",
+                    return_value=SubagentPlan(operations=(), file_plans=()),
+                ),
+            ):
+                all_diffs = collect_drift_diffs(root, root, project_filter=None)
+                p1_diffs = collect_drift_diffs(root, root, project_filter="p1")
+                p2_diffs = collect_drift_diffs(root, root, project_filter="p2")
+
+            self.assertEqual(len(all_diffs), 2)
+            self.assertEqual(len(p1_diffs), 1)
+            self.assertIn("Project p1/skill example", p1_diffs[0][0])
+            self.assertEqual(len(p2_diffs), 1)
+            self.assertIn("Project p2/skill example", p2_diffs[0][0])

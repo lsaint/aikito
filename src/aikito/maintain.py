@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .compat import resolve_executable
 from .project import resolve_project_binding
+from .resolve import ProjectContextConflictError, detect_current_project
 
 
 class MemoryMaintenanceError(RuntimeError):
@@ -118,18 +119,18 @@ def resolve_memory_maintenance_scope(
             projects.append(loaded)
 
     if target == ".":
-        current = cwd.resolve()
-        matches: list[tuple[_LoadedProject, Path]] = []
-        for project in projects:
-            matched = _best_cwd_match(current, project.active_paths)
-            if matched is not None:
-                matches.append((project, matched))
-        if not matches:
+        try:
+            detected = detect_current_project(aikito_dir, cwd, Path.home())
+        except ProjectContextConflictError as exc:
+            names = ", ".join(exc.projects)
             raise MemoryMaintenanceError(
-                f"Current directory is not inside a registered project: {current}"
+                f"Current directory '{exc.path}' belongs to multiple projects: {names}"
+            ) from exc
+        if detected is None:
+            raise MemoryMaintenanceError(
+                f"Current directory is not inside a registered project: {cwd.resolve()}"
             )
-        project, project_path = max(matches, key=lambda item: len(item[1].parts))
-        return _resolved_project_scope(project.name, project.memory_dir, project_path)
+        target = detected
 
     for project in projects:
         if project.name == target:

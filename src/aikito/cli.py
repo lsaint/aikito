@@ -36,9 +36,11 @@ from .global_skills import (
 from .init import init_project, init_workspace, is_recognized_workspace
 from .maintain import MemoryMaintenanceError, run_memory_maintenance
 from .resolve import (
+    ProjectContextConflictError,
     SkillTargetConflictError,
     collect_instruction_agent_status,
     collect_project_instruction_status,
+    detect_current_project,
     open_in_editor,
     resolve_instruction_target,
     resolve_mcp_target_for_command,
@@ -354,7 +356,33 @@ def cmd_project_sync(args: argparse.Namespace) -> None:
     home = Path.home()
 
     raw_names = args.project_name
-    project_names = [p.strip() for p in raw_names.split(",") if p.strip()]
+    if not raw_names or raw_names == ".":
+        try:
+            detected = detect_current_project(aikito_dir, Path.cwd(), home)
+        except ProjectContextConflictError as exc:
+            names = ", ".join(exc.projects)
+            print(
+                f"[CONFLICT] Multiple projects match current directory '{exc.path}': {names}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if detected is None:
+            print(
+                f"[ERROR] Current directory is not inside a registered project: {Path.cwd().resolve()}",
+                file=sys.stderr,
+            )
+            if not raw_names:
+                print(
+                    "Please specify a project name, e.g. 'aikito sync project <name>'",
+                    file=sys.stderr,
+                )
+            sys.exit(1)
+        if not raw_names:
+            print(f"[aikito] Target project: '{detected}' (detected from cwd)")
+        project_names = [detected]
+    else:
+        project_names = [p.strip() for p in raw_names.split(",") if p.strip()]
+
     if len(project_names) > 1 and args.project_path:
         print(
             "[ERROR] Cannot specify explicit project_path when syncing multiple projects.",
@@ -509,7 +537,24 @@ def cmd_web(args: argparse.Namespace) -> None:
 
 
 def cmd_diff(args: argparse.Namespace) -> None:
-    diffs = collect_drift_diffs(get_aikito_dir(), Path.home())
+    aikito_dir = get_aikito_dir()
+    home = Path.home()
+    project_filter = None
+    if not getattr(args, "all", False):
+        try:
+            detected = detect_current_project(aikito_dir, Path.cwd(), home)
+        except ProjectContextConflictError as exc:
+            names = ", ".join(exc.projects)
+            print(
+                f"[CONFLICT] Multiple projects match current directory '{exc.path}': {names}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if detected:
+            print(f"[aikito] Target project: '{detected}' (detected from cwd)")
+            project_filter = detected
+
+    diffs = collect_drift_diffs(aikito_dir, home, project_filter=project_filter)
     print(render_drift_diffs(diffs))
 
 
@@ -611,13 +656,34 @@ def cmd_init_project(args: argparse.Namespace) -> None:
 
 def cmd_add_skill(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
+    home = Path.home()
     project_arg = getattr(args, "project", None)
+    is_global = getattr(args, "is_global", False)
+
+    if project_arg and is_global:
+        print("[ERROR] Cannot specify both --project and --global.", file=sys.stderr)
+        sys.exit(1)
+
     projects = None
     if project_arg:
         projects = [p.strip() for p in project_arg.split(",") if p.strip()]
+    elif not is_global:
+        try:
+            detected = detect_current_project(aikito_dir, Path.cwd(), home)
+        except ProjectContextConflictError as exc:
+            names = ", ".join(exc.projects)
+            print(
+                f"[CONFLICT] Multiple projects match current directory '{exc.path}': {names}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if detected:
+            print(f"[aikito] Target project: '{detected}' (detected from cwd)")
+            projects = [detected]
+
     success = add_skill(
         aikito_dir=aikito_dir,
-        home=Path.home(),
+        home=home,
         name=args.name,
         description=getattr(args, "description", None),
         projects=projects,
@@ -670,9 +736,46 @@ def cmd_add_mcp(args: argparse.Namespace) -> None:
 
 
 def cmd_show_project(args: argparse.Namespace) -> None:
-    projects = collect_project_summaries(get_aikito_dir(), Path.home())
+    aikito_dir = get_aikito_dir()
+    home = Path.home()
+    projects = collect_project_summaries(aikito_dir, home)
     target = getattr(args, "target", None)
+    show_target = getattr(args, "show_target", "project")
     use_unicode, use_color = resolve_color_flags(args)
+
+    if target == ".":
+        try:
+            detected = detect_current_project(aikito_dir, Path.cwd(), home)
+        except ProjectContextConflictError as exc:
+            names = ", ".join(exc.projects)
+            print(
+                f"[CONFLICT] Multiple projects match current directory '{exc.path}': {names}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if detected is None:
+            print(
+                f"[ERROR] Current directory is not inside a registered project: {Path.cwd().resolve()}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        target = detected
+
+    if not target:
+        if show_target != "projects":
+            try:
+                detected = detect_current_project(aikito_dir, Path.cwd(), home)
+            except ProjectContextConflictError as exc:
+                names = ", ".join(exc.projects)
+                print(
+                    f"[CONFLICT] Multiple projects match current directory '{exc.path}': {names}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            if detected:
+                print(f"[aikito] Target project: '{detected}' (detected from cwd)")
+                target = detected
+
     if not target:
         print(render_projects_table(projects, use_unicode, use_color))
         return
@@ -749,8 +852,26 @@ def cmd_show_instructions(args: argparse.Namespace) -> None:
 
 def cmd_edit_instructions(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
+    home = Path.home()
+    target = getattr(args, "target", None)
+    if target is None:
+        try:
+            detected = detect_current_project(aikito_dir, Path.cwd(), home)
+        except ProjectContextConflictError as exc:
+            names = ", ".join(exc.projects)
+            print(
+                f"[CONFLICT] Multiple projects match current directory '{exc.path}': {names}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if detected:
+            print(f"[aikito] Target project: '{detected}' (detected from cwd)")
+            target = detected
+        else:
+            target = "global"
+
     _, instructions_path = resolve_instruction_target(
-        aikito_dir, Path.home(), args.target, Path.cwd()
+        aikito_dir, home, target, Path.cwd()
     )
     open_in_editor(instructions_path)
 
@@ -1069,6 +1190,11 @@ def cmd_show_memory(args: argparse.Namespace) -> None:
     home = Path.home()
     target = getattr(args, "target", None)
     project_arg = getattr(args, "project", None)
+    show_all = getattr(args, "all", False)
+
+    if project_arg is not None and show_all:
+        print("[ERROR] Cannot specify both --project and --all.", file=sys.stderr)
+        sys.exit(1)
 
     resolved_project = None
     if project_arg is not None:
@@ -1081,8 +1207,28 @@ def cmd_show_memory(args: argparse.Namespace) -> None:
 
     if not target:
         use_unicode, use_color = resolve_color_flags(args)
+        include_global = False
+        scoped_project = resolved_project
+        if resolved_project is None and not show_all:
+            try:
+                detected = detect_current_project(aikito_dir, Path.cwd(), home)
+            except ProjectContextConflictError as exc:
+                names = ", ".join(exc.projects)
+                print(
+                    f"[CONFLICT] Multiple projects match current directory '{exc.path}': {names}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            if detected:
+                print(f"[aikito] Target project: '{detected}' (detected from cwd)")
+                scoped_project = detected
+                include_global = True
+
         note_rows = collect_memory_notes_rows(
-            aikito_dir=aikito_dir, home=home, project=resolved_project
+            aikito_dir=aikito_dir,
+            home=home,
+            project=scoped_project,
+            include_global=include_global,
         )
         table_str = render_memory_notes_table(note_rows, use_unicode, use_color)
         print(table_str)
@@ -1535,6 +1681,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Register skill under specific project(s) instead of globally (comma-separated for multiple projects)",
     )
     p_add_skill.add_argument(
+        "--global",
+        dest="is_global",
+        action="store_true",
+        default=False,
+        help="Register skill globally even if invoked from inside a project directory",
+    )
+    p_add_skill.add_argument(
         "--sync",
         action="store_true",
         help="Automatically synchronize affected project(s) or global runtime after adding",
@@ -1697,6 +1850,12 @@ def build_parser() -> argparse.ArgumentParser:
         "diff",
         help="Show unified diffs for all drifted managed resources",
     )
+    p_diff.add_argument(
+        "--all",
+        action="store_true",
+        default=False,
+        help="Show diffs across all registered projects instead of scoping to the current project",
+    )
     p_diff.set_defaults(func=cmd_diff)
 
     # maintain memory
@@ -1777,7 +1936,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Sync project skills and memory to <project-path>/.agents/",
     )
     p_sync_project.add_argument(
-        "project_name", help="Name of the project under <workspace>/projects/"
+        "project_name",
+        nargs="?",
+        default=None,
+        help="Name of the project under <workspace>/projects/ (detected from cwd if omitted)",
     )
     p_sync_project.add_argument(
         "project_path",
@@ -1934,12 +2096,19 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Exact name, unique prefix, or path of the memory note (e.g. simplified-clean, global/example)",
     )
-    p_show_memory.add_argument(
+    g_memory_scope = p_show_memory.add_mutually_exclusive_group()
+    g_memory_scope.add_argument(
         "--project",
         nargs="?",
         const=".",
         default=None,
         help="Filter memory notes to a specific project (by name, prefix, or '.' for current directory)",
+    )
+    g_memory_scope.add_argument(
+        "--all",
+        action="store_true",
+        default=False,
+        help="Show memory notes across all projects and global scope even inside a project directory",
     )
     add_color_args(p_show_memory)
     p_show_memory.set_defaults(func=cmd_show_memory)
@@ -2010,7 +2179,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_edit_instructions.add_argument(
         "target",
-        help="global, a project name, or . for the current project",
+        nargs="?",
+        default=None,
+        help="global, a project name, or . for the current project (detected from cwd if omitted)",
     )
     p_edit_instructions.set_defaults(func=cmd_edit_instructions)
 

@@ -1276,3 +1276,103 @@ jobs:
               pass
           "
 
+      - name: CWD-centric interaction smoke test
+        run: |
+          WS=${{ runner.temp }}/aikito-ws
+          CWD_PROJ=${{ runner.temp }}/cwd-test-proj
+          OTHER_PROJ=${{ runner.temp }}/other-test-proj
+          mkdir -p "$CWD_PROJ" "$OTHER_PROJ"
+          AIKITO_DIR="$WS" python3 -m aikito init project cwd-proj "$CWD_PROJ"
+          AIKITO_DIR="$WS" python3 -m aikito init project other-proj "$OTHER_PROJ"
+
+          # 1. sync project inside project directory without project_name
+          (
+            cd "$CWD_PROJ"
+            AIKITO_DIR="$WS" python3 -m aikito sync project | tee ${{ runner.temp }}/cwd-sync.out
+            grep -F "[aikito] Target project: 'cwd-proj' (detected from cwd)" ${{ runner.temp }}/cwd-sync.out
+          )
+
+          # 2. show project and show project . inside project directory
+          (
+            cd "$CWD_PROJ"
+            AIKITO_DIR="$WS" python3 -m aikito show project | tee ${{ runner.temp }}/cwd-show.out
+            grep -F "[aikito] Target project: 'cwd-proj' (detected from cwd)" ${{ runner.temp }}/cwd-show.out
+            grep -F "Project: cwd-proj" ${{ runner.temp }}/cwd-show.out
+
+            AIKITO_DIR="$WS" python3 -m aikito show project . | tee ${{ runner.temp }}/cwd-show-dot.out
+            grep -F "Project: cwd-proj" ${{ runner.temp }}/cwd-show-dot.out
+          )
+
+          # 3. diff inside project directory scopes to project, and diff --all includes all projects
+          printf "drift in copy-proj\n" > ${{ runner.temp }}/copy-mode-proj/.agents/skills/copy-test-skill/SKILL.md
+          (
+            cd "$CWD_PROJ"
+            AIKITO_DIR="$WS" python3 -m aikito diff | tee ${{ runner.temp }}/cwd-diff.out
+            grep -F "[aikito] Target project: 'cwd-proj' (detected from cwd)" ${{ runner.temp }}/cwd-diff.out
+            ! grep -F "copy-test-skill" ${{ runner.temp }}/cwd-diff.out
+
+            AIKITO_DIR="$WS" python3 -m aikito diff --all | tee ${{ runner.temp }}/cwd-diff-all.out
+            grep -F "copy-test-skill" ${{ runner.temp }}/cwd-diff-all.out
+            grep -F "drift in copy-proj" ${{ runner.temp }}/cwd-diff-all.out
+          )
+          printf "canonical v2\n" > ${{ runner.temp }}/copy-mode-proj/.agents/skills/copy-test-skill/SKILL.md
+
+          # 4. show memory inside project directory scopes to project + global, and --all includes other projects
+          mkdir -p "$WS/memory/notes"
+          echo "# Smoke Global Note" > "$WS/memory/notes/smoke-global-note.md"
+          echo "# Smoke Other Project Note" > "$WS/projects/other-proj/memory/notes/smoke-other-note.md"
+          echo "# Smoke CWD Project Note" > "$WS/projects/cwd-proj/memory/notes/smoke-cwd-note.md"
+          (
+            cd "$CWD_PROJ"
+            AIKITO_DIR="$WS" python3 -m aikito show memory | tee ${{ runner.temp }}/cwd-mem.out
+            grep -F "[aikito] Target project: 'cwd-proj' (detected from cwd)" ${{ runner.temp }}/cwd-mem.out
+            grep -F "smoke-cwd-note" ${{ runner.temp }}/cwd-mem.out
+            grep -F "smoke-global-note" ${{ runner.temp }}/cwd-mem.out
+            ! grep -F "smoke-other-note" ${{ runner.temp }}/cwd-mem.out
+
+            AIKITO_DIR="$WS" python3 -m aikito show memory --all | tee ${{ runner.temp }}/cwd-mem-all.out
+            grep -F "smoke-cwd-note" ${{ runner.temp }}/cwd-mem-all.out
+            grep -F "smoke-global-note" ${{ runner.temp }}/cwd-mem-all.out
+            grep -F "smoke-other-note" ${{ runner.temp }}/cwd-mem-all.out
+          )
+
+          # 5. add skill inside project directory defaults to current project; --global adds globally without project registration
+          (
+            cd "$CWD_PROJ"
+            AIKITO_DIR="$WS" python3 -m aikito add skill cwd-skill --description "CWD test skill" | tee ${{ runner.temp }}/cwd-skill.out
+            grep -F "[aikito] Target project: 'cwd-proj' (detected from cwd)" ${{ runner.temp }}/cwd-skill.out
+            test -f "$WS/skills/cwd-skill/SKILL.md"
+            grep -q 'cwd-skill' "$WS/projects/cwd-proj/agent.toml"
+
+            AIKITO_DIR="$WS" python3 -m aikito add skill global-skill --global --description "Global test skill" | tee ${{ runner.temp }}/global-skill.out
+            ! grep -F "[aikito] Target project: 'cwd-proj'" ${{ runner.temp }}/global-skill.out
+            test -f "$WS/skills/global-skill/SKILL.md"
+            ! grep -q 'global-skill' "$WS/projects/cwd-proj/agent.toml"
+          )
+
+          # 6. edit instructions without arguments: resolves to project inside cwd, falls back to global outside
+          (
+            cd "$CWD_PROJ"
+            EDITOR="python3 -c \"import sys, pathlib; pathlib.Path('${{ runner.temp }}/edited-proj.out').write_text(sys.argv[1])\"" \
+              AIKITO_DIR="$WS" python3 -m aikito edit instructions | tee ${{ runner.temp }}/cwd-edit.out
+            grep -F "[aikito] Target project: 'cwd-proj' (detected from cwd)" ${{ runner.temp }}/cwd-edit.out
+            grep -F "$WS/projects/cwd-proj/AGENTS.md" ${{ runner.temp }}/edited-proj.out
+          )
+          (
+            cd ${{ runner.temp }}
+            EDITOR="python3 -c \"import sys, pathlib; pathlib.Path('${{ runner.temp }}/edited-global.out').write_text(sys.argv[1])\"" \
+              AIKITO_DIR="$WS" python3 -m aikito edit instructions | tee ${{ runner.temp }}/outside-edit.out
+            ! grep -F "[aikito] Target project:" ${{ runner.temp }}/outside-edit.out
+            grep -F "$WS/global/AGENTS.md" ${{ runner.temp }}/edited-global.out
+          )
+
+          # 7. Outside project directory: sync project without name fails
+          (
+            cd ${{ runner.temp }}
+            ! AIKITO_DIR="$WS" python3 -m aikito sync project 2> ${{ runner.temp }}/outside-sync.err
+            grep -F "Current directory is not inside a registered project" ${{ runner.temp }}/outside-sync.err
+          )
+
+          rm -rf "$CWD_PROJ" "$OTHER_PROJ" "$WS/projects/cwd-proj" "$WS/projects/other-proj" \
+            "$WS/skills/cwd-skill" "$WS/skills/global-skill" "$WS/memory/notes/smoke-global-note.md"
+

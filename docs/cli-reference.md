@@ -27,26 +27,26 @@ version.
 | `aikito path workspace` | Print the resolved active workspace path |
 | `aikito git [args...]` | Run git commands directly in the active Aikito workspace |
 | `aikito init project [name] [path] [--description <text>]` | Register a code project and synchronize its `.agents/` runtime |
-| `aikito add skill [name] [--from <path>] [--force] [--project <projects>] [--sync]` | Create or import a canonical skill; use `--force` with `--from` to replace an existing imported snapshot |
+| `aikito add skill [name] [--from <path>] [--force] [--project <projects>] [--global] [--sync]` | Create or import a canonical skill; defaults to current project when inside one, or workspace global if outside or with `--global` |
 | `aikito add subagent [name] [--from <path>] [--description <desc>] [--agents <list>] [--sync] [--force]` | Create a canonical subagent skeleton or import from external markdown source; use `--force` with `--from` to replace |
 | `aikito add mcp [name] [--from <source>] [--transport {stdio,remote}] [--command <cmd>] [--url <url>] [--agents <list>] [--sync] [--force]` | Create a canonical MCP server configuration or import from an external file (.json, .toml) or remote URL |
 | `aikito adopt [path] [--dry-run] [--verbose] [--skip <resource>]` | Preflight existing local configuration, then import it only when the complete plan is safe |
 | `aikito status` | Show the synchronization dashboard |
-| `aikito diff` | Show unified diffs for drifted MCP, subagent, and copied project skill resources |
+| `aikito diff [--all]` | Show unified diffs for drifted MCP, subagent, and copied project skill resources (defaults to current project if inside one) |
 | `aikito sync [--dry-run] [--verbose]` | Preflight all host-compatible resources together, then synchronize only when the complete plan is safe |
 | `aikito sync global [--dry-run]` | Synchronize or preview global instructions and skills |
-| `aikito sync project <name> [--dry-run] [--force]` | Synchronize or preview a project's `.agents/` directory |
+| `aikito sync project [name] [--dry-run] [--force]` | Synchronize or preview a project's `.agents/` directory (detected from cwd if omitted) |
 | `aikito sync mcp` | Synchronize MCP entries |
 | `aikito sync subagents` | Render and synchronize subagents |
 | `aikito auth mcp <agent> <server>` | Authenticate a configured MCP server |
 | `aikito show mcp [server] [--agent agent] [--live]` | Inspect MCP configuration or compare a server's live tool discovery across Agents |
 | `aikito show subagents [target] [--agent agent]` | Inspect the subagent matrix, drill into platform options per agent, or print instructions |
-| `aikito show project [name]` | List registered projects or inspect one project's configuration and sync status |
+| `aikito show project [name|.]` | List registered projects, or inspect one project (detected from cwd if omitted or `.`) |
 | `aikito show instructions [global|project|.]` | List or print global and project instructions |
 | `aikito show inbox [target]` | Print raw markdown content of an inbox note, or list all inbox notes if target is omitted |
 | `aikito edit inbox <target>` | Open an inbox note in `$VISUAL` or `$EDITOR` |
 | `aikito rm inbox <target>` | Remove an inbox note file |
-| `aikito show memory [target] [--project <name>]` | Print a memory note, or list memory notes (optionally filtered by project) |
+| `aikito show memory [target] [--project <name> | --all]` | Print a memory note, or list memory notes (defaults to current project + global if inside one; use `--all` for all projects) |
 | `aikito show skill [target]` | Print a skill's SKILL.md file, or list all skills if target is omitted |
 | `aikito rename memory <target> <new-name>` | Rename a memory note and refactor inbound wikilinks |
 | `aikito rm memory <target>` | Remove a memory note and scan for inbound wikilinks |
@@ -55,7 +55,7 @@ version.
 | `aikito rm mcp <name> [--sync] [--force]` | Remove a canonical MCP server configuration from workspace |
 | `aikito edit memory <target>` | Open a memory note in the configured editor |
 | `aikito maintain memory [global\|<project>\|.] [--agent <name>]` | Launch an Agent to review one complete memory scope and propose maintenance before making changes |
-| `aikito edit instructions <global|project|.>` | Open canonical instructions in `$VISUAL` or `$EDITOR` |
+| `aikito edit instructions [global|<project>|.]` | Open canonical instructions in `$VISUAL` or `$EDITOR` (detected from cwd or defaults to global) |
 | `aikito edit skill <target>` | Open a skill's SKILL.md in `$VISUAL` or `$EDITOR` |
 | `aikito edit subagent <target>` | Open a subagent's instruction markdown in `$VISUAL` or `$EDITOR` |
 | `aikito doctor [--fix]` | Run deep workspace diagnostics and repair supported configuration issues |
@@ -127,8 +127,8 @@ See the [Python API Reference](python-api.md) for `Project.load()`,
 exception hierarchy.
 
 `Project.prepare()` has no CLI wrapper. Operators use
-`aikito sync project <name>` for manual project synchronisation and path
-registration.
+`aikito sync project [name]` for manual project synchronisation and path
+registration (detected from cwd if omitted).
 
 `aikito maintain memory` defaults to the project whose locally present path
 contains the current directory and launches the `codex` runner configured in
@@ -159,13 +159,17 @@ subagent file at once:
 
 ```bash
 aikito diff
+aikito diff --all
 ```
 
 The command compares actual Agent configuration and copied project skills
-against Aikito's expected rendering and prints unified diffs. MCP credentials
-and sensitive headers are redacted. Binary project skill files are reported
-without printing their contents. Missing resources and unmanaged conflicts
-remain status findings and are not rendered as drift diffs.
+against Aikito's expected rendering and prints unified diffs. When run inside a
+registered project directory, `aikito diff` defaults to that project's copied
+skills alongside workspace MCP/subagent drift; use `--all` to inspect copied skills
+across all projects. Outside any registered project, all projects are inspected.
+MCP credentials and sensitive headers are redacted. Binary project skill files
+are reported without printing their contents. Missing resources and unmanaged
+conflicts remain status findings and are not rendered as drift diffs.
 
 ## Instructions
 
@@ -183,12 +187,15 @@ aikito show instructions
 aikito show instructions global
 aikito show instructions example
 aikito show instructions .
+aikito edit instructions
 aikito edit instructions example
 aikito edit instructions .
 ```
 
 `.` resolves the registered project containing the current directory and notes
-that global instructions are also active.
+that global instructions are also active. If target is omitted for `aikito edit instructions`,
+it resolves the project containing the current working directory, falling back to `global`
+when run outside any project.
 
 ## Inbox
 
@@ -283,8 +290,15 @@ Inspect one project's canonical and project directories, configuration, and sync
 issues when present:
 
 ```bash
+aikito show project
 aikito show project example
+aikito show project .
 ```
+
+When inside a registered project directory, `aikito show project` defaults to the
+current project. An explicit `.` also resolves the current project. Outside any
+registered project, omitting the argument lists all projects (equivalent to
+`aikito show projects`).
 
 ## Initialization
 

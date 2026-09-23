@@ -680,3 +680,162 @@ jobs:
               pass
           "
 
+      - name: Windows smoke - CWD-centric interaction
+        shell: pwsh
+        run: |
+          $ws = Join-Path $env:RUNNER_TEMP "aikito-ws"
+          $env:AIKITO_DIR = $ws
+          $cwdProj = Join-Path $env:RUNNER_TEMP "cwd-test-proj"
+          $otherProj = Join-Path $env:RUNNER_TEMP "other-test-proj"
+          New-Item -ItemType Directory -Force -Path $cwdProj, $otherProj | Out-Null
+          python -m aikito init project cwd-proj $cwdProj
+          python -m aikito init project other-proj $otherProj
+
+          Push-Location $cwdProj
+          try {
+            # 1. sync project inside project directory without project_name
+            $syncOut = python -m aikito sync project | Out-String
+            if ($syncOut -notmatch "\[aikito\] Target project: 'cwd-proj' \(detected from cwd\)") {
+              throw "sync project did not detect cwd-proj from cwd"
+            }
+
+            # 2. show project and show project . inside project directory
+            $showOut = python -m aikito show project | Out-String
+            if ($showOut -notmatch "\[aikito\] Target project: 'cwd-proj' \(detected from cwd\)") {
+              throw "show project did not detect cwd-proj from cwd"
+            }
+            if ($showOut -notmatch "Project: cwd-proj") {
+              throw "show project did not display project cwd-proj"
+            }
+
+            $showDotOut = python -m aikito show project . | Out-String
+            if ($showDotOut -notmatch "Project: cwd-proj") {
+              throw "show project . did not display project cwd-proj"
+            }
+
+            # 3. diff inside project directory scopes to project, and diff --all includes all projects
+            $winCopySkillMd = Join-Path $env:RUNNER_TEMP "win-copy-proj\.agents\skills\win-copy-skill\SKILL.md"
+            @("drift in win-copy") | Set-Content $winCopySkillMd
+            $diffOut = python -m aikito diff | Out-String
+            if ($diffOut -notmatch "\[aikito\] Target project: 'cwd-proj' \(detected from cwd\)") {
+              throw "diff did not detect cwd-proj from cwd"
+            }
+            if ($diffOut -match "win-copy-skill") {
+              throw "diff unexpectedly included win-copy-skill from another project"
+            }
+            $diffAllOut = python -m aikito diff --all | Out-String
+            if ($diffAllOut -notmatch "win-copy-skill") {
+              throw "diff --all did not include win-copy-skill"
+            }
+            if ($diffAllOut -notmatch "drift in win-copy") {
+              throw "diff --all did not include drift content"
+            }
+            python -m aikito sync project win-copy --force | Out-Null
+
+            # 4. show memory inside project directory scopes to project + global, and --all includes other projects
+            $globalNotesDir = Join-Path $ws "memory\notes"
+            New-Item -ItemType Directory -Force -Path $globalNotesDir | Out-Null
+            @("# Smoke Global Note") | Set-Content (Join-Path $globalNotesDir "smoke-global-note.md")
+            @("# Smoke Other Note") | Set-Content (Join-Path $ws "projects\other-proj\memory\notes\smoke-other-note.md")
+            @("# Smoke CWD Note") | Set-Content (Join-Path $ws "projects\cwd-proj\memory\notes\smoke-cwd-note.md")
+
+            $memOut = python -m aikito show memory | Out-String
+            if ($memOut -notmatch "\[aikito\] Target project: 'cwd-proj' \(detected from cwd\)") {
+              throw "show memory did not detect cwd-proj from cwd"
+            }
+            if ($memOut -notmatch "smoke-cwd-note") {
+              throw "show memory did not include smoke-cwd-note"
+            }
+            if ($memOut -notmatch "smoke-global-note") {
+              throw "show memory did not include global smoke-global-note"
+            }
+            if ($memOut -match "smoke-other-note") {
+              throw "show memory unexpectedly included smoke-other-note from another project"
+            }
+
+            $memAllOut = python -m aikito show memory --all | Out-String
+            if ($memAllOut -notmatch "smoke-cwd-note") {
+              throw "show memory --all did not include smoke-cwd-note"
+            }
+            if ($memAllOut -notmatch "smoke-global-note") {
+              throw "show memory --all did not include smoke-global-note"
+            }
+            if ($memAllOut -notmatch "smoke-other-note") {
+              throw "show memory --all did not include smoke-other-note"
+            }
+
+            # 5. add skill inside project directory defaults to current project; --global adds globally without project registration
+            $skillOut = python -m aikito add skill cwd-skill --description "CWD test skill" | Out-String
+            if ($skillOut -notmatch "\[aikito\] Target project: 'cwd-proj' \(detected from cwd\)") {
+              throw "add skill did not detect cwd-proj from cwd"
+            }
+            $skillPath = Join-Path $ws "skills\cwd-skill\SKILL.md"
+            if (-not (Test-Path $skillPath)) {
+              throw "add skill did not create canonical skill file"
+            }
+            $projAgentToml = Join-Path $ws "projects\cwd-proj\agent.toml"
+            if ((Get-Content $projAgentToml -Raw) -notmatch "cwd-skill") {
+              throw "add skill did not register skill in project agent.toml"
+            }
+
+            $globalSkillOut = python -m aikito add skill global-skill --global --description "Global test skill" | Out-String
+            if ($globalSkillOut -match "\[aikito\] Target project: 'cwd-proj'") {
+              throw "add skill --global unexpectedly scoped to cwd project"
+            }
+            $globalSkillPath = Join-Path $ws "skills\global-skill\SKILL.md"
+            if (-not (Test-Path $globalSkillPath)) {
+              throw "add skill --global did not create canonical skill file"
+            }
+            if ((Get-Content $projAgentToml -Raw) -match "global-skill") {
+              throw "add skill --global unexpectedly registered skill in project agent.toml"
+            }
+
+            # 6. edit instructions without arguments: resolves to project inside cwd
+            $editedProjFile = Join-Path $env:RUNNER_TEMP "edited-proj.out"
+            $env:EDITOR = "python -c `"import sys, pathlib; pathlib.Path(r'$editedProjFile').write_text(sys.argv[1])`""
+            $editOut = python -m aikito edit instructions | Out-String
+            if ($editOut -notmatch "\[aikito\] Target project: 'cwd-proj' \(detected from cwd\)") {
+              throw "edit instructions did not detect cwd-proj from cwd"
+            }
+            $editedTarget = Get-Content $editedProjFile -Raw
+            if ($editedTarget -notmatch "cwd-proj.*AGENTS.md") {
+              throw "edit instructions did not target cwd-proj AGENTS.md"
+            }
+          }
+          finally {
+            Pop-Location
+          }
+
+          # 7. Outside project directory: edit instructions falls back to global, sync project fails with clear error
+          Push-Location $env:RUNNER_TEMP
+          try {
+            $editedGlobalFile = Join-Path $env:RUNNER_TEMP "edited-global.out"
+            $env:EDITOR = "python -c `"import sys, pathlib; pathlib.Path(r'$editedGlobalFile').write_text(sys.argv[1])`""
+            $outsideEditOut = python -m aikito edit instructions | Out-String
+            if ($outsideEditOut -match "\[aikito\] Target project:") {
+              throw "edit instructions outside project unexpectedly detected a project"
+            }
+            $editedGlobalTarget = Get-Content $editedGlobalFile -Raw
+            if ($editedGlobalTarget -notmatch "aikito-ws.*global.*AGENTS.md") {
+              throw "edit instructions outside project did not target global AGENTS.md"
+            }
+            $env:EDITOR = ""
+
+            $outsideErr = python -m aikito sync project 2>&1 | Out-String
+            if ($LASTEXITCODE -eq 0) {
+              throw "Expected sync project outside project directory to fail"
+            }
+            if ($outsideErr -notmatch "Current directory is not inside a registered project") {
+              throw "sync project error did not explain missing project context"
+            }
+            $global:LASTEXITCODE = 0
+          }
+          finally {
+            Pop-Location
+          }
+
+          Remove-Item -Recurse -Force $cwdProj, $otherProj
+          Remove-Item -Recurse -Force (Join-Path $ws "projects\cwd-proj"), (Join-Path $ws "projects\other-proj")
+          Remove-Item -Recurse -Force (Join-Path $ws "skills\cwd-skill"), (Join-Path $ws "skills\global-skill")
+          Remove-Item -Force (Join-Path $globalNotesDir "smoke-global-note.md")
+

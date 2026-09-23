@@ -1282,8 +1282,10 @@ class ShowMemoryTest(unittest.TestCase):
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.aikito_dir = Path(self.temporary_directory.name)
         (self.aikito_dir / "memory" / "notes").mkdir(parents=True)
-        (self.aikito_dir / "projects" / "doxturbo" / "memory" / "notes").mkdir(
-            parents=True
+        doxturbo_dir = self.aikito_dir / "projects" / "doxturbo"
+        (doxturbo_dir / "memory" / "notes").mkdir(parents=True)
+        (doxturbo_dir / "agent.toml").write_text(
+            'name = "doxturbo"\npath = "/tmp/doxturbo"\n', encoding="utf-8"
         )
 
     def tearDown(self) -> None:
@@ -1618,6 +1620,31 @@ class ShowMemoryTest(unittest.TestCase):
             "[ERROR] Current directory is not inside a registered project:",
             mock_stderr.getvalue(),
         )
+
+    def test_show_memory_rejects_both_project_and_all(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+        with (
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            self.assertRaises(SystemExit) as cm,
+        ):
+            parser.parse_args(["show", "memory", "--project", "doxturbo", "--all"])
+
+        self.assertEqual(cm.exception.code, 2)
+        self.assertIn("not allowed with argument", mock_stderr.getvalue())
+
+        # Also test direct cmd invocation
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            self.assertRaises(SystemExit) as cm,
+        ):
+            AIKITO_CLI.cmd_show_memory(
+                AIKITO_CLI.argparse.Namespace(
+                    project="doxturbo", all=True, target=None, color=None
+                )
+            )
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("Cannot specify both --project and --all", mock_stderr.getvalue())
 
     def test_show_memory_note_not_found_in_project(self) -> None:
         with (
@@ -3673,6 +3700,367 @@ class CliNoticePlacementTest(unittest.TestCase):
 
             self.assertIn("Skill Content", mock_stdout.getvalue())
             self.assertEqual(call_order, ["notice"])
+
+
+class CwdInteractionTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.aikito_dir = self.root / "aikito"
+        self.home = self.root / "home"
+        self.aikito_dir.mkdir(parents=True)
+        self.home.mkdir(parents=True)
+        (self.aikito_dir / "memory" / "notes").mkdir(parents=True)
+        (self.aikito_dir / "global").mkdir(parents=True)
+        (self.aikito_dir / "global" / "AGENTS.md").write_text(
+            "# Global\n", encoding="utf-8"
+        )
+
+        self.project_path = self.root / "code" / "myproject"
+        self.project_path.mkdir(parents=True)
+        self.proj_dir = self.aikito_dir / "projects" / "myproject"
+        self.proj_dir.mkdir(parents=True)
+        (self.proj_dir / "agent.toml").write_text(
+            f'name = "myproject"\npath = "{self.project_path.as_posix()}"\n',
+            encoding="utf-8",
+        )
+        (self.proj_dir / "AGENTS.md").write_text("# My Project\n", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_sync_project_cwd_detection(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+        args = parser.parse_args(["sync", "project"])
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI.Path, "cwd", return_value=self.project_path),
+            patch.object(
+                AIKITO_CLI, "sync_project_by_name", return_value=True
+            ) as mock_sync,
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args.func(args)
+
+        mock_sync.assert_called_once_with(
+            self.aikito_dir,
+            self.home,
+            "myproject",
+            project_path=None,
+            dry_run=False,
+            force=False,
+        )
+        self.assertIn(
+            "[aikito] Target project: 'myproject' (detected from cwd)",
+            mock_stdout.getvalue(),
+        )
+
+    def test_sync_project_outside_project_fails(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+        args = parser.parse_args(["sync", "project"])
+        unrelated = self.root / "unrelated"
+        unrelated.mkdir(parents=True)
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI.Path, "cwd", return_value=unrelated),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            args.func(args)
+
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn(
+            "Current directory is not inside a registered project",
+            mock_stderr.getvalue(),
+        )
+        self.assertIn("Please specify a project name", mock_stderr.getvalue())
+
+    def test_edit_instructions_cwd_detection(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+        args = parser.parse_args(["edit", "instructions"])
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI.Path, "cwd", return_value=self.project_path),
+            patch.object(AIKITO_CLI, "open_in_editor") as mock_open,
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args.func(args)
+
+        mock_open.assert_called_once_with(self.proj_dir / "AGENTS.md")
+        self.assertIn(
+            "[aikito] Target project: 'myproject' (detected from cwd)",
+            mock_stdout.getvalue(),
+        )
+
+    def test_edit_instructions_outside_project_falls_back_to_global(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+        args = parser.parse_args(["edit", "instructions"])
+        unrelated = self.root / "unrelated"
+        unrelated.mkdir(parents=True)
+
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI.Path, "cwd", return_value=unrelated),
+            patch.object(AIKITO_CLI, "open_in_editor") as mock_open,
+        ):
+            args.func(args)
+
+        mock_open.assert_called_once_with(self.aikito_dir / "global" / "AGENTS.md")
+
+    def test_show_project_cwd_detection(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+
+        # In project, 'show project' -> detail
+        args_single = parser.parse_args(["show", "project"])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI.Path, "cwd", return_value=self.project_path),
+            patch.object(
+                AIKITO_CLI, "render_project_detail", return_value="DETAIL"
+            ) as mock_detail,
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args_single.func(args_single)
+
+        self.assertIn(
+            "[aikito] Target project: 'myproject' (detected from cwd)",
+            mock_stdout.getvalue(),
+        )
+        mock_detail.assert_called_once()
+
+        # In project, 'show projects' -> table
+        args_plural = parser.parse_args(["show", "projects"])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI.Path, "cwd", return_value=self.project_path),
+            patch.object(
+                AIKITO_CLI, "render_projects_table", return_value="TABLE"
+            ) as mock_table,
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args_plural.func(args_plural)
+
+        mock_table.assert_called_once()
+
+    def test_diff_cwd_scoping(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+
+        # Without --all inside project
+        args = parser.parse_args(["diff"])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI.Path, "cwd", return_value=self.project_path),
+            patch.object(
+                AIKITO_CLI, "collect_drift_diffs", return_value=[]
+            ) as mock_diffs,
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args.func(args)
+
+        mock_diffs.assert_called_once_with(
+            self.aikito_dir, self.home, project_filter="myproject"
+        )
+        self.assertIn(
+            "[aikito] Target project: 'myproject' (detected from cwd)",
+            mock_stdout.getvalue(),
+        )
+
+        # With --all inside project
+        args_all = parser.parse_args(["diff", "--all"])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI.Path, "cwd", return_value=self.project_path),
+            patch.object(
+                AIKITO_CLI, "collect_drift_diffs", return_value=[]
+            ) as mock_diffs,
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args_all.func(args_all)
+
+        mock_diffs.assert_called_once_with(
+            self.aikito_dir, self.home, project_filter=None
+        )
+
+    def test_show_memory_cwd_scoping(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+
+        # In project without --all
+        args = parser.parse_args(["show", "memory"])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI.Path, "cwd", return_value=self.project_path),
+            patch.object(
+                AIKITO_CLI, "collect_memory_notes_rows", return_value=[]
+            ) as mock_collect,
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args.func(args)
+
+        mock_collect.assert_called_once_with(
+            aikito_dir=self.aikito_dir,
+            home=self.home,
+            project="myproject",
+            include_global=True,
+        )
+        self.assertIn(
+            "[aikito] Target project: 'myproject' (detected from cwd)",
+            mock_stdout.getvalue(),
+        )
+
+        # In project with --all
+        args_all = parser.parse_args(["show", "memory", "--all"])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI.Path, "cwd", return_value=self.project_path),
+            patch.object(
+                AIKITO_CLI, "collect_memory_notes_rows", return_value=[]
+            ) as mock_collect,
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args_all.func(args_all)
+
+        mock_collect.assert_called_once_with(
+            aikito_dir=self.aikito_dir,
+            home=self.home,
+            project=None,
+            include_global=False,
+        )
+
+    def test_add_skill_cwd_and_flags(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+
+        # In project without --project or --global -> defaults to current project
+        args = parser.parse_args(["add", "skill", "test-skill"])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI.Path, "cwd", return_value=self.project_path),
+            patch.object(AIKITO_CLI, "add_skill", return_value=True) as mock_add,
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args.func(args)
+
+        mock_add.assert_called_once_with(
+            aikito_dir=self.aikito_dir,
+            home=self.home,
+            name="test-skill",
+            description=None,
+            projects=["myproject"],
+            from_source=None,
+            sync=False,
+            force=False,
+        )
+        self.assertIn(
+            "[aikito] Target project: 'myproject' (detected from cwd)",
+            mock_stdout.getvalue(),
+        )
+
+        # In project with --global -> projects is None
+        args_global = parser.parse_args(["add", "skill", "test-skill", "--global"])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI.Path, "cwd", return_value=self.project_path),
+            patch.object(AIKITO_CLI, "add_skill", return_value=True) as mock_add,
+        ):
+            args_global.func(args_global)
+
+        mock_add.assert_called_once_with(
+            aikito_dir=self.aikito_dir,
+            home=self.home,
+            name="test-skill",
+            description=None,
+            projects=None,
+            from_source=None,
+            sync=False,
+            force=False,
+        )
+
+        # Both --project and --global -> exits 1
+        args_conflict = parser.parse_args(
+            ["add", "skill", "test-skill", "--project", "foo", "--global"]
+        )
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            args_conflict.func(args_conflict)
+
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn(
+            "Cannot specify both --project and --global", mock_stderr.getvalue()
+        )
+
+    def test_memory_target_resolution_and_conflict(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+
+        # Create global note and project note with same name
+        global_note = self.aikito_dir / "memory" / "notes" / "deploy-guide.md"
+        global_note.write_text("# Global Deploy\n", encoding="utf-8")
+
+        proj_mem = self.proj_dir / "memory" / "notes"
+        proj_mem.mkdir(parents=True)
+        proj_note = proj_mem / "deploy-guide.md"
+        proj_note.write_text("# Proj Deploy\n", encoding="utf-8")
+
+        # Create unique project note
+        unique_note = proj_mem / "architecture-rules.md"
+        unique_note.write_text("# Arch Rules\n", encoding="utf-8")
+
+        # 1. Ambiguous target without scope inside project directory -> conflict reported, exits 1
+        args_conflict = parser.parse_args(["show", "memory", "deploy-guide"])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI.Path, "cwd", return_value=self.project_path),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            args_conflict.func(args_conflict)
+
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn(
+            "[CONFLICT] Multiple memory notes match 'deploy-guide'",
+            mock_stderr.getvalue(),
+        )
+
+        # 2. Unique target in project directory -> successfully shows project note
+        args_unique = parser.parse_args(["show", "memory", "architecture-rules"])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI.Path, "cwd", return_value=self.project_path),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args_unique.func(args_unique)
+
+        self.assertIn("# Arch Rules", mock_stdout.getvalue())
+
+        # 3. Explicit scope overrides ambiguity
+        args_explicit = parser.parse_args(["show", "memory", "global/deploy-guide"])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI.Path, "cwd", return_value=self.project_path),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args_explicit.func(args_explicit)
+
+        self.assertIn("# Global Deploy", mock_stdout.getvalue())
 
 
 if __name__ == "__main__":

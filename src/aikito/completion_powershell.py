@@ -180,11 +180,13 @@ $script:AikitoCompleterBlock = {{
                 break
             }}
             '^show projects?$' {{
+                Add-Candidate '.' 'Current directory project'
                 Invoke-Candidates 'projects'
                 break
             }}
             '^sync project$' {{
                 if ($argIndex -eq 3) {{
+                    Add-Candidate '.' 'Current directory project'
                     Invoke-Candidates 'projects'
                 }} elseif ($argIndex -eq 4) {{
                     Invoke-Candidates 'paths'

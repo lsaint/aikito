@@ -45,7 +45,9 @@ def _redacted_only_diff(actual_label: str, expected_label: str) -> str:
     )
 
 
-def collect_drift_diffs(aikito_dir: Path, home: Path) -> list[tuple[str, str]]:
+def collect_drift_diffs(
+    aikito_dir: Path, home: Path, *, project_filter: str | None = None
+) -> list[tuple[str, str]]:
     """Return display labels and redacted unified diffs for every drifted resource."""
     results: list[tuple[str, str]] = []
     try:
@@ -96,7 +98,9 @@ def collect_drift_diffs(aikito_dir: Path, home: Path) -> list[tuple[str, str]]:
             if diff:
                 results.append((f"Subagent {agent_name}/{subagent_name}", diff))
 
-    results.extend(collect_project_skill_diffs(aikito_dir, home))
+    results.extend(
+        collect_project_skill_diffs(aikito_dir, home, project_filter=project_filter)
+    )
 
     return results
 

@@ -83,18 +83,24 @@ because a project has not been registered yet.
 
 ## Inspect Memory
 
-List notes from every scope:
+List notes from every scope when run outside a registered project:
 
 ```bash
 aikito show memory
 ```
 
-Narrow the list to a named project or the project containing the current
-directory:
+When run inside a registered project directory, `aikito show memory` defaults to
+displaying notes for the current project alongside Global notes. Use `--all` to
+list notes across all registered projects and Global memory:
+
+```bash
+aikito show memory --all
+```
+
+To narrow the list explicitly to a specific registered project:
 
 ```bash
 aikito show memory --project example
-aikito show memory --project
 ```
 
 The output shows each note's scope, identifier, title, and project link state:

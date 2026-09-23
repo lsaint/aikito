@@ -79,6 +79,28 @@ command = ["copilot", "-C", "{workdir}", "-i", "{prompt}"]
         ):
             resolve_memory_maintenance_scope(self.aikito_dir, ".", self.root)
 
+    def test_resolves_from_workspace_project_directory(self) -> None:
+        scope = resolve_memory_maintenance_scope(
+            self.aikito_dir, ".", self.project_memory
+        )
+        self.assertEqual(scope.name, "example")
+        self.assertEqual(scope.memory_dir, self.project_memory.resolve())
+        self.assertEqual(scope.workdir, self.project_path.resolve())
+
+    def test_rejects_conflicting_project_paths(self) -> None:
+        # Create second project with same path
+        p2_mem = self.aikito_dir / "projects" / "example2" / "memory"
+        p2_mem.mkdir(parents=True)
+        (p2_mem.parent / "agent.toml").write_text(
+            f'name = "example2"\npath = "{self.project_path.as_posix()}"\n',
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(
+            MemoryMaintenanceError, "belongs to multiple projects"
+        ):
+            resolve_memory_maintenance_scope(self.aikito_dir, ".", self.project_path)
+
     def _write_example_paths(self, *paths: Path) -> None:
         quoted = ", ".join(f'"{path.as_posix()}"' for path in paths)
         (self.project_memory.parent / "agent.toml").write_text(

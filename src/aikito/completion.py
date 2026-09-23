@@ -385,12 +385,12 @@ _aikito() {{
                         ;;
                     (show\\ project|show\\ projects)
                         local cands
-                        cands=(${{(f)"$(aikito completion candidates projects 2>/dev/null)"}})
+                        cands=(. ${{(f)"$(aikito completion candidates projects 2>/dev/null)"}})
                         compadd -a cands
                         ;;
                     (sync\\ project)
                         local cands
-                        cands=(${{(f)"$(aikito completion candidates projects 2>/dev/null)"}})
+                        cands=(. ${{(f)"$(aikito completion candidates projects 2>/dev/null)"}})
                         compadd -a cands
                         ;;
                     (init\\ workspace)
@@ -598,14 +598,14 @@ _aikito_completion() {{
             show\\ project|show\\ projects)
                 local projects
                 projects=$(aikito completion candidates projects 2>/dev/null)
-                COMPREPLY=( $(compgen -W "$projects" -- "$cur") )
+                COMPREPLY=( $(compgen -W ". $projects" -- "$cur") )
                 return 0
                 ;;
             sync\\ project)
                 if [[ $COMP_CWORD -eq 3 ]]; then
                     local candidates
                     candidates=$(aikito completion candidates projects 2>/dev/null)
-                    COMPREPLY=( $(compgen -W "$candidates" -- "$cur") )
+                    COMPREPLY=( $(compgen -W ". $candidates" -- "$cur") )
                 elif [[ $COMP_CWORD -eq 4 ]]; then
                     COMPREPLY=( $(compgen -d -- "$cur") )
                     if [[ -n $cur && $cur != */* ]]; then
@@ -717,9 +717,9 @@ def generate_fish(parser: argparse.ArgumentParser | None = None) -> str:
         "complete -c aikito -f -n '__fish_seen_subcommand_from maintain; and __fish_seen_subcommand_from memory' "
         "-a 'global . (aikito completion candidates projects 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from show; and __fish_seen_subcommand_from project projects' "
-        "-a '(aikito completion candidates projects 2>/dev/null)'",
+        "-a '. (aikito completion candidates projects 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from sync; and __fish_seen_subcommand_from project' "
-        "-a '(aikito completion candidates projects 2>/dev/null)'",
+        "-a '. (aikito completion candidates projects 2>/dev/null)'",
         "complete -c aikito -f -n '__fish_seen_subcommand_from completion; and __fish_seen_subcommand_from candidates' "
         "-a 'projects skills memories memory-completions subagents mcps inbox inbox-completions paths'",
         "complete -c aikito -F -n '__fish_seen_subcommand_from init; and __fish_seen_subcommand_from workspace project'",

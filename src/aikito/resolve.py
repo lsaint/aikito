@@ -34,6 +34,77 @@ class SkillTargetConflictError(Exception):
         self.candidates = candidates
 
 
+class ProjectContextConflictError(Exception):
+    def __init__(self, path: Path, projects: list[str]):
+        super().__init__(
+            f"Current directory '{path}' belongs to multiple projects: {', '.join(projects)}"
+        )
+        self.path = path
+        self.projects = projects
+
+
+def detect_current_project(
+    aikito_dir: Path,
+    cwd: Path,
+    home: Path,
+) -> str | None:
+    """Return the registered project name if cwd is inside one of its active paths
+
+    or inside its registered workspace project folder. Uses longest-path match for nested roots.
+    Raises ProjectContextConflictError if the best matching path belongs to multiple projects.
+    """
+    current = cwd.resolve()
+    projects_dir = aikito_dir / "projects"
+    if not projects_dir.is_dir():
+        return None
+
+    # 1. Check if cwd is inside aikito_dir/projects/<project_name>
+    try:
+        resolved_proj_dir = projects_dir.resolve()
+        if current != resolved_proj_dir and current.is_relative_to(resolved_proj_dir):
+            rel = current.relative_to(resolved_proj_dir)
+            if rel.parts:
+                candidate = rel.parts[0]
+                if (
+                    not candidate.startswith(".")
+                    and (projects_dir / candidate).is_dir()
+                    and (projects_dir / candidate / "agent.toml").is_file()
+                ):
+                    return candidate
+    except (ValueError, AttributeError):
+        pass
+
+    # 2. Local binding active paths matching (Longest Prefix Match)
+    matches: list[tuple[str, Path]] = []
+    for proj_folder in sorted(projects_dir.iterdir()):
+        if not proj_folder.is_dir() or proj_folder.name.startswith("."):
+            continue
+        agent_toml = proj_folder / "agent.toml"
+        if not agent_toml.is_file():
+            continue
+        try:
+            config = tomllib.loads(agent_toml.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+        binding = resolve_project_binding(config, home)
+        for entry in binding.active_entries:
+            resolved_entry = entry.resolved_path.resolve()
+            if current == resolved_entry or current.is_relative_to(resolved_entry):
+                matches.append((proj_folder.name, resolved_entry))
+
+    if not matches:
+        return None
+
+    max_len = max(len(entry_path.parts) for _, entry_path in matches)
+    best_matches = [m for m in matches if len(m[1].parts) == max_len]
+    unique_projects = sorted(set(name for name, _ in best_matches))
+
+    if len(unique_projects) == 1:
+        return unique_projects[0]
+
+    raise ProjectContextConflictError(current, unique_projects)
+
+
 def resolve_skill_target(aikito_dir: Path, target: str) -> SkillRow:
     target_norm = target.strip()
     rows = collect_skills_rows(aikito_dir)
@@ -241,20 +312,22 @@ def resolve_instruction_target(
 ) -> tuple[str, Path]:
     sources = find_instruction_sources(aikito_dir, home)
     if target == ".":
-        current = cwd.resolve()
-        matches = [
-            source
-            for source in sources
-            if source[2] is not None
-            and (current == source[2] or current.is_relative_to(source[2]))
-        ]
-        if matches:
-            name, instructions_path, _ = max(
-                matches, key=lambda source: len(source[2].parts)
+        try:
+            detected = detect_current_project(aikito_dir, cwd, home)
+        except ProjectContextConflictError as exc:
+            names = ", ".join(exc.projects)
+            print(
+                f"[CONFLICT] Multiple projects match current directory '{exc.path}': {names}",
+                file=sys.stderr,
             )
-            return name, instructions_path
+            sys.exit(1)
+        if detected:
+            for name, instructions_path, _ in sources:
+                if name == detected:
+                    return name, instructions_path
+            return detected, aikito_dir / "projects" / detected / "AGENTS.md"
         print(
-            f"[ERROR] Current directory is not inside a registered project: {current}",
+            f"[ERROR] Current directory is not inside a registered project: {cwd.resolve()}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -359,47 +432,21 @@ def resolve_project_filter(
     projects_dir = aikito_dir / "projects"
 
     if clean_target == ".":
-        current = cwd.resolve()
-        # 1. Check if cwd is inside aikito_dir/projects/<project_name>
-        if projects_dir.is_dir():
-            try:
-                if current.is_relative_to(projects_dir.resolve()):
-                    rel = current.relative_to(projects_dir.resolve())
-                    if rel.parts:
-                        proj_candidate = rel.parts[0]
-                        if (
-                            projects_dir / proj_candidate
-                        ).is_dir() and not proj_candidate.startswith("."):
-                            return proj_candidate
-            except (ValueError, AttributeError):
-                pass
+        try:
+            detected = detect_current_project(aikito_dir, cwd, home)
+        except ProjectContextConflictError as exc:
+            names = ", ".join(exc.projects)
+            print(
+                f"[CONFLICT] Multiple projects match current directory '{exc.path}': {names}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
-        # 2. Check if cwd is inside any active project path
-        matches: list[tuple[str, Path]] = []
-        if projects_dir.is_dir():
-            for proj_folder in sorted(projects_dir.iterdir()):
-                if not proj_folder.is_dir() or proj_folder.name.startswith("."):
-                    continue
-                agent_toml = proj_folder / "agent.toml"
-                if not agent_toml.is_file():
-                    continue
-                try:
-                    config = tomllib.loads(agent_toml.read_text(encoding="utf-8"))
-                except (OSError, tomllib.TOMLDecodeError):
-                    continue
-                binding = resolve_project_binding(config, home)
-                for entry in binding.active_entries:
-                    if current == entry.resolved_path or current.is_relative_to(
-                        entry.resolved_path
-                    ):
-                        matches.append((proj_folder.name, entry.resolved_path))
-
-        if matches:
-            project_name, _ = max(matches, key=lambda item: len(item[1].parts))
-            return project_name
+        if detected is not None:
+            return detected
 
         print(
-            f"[ERROR] Current directory is not inside a registered project: {current}",
+            f"[ERROR] Current directory is not inside a registered project: {cwd.resolve()}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -431,9 +478,11 @@ def resolve_project_filter(
 
 
 __all__ = [
+    "ProjectContextConflictError",
     "SkillTargetConflictError",
     "collect_instruction_agent_status",
     "collect_project_instruction_status",
+    "detect_current_project",
     "find_instruction_sources",
     "open_in_editor",
     "resolve_inbox_target",
