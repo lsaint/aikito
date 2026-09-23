@@ -18,7 +18,12 @@ from .bundled_skills import (
     directory_digest,
 )
 from .conflict import collect_resource_conflicts
-from .diagnostics import Finding
+from .diagnostics import (
+    Finding,
+    is_conflict_finding,
+    is_error_finding,
+    is_warning_finding,
+)
 from .global_skills import (
     GlobalSkillExecutionResult,
     build_global_skill_batch,
@@ -843,90 +848,11 @@ class WorkspaceSyncPlan:
 
     @property
     def changes(self) -> int:
-        count = 0
-        # 1. Global
-        if self.global_plan.bundled_refresh_plan:
-            count += sum(
-                1
-                for op in self.global_plan.bundled_refresh_plan.operations
-                if op.action == "REFRESH"
-            )
-        if self.global_plan.skill_plan:
-            count += getattr(self.global_plan.skill_plan, "planned_change_count", 0)
-        if self.global_plan.instruction_plan:
-            count += getattr(
-                self.global_plan.instruction_plan, "planned_change_count", 0
-            )
-
-        # 2. Subagents
-        if self.subagent_plan:
-            count += sum(
-                1
-                for op in self.subagent_plan.operations
-                if op.action in ("CREATE", "UPDATE", "REMOVE") and op.is_authorized
-            )
-
-        # 3. MCP
-        if self.mcp_plan:
-            count += getattr(self.mcp_plan, "changes_count", 0)
-
-        # 4. Projects
-        for entry in self.project_entries:
-            if entry.batch is not None:
-                b = entry.batch
-                if b.skill_plan:
-                    count += sum(
-                        1
-                        for op in b.skill_plan.operations
-                        if op.action in ("CREATE", "UPDATE", "UNLINK")
-                        and op.is_authorized
-                    )
-                if b.instruction_plan:
-                    count += getattr(b.instruction_plan, "planned_change_count", 0)
-                if b.memory_plan:
-                    count += getattr(b.memory_plan, "planned_change_count", 0)
-
-        return count
+        return self.observe().summary.changes
 
     @property
     def unchanged(self) -> int:
-        count = 0
-        # 1. Global
-        if self.global_plan.bundled_refresh_plan:
-            count += sum(
-                1
-                for op in self.global_plan.bundled_refresh_plan.operations
-                if op.action == "NOOP"
-            )
-        if self.global_plan.skill_plan:
-            count += getattr(self.global_plan.skill_plan, "noop_count", 0)
-        if self.global_plan.instruction_plan:
-            count += getattr(self.global_plan.instruction_plan, "noop_count", 0)
-
-        # 2. Subagents
-        if self.subagent_plan:
-            count += sum(
-                1 for op in self.subagent_plan.operations if op.action == "NOOP"
-            )
-
-        # 3. MCP
-        if self.mcp_plan:
-            count += sum(1 for op in self.mcp_plan.operations if op.action == "NOOP")
-
-        # 4. Projects
-        for entry in self.project_entries:
-            if entry.batch is not None:
-                b = entry.batch
-                if b.skill_plan:
-                    count += sum(
-                        1 for op in b.skill_plan.operations if op.action == "NOOP"
-                    )
-                if b.instruction_plan:
-                    count += getattr(b.instruction_plan, "noop_count", 0)
-                if b.memory_plan:
-                    count += getattr(b.memory_plan, "noop_count", 0)
-
-        return count
+        return self.observe().summary.unchanged
 
     @property
     def offline(self) -> int:
@@ -937,71 +863,21 @@ class WorkspaceSyncPlan:
     @property
     def conflicts(self) -> tuple[str, ...]:
         result: list[str] = []
-        # Global
-        if self.global_plan.skill_plan and hasattr(
-            self.global_plan.skill_plan, "conflicts"
-        ):
-            for op in self.global_plan.skill_plan.conflicts:
-                msg = getattr(op, "finding", None) or getattr(op, "reason", str(op))
-                if msg not in result:
-                    result.append(msg)
-        if self.global_plan.instruction_plan and hasattr(
-            self.global_plan.instruction_plan, "conflicts"
-        ):
-            for op in self.global_plan.instruction_plan.conflicts:
-                msg = getattr(op, "finding", None) or getattr(op, "reason", str(op))
-                if msg not in result:
-                    result.append(msg)
+        obs = self.observe()
 
-        # Subagents
-        if self.subagent_plan:
-            for op in self.subagent_plan.operations:
-                if op.action == "CONFLICT" or (
-                    op.requires_force and not op.is_authorized
-                ):
-                    msg = f"{op.target.agent}/{op.target.logical_identity}: {op.reason}"
-                    if msg not in result:
-                        result.append(msg)
+        # 1. Observation conflicts
+        for f in obs.findings:
+            if is_conflict_finding(f) and f.message not in result:
+                result.append(f.message)
 
-        # MCP
-        if self.mcp_plan:
-            for op in self.mcp_plan.operations:
-                if (
-                    op.action == "CONFLICT" and not op.is_authorized
-                ) or op.action == "ERROR":
-                    msg = f"{op.target.agent}/{op.target.logical_identity}: {op.reason}"
-                    if msg not in result:
-                        result.append(msg)
+        # 2. Legacy MCP ERROR inclusion (in legacy v1.50, MCP errors counted as conflicts)
+        for f in obs.findings:
+            if f.code == "MCP_ERROR" and f.message not in result:
+                result.append(f.message)
 
-        # Projects
-        for entry in self.project_entries:
-            if entry.batch is not None:
-                b = entry.batch
-                if b.skill_plan:
-                    for op in b.skill_plan.operations:
-                        if op.action == "CONFLICT" or (
-                            op.requires_force and not op.is_authorized
-                        ):
-                            msg = getattr(op, "finding", None) or op.reason
-                            if msg not in result:
-                                result.append(msg)
-                if b.instruction_plan and hasattr(b.instruction_plan, "conflicts"):
-                    for op in b.instruction_plan.conflicts:
-                        msg = getattr(op, "finding", None) or getattr(
-                            op, "reason", str(op)
-                        )
-                        if msg not in result:
-                            result.append(msg)
-                if b.memory_plan and hasattr(b.memory_plan, "conflicts"):
-                    for op in b.memory_plan.conflicts:
-                        msg = getattr(op, "finding", None) or getattr(
-                            op, "reason", str(op)
-                        )
-                        if msg not in result:
-                            result.append(msg)
-
-        for f in self.findings:
-            if f.status.lower() == "conflict" and f.message not in result:
+        # 3. Include any legacy conflict findings from global_plan.findings or self.findings
+        for f in (*self.global_plan.findings, *self.findings):
+            if is_conflict_finding(f) and f.message not in result:
                 result.append(f.message)
 
         return tuple(result)
@@ -1015,12 +891,15 @@ class WorkspaceSyncPlan:
         ):
             result.append(self.global_plan.error_message)
 
-        if self.subagent_plan:
-            for op in self.subagent_plan.operations:
-                if op.action == "ERROR":
-                    msg = f"{op.target.agent}/{op.target.logical_identity}: {op.reason}"
-                    if msg not in result:
-                        result.append(msg)
+        # Observation errors (excluding MCP_ERROR which legacy put in conflicts)
+        obs = self.observe()
+        for f in obs.findings:
+            if (
+                is_error_finding(f)
+                and f.code != "MCP_ERROR"
+                and f.message not in result
+            ):
+                result.append(f.message)
 
         for entry in self.project_entries:
             if entry.error_message and entry.error_message not in result:
@@ -1031,7 +910,7 @@ class WorkspaceSyncPlan:
                         result.append(err)
 
         for f in self.findings:
-            if f.status.lower() in ("error", "fail") and f.message not in result:
+            if is_error_finding(f) and f.message not in result:
                 result.append(f.message)
 
         return tuple(result)
@@ -1039,18 +918,20 @@ class WorkspaceSyncPlan:
     @property
     def warnings(self) -> tuple[str, ...]:
         result: list[str] = []
-        if self.subagent_plan:
-            for op in self.subagent_plan.operations:
-                if op.action == "ORPHAN":
-                    msg = f"{op.target.agent}/{op.target.logical_identity}: {op.reason}"
-                    if msg not in result:
-                        result.append(msg)
+        obs = self.observe()
+        for f in obs.findings:
+            if is_warning_finding(f) and f.message not in result:
+                result.append(f.message)
 
         for f in self.findings:
-            if f.status.lower() in ("warning", "warn") and f.message not in result:
+            if is_warning_finding(f) and f.message not in result:
                 result.append(f.message)
 
         return tuple(result)
+
+    @property
+    def observation(self) -> PlanObservation:
+        return self.observe()
 
     def render(self, *, verbose: bool = False) -> str:
         lines = [

@@ -930,3 +930,29 @@ def test_finding_provenance_single_source_across_hierarchy(tmp_path: Path) -> No
     assert ws_obs.findings[0].message == "instruction conflict finding"
     assert ws_obs.summary.conflicts == 1
     assert ws_obs.summary.errors == 0
+
+
+def test_workspace_sync_plan_architecture_acceptance() -> None:
+    """PR 5 Architecture Acceptance (§56):
+
+    WorkspaceSyncPlan aggregation properties must not inspect resource-specific action strings,
+    use hasattr/getattr guessing, or duplicate child finding messages.
+    """
+    import inspect
+    from aikito.workspace_sync import WorkspaceSyncPlan
+
+    for prop_name in ("changes", "unchanged", "conflicts", "errors", "warnings"):
+        prop = getattr(WorkspaceSyncPlan, prop_name)
+        source = inspect.getsource(prop.fget)
+        assert "op.action" not in source, f"Forbidden op.action found in {prop_name}"
+        assert "planned_change_count" not in source, (
+            f"Forbidden planned_change_count found in {prop_name}"
+        )
+        assert "noop_count" not in source, f"Forbidden noop_count found in {prop_name}"
+        assert "hasattr(" not in source, f"Forbidden hasattr found in {prop_name}"
+        assert 'getattr(op, "finding"' not in source, (
+            f"Forbidden getattr(op, finding) found in {prop_name}"
+        )
+        assert 'getattr(op, "reason"' not in source, (
+            f"Forbidden getattr(op, reason) found in {prop_name}"
+        )
