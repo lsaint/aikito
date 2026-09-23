@@ -583,6 +583,28 @@ h2 {
   margin: 0;
 }
 
+.hub-scopes {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  font-size: 12px;
+}
+
+.hub-scope-pill {
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.hub-scope-sep {
+  color: var(--muted);
+  font-weight: 600;
+}
+
 .hub .tiny {
   margin-top: 32px;
   font-size: 12px;

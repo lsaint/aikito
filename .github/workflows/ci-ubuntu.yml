@@ -639,7 +639,16 @@ jobs:
             ${{ runner.temp }}/example-project-second/.agents/skills/durable-memory
           test -L ${{ runner.temp }}/example-project-second/.agents/memory/notes
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 -m aikito show projects
+            python3 -m aikito show projects | tee ${{ runner.temp }}/show-projects.out
+          grep -F "Project" ${{ runner.temp }}/show-projects.out
+          grep -F "Instr" ${{ runner.temp }}/show-projects.out
+          grep -F "Skills" ${{ runner.temp }}/show-projects.out
+          grep -F "Memory" ${{ runner.temp }}/show-projects.out
+          grep -F "Paths" ${{ runner.temp }}/show-projects.out
+          grep -F "Mode" ${{ runner.temp }}/show-projects.out
+          grep -F "Status" ${{ runner.temp }}/show-projects.out
+          grep -F "example" ${{ runner.temp }}/show-projects.out
+          grep -F "2/2" ${{ runner.temp }}/show-projects.out
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito show project example | grep -q "CI example project"
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
@@ -856,7 +865,17 @@ jobs:
       - name: aikito status
         run: |
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 -m aikito status
+            python3 -m aikito status | tee ${{ runner.temp }}/status.out
+          grep -F "Project" ${{ runner.temp }}/status.out
+          grep -F "Instr" ${{ runner.temp }}/status.out
+          grep -F "Skills" ${{ runner.temp }}/status.out
+          grep -F "Memory" ${{ runner.temp }}/status.out
+          grep -F "Paths" ${{ runner.temp }}/status.out
+          grep -F "Mode" ${{ runner.temp }}/status.out
+          grep -F "Status" ${{ runner.temp }}/status.out
+          grep -F "Global:" ${{ runner.temp }}/status.out
+          grep -F "Consumers (" ${{ runner.temp }}/status.out
+          grep -F "All in one workspace:" ${{ runner.temp }}/status.out
 
       - name: aikito web
         run: |
@@ -904,7 +923,10 @@ jobs:
           fi
           test ! -e ${{ runner.temp }}/aikito-ws/projects/example/index.md
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 -m aikito show memory --project example | grep -q "ci-proj-memory"
+            python3 -m aikito show memory --project example | tee ${{ runner.temp }}/show-mem-proj.out
+          grep -q "ci-proj-memory" ${{ runner.temp }}/show-mem-proj.out
+          grep -F "Updated" ${{ runner.temp }}/show-mem-proj.out
+          grep -F "today" ${{ runner.temp }}/show-mem-proj.out
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito show memory ci-proj-memory --project example | \
             grep -q "CI project memory note"
@@ -1326,11 +1348,15 @@ jobs:
             cd "$CWD_PROJ"
             AIKITO_DIR="$WS" python3 -m aikito show memory | tee ${{ runner.temp }}/cwd-mem.out
             grep -F "[aikito] Target project: 'cwd-proj' (detected from cwd)" ${{ runner.temp }}/cwd-mem.out
+            grep -F "Updated" ${{ runner.temp }}/cwd-mem.out
+            grep -F "today" ${{ runner.temp }}/cwd-mem.out
             grep -F "smoke-cwd-note" ${{ runner.temp }}/cwd-mem.out
             grep -F "smoke-global-note" ${{ runner.temp }}/cwd-mem.out
             ! grep -F "smoke-other-note" ${{ runner.temp }}/cwd-mem.out
 
             AIKITO_DIR="$WS" python3 -m aikito show memory --all | tee ${{ runner.temp }}/cwd-mem-all.out
+            grep -F "Updated" ${{ runner.temp }}/cwd-mem-all.out
+            grep -F "today" ${{ runner.temp }}/cwd-mem-all.out
             grep -F "smoke-cwd-note" ${{ runner.temp }}/cwd-mem-all.out
             grep -F "smoke-global-note" ${{ runner.temp }}/cwd-mem-all.out
             grep -F "smoke-other-note" ${{ runner.temp }}/cwd-mem-all.out

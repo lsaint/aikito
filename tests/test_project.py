@@ -472,7 +472,7 @@ class ProjectSummaryTest(unittest.TestCase):
         self.assertEqual(summary.runtime_status, "OK")
         rendered = render_projects_table(summaries, False, False)
         detail = render_project_detail(summary, False, False)
-        self.assertIn("Instructions", rendered)
+        self.assertIn("Instr", rendered)
         self.assertIn("| 1      |", rendered)
         self.assertIn(f"Canonical path:  {definition}", detail)
         self.assertIn("Project paths:", detail)
@@ -821,7 +821,7 @@ class ProjectSummaryTest(unittest.TestCase):
             self.assertIn("[2]✓ ~/worktree", unicode_detail)
             self.assertNotIn("Active paths:", detail)
             table = render_projects_table([summary], False, False)
-            self.assertIn("[1]v", table)
+            self.assertIn("2/2", table)
 
     def test_partially_offline_paths_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

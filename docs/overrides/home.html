@@ -3,16 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Aikito — One context. Many agents.</title>
+    <title>Aikito — One workspace. Many agents.</title>
     <meta
       name="description"
-      content="Bring the coding-agent setup you already use into one Git-managed source of truth, then keep every Agent, project, and machine in sync."
+      content="Aikito gives your agents a shared home for context that lasts beyond a session. Keep instructions, skills, MCP servers, subagents, and durable memory in sync across agents, projects, and machines."
     />
     <link rel="canonical" href="{{ page.canonical_url }}" />
-    <meta property="og:title" content="Aikito — One context. Many agents." />
+    <meta property="og:title" content="Aikito — One workspace. Many agents." />
     <meta
       property="og:description"
-      content="Bring the coding-agent setup you already use into one Git-managed source of truth, then keep every Agent, project, and machine in sync."
+      content="Aikito gives your agents a shared home for context that lasts beyond a session. Keep instructions, skills, MCP servers, subagents, and durable memory in sync across agents, projects, and machines."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="{{ page.canonical_url }}" />
@@ -96,12 +96,11 @@
           <div class="eyebrow mono">
             Multi-Agent · Multi-Project · Multi-OS · Multi-Machine
           </div>
-          <h1>One context. Many agents.</h1>
+          <h1>One workspace. Many agents.</h1>
           <p class="hero-copy">
-            Keep the Agent setup you already use without maintaining it
-            separately in every tool, project, and machine. Aikito brings
-            instructions, skills, MCP servers, subagents, and durable memory
-            under one source of truth.
+            Aikito gives your agents a shared home for context that lasts
+            beyond a session. Keep instructions, skills, MCP servers, subagents,
+            and durable memory in sync across agents, projects, and machines.
           </p>
           <div class="hero-actions">
             <a class="button primary" href="{{ 'installation/' | url }}"
@@ -116,7 +115,7 @@
             >
           </div>
           <div class="hero-badge mono">
-            Python 3.12+ · stdlib only · no daemon, no database, no cloud
+            no daemon, no database, no cloud
           </div>
         </div>
 
@@ -163,6 +162,11 @@
                 <div>
                   <h3>Aikito</h3>
                   <p>Your durable workspace across AI agents.</p>
+                  <div class="hub-scopes mono">
+                    <span class="hub-scope-pill">Global</span>
+                    <span class="hub-scope-sep">+</span>
+                    <span class="hub-scope-pill">Projects</span>
+                  </div>
                 </div>
                 <div class="tiny mono">
                   Multi-Agent · Multi-Project · Multi-OS · Multi-Machine
@@ -265,7 +269,7 @@
               </div>
               <div>
                 <h3>MCP</h3>
-                <p>Declare each server once; generate every agent's config.</p>
+                <p>Declare each server once; generate config for selected agents.</p>
               </div>
             </div>
             <div class="object">
@@ -334,7 +338,7 @@
         <div class="shell">
           <div class="section-head reveal">
             <div class="section-kicker">Durable memory</div>
-            <h2>Memory should be a maintained project asset.</h2>
+            <h2>Keep durable memory reviewable and current.</h2>
             <p class="section-intro">
               Keep long-lived decisions, conventions and lessons in plain files.
               Git makes them reviewable, reversible and portable.
@@ -391,11 +395,10 @@
         <div class="shell">
           <div class="section-head reveal">
             <div class="section-kicker">See the system</div>
-            <h2>Know what each agent sees.</h2>
+            <h2>See your workspace at a glance.</h2>
             <p class="section-intro">
-              Aikito turns agent configuration into something visible and
-              governable —<br />
-              instead of scattered dotfolders that can easily drift out of sync.
+              See what belongs to each project, what is shared globally, and
+              where synchronization needs attention.
             </p>
           </div>
 
@@ -407,20 +410,18 @@
               </div>
               <pre><span class="command">$ aikito status</span>
 
-┌───────────────────────┬──────────────┬────────┬────────────┬───────────┐
-│ Agent                 │ Instructions │ Skills │ MCP Config │ Subagents │
-├───────────────────────┼──────────────┼────────┼────────────┼───────────┤
-│ Codex                 │ <span class="ok">✓</span>            │ 16 ›   │ 6          │ 3         │
-│ Claude Code           │ <span class="ok">✓</span>            │ 16 »   │ 3          │ 6         │
-│ Antigravity CLI       │ <span class="ok">✓</span>            │ 16 »   │ 3          │ 5         │
-│ OpenCode              │ <span class="ok">✓</span>            │ 16 ›   │ 5          │ 2         │
-│ GitHub Copilot CLI    │ <span class="ok">✓</span>            │ 16 ›   │ 4          │ 0         │
-│ DeepSeek Harness      │ <span class="ok">✓</span>            │ 16 ›   │ 6          │ 3         │
-│ Grok Build            │ <span class="ok">✓</span>            │ 16 ›   │ 4          │ 0         │
-│ Pi                    │ <span class="ok">✓</span>            │ 16 ›   │ <span class="muted-term">–</span>          │ <span class="muted-term">–</span>         │
-└───────────────────────┴──────────────┴────────┴────────────┴───────────┘
+┌──────────┬───────┬────────┬────────┬───────┬──────┬────────┐
+│ Project  │ Instr │ Skills │ Memory │ Paths │ Mode │ Status │
+├──────────┼───────┼────────┼────────┼───────┼──────┼────────┤
+│ aikito   │ 24L   │ 1      │ 12     │ 2/3   │ link │ <span class="ok">✓</span>      │
+│ payments │ 128L  │ 5      │ 14     │ 1/1   │ link │ <span class="ok">✓</span>      │
+│ infra    │ 210L  │ 6      │ 21     │ 1/1   │ copy │ <span class="ok">✓</span>      │
+│ blog     │ <span class="muted-term">–</span>     │ 2      │ 8      │ 0/1   │ link │ <span class="muted-term">–</span>      │
+└──────────┴───────┴────────┴────────┴───────┴──────┴────────┘
 
-<span class="ok">✓ all synced · 8 agents · 16 skills · 6 notes across 3 scopes</span></pre>
+Global: <span class="ok">✓</span> · Instr 24L · Skills 12 · Memory 6 · MCP 1 · Sub 3
+Consumers (8): agy · claude · codex · copilot · dsh · grok · opencode · pi
+All in one workspace: ~/aikito</pre>
             </div>
 
             <div class="terminal">
@@ -430,20 +431,18 @@
               </div>
               <pre><span class="command">$ aikito show memory</span>
 
-┌─────────┬───────────────────┬────────────────────────────────┬──────┐
-│ Scope   │ Note File         │ Title                          │ Link │
-├─────────┼───────────────────┼────────────────────────────────┼──────┤
-│ Global  │ writing-style     │ Keep explanations concise      │ <span class="muted-term">–</span>    │
-│ Global  │ conventions       │ Workspace engineering rules    │ <span class="muted-term">–</span>    │
-├─────────┼───────────────────┼────────────────────────────────┼──────┤
-│ backend │ api-retry-policy  │ Retry external APIs safely     │ <span class="ok">✓</span>    │
-│ backend │ circuit-breaker   │ Fail fast on upstream outage   │ <span class="ok">✓</span>    │
-├─────────┼───────────────────┼────────────────────────────────┼──────┤
-│ portal  │ onboarding-flow   │ First-time activation steps    │ <span class="ok">✓</span>    │
-│ portal  │ release-checklist │ Pre-flight checks for ship     │ <span class="ok">✓</span>    │
-└─────────┴───────────────────┴────────────────────────────────┴──────┘
-
-<span class="ok">✓ all synced · 6 notes across 3 scopes</span></pre>
+┌─────────┬───────────────────┬────────────────────────────┬──────┬───────────┐
+│ Scope   │ Note File         │ Title                      │ Link │ Updated   │
+├─────────┼───────────────────┼────────────────────────────┼──────┼───────────┤
+│ Global  │ writing-style     │ Keep explanations concise  │ <span class="muted-term">–</span>    │ today     │
+│ Global  │ conventions       │ Workspace engineering rule │ <span class="muted-term">–</span>    │ yesterday │
+├─────────┼───────────────────┼────────────────────────────┼──────┼───────────┤
+│ backend │ api-retry-policy  │ Retry external APIs safely │ <span class="ok">✓</span>    │ Sep 18    │
+│ backend │ circuit-breaker   │ Fail fast on upstream down │ <span class="ok">✓</span>    │ Sep 5     │
+├─────────┼───────────────────┼────────────────────────────┼──────┼───────────┤
+│ portal  │ onboarding-flow   │ First-time activation step │ <span class="ok">✓</span>    │ Sep 17    │
+│ portal  │ release-checklist │ Pre-flight checks for ship │ <span class="ok">✓</span>    │ Aug 3     │
+└─────────┴───────────────────┴────────────────────────────┴──────┴───────────┘</pre>
             </div>
           </div>
         </div>

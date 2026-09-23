@@ -1037,3 +1037,71 @@ def collect_project_skill_diffs(
                 ).rstrip()
             results.append((label, diff))
     return results
+
+
+def get_instructions_line_count_display(agents_md_path: Path) -> str:
+    """Return physical line count string (e.g. '45L') or '-' if missing or empty."""
+    try:
+        if not agents_md_path.is_file():
+            return "-"
+        text = agents_md_path.read_text(encoding="utf-8", errors="replace")
+        if not text.strip():
+            return "-"
+        return f"{len(text.splitlines())}L"
+    except Exception:
+        return "-"
+
+
+def format_project_path_counts(project: ProjectSummary) -> str:
+    """Return 'active/total' deduplicated candidate paths count string, e.g. '2/3'."""
+    candidate_paths = getattr(project, "candidate_paths", ())
+    if candidate_paths:
+        paths_seen: dict[str, bool] = {}
+        for _label, path_str, exists in candidate_paths:
+            if path_str not in paths_seen:
+                paths_seen[path_str] = exists
+            else:
+                paths_seen[path_str] = paths_seen[path_str] or exists
+        total = len(paths_seen)
+        active = sum(1 for exists in paths_seen.values() if exists)
+        return f"{active}/{total}"
+    path_val = getattr(project, "path", "-")
+    if path_val and str(path_val) != "-":
+        try:
+            exists = Path(path_val).exists()
+            return "1/1" if exists else "0/1"
+        except Exception:
+            return "0/1"
+    return "0/0"
+
+
+def evaluate_project_health(
+    project: ProjectSummary,
+    memory_status: str | None = None,
+) -> str:
+    """Evaluate unified project health status across runtime, instructions, and memory."""
+    candidate_paths = getattr(project, "candidate_paths", ())
+    if candidate_paths:
+        exists_count = sum(1 for _lbl, _path, exists in candidate_paths if exists)
+        if exists_count == 0:
+            return "-"
+    elif project.runtime_status == "OFFLINE":
+        return "-"
+
+    statuses = [project.runtime_status, project.instructions_status]
+    if memory_status is not None:
+        statuses.append(memory_status)
+
+    priority_order = [
+        ("INVALID CONFIG", "invalid config"),
+        ("CONFLICT", "conflict"),
+        ("DRIFT", "drift"),
+        ("MISSING", "missing"),
+        ("UNBOUND", "unbound"),
+    ]
+
+    for key, reason in priority_order:
+        if any(s == key or (s and s.startswith(f"{key} ")) for s in statuses):
+            return f"! {reason}"
+
+    return "OK"

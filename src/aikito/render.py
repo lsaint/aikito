@@ -8,13 +8,20 @@ import json
 import shutil
 import sys
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
+from pathlib import Path
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from .agents import AGENT_INSTALL_MARKERS
 from .diagnostics import Finding
-from .project import ProjectSummary
+from .project import (
+    ProjectSummary,
+    evaluate_project_health,
+    format_project_path_counts,
+    get_instructions_line_count_display,
+)
 
 
 @dataclass
@@ -38,6 +45,16 @@ class MemoryStatusRow:
 
 
 @dataclass
+class GlobalSummary:
+    status: str
+    instr: str
+    skills_count: int
+    memory_notes_count: int
+    mcp_count: str
+    subagent_count: str
+
+
+@dataclass
 class StatusReportData:
     agents: List[AgentStatusRow]
     memories: List[MemoryStatusRow]
@@ -46,6 +63,9 @@ class StatusReportData:
     total_skills_count: int = 0
     total_memory_notes: int = 0
     issues_count: int = 0
+    consumers: List[str] = field(default_factory=list)
+    projects: List[ProjectSummary] = field(default_factory=list)
+    global_summary: Optional[GlobalSummary] = None
 
 
 @dataclass
@@ -84,6 +104,7 @@ class MemoryNoteRow:
     note_name: str
     title: str
     link_status: str  # "OK", "DANGLING", "N/A"
+    updated_on: Optional[date] = None
 
 
 DoctorFinding = Finding
@@ -752,7 +773,7 @@ def render_memory_notes_table(
     use_unicode: bool,
     use_color: bool,
 ) -> str:
-    headers = ["Scope", "Note File", "Title", "Link"]
+    headers = ["Scope", "Note File", "Title", "Link", "Updated"]
 
     formatted_rows: List[Any] = []
     last_scope = None
@@ -763,6 +784,7 @@ def render_memory_notes_table(
         last_scope = n.scope_name
 
         link_badge = _format_status_badge(n.link_status, use_unicode, use_color)
+        updated_display = _format_memory_updated_date(getattr(n, "updated_on", None))
 
         formatted_rows.append(
             [
@@ -770,6 +792,7 @@ def render_memory_notes_table(
                 n.note_name,
                 n.title if n.title else "-",
                 link_badge,
+                updated_display,
             ]
         )
 
@@ -849,44 +872,70 @@ def format_project_paths(project: ProjectSummary, use_unicode: bool) -> str:
     return ", ".join(parts)
 
 
-def render_projects_table(
-    projects: List[ProjectSummary], use_unicode: bool, use_color: bool
+def _format_scope_status_badge(
+    status_str: str, use_unicode: bool, use_color: bool
 ) -> str:
-    rows = [
-        [
-            project.name,
-            format_project_paths(project, use_unicode),
-            project.sync_mode,
-            _format_status_badge(project.instructions_status, use_unicode, use_color),
-            str(project.skills_count),
-            str(project.memory_notes_count),
-            _format_status_badge(project.runtime_status, use_unicode, use_color),
-        ]
-        for project in projects
-    ]
-    table = _build_generic_table(
+    ok_sym = "✓" if use_unicode else "v"
+    if status_str == "OK":
+        return _colorize(ok_sym, COLOR_GREEN, use_color)
+    if status_str in ("-", "OFFLINE"):
+        return _colorize("-", COLOR_DIM, use_color)
+    if status_str.startswith("!"):
+        return _colorize(status_str, COLOR_RED, use_color)
+    return _colorize(f"! {status_str.lower()}", COLOR_RED, use_color)
+
+
+def render_projects_table(
+    projects: List[ProjectSummary],
+    use_unicode: bool,
+    use_color: bool,
+    memory_rows: Optional[List[MemoryStatusRow]] = None,
+) -> str:
+    rows = []
+    for project in projects:
+        mem_status = None
+        if memory_rows:
+            mem_row = next((m for m in memory_rows if m.name == project.name), None)
+            if mem_row:
+                mem_status = mem_row.status
+
+        health = evaluate_project_health(project, mem_status)
+        status_badge = _format_scope_status_badge(health, use_unicode, use_color)
+
+        config_dir = getattr(project, "config_path", None)
+        agents_md = config_dir.parent / "AGENTS.md" if config_dir else None
+        instr_display = (
+            get_instructions_line_count_display(agents_md) if agents_md else "-"
+        )
+        paths_display = format_project_path_counts(project)
+
+        rows.append(
+            [
+                project.name,
+                instr_display,
+                str(project.skills_count),
+                str(project.memory_notes_count),
+                paths_display,
+                project.sync_mode,
+                status_badge,
+            ]
+        )
+
+    return _build_generic_table(
         [
             "Project",
-            "Path",
-            "Mode",
-            "Instructions",
+            "Instr",
             "Skills",
             "Memory",
-            "Sync",
+            "Paths",
+            "Mode",
+            "Status",
         ],
         rows,
         use_unicode,
         use_color,
-        truncatable_cols=[1],
+        truncatable_cols=[0],
     )
-    has_issue = any(
-        _format_badge_text(project.instructions_status, use_unicode)[1] == "issue"
-        or _format_badge_text(project.runtime_status, use_unicode)[1] == "issue"
-        for project in projects
-    )
-    if has_issue:
-        return f"{table}\n\n{render_legend(use_unicode, use_color)}"
-    return table
 
 
 def render_project_detail(
@@ -959,6 +1008,68 @@ def render_key_value_fields(fields: List[Tuple[str, str]]) -> str:
     )
 
 
+def get_consumer_display_name(agent_name: str) -> str:
+    """Map an internal agent name to its user-facing consumer/binary name."""
+    if agent_name in AGENT_INSTALL_MARKERS:
+        return AGENT_INSTALL_MARKERS[agent_name][1]
+    for _disp, binary, _marker in AGENT_INSTALL_MARKERS.values():
+        if agent_name == binary:
+            return binary
+    return agent_name
+
+
+def format_global_summary_line(
+    summary: GlobalSummary,
+    use_unicode: bool,
+    use_color: bool,
+) -> str:
+    status_badge = _format_scope_status_badge(summary.status, use_unicode, use_color)
+    return (
+        f"Global: {status_badge} · Instr {summary.instr} · Skills {summary.skills_count} "
+        f"· Memory {summary.memory_notes_count} · MCP {summary.mcp_count} · Sub {summary.subagent_count}"
+    )
+
+
+def _format_workspace_path(workspace: str, home: Optional[Path] = None) -> str:
+    if workspace.startswith("~"):
+        return workspace
+    h = home or Path.home()
+    for h_cand in (h, h.resolve()):
+        for p_cand in (Path(workspace), Path(workspace).resolve()):
+            try:
+                rel = p_cand.relative_to(h_cand)
+                if str(rel) == ".":
+                    return "~"
+                return f"~/{rel}"
+            except (ValueError, RuntimeError):
+                pass
+    return str(workspace)
+
+
+def _build_fallback_global_summary(data: StatusReportData) -> GlobalSummary:
+    if data.issues_count == 0:
+        status = "OK"
+    elif data.issues_count == 1:
+        status = "! 1 issue"
+    else:
+        status = f"! {data.issues_count} issues"
+    global_notes = (
+        data.memories[0].notes_count
+        if data.memories and data.memories[0].scope.lower() == "global"
+        else 0
+    )
+    return GlobalSummary(
+        status=status,
+        instr="-",
+        skills_count=data.total_skills_count,
+        memory_notes_count=global_notes,
+        mcp_count=str(data.total_mcp_count) if data.total_mcp_count > 0 else "-",
+        subagent_count=str(data.total_subagents_count)
+        if data.total_subagents_count > 0
+        else "-",
+    )
+
+
 def render_status_report(
     data: StatusReportData,
     *,
@@ -966,65 +1077,53 @@ def render_status_report(
     no_color: bool = False,
     workspace: Optional[str] = None,
     workspace_source: Optional[str] = None,
+    home: Optional[Path] = None,
 ) -> str:
     use_unicode = is_tty
     use_color = is_tty and not no_color
 
-    dot = "·" if use_unicode else "*"
-    ok_sym = "✓" if use_unicode else "v"
-    warn_sym = "⚠" if use_unicode else "!"
-
     output_sections = []
 
+    # 1. Project Table (identical to show projects)
+    projects_table = render_projects_table(
+        data.projects,
+        use_unicode=use_unicode,
+        use_color=use_color,
+        memory_rows=data.memories,
+    )
+    output_sections.append(projects_table)
+
+    # 2. Three summary lines separated by a blank line
+    output_sections.append("")
+
+    # Summary Line 1: Global
+    global_summary = data.global_summary
+    if global_summary is None:
+        global_summary = _build_fallback_global_summary(data)
+    output_sections.append(
+        format_global_summary_line(global_summary, use_unicode, use_color)
+    )
+
+    # Summary Line 2: Consumers
+    consumers = data.consumers
+    if not consumers and data.agents:
+        consumers = sorted(
+            dict.fromkeys(get_consumer_display_name(a.agent_name) for a in data.agents)
+        )
+    consumer_str = " · ".join(consumers) if consumers else "-"
+    output_sections.append(f"Consumers ({len(consumers)}): {consumer_str}")
+
+    # Summary Line 3: Workspace
     if workspace:
-        workspace_line = f"Workspace: {workspace}"
+        ws_display = _format_workspace_path(workspace, home)
+        ws_prefix = f"All in one workspace: {ws_display}"
+        if use_color:
+            ws_line = _colorize(ws_prefix, COLOR_BOLD, True)
+        else:
+            ws_line = ws_prefix
         if workspace_source:
-            workspace_line += f" ({workspace_source})"
-        if use_color:
-            workspace_line = _colorize(workspace_line, COLOR_BOLD, True)
-        output_sections.extend([workspace_line, ""])
-
-    # 1. Agents section
-    if data.agents:
-        output_sections.append(render_agents_table(data.agents, use_unicode, use_color))
-
-    # 2. Memories section
-    if data.memories:
-        output_sections.append("")
-        output_sections.append(
-            render_memory_table(data.memories, use_unicode, use_color)
-        )
-
-    agents_count = len(data.agents)
-    skills_count = data.total_skills_count
-    scopes_count = len(data.memories)
-    notes_count = data.total_memory_notes
-    indent = "  "
-
-    # 3. Summary & Legend
-    if data.issues_count > 0:
-        output_sections.append("")
-        output_sections.append(render_legend(use_unicode, use_color))
-
-        output_sections.append("")
-        issue_label = "issue" if data.issues_count == 1 else "issues"
-        summary_line = (
-            f"{warn_sym} {data.issues_count} {issue_label} {dot} run: aikito doctor"
-        )
-        if use_color:
-            summary_line = _colorize(summary_line, COLOR_YELLOW, True)
-        output_sections.append(summary_line)
-    else:
-        output_sections.append("")
-        summary_line1 = f"{ok_sym} all synced {dot} {agents_count} agents {dot} {skills_count} skills"
-        if use_color:
-            summary_line1 = _colorize(summary_line1, COLOR_GREEN, True)
-        output_sections.append(summary_line1)
-
-        summary_line_notes = f"{indent}{notes_count} notes across {scopes_count} scopes"
-        if use_color:
-            summary_line_notes = _colorize(summary_line_notes, COLOR_GREEN, True)
-        output_sections.append(summary_line_notes)
+            ws_line += f" ({workspace_source})"
+        output_sections.append(ws_line)
 
     return "\n".join(output_sections)
 

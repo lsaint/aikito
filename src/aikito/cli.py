@@ -113,6 +113,7 @@ from .status import (
     collect_mcp_runtime,
     collect_subagent_details,
     collect_memory_notes_rows,
+    collect_memory_status_rows,
     collect_skills_rows,
     collect_subagents_matrix,
     get_status_report_data,
@@ -510,6 +511,7 @@ def cmd_status(args: argparse.Namespace) -> None:
         no_color=not use_color,
         workspace=str(aikito_dir),
         workspace_source=workspace_source,
+        home=home,
     )
     print(rendered)
     print_bundled_skill_notice(aikito_dir)
@@ -777,7 +779,12 @@ def cmd_show_project(args: argparse.Namespace) -> None:
                 target = detected
 
     if not target:
-        print(render_projects_table(projects, use_unicode, use_color))
+        memory_rows, _, _ = collect_memory_status_rows(aikito_dir, home)
+        print(
+            render_projects_table(
+                projects, use_unicode, use_color, memory_rows=memory_rows
+            )
+        )
         return
 
     exact = [project for project in projects if project.name == target]

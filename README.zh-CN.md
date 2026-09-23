@@ -77,32 +77,18 @@ aikito status
 运行 `aikito status`，一屏掌控所有 Agent 的上下文与多项目长期 Memory 同步状态：
 
 ```text
-Workspace: ~/aikito (AIKITO_DIR)
+┌──────────┬───────┬────────┬────────┬───────┬──────┬────────┐
+│ Project  │ Instr │ Skills │ Memory │ Paths │ Mode │ Status │
+├──────────┼───────┼────────┼────────┼───────┼──────┼────────┤
+│ aikito   │ 24L   │ 1      │ 12     │ 2/3   │ link │ ✓      │
+│ payments │ 128L  │ 5      │ 14     │ 1/1   │ link │ ✓      │
+│ infra    │ 210L  │ 6      │ 21     │ 1/1   │ copy │ ✓      │
+│ blog     │ –     │ 2      │ 8      │ 0/1   │ link │ –      │
+└──────────┴───────┴────────┴────────┴───────┴──────┴────────┘
 
-┌────────────────────┬──────────────┬────────┬────────────┬───────────┐
-│ Agent              │ Instructions │ Skills │ MCP Config │ Subagents │
-├────────────────────┼──────────────┼────────┼────────────┼───────────┤
-│ Codex              │ ✓            │ 12 ›   │ 1          │ 3         │
-│ Claude Code        │ ✓            │ 12 »   │ 1          │ 1         │
-│ Antigravity CLI    │ ✓            │ 12 »   │ 1          │ 1         │
-│ OpenCode           │ ✓            │ 12 ›   │ 1          │ 1         │
-│ GitHub Copilot CLI │ ✓            │ 12 ›   │ 1          │ 1         │
-│ DeepSeek Harness   │ ✓            │ 12 ›   │ 1          │ 0         │
-│ Grok Build         │ ✓            │ 12 ›   │ 1          │ 3         │
-│ Pi                 │ ✓            │ 12 ›   │ –          │ 3         │
-└────────────────────┴──────────────┴────────┴────────────┴───────────┘
-
-┌─────────────────┬────────┬───────┬───────────┐
-│ Memory Scope    │ Status │ Notes │ Updated   │
-├─────────────────┼────────┼───────┼───────────┤
-│ Global          │ ✓      │ 6     │ Sep 16    │
-│ aikito          │ ✓      │ 12    │ yesterday │
-│ blog            │ ✓      │ 8     │ Sep 16    │
-│ chat-distiller  │ ✓      │ 5     │ Aug 24    │
-└─────────────────┴────────┴───────┴───────────┘
-
-✓ all synced · 8 agents · 12 skills
-  31 notes across 4 scopes
+Global: ✓ · Instr 24L · Skills 12 · Memory 6 · MCP 1 · Sub 3
+Consumers (8): agy · claude · codex · copilot · dsh · grok · opencode · pi
+All in one workspace: ~/aikito (AIKITO_DIR)
 ```
 
 偏好浏览器查看？运行 [`aikito web`](docs/cli-reference.md#aikito-web) 打开本地只读 Console。

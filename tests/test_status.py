@@ -6,9 +6,14 @@ from unittest.mock import patch
 
 from aikito.init import init_workspace
 from aikito.mcp import MCPToolProbeResult
-from aikito.project import ProjectSummary
+from aikito.project import (
+    ProjectSummary,
+    evaluate_project_health,
+    format_project_path_counts,
+)
 from aikito.render import (
     AgentStatusRow,
+    GlobalSummary,
     MCPServerRow,
     MemoryNoteRow,
     MemoryStatusRow,
@@ -105,12 +110,10 @@ class AikitoStatusRenderTest(unittest.TestCase):
             issues_count=2,
         )
         rendered = render_status_report(report_data, is_tty=True, no_color=True)
-        self.assertIn("Legend:", rendered)
-        self.assertIn("⚠ M", rendered)
-        self.assertIn("⚠ C 3/4", rendered)
-        self.assertIn("2 issues · run: aikito doctor", rendered)
-        self.assertNotIn("notes across", rendered)
-        self.assertNotIn("Memory Resources", rendered)
+        self.assertIn("Project", rendered)
+        self.assertIn("Status", rendered)
+        self.assertIn("Global: ! 2 issues", rendered)
+        self.assertIn("Consumers (2): claude · codex", rendered)
 
     def test_render_all_synced_hides_legend(self) -> None:
         clean_rows = [
@@ -133,10 +136,10 @@ class AikitoStatusRenderTest(unittest.TestCase):
             issues_count=0,
         )
         rendered = render_status_report(report_data, is_tty=True, no_color=True)
-        self.assertNotIn("Legend:", rendered)
-        self.assertIn("✓ all synced · 1 agents · 11 skills", rendered)
-
-        self.assertIn("  27 notes across 1 scopes", rendered)
+        self.assertIn("Project", rendered)
+        self.assertIn("Status", rendered)
+        self.assertIn("Global: ✓", rendered)
+        self.assertIn("Consumers (1): claude", rendered)
 
     def test_render_workspace_header_is_bold_in_color_output(self) -> None:
         report_data = StatusReportData(
@@ -149,8 +152,8 @@ class AikitoStatusRenderTest(unittest.TestCase):
             workspace="/tmp/aikito",
             workspace_source="configured",
         )
-        self.assertTrue(
-            rendered.startswith("\033[1mWorkspace: /tmp/aikito (configured)\033[0m\n\n")
+        self.assertIn(
+            "\033[1mAll in one workspace: /tmp/aikito\033[0m (configured)", rendered
         )
 
     def test_subagent_status_distinguishes_missing_drift_and_conflict(self) -> None:
@@ -593,7 +596,9 @@ class AikitoStatusRenderTest(unittest.TestCase):
         out_clean = render_projects_table(
             clean_projects, use_unicode=True, use_color=False
         )
-        self.assertNotIn("Legend:", out_clean)
+        self.assertIn("✓", out_clean)
+        self.assertIn("Paths", out_clean)
+        self.assertIn("Status", out_clean)
 
         issue_projects = [
             ProjectSummary(
@@ -611,9 +616,7 @@ class AikitoStatusRenderTest(unittest.TestCase):
         out_issue = render_projects_table(
             issue_projects, use_unicode=True, use_color=False
         )
-        self.assertIn("Legend:", out_issue)
-        self.assertIn("⚠ M missing", out_issue)
-        self.assertIn("⚠ C conflict", out_issue)
+        self.assertIn("! conflict", out_issue)
 
     def test_render_legend_format(self) -> None:
         unicode_legend = render_legend(use_unicode=True, use_color=False)
@@ -1088,6 +1091,304 @@ instruction_path = ".codex/AGENTS.md"
 
             report = get_status_report_data(aikito_dir, home)
             self.assertGreaterEqual(report.issues_count, 1)
+
+    def test_status_report_scope_rows_and_consumers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            aikito_dir = Path(tmpdir) / "workspace"
+            home = Path(tmpdir) / "home"
+            init_workspace(aikito_dir, home)
+
+            # Global AGENTS.md with 3 physical lines
+            (aikito_dir / "AGENTS.md").write_text(
+                "# Line 1\n# Line 2\n# Line 3\n", encoding="utf-8"
+            )
+            # Create a project with 2 lines in AGENTS.md
+            proj_dir = aikito_dir / "projects" / "myproj"
+            proj_dir.mkdir(parents=True)
+            (proj_dir / "AGENTS.md").write_text(
+                "Instr line 1\nInstr line 2\n", encoding="utf-8"
+            )
+            (proj_dir / "agent.toml").write_text(
+                'name = "myproj"\nskills = ["aikito"]\n', encoding="utf-8"
+            )
+
+            report = get_status_report_data(aikito_dir, home)
+            self.assertEqual(report.global_summary.instr, "3L")
+
+            proj_row = next(p for p in report.projects if p.name == "myproj")
+            self.assertEqual(proj_row.skills_count, 1)
+
+            rendered = render_status_report(
+                report,
+                is_tty=False,
+                no_color=True,
+                workspace=str(aikito_dir),
+                home=home,
+            )
+            self.assertIn("myproj", rendered)
+            self.assertIn("Global: ", rendered)
+            self.assertIn("Instr 3L", rendered)
+            self.assertIn("Consumers (", rendered)
+            self.assertIn("All in one workspace:", rendered)
+            self.assertIn("2L", rendered)
+
+    def test_project_health_priority_order(self) -> None:
+        proj_base = ProjectSummary(
+            name="demo",
+            path="-",
+            config_path=Path("/tmp/demo/agent.toml"),
+            sync_mode="link",
+            instructions_status="OK",
+            skills_count=1,
+            memory_notes_count=1,
+            runtime_status="OK",
+            candidate_paths=(("default", "/tmp/demo", True),),
+        )
+
+        # INVALID CONFIG > CONFLICT
+        p_invalid = ProjectSummary(
+            **{
+                **proj_base.__dict__,
+                "runtime_status": "INVALID CONFIG",
+                "instructions_status": "CONFLICT",
+            }
+        )
+        self.assertEqual(
+            evaluate_project_health(p_invalid, "MISSING"), "! invalid config"
+        )
+
+        # CONFLICT > DRIFT
+        p_conflict = ProjectSummary(
+            **{
+                **proj_base.__dict__,
+                "runtime_status": "CONFLICT",
+                "instructions_status": "OK",
+            }
+        )
+        self.assertEqual(evaluate_project_health(p_conflict, "DRIFT"), "! conflict")
+
+        # DRIFT > MISSING
+        p_drift = ProjectSummary(
+            **{
+                **proj_base.__dict__,
+                "runtime_status": "DRIFT",
+                "instructions_status": "MISSING",
+            }
+        )
+        self.assertEqual(evaluate_project_health(p_drift, "MISSING"), "! drift")
+
+        # MISSING > UNBOUND
+        p_missing = ProjectSummary(
+            **{
+                **proj_base.__dict__,
+                "runtime_status": "UNBOUND",
+                "instructions_status": "MISSING",
+            }
+        )
+        self.assertEqual(evaluate_project_health(p_missing, "OK"), "! missing")
+
+        # UNBOUND alone
+        p_unbound = ProjectSummary(
+            name="demo",
+            path="-",
+            config_path=Path("/tmp/demo/agent.toml"),
+            sync_mode="link",
+            instructions_status="OK",
+            skills_count=1,
+            memory_notes_count=1,
+            runtime_status="UNBOUND",
+            candidate_paths=(),
+        )
+        self.assertEqual(evaluate_project_health(p_unbound, "OK"), "! unbound")
+
+        # EMPTY instructions does not trigger anomaly
+        p_empty = ProjectSummary(
+            **{
+                **proj_base.__dict__,
+                "runtime_status": "OK",
+                "instructions_status": "EMPTY",
+            }
+        )
+        self.assertEqual(evaluate_project_health(p_empty, "OK"), "OK")
+
+    def test_offline_candidate_paths(self) -> None:
+        p_all_offline = ProjectSummary(
+            name="offline-proj",
+            path="-",
+            config_path=Path("/tmp/off/agent.toml"),
+            sync_mode="link",
+            instructions_status="OK",
+            skills_count=0,
+            memory_notes_count=0,
+            runtime_status="OFFLINE",
+            candidate_paths=(
+                ("default", "/nonexistent/a", False),
+                ("alt", "/nonexistent/b", False),
+            ),
+        )
+        self.assertEqual(evaluate_project_health(p_all_offline, "OK"), "-")
+        self.assertEqual(format_project_path_counts(p_all_offline), "0/2")
+
+        p_partial_offline = ProjectSummary(
+            name="partial-proj",
+            path="-",
+            config_path=Path("/tmp/part/agent.toml"),
+            sync_mode="link",
+            instructions_status="OK",
+            skills_count=0,
+            memory_notes_count=0,
+            runtime_status="OK",
+            candidate_paths=(
+                ("default", "/existent/a", True),
+                ("alt", "/nonexistent/b", False),
+            ),
+        )
+        self.assertEqual(evaluate_project_health(p_partial_offline, "OK"), "OK")
+        self.assertEqual(format_project_path_counts(p_partial_offline), "1/2")
+
+    def test_status_and_show_projects_consistency(self) -> None:
+        p = ProjectSummary(
+            name="drift-proj",
+            path="-",
+            config_path=Path("/tmp/drift/agent.toml"),
+            sync_mode="copy",
+            instructions_status="OK",
+            skills_count=2,
+            memory_notes_count=4,
+            runtime_status="DRIFT",
+            candidate_paths=(("default", "/tmp/drift", True),),
+        )
+        mem_row = MemoryStatusRow(
+            name="drift-proj",
+            scope="Project",
+            status="OK",
+            notes_count=4,
+            updated_on=date.today(),
+        )
+        health = evaluate_project_health(p, mem_row.status)
+        self.assertEqual(health, "! drift")
+
+        table = render_projects_table(
+            [p], use_unicode=False, use_color=False, memory_rows=[mem_row]
+        )
+        self.assertIn("! drift", table)
+
+    def test_show_memory_updated_date_formats(self) -> None:
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+        last_year = date(today.year - 1, 6, 15)
+
+        notes = [
+            MemoryNoteRow(
+                scope_name="Global",
+                note_name="note-today",
+                title="T1",
+                link_status="OK",
+                updated_on=today,
+            ),
+            MemoryNoteRow(
+                scope_name="Global",
+                note_name="note-yesterday",
+                title="T2",
+                link_status="OK",
+                updated_on=yesterday,
+            ),
+            MemoryNoteRow(
+                scope_name="Global",
+                note_name="note-lastyear",
+                title="T3",
+                link_status="OK",
+                updated_on=last_year,
+            ),
+        ]
+        rendered = render_memory_notes_table(notes, use_unicode=False, use_color=False)
+        self.assertIn("Updated", rendered)
+        self.assertIn("today", rendered)
+        self.assertIn("yesterday", rendered)
+        self.assertIn(last_year.isoformat(), rendered)
+
+    def test_status_report_full_layout(self) -> None:
+        p1 = ProjectSummary(
+            name="aikito",
+            path=Path("/Users/user/aikito"),
+            config_path=Path("/Users/user/aikito/agent.toml"),
+            sync_mode="link",
+            instructions_status="OK",
+            skills_count=1,
+            memory_notes_count=12,
+            runtime_status="OK",
+        )
+        p2 = ProjectSummary(
+            name="infra",
+            path=Path("/Users/user/infra"),
+            config_path=Path("/Users/user/infra/agent.toml"),
+            sync_mode="copy",
+            instructions_status="DRIFT",
+            skills_count=6,
+            memory_notes_count=21,
+            runtime_status="DRIFT",
+        )
+        global_summary = GlobalSummary(
+            status="OK",
+            instr="24L",
+            skills_count=12,
+            memory_notes_count=6,
+            mcp_count="1",
+            subagent_count="3",
+        )
+        report_data = StatusReportData(
+            agents=[],
+            memories=[],
+            projects=[p1, p2],
+            global_summary=global_summary,
+            consumers=["claude", "copilot"],
+        )
+        rendered_ascii = render_status_report(
+            report_data,
+            is_tty=False,
+            no_color=True,
+            workspace="/Users/user/aikito",
+            workspace_source="default",
+            home=Path("/Users/user"),
+        )
+        self.assertIn("Project", rendered_ascii)
+        self.assertIn("Instr", rendered_ascii)
+        self.assertIn("Skills", rendered_ascii)
+        self.assertIn("Memory", rendered_ascii)
+        self.assertIn("Paths", rendered_ascii)
+        self.assertIn("Mode", rendered_ascii)
+        self.assertIn("Status", rendered_ascii)
+        self.assertTrue(
+            rendered_ascii.index("Project")
+            < rendered_ascii.index("Instr")
+            < rendered_ascii.index("Skills")
+            < rendered_ascii.index("Memory")
+            < rendered_ascii.index("Paths")
+            < rendered_ascii.index("Mode")
+            < rendered_ascii.index("Status")
+        )
+        self.assertIn("aikito", rendered_ascii)
+        self.assertIn("infra", rendered_ascii)
+        self.assertIn("! drift", rendered_ascii)
+        self.assertIn(
+            "Global: v · Instr 24L · Skills 12 · Memory 6 · MCP 1 · Sub 3",
+            rendered_ascii,
+        )
+        self.assertIn("Consumers (2): claude · copilot", rendered_ascii)
+        self.assertIn("All in one workspace: ~/aikito (default)", rendered_ascii)
+
+        rendered_tty = render_status_report(
+            report_data,
+            is_tty=True,
+            no_color=False,
+            workspace="/Users/user/aikito",
+            workspace_source="configured",
+            home=Path("/Users/user"),
+        )
+        self.assertIn(
+            "\033[1mAll in one workspace: ~/aikito\033[0m (configured)", rendered_tty
+        )
+        self.assertIn("Global: \033[32m✓\033[0m", rendered_tty)
 
 
 if __name__ == "__main__":

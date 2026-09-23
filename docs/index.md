@@ -1,4 +1,4 @@
 ---
-title: One context. Many agents.
+title: One workspace. Many agents.
 template: home.html
 ---

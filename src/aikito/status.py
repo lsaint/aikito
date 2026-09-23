@@ -28,9 +28,14 @@ from .mcp import (
 )
 from .memory import extract_note_title
 from .memory_runtime import build_project_memory_batch, plan_project_memory
-from .project import resolve_project_binding
+from .project import (
+    collect_project_summaries,
+    get_instructions_line_count_display,
+    resolve_project_binding,
+)
 from .render import (
     AgentStatusRow,
+    GlobalSummary,
     MCPServerRow,
     MemoryNoteRow,
     MemoryStatusRow,
@@ -38,6 +43,7 @@ from .render import (
     SkillRow,
     StatusReportData,
     SubagentRow,
+    get_consumer_display_name,
 )
 from .subagent import SubagentConfigError, build_subagent_plan
 
@@ -677,6 +683,46 @@ def get_status_report_data(aikito_dir: Path, home: Path) -> StatusReportData:
     total_skills_count = len(skills_list)
     total_issues = agent_issues + mem_issues
 
+    # Global scope row
+    global_instr = get_instructions_line_count_display(aikito_dir / "AGENTS.md")
+    global_notes_count = (
+        memory_rows[0].notes_count
+        if memory_rows and memory_rows[0].scope.lower() == "global"
+        else 0
+    )
+    global_mem_status = (
+        memory_rows[0].status
+        if memory_rows and memory_rows[0].scope.lower() == "global"
+        else "OK"
+    )
+    global_mem_issues = (
+        1 if global_mem_status not in ("OK", "EMPTY", "N/A", "SKIP") else 0
+    )
+    global_issues = agent_issues + global_mem_issues
+    if global_issues == 0:
+        global_status = "OK"
+    else:
+        issue_label = "issue" if global_issues == 1 else "issues"
+        global_status = f"! {global_issues} {issue_label}"
+
+    global_mcp_str = str(total_mcp) if total_mcp > 0 else "-"
+    global_sub_str = str(total_subagents) if total_subagents > 0 else "-"
+
+    global_summary = GlobalSummary(
+        status=global_status,
+        instr=global_instr,
+        skills_count=total_skills_count,
+        memory_notes_count=global_notes_count,
+        mcp_count=global_mcp_str,
+        subagent_count=global_sub_str,
+    )
+
+    projects = collect_project_summaries(aikito_dir, home)
+
+    consumer_names = sorted(
+        dict.fromkeys(get_consumer_display_name(a.agent_name) for a in agent_rows)
+    )
+
     return StatusReportData(
         agents=agent_rows,
         memories=memory_rows,
@@ -685,6 +731,9 @@ def get_status_report_data(aikito_dir: Path, home: Path) -> StatusReportData:
         total_skills_count=total_skills_count,
         total_memory_notes=total_memory_notes,
         issues_count=total_issues,
+        consumers=consumer_names,
+        projects=projects,
+        global_summary=global_summary,
     )
 
 
@@ -824,12 +873,17 @@ def collect_memory_notes_rows(
         global_notes_dir = aikito_dir / "memory" / "notes"
         if global_notes_dir.is_dir():
             for note_file in sorted(global_notes_dir.glob("*.md")):
+                try:
+                    updated_on = date.fromtimestamp(note_file.stat().st_mtime)
+                except OSError:
+                    updated_on = None
                 rows.append(
                     MemoryNoteRow(
                         scope_name="Global",
                         note_name=note_file.stem,
                         title=extract_note_title(note_file),
                         link_status="SKIP",
+                        updated_on=updated_on,
                     )
                 )
 
@@ -866,12 +920,17 @@ def collect_memory_notes_rows(
 
                     if proj_notes.is_dir():
                         for p_note in sorted(proj_notes.glob("*.md")):
+                            try:
+                                updated_on = date.fromtimestamp(p_note.stat().st_mtime)
+                            except OSError:
+                                updated_on = None
                             rows.append(
                                 MemoryNoteRow(
                                     scope_name=proj_folder.name,
                                     note_name=p_note.stem,
                                     title=extract_note_title(p_note),
                                     link_status=link_st,
+                                    updated_on=updated_on,
                                 )
                             )
 
