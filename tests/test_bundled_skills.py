@@ -59,7 +59,11 @@ class BundledSkillRefreshTest(unittest.TestCase):
         for name in BUNDLED_SKILL_NAMES:
             skill_dir = self.skills / name
             for skill_file in skill_dir.rglob("*.md"):
-                content = skill_file.read_bytes().replace(b"\n", b"\r\n")
+                content = (
+                    skill_file.read_bytes()
+                    .replace(b"\r\n", b"\n")
+                    .replace(b"\n", b"\r\n")
+                )
                 skill_file.write_bytes(content)
 
         self.assertEqual(outdated_bundled_skills(self.workspace), ())
