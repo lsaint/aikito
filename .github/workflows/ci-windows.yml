@@ -705,12 +705,12 @@ jobs:
             if ($showOut -notmatch "\[aikito\] Target project: 'cwd-proj' \(detected from cwd\)") {
               throw "show project did not detect cwd-proj from cwd"
             }
-            if ($showOut -notmatch "Project: cwd-proj") {
+            if ($showOut -notmatch "Project:\s+cwd-proj") {
               throw "show project did not display project cwd-proj"
             }
 
             $showDotOut = python -m aikito show project . | Out-String
-            if ($showDotOut -notmatch "Project: cwd-proj") {
+            if ($showDotOut -notmatch "Project:\s+cwd-proj") {
               throw "show project . did not display project cwd-proj"
             }
 

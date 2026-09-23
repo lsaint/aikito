@@ -1320,10 +1320,10 @@ jobs:
             cd "$CWD_PROJ"
             AIKITO_DIR="$WS" python3 -m aikito show project | tee ${{ runner.temp }}/cwd-show.out
             grep -F "[aikito] Target project: 'cwd-proj' (detected from cwd)" ${{ runner.temp }}/cwd-show.out
-            grep -F "Project: cwd-proj" ${{ runner.temp }}/cwd-show.out
+            grep -E "Project:\s+cwd-proj" ${{ runner.temp }}/cwd-show.out
 
             AIKITO_DIR="$WS" python3 -m aikito show project . | tee ${{ runner.temp }}/cwd-show-dot.out
-            grep -F "Project: cwd-proj" ${{ runner.temp }}/cwd-show-dot.out
+            grep -E "Project:\s+cwd-proj" ${{ runner.temp }}/cwd-show-dot.out
           )
 
           # 3. diff inside project directory scopes to project, and diff --all includes all projects
