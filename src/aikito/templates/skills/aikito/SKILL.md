@@ -1,6 +1,6 @@
 ---
 name: aikito
-description: Install, configure, and operate Aikito workspaces, including memory, skills, project resources, MCP servers, subagents, adoption, synchronization, and status verification.
+description: Operate Aikito workspaces and resources, including reading inbox notes, managing memory, skills, projects, MCP servers, subagents, and synchronization.
 ---
 
 # Aikito
@@ -96,7 +96,8 @@ Use `aikito <command> --help` for exact arguments.
   `aikito show subagent`, and `aikito sync subagents`.
 - Memory: `aikito show|edit|rename|rm memory`; use the `durable-memory` skill to
   decide scope, content, and versioning.
-- Inbox notes: `aikito show|edit|rm inbox`.
+- Inbox notes: use `aikito show inbox <name>.md` to read a named note, or
+  `aikito show inbox` to list notes. Use `aikito edit|rm inbox` for changes.
 
 Read [references/projects.md](references/projects.md) when registering or
 synchronizing projects, choosing `sync_mode`, handling multi-machine paths, or
