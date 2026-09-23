@@ -533,6 +533,17 @@ jobs:
           AIKITO_DIR="$WS" python3 -m aikito rm mcp p7-mcp-2 --sync
           ! grep -q "p7_mcp_2" ~/.codex/config.toml
 
+          # 8. Agents without MCP support (pi) are skipped, not read as '.'
+          AIKITO_DIR="$WS" python3 -m aikito add mcp p7-mcp-pi --url "https://example.com/p7-pi" --agents codex,pi
+          test -f "$WS/mcps/p7-mcp-pi.toml"
+          AIKITO_DIR="$WS" python3 -m aikito sync mcp --dry-run | tee ${{ runner.temp }}/mcp-pi-dryrun.out
+          grep -F "[SKIP] pi/p7-mcp-pi: MCP synchronization is not supported for agent 'pi'" ${{ runner.temp }}/mcp-pi-dryrun.out
+          AIKITO_DIR="$WS" python3 -m aikito sync mcp
+          grep -q "p7_mcp_pi" ~/.codex/config.toml
+          AIKITO_DIR="$WS" python3 -m aikito rm mcp p7-mcp-pi --sync
+          test ! -e "$WS/mcps/p7-mcp-pi.toml"
+          ! grep -q "p7_mcp_pi" ~/.codex/config.toml
+
       - name: Refresh divergent bundled skills
         run: |
           python3 -c "from pathlib import Path; [p.write_bytes(p.read_bytes().replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')) for p in Path('${{ runner.temp }}/aikito-ws/skills').rglob('*.md')]"

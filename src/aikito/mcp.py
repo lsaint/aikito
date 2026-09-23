@@ -2535,8 +2535,29 @@ def build_mcp_plan(
 
     groups: dict[str, list[AgentSpec]] = defaultdict(list)
     canonical_paths: dict[str, Path] = {}
+    unsupported_operations: list[MCPOperation] = []
 
     for s in raw_specs:
+        if s.config_format == "unsupported":
+            # Unsupported agents never own a config file: skip without reading,
+            # grouping, or collision-checking their (possibly empty) path.
+            unsupported_operations.append(
+                MCPOperation(
+                    target=MCPConfigTarget(
+                        path=s.config_path,
+                        logical_identity=s.server,
+                        key_path=("mcpServers", s.target_name),
+                        format=s.config_format,
+                        agent=s.agent,
+                        target_name=s.target_name,
+                    ),
+                    action="SKIP",
+                    reason=s.reason or "MCP synchronization is not supported",
+                    spec=s,
+                    is_authorized=True,
+                )
+            )
+            continue
         phys_id = resolve_physical_identity(s.config_path)
         groups[phys_id].append(s)
         if phys_id not in canonical_paths:
@@ -2877,6 +2898,7 @@ def build_mcp_plan(
         )
         file_plans.append(file_plan)
 
+    all_operations.extend(unsupported_operations)
     return MCPPlan(
         operations=tuple(all_operations),
         file_plans=tuple(file_plans),

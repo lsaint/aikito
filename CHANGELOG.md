@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `aikito sync mcp` (and `aikito sync`, `aikito rm mcp --sync`) no longer crashes with `Is a directory: '.'` or a format collision when an MCP server targets an Agent without MCP support (for example `pi`, or `config_format = "unsupported"`); such Agents are now reported as `[SKIP]`.
+
 ### Changed
 
 - Internal: moved `AgentDefinition` and the canonical Agent loader (`load_agent_definitions`) from `aikito.mcp` to `aikito.agents`; `aikito.mcp.load_agents` and Agent-symbol re-exports from `aikito.mcp` were removed. User-visible CLI behavior is unchanged.

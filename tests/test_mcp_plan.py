@@ -70,6 +70,55 @@ name_style = "verbatim"
     def tearDown(self) -> None:
         shutil.rmtree(self.test_dir, ignore_errors=True)
 
+    def test_unsupported_agents_skip_without_reading_or_colliding(self) -> None:
+        """Unsupported agents must not read '.' or collide with shared config files."""
+        with (self.ws / "agents.toml").open("a", encoding="utf-8") as fh:
+            fh.write(
+                """
+[agents.bare]
+display_name = "Bare"
+
+[agents.legacy]
+display_name = "Legacy"
+
+[agents.legacy.mcp]
+config_path = ".claude.json"
+config_format = "unsupported"
+reason = "Legacy has no MCP"
+"""
+            )
+        (self.mcps_dir / "docs.toml").write_text(
+            'transport = "remote"\n'
+            'url = "https://example.com/mcp"\n'
+            'agents = ["claude", "bare", "legacy"]\n',
+            encoding="utf-8",
+        )
+        (self.home / ".claude").mkdir(exist_ok=True)
+
+        plan = build_mcp_plan(self.ws, self.home)
+
+        actions = {op.target.agent: (op.action, op.reason) for op in plan.operations}
+        self.assertEqual(actions["claude"][0], "CREATE")
+        self.assertEqual(
+            actions["bare"],
+            ("SKIP", "MCP synchronization is not supported for agent 'bare'"),
+        )
+        self.assertEqual(actions["legacy"], ("SKIP", "Legacy has no MCP"))
+        self.assertEqual(
+            [fp.path for fp in plan.file_plans], [self.home / ".claude.json"]
+        )
+        self.assertTrue(plan.can_apply)
+
+        result = execute_mcp_plan(plan, self.home, output=lambda _line: None)
+        self.assertTrue(result.success)
+        self.assertEqual(result.skipped_count, 2)
+        self.assertIn(
+            "docs",
+            json.loads((self.home / ".claude.json").read_text(encoding="utf-8"))[
+                "mcpServers"
+            ],
+        )
+
     def test_pure_planning_does_not_mutate_disk_or_state(self) -> None:
         """build_mcp_plan must be completely side-effect free (INV-MCP-01, INV-MCP-02)."""
         (self.mcps_dir / "server-a.toml").write_text(
