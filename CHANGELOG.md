@@ -7,12 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.51.0] - 2026-09-24
+
+### Added
+
+- Domain-owned Plan Observation layer: Introduced a thin, read-only semantic boundary (`PlanObservation`, `safe_observe_plan`) separating internal domain planning representations from cross-domain workspace aggregation.
+- Application architecture invariants `INV-APP-10` through `INV-APP-13`: Formalized domain-owned observation requirements, lossless composite error propagation, fail-closed invalid observation handling, and observation-driven execution gate enforcement.
+
 ### Fixed
 
 - `aikito sync mcp` (and `aikito sync`, `aikito rm mcp --sync`) no longer crashes with `Is a directory: '.'` or a format collision when an MCP server targets an Agent without MCP support (for example `pi`, or `config_format = "unsupported"`); such Agents are now reported as `[SKIP]`.
 
 ### Changed
 
+- Workspace synchronization architecture: Unified `WorkspaceSyncPlan` and `WorkspaceSyncPreview` observation pipelines through domain-owned `observe()` methods across skill, link, instructions, subagent, MCP, and memory runtimes, eliminating duplicate diagnostic synthesis and ensuring preview consistency.
 - Internal: moved `AgentDefinition` and the canonical Agent loader (`load_agent_definitions`) from `aikito.mcp` to `aikito.agents`; `aikito.mcp.load_agents` and Agent-symbol re-exports from `aikito.mcp` were removed. User-visible CLI behavior is unchanged.
 - Internal: `AgentDefinition` now models MCP support as a composed `MCPCapability` (`AgentDefinition.mcp`) instead of flat `mcp_*` fields; `supports_mcp` was removed. User-visible CLI behavior is unchanged.
 
@@ -920,7 +928,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.50.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.51.0...HEAD
+[1.51.0]: https://github.com/lsaint/aikito/compare/v1.50.0...v1.51.0
 [1.50.0]: https://github.com/lsaint/aikito/compare/v1.49.1...v1.50.0
 [1.49.1]: https://github.com/lsaint/aikito/compare/v1.49.0...v1.49.1
 [1.49.0]: https://github.com/lsaint/aikito/compare/v1.48.0...v1.49.0
