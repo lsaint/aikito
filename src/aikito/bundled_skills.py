@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TextIO
 
+from .compat import normalize_file_bytes
 from .templating import BUNDLED_SKILL_NAMES, bundled_skill_path
 
 
@@ -36,7 +37,7 @@ def _directory_digest(root: Path) -> str | None:
             content = b""
         elif path.is_file():
             kind = b"file"
-            content = path.read_bytes()
+            content = normalize_file_bytes(path.read_bytes()) or b""
         else:
             kind = b"other"
             content = b""

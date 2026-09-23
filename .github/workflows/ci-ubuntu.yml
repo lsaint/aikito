@@ -535,6 +535,14 @@ jobs:
 
       - name: Refresh divergent bundled skills
         run: |
+          python3 -c "from pathlib import Path; [p.write_bytes(p.read_bytes().replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')) for p in Path('${{ runner.temp }}/aikito-ws/skills').rglob('*.md')]"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito status \
+            2> ${{ runner.temp }}/bundled-skill-crlf.err
+          if grep -F "Bundled skill snapshot differs" ${{ runner.temp }}/bundled-skill-crlf.err; then
+            echo "CRLF line endings unexpectedly triggered bundled skill notice" >&2
+            exit 1
+          fi
           printf 'customized aikito\n' > \
             ${{ runner.temp }}/aikito-ws/skills/aikito/SKILL.md
           printf 'customized memory\n' > \

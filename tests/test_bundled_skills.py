@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aikito.bundled_skills import (
+    directory_digest,
     outdated_bundled_skills,
     print_bundled_skill_notice,
     refresh_bundled_skills,
@@ -39,6 +40,29 @@ class BundledSkillRefreshTest(unittest.TestCase):
             (),
         )
         self.assertFalse((self.home / ".aikito").exists())
+
+    def test_directory_digest_normalizes_crlf_and_lf(self) -> None:
+        crlf_dir = self.root / "crlf_skill"
+        lf_dir = self.root / "lf_skill"
+        crlf_dir.mkdir()
+        lf_dir.mkdir()
+
+        (crlf_dir / "SKILL.md").write_bytes(b"# Title\r\n\r\nSome instruction.\r\n")
+        (lf_dir / "SKILL.md").write_bytes(b"# Title\n\nSome instruction.\n")
+
+        self.assertEqual(
+            directory_digest(crlf_dir),
+            directory_digest(lf_dir),
+        )
+
+    def test_outdated_bundled_skills_ignores_crlf_differences(self) -> None:
+        for name in BUNDLED_SKILL_NAMES:
+            skill_dir = self.skills / name
+            for skill_file in skill_dir.rglob("*.md"):
+                content = skill_file.read_bytes().replace(b"\n", b"\r\n")
+                skill_file.write_bytes(content)
+
+        self.assertEqual(outdated_bundled_skills(self.workspace), ())
 
     def test_notice_reports_only_selected_divergent_skill(self) -> None:
         (self.skills / "aikito" / "SKILL.md").write_text(

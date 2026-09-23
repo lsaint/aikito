@@ -194,6 +194,17 @@ jobs:
           }
           $env:HOME = $origHome
           $env:USERPROFILE = $origProfile
+          Get-ChildItem -Path (Join-Path $wsDir "skills") -Filter "*.md" -Recurse | ForEach-Object {
+            $text = [System.IO.File]::ReadAllText($_.FullName)
+            $crlfText = $text.Replace("`r`n", "`n").Replace("`n", "`r`n")
+            [System.IO.File]::WriteAllText($_.FullName, $crlfText)
+          }
+          $crlfStatusError = Join-Path $env:RUNNER_TEMP "bundled-skill-crlf.err"
+          python -m aikito status 2> $crlfStatusError | Out-Null
+          if (Select-String -Path $crlfStatusError -Pattern "Bundled skill snapshot differs") {
+            $errContent = Get-Content $crlfStatusError -Raw
+            throw "Status reported divergent bundled skills due to CRLF line endings: $errContent"
+          }
           $aikitoSkill = Join-Path $wsDir "skills\aikito\SKILL.md"
           $memorySkill = Join-Path $wsDir "skills\durable-memory\SKILL.md"
           "customized aikito" | Set-Content $aikitoSkill
