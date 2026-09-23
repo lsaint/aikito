@@ -16,11 +16,14 @@ from pathlib import Path
 from typing import Any
 
 from .compat import safe_symlink
+from .diagnostics import Finding
 from .link import (
     LinkOperation,
     apply_link_operation,
     inspect_link_target,
+    observe_link_operation,
 )
+from .plan_observation import PlanObservation, PlanOperationView
 
 
 @dataclass(frozen=True)
@@ -99,6 +102,27 @@ class MemoryPlan:
     @property
     def findings(self) -> tuple[str, ...]:
         return tuple(op.finding for op in self.operations if op.finding is not None)
+
+    def observe(self) -> PlanObservation:
+        """Project plan into a pure PlanObservation."""
+        views: list[PlanOperationView] = []
+        findings: list[Finding] = []
+        for op in self.operations:
+            view, finding = observe_link_operation(
+                op,
+                resource_type="memory",
+                scope="project",
+                project=self.batch.project_name or "",
+                default_code="MEMORY_CONFLICT",
+            )
+            views.append(view)
+            if finding is not None:
+                findings.append(finding)
+        return PlanObservation(
+            operations=tuple(views),
+            findings=tuple(findings),
+            can_apply=self.can_apply,
+        )
 
 
 @dataclass(frozen=True)

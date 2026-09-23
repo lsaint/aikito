@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from pathlib import Path
 
 from aikito.diagnostics import (
     Finding,
@@ -246,3 +247,204 @@ def test_observable_plan_protocol() -> None:
 
     assert isinstance(DummyPlan(), ObservablePlan)
     assert not isinstance(NonObservable(), ObservablePlan)
+
+
+def test_link_operation_effect_mappings() -> None:
+    
+    from aikito.link import LinkOperation, link_operation_effect
+    from aikito.plan_observation import UnknownPlanActionError
+
+    target = Path("/tmp/t")
+
+    def _op(action: str) -> LinkOperation:
+        return LinkOperation(action=action, rule_id="R1", target_path=target)
+
+    assert link_operation_effect(_op("CREATE")) == OperationEffect.CREATE
+    assert link_operation_effect(_op("UNLINK")) == OperationEffect.REMOVE
+    assert link_operation_effect(_op("MIGRATE_CONTAINER")) == OperationEffect.UPDATE
+    assert link_operation_effect(_op("NOOP")) == OperationEffect.NOOP
+    assert link_operation_effect(_op("SHARED_PATH")) == OperationEffect.SKIP
+    assert link_operation_effect(_op("SKIP")) == OperationEffect.SKIP
+    assert link_operation_effect(_op("CONFLICT")) == OperationEffect.NONE
+
+    with pytest.raises(UnknownPlanActionError):
+        link_operation_effect(_op("MYSTERY_ACTION"))
+
+
+def test_link_operation_finding() -> None:
+    
+    from aikito.link import LinkOperation, link_operation_finding
+
+    target = Path("/tmp/t")
+    op_conflict = LinkOperation(
+        action="CONFLICT",
+        rule_id="RULE-42",
+        target_path=target,
+        finding="custom finding",
+    )
+    finding = link_operation_finding(op_conflict)
+    assert finding is not None
+    assert finding.status == "CONFLICT"
+    assert finding.code == "RULE-42"
+    assert finding.message == "custom finding"
+    assert finding.resource == str(target)
+
+    op_create = LinkOperation(action="CREATE", rule_id="R", target_path=target)
+    assert link_operation_finding(op_create) is None
+
+
+def test_observe_link_operation_fallback_on_unknown() -> None:
+    
+    from aikito.link import LinkOperation, observe_link_operation
+
+    target = Path("/tmp/t")
+    op_bad = LinkOperation(action="BAD_ACTION", rule_id="R", target_path=target)
+    view, finding = observe_link_operation(op_bad, resource_type="global_skill")
+
+    assert view.effect == OperationEffect.NONE
+    assert view.domain_action == "BAD_ACTION"
+    assert finding is not None
+    assert finding.status == "ERROR"
+    assert finding.code == "UNKNOWN_PLAN_ACTION"
+
+
+def test_global_skill_batch_plan_observe(tmp_path: Path) -> None:
+    from aikito.agents import Target
+    from aikito.global_skills import GlobalSkillBatch, GlobalSkillBatchPlan
+    from aikito.link import LinkOperation
+
+    dummy_target = Target(
+        kind="managed_container",
+        scope="global",
+        path=tmp_path / "skills",
+    )
+    batch = GlobalSkillBatch(
+        workspace_root=tmp_path,
+        container=dummy_target,
+        selected_entries=(),
+        stale_entries=(),
+        consumers=(),
+    )
+    container_op = LinkOperation(
+        action="NOOP",
+        rule_id="C1",
+        target_path=tmp_path / "skills",
+    )
+    entry_op = LinkOperation(
+        action="CREATE",
+        rule_id="E1",
+        target_path=tmp_path / "skills" / "my-skill",
+        resource_name="my-skill",
+    )
+    plan = GlobalSkillBatchPlan(
+        batch=batch,
+        container_op=container_op,
+        entry_ops=(entry_op,),
+        consumer_ops=(),
+    )
+
+    obs = plan.observe()
+    assert isinstance(obs, PlanObservation)
+    assert len(obs.operations) == 2
+    assert obs.operations[0].effect == OperationEffect.NOOP
+    assert obs.operations[1].effect == OperationEffect.CREATE
+    assert obs.operations[1].resource_name == "my-skill"
+    assert obs.operations[1].resource_type == "global_skill"
+    assert obs.summary.creates == 1
+    assert obs.summary.unchanged == 1
+    assert obs.can_apply is True
+
+
+def test_instruction_plan_observe(tmp_path: Path) -> None:
+    from aikito.instructions import InstructionBatch, InstructionPlan
+    from aikito.link import LinkOperation
+
+    batch = InstructionBatch(
+        scope="project",
+        canonical_source=tmp_path / "AGENTS.md",
+        project_name="projA",
+    )
+    inst_op = LinkOperation(
+        action="CONFLICT",
+        rule_id="INST-1",
+        target_path=tmp_path / "target.md",
+        reason="Target diverged",
+        resource_name="AGENTS.md",
+    )
+    plan = InstructionPlan(batch=batch, operations=(inst_op,))
+
+    obs = plan.observe()
+    assert isinstance(obs, PlanObservation)
+    assert len(obs.operations) == 1
+    assert obs.operations[0].effect == OperationEffect.NONE
+    assert obs.operations[0].resource_type == "instruction"
+    assert obs.operations[0].project == "projA"
+    assert len(obs.findings) == 1
+    assert obs.findings[0].code == "INST-1"
+    assert obs.findings[0].status == "CONFLICT"
+    assert obs.summary.conflicts == 1
+    assert obs.can_apply is False
+
+
+def test_memory_plan_observe(tmp_path: Path) -> None:
+    from aikito.link import LinkOperation
+    from aikito.memory_runtime import MemoryBatch, MemoryPlan
+
+    batch = MemoryBatch(
+        workspace_root=tmp_path,
+        project_name="projB",
+        active_checkouts=(),
+    )
+    mem_op = LinkOperation(
+        action="UNLINK",
+        rule_id="MEM-1",
+        target_path=tmp_path / "mem_symlink",
+        resource_name="memory-ref",
+    )
+    plan = MemoryPlan(batch=batch, operations=(mem_op,))
+
+    obs = plan.observe()
+    assert isinstance(obs, PlanObservation)
+    assert len(obs.operations) == 1
+    assert obs.operations[0].effect == OperationEffect.REMOVE
+    assert obs.operations[0].resource_type == "memory"
+    assert obs.operations[0].project == "projB"
+    assert obs.summary.removes == 1
+    assert obs.summary.changes == 1
+    assert obs.can_apply is True
+
+
+def test_bundled_skill_refresh_plan_observe() -> None:
+    from aikito.workspace_sync import (
+        BundledSkillRefreshOperation,
+        BundledSkillRefreshPlan,
+    )
+
+    op_refresh = BundledSkillRefreshOperation(
+        skill_name="skill1",
+        action="REFRESH",
+        reason="Diverged",
+    )
+    op_noop = BundledSkillRefreshOperation(
+        skill_name="skill2",
+        action="NOOP",
+        reason="Up to date",
+    )
+    plan = BundledSkillRefreshPlan(
+        operations=(op_refresh, op_noop),
+        refreshed_names=("skill1",),
+        can_apply=True,
+    )
+
+    obs = plan.observe()
+    assert isinstance(obs, PlanObservation)
+    assert len(obs.operations) == 2
+    assert obs.operations[0].effect == OperationEffect.UPDATE
+    assert obs.operations[0].domain_action == "REFRESH"
+    assert obs.operations[0].resource_type == "bundled_skill"
+    assert obs.operations[1].effect == OperationEffect.NOOP
+    assert obs.summary.updates == 1
+    assert obs.summary.unchanged == 1
+    assert obs.summary.changes == 1
+    assert obs.can_apply is True
+

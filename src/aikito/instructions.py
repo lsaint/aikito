@@ -8,12 +8,15 @@ from pathlib import Path
 
 from .agents import AgentRegistry, Target, check_target_availability, resolve_targets
 from .compat import is_same_target_location
+from .diagnostics import Finding
 from .link import (
     LinkOperation,
     apply_link_operation,
     inspect_link_target,
+    observe_link_operation,
     plan_link_target,
 )
+from .plan_observation import PlanObservation, PlanOperationView
 
 
 @dataclass(frozen=True)
@@ -91,6 +94,27 @@ class InstructionPlan:
     @property
     def findings(self) -> tuple[str, ...]:
         return tuple(op.finding for op in self.operations if op.finding is not None)
+
+    def observe(self) -> PlanObservation:
+        """Project plan into a pure PlanObservation."""
+        views: list[PlanOperationView] = []
+        findings: list[Finding] = []
+        for op in self.operations:
+            view, finding = observe_link_operation(
+                op,
+                resource_type="instruction",
+                scope=self.batch.scope,
+                project=self.batch.project_name or "",
+                default_code="INSTRUCTION_CONFLICT",
+            )
+            views.append(view)
+            if finding is not None:
+                findings.append(finding)
+        return PlanObservation(
+            operations=tuple(views),
+            findings=tuple(findings),
+            can_apply=self.can_apply,
+        )
 
 
 @dataclass(frozen=True)

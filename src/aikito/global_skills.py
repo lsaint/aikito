@@ -8,14 +8,17 @@ from pathlib import Path
 from typing import Container, Sequence
 
 from .agents import AgentRegistry, Target, check_target_availability, resolve_targets
+from .diagnostics import Finding
 from .link import (
     LinkExecutionResult,
     LinkOperation,
     ObservedLink,
     apply_link_operation,
     inspect_link_target,
+    observe_link_operation,
     plan_link_target,
 )
+from .plan_observation import PlanObservation, PlanOperationView
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -118,6 +121,26 @@ class GlobalSkillBatchPlan:
     @property
     def skip_count(self) -> int:
         return sum(1 for op in self.all_operations if op.action == "SKIP")
+
+    def observe(self) -> PlanObservation:
+        """Project plan into a pure PlanObservation."""
+        views: list[PlanOperationView] = []
+        findings: list[Finding] = []
+        for op in self.all_operations:
+            view, finding = observe_link_operation(
+                op,
+                resource_type="global_skill",
+                scope="global",
+                default_code="SKILL_CONFLICT",
+            )
+            views.append(view)
+            if finding is not None:
+                findings.append(finding)
+        return PlanObservation(
+            operations=tuple(views),
+            findings=tuple(findings),
+            can_apply=self.can_apply,
+        )
 
 
 @dataclass(frozen=True)

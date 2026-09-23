@@ -38,6 +38,7 @@ from .mcp import (
     build_mcp_plan,
     execute_mcp_plan,
 )
+from .plan_observation import OperationEffect, PlanObservation, PlanOperationView
 from .project import resolve_project_binding
 from .project_sync import (
     ProjectSyncBatch,
@@ -72,6 +73,43 @@ class BundledSkillRefreshPlan:
     can_apply: bool = True
     replan_required: bool = False
     error_message: str | None = None
+
+    def observe(self) -> PlanObservation:
+        """Project plan into a pure PlanObservation."""
+        views: list[PlanOperationView] = []
+        for op in self.operations:
+            effect = (
+                OperationEffect.UPDATE
+                if op.action == "REFRESH"
+                else OperationEffect.NOOP
+            )
+            views.append(
+                PlanOperationView(
+                    resource_type="bundled_skill",
+                    resource_name=op.skill_name,
+                    effect=effect,
+                    scope="global",
+                    target=op.skill_name,
+                    reason=op.reason,
+                    domain_action=op.action,
+                    authorized=True,
+                )
+            )
+        findings: list[Finding] = []
+        if self.error_message:
+            findings.append(
+                Finding(
+                    status="ERROR",
+                    code="BUNDLED_REFRESH_ERROR",
+                    message=self.error_message,
+                    resource="bundled_skills",
+                )
+            )
+        return PlanObservation(
+            operations=tuple(views),
+            findings=tuple(findings),
+            can_apply=self.can_apply,
+        )
 
 
 @dataclass(frozen=True)

@@ -20,6 +20,8 @@ from .compat import (
     require_symlink_support,
     safe_symlink,
 )
+from .diagnostics import Finding
+from .plan_observation import OperationEffect, PlanOperationView, UnknownPlanActionError
 
 
 @dataclass(frozen=True)
@@ -59,6 +61,81 @@ class LinkOperation:
     is_same_object: bool = False
     target_kind: str = "managed_entry"
     resource_name: str = ""
+
+
+def link_operation_effect(op: LinkOperation) -> OperationEffect:
+    """Map link action to canonical OperationEffect."""
+    match op.action:
+        case "CREATE":
+            return OperationEffect.CREATE
+        case "UNLINK":
+            return OperationEffect.REMOVE
+        case "MIGRATE_CONTAINER":
+            return OperationEffect.UPDATE
+        case "NOOP":
+            return OperationEffect.NOOP
+        case "SHARED_PATH" | "SKIP":
+            return OperationEffect.SKIP
+        case "CONFLICT":
+            return OperationEffect.NONE
+        case _:
+            raise UnknownPlanActionError(f"Unhandled link action: {op.action}")
+
+
+def link_operation_finding(
+    op: LinkOperation,
+    *,
+    default_code: str = "LINK_CONFLICT",
+) -> Finding | None:
+    """Produce a structured Finding if the link operation is a conflict."""
+    if op.action == "CONFLICT":
+        return Finding(
+            status="CONFLICT",
+            code=op.rule_id or default_code,
+            message=op.finding or op.reason,
+            resource=str(op.target_path),
+        )
+    return None
+
+
+def observe_link_operation(
+    op: LinkOperation,
+    *,
+    resource_type: str,
+    resource_name: str | None = None,
+    scope: str = "",
+    project: str = "",
+    agent: str = "",
+    default_code: str = "LINK_CONFLICT",
+) -> tuple[PlanOperationView, Finding | None]:
+    """Project a LinkOperation into a PlanOperationView and an optional Finding."""
+    try:
+        effect = link_operation_effect(op)
+        finding = link_operation_finding(op, default_code=default_code)
+    except UnknownPlanActionError as err:
+        effect = OperationEffect.NONE
+        finding = Finding(
+            status="ERROR",
+            code="UNKNOWN_PLAN_ACTION",
+            message=str(err),
+            resource=str(op.target_path),
+        )
+
+    name = resource_name or op.resource_name or op.target_path.name
+    view = PlanOperationView(
+        resource_type=resource_type,
+        resource_name=name,
+        effect=effect,
+        scope=scope,
+        project=project,
+        agent=agent,
+        target=str(op.target_path),
+        source=str(op.canonical_path) if op.canonical_path else "",
+        reason=op.reason,
+        domain_action=op.action,
+        authorized=op.is_authorized,
+    )
+    return view, finding
 
 
 def inspect_link_target(
