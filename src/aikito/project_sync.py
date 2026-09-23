@@ -72,6 +72,8 @@ class ProjectSyncBatch:
     config_cas: CandidatePathCAS | None = None
     instruction_plan: InstructionPlan | None = None
     memory_plan: MemoryPlan | None = None
+    # Builders separate project-owned errors from legacy copies of child conflicts.
+    owned_preflight_findings: tuple[str, ...] | None = None
 
     def observe(self) -> PlanObservation:
         """Project batch and child plans into a PlanObservation with single-source diagnostic ownership."""
@@ -88,34 +90,14 @@ class ProjectSyncBatch:
             if m_obs is not None:
                 children.append(m_obs)
 
-        child_conflict_messages: set[str] = {
-            f.message
-            for child in children
-            for f in child.findings
-            if f.status == "CONFLICT"
-        }
-        if self.instruction_plan is not None:
-            for op in getattr(self.instruction_plan, "conflicts", ()):
-                msg = getattr(op, "finding", None) or getattr(op, "reason", None)
-                if msg:
-                    child_conflict_messages.add(msg)
-        if self.memory_plan is not None:
-            for op in getattr(self.memory_plan, "conflicts", ()):
-                msg = getattr(op, "finding", None) or getattr(op, "reason", None)
-                if msg:
-                    child_conflict_messages.add(msg)
-        if self.skill_plan is not None:
-            for op in getattr(self.skill_plan, "operations", ()):
-                if getattr(op, "finding", None):
-                    child_conflict_messages.add(op.finding)
-                if getattr(op, "action", None) == "CONFLICT" and getattr(
-                    op, "reason", None
-                ):
-                    child_conflict_messages.add(op.reason)
-
         project_findings: list[Finding] = []
-        for text in self.preflight_findings:
-            if text and text not in child_conflict_messages:
+        owned_preflight = (
+            self.owned_preflight_findings
+            if self.owned_preflight_findings is not None
+            else self.preflight_findings
+        )
+        for text in owned_preflight:
+            if text:
                 project_findings.append(
                     Finding(
                         status="ERROR",
@@ -315,6 +297,7 @@ def build_project_sync_batch(
     # Inspect skills and build operations across all checkouts
     all_operations: list[SkillOperation] = []
     extra_findings: list[str] = list(errors)
+    owned_preflight_findings: list[str] = list(errors)
 
     selected_skill_set = set(skills)
 
@@ -330,6 +313,7 @@ def build_project_sync_batch(
                 f"on case-insensitive filesystem at {agents_skills_dir}"
             )
             extra_findings.append(collision_msg)
+            owned_preflight_findings.append(collision_msg)
 
         # Enumerate union of selected skills and existing runtime entries/state
         state_doc, _ = load_project_skill_state(
@@ -433,6 +417,7 @@ def build_project_sync_batch(
         config_cas=config_cas,
         instruction_plan=instruction_plan,
         memory_plan=memory_plan,
+        owned_preflight_findings=tuple(owned_preflight_findings),
     )
 
 

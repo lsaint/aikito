@@ -88,12 +88,22 @@ class BundledSkillRefreshPlan:
     def observe(self) -> PlanObservation:
         """Project plan into a pure PlanObservation."""
         views: list[PlanOperationView] = []
+        findings: list[Finding] = []
         for op in self.operations:
-            effect = (
-                OperationEffect.UPDATE
-                if op.action == "REFRESH"
-                else OperationEffect.NOOP
-            )
+            if op.action == "REFRESH":
+                effect = OperationEffect.UPDATE
+            elif op.action == "NOOP":
+                effect = OperationEffect.NOOP
+            else:
+                effect = OperationEffect.NONE
+                findings.append(
+                    Finding(
+                        status="ERROR",
+                        code="UNKNOWN_PLAN_ACTION",
+                        message=f"Unhandled bundled refresh action: {op.action}",
+                        resource=op.skill_name,
+                    )
+                )
             views.append(
                 PlanOperationView(
                     resource_type="bundled_skill",
@@ -106,7 +116,6 @@ class BundledSkillRefreshPlan:
                     authorized=True,
                 )
             )
-        findings: list[Finding] = []
         if self.error_message:
             findings.append(
                 Finding(
@@ -116,10 +125,11 @@ class BundledSkillRefreshPlan:
                     resource="bundled_skills",
                 )
             )
+        can_apply = self.can_apply and not any(is_error_finding(f) for f in findings)
         return PlanObservation(
             operations=tuple(views),
             findings=tuple(findings),
-            can_apply=self.can_apply,
+            can_apply=can_apply,
         )
 
 
@@ -132,6 +142,8 @@ class GlobalSyncPlan:
     can_apply: bool = True
     replan_required_after_apply: bool = False
     error_message: str | None = None
+    # None treats findings on directly constructed plans as owned.
+    owned_findings: tuple[Finding, ...] | None = None
 
     def observe(self) -> PlanObservation:
         """Project global sync plan and child plans into a unified PlanObservation."""
@@ -146,28 +158,8 @@ class GlobalSyncPlan:
         if i_obs is not None:
             children.append(i_obs)
 
-        child_conflict_messages: set[str] = {
-            f.message
-            for child in children
-            for f in child.findings
-            if f.status == "CONFLICT"
-        }
-        if self.skill_plan is not None:
-            for op in getattr(self.skill_plan, "all_operations", ()):
-                if getattr(op, "action", None) == "CONFLICT":
-                    if getattr(op, "reason", None):
-                        child_conflict_messages.add(op.reason)
-                    if getattr(op, "finding", None):
-                        child_conflict_messages.add(op.finding)
-        if self.instruction_plan is not None:
-            for op in getattr(self.instruction_plan, "conflicts", ()):
-                if getattr(op, "reason", None):
-                    child_conflict_messages.add(op.reason)
-                if getattr(op, "finding", None):
-                    child_conflict_messages.add(op.finding)
-
-        global_findings = tuple(
-            f for f in self.findings if f.message not in child_conflict_messages
+        global_findings = (
+            self.owned_findings if self.owned_findings is not None else self.findings
         )
 
         return combine_observations(
@@ -325,6 +317,7 @@ def build_global_sync_plan(
     skills_toml_path = aikito_dir / "skills.toml"
     global_instruction_source = aikito_dir / "global" / "AGENTS.md"
     findings: list[Finding] = []
+    owned_findings: list[Finding] = []
 
     if container_path is None:
         agents_env = os.environ.get("AIKITO_AGENTS_DIR")
@@ -490,14 +483,14 @@ def build_global_sync_plan(
 
     if not global_instruction_source.is_file():
         can_apply = False
-        findings.append(
-            Finding(
-                status="ERROR",
-                code="GLOBAL_INSTRUCTION_MISSING",
-                message=f"Global instruction file not found: {global_instruction_source}",
-                resource=str(global_instruction_source),
-            )
+        missing_instruction = Finding(
+            status="ERROR",
+            code="GLOBAL_INSTRUCTION_MISSING",
+            message=f"Global instruction file not found: {global_instruction_source}",
+            resource=str(global_instruction_source),
         )
+        findings.append(missing_instruction)
+        owned_findings.append(missing_instruction)
 
     if instruction_plan.conflicts:
         can_apply = False
@@ -516,6 +509,7 @@ def build_global_sync_plan(
         skill_plan=skill_plan,
         instruction_plan=instruction_plan,
         findings=tuple(findings),
+        owned_findings=tuple(owned_findings),
         can_apply=can_apply,
         replan_required_after_apply=bundled_plan.replan_required,
         error_message="Conflicts detected in global plan." if not can_apply else None,
@@ -828,6 +822,14 @@ class WorkspaceSyncPlan:
     findings: tuple[Finding, ...] = ()
     can_apply: bool = True
     replan_required_after_apply: bool = False
+    # Builders set this explicitly so legacy child copies stay out of observations.
+    owned_findings: tuple[Finding, ...] | None = None
+
+    def __post_init__(self) -> None:
+        if self.can_apply:
+            obs = self.observe()
+            if not obs.can_apply:
+                object.__setattr__(self, "can_apply", False)
 
     def observe(self) -> PlanObservation:
         """Project workspace sync plan and all child components into a unified PlanObservation."""
@@ -848,9 +850,8 @@ class WorkspaceSyncPlan:
             if e_obs is not None:
                 children.append(e_obs)
 
-        child_messages = {f.message for child in children for f in child.findings}
-        workspace_findings = tuple(
-            f for f in self.findings if f.message not in child_messages
+        workspace_findings = (
+            self.owned_findings if self.owned_findings is not None else self.findings
         )
 
         return combine_observations(
@@ -1101,6 +1102,7 @@ def build_workspace_sync_plan(
             mcp_plan=None,
             project_entries=(),
             findings=(*global_plan.findings, subagent_err_finding),
+            owned_findings=(subagent_err_finding,),
             can_apply=False,
         )
 
@@ -1127,6 +1129,7 @@ def build_workspace_sync_plan(
             mcp_plan=None,
             project_entries=(),
             findings=(*global_plan.findings, mcp_err_finding),
+            owned_findings=(mcp_err_finding,),
             can_apply=False,
         )
 
@@ -1259,6 +1262,7 @@ def build_workspace_sync_plan(
         mcp_plan=mcp_plan,
         project_entries=tuple(project_entries),
         findings=all_findings,
+        owned_findings=(),
         can_apply=can_apply,
         replan_required_after_apply=replan_required_after_apply,
     )
@@ -1279,10 +1283,14 @@ def execute_workspace_sync_plan(
 
     Enforces INV-APP-02, INV-APP-04, and INV-APP-05.
     """
-    if not dry_run and not plan.can_apply:
+    plan_obs = plan.observe()
+    if not dry_run and (not plan.can_apply or not plan_obs.can_apply):
+        findings = plan.findings + tuple(
+            finding for finding in plan_obs.findings if finding not in plan.findings
+        )
         return WorkspaceSyncExecutionResult(
             success=False,
-            findings=plan.findings,
+            findings=findings,
             replan_required=False,
             error_message="Workspace sync plan contains unhandled conflicts or errors; cannot apply.",
         )

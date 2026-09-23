@@ -686,6 +686,9 @@ def test_project_sync_batch_observe_and_provenance(tmp_path: Path) -> None:
         ),
         can_apply=False,
         instruction_plan=inst_plan,
+        owned_preflight_findings=(
+            "Project codebase path does not exist: /missing/path",
+        ),
     )
 
     child_obs = inst_plan.observe()
@@ -761,6 +764,14 @@ def test_global_sync_plan_observe_and_provenance(tmp_path: Path) -> None:
         ),
         can_apply=False,
         error_message="Conflicts detected in global plan.",
+        owned_findings=(
+            Finding(
+                status="ERROR",
+                code="GLOBAL_INSTRUCTION_MISSING",
+                message="Global instruction file not found",
+                resource="global/AGENTS.md",
+            ),
+        ),
     )
 
     child_obs = skill_plan.observe()
@@ -884,6 +895,7 @@ def test_finding_provenance_single_source_across_hierarchy(tmp_path: Path) -> No
         preflight_findings=("instruction conflict finding",),
         can_apply=False,
         instruction_plan=inst_plan,
+        owned_preflight_findings=(),
     )
     entry = ProjectSyncEntry(
         project_name="p1",
@@ -912,6 +924,7 @@ def test_finding_provenance_single_source_across_hierarchy(tmp_path: Path) -> No
         project_entries=(entry,),
         findings=(legacy_project_finding,),
         can_apply=False,
+        owned_findings=(),
     )
 
     # 1. Child observation

@@ -20,7 +20,7 @@ from .config_runtime import (
     StaleConfigPlanError,
     aggregate_file_plans,
 )
-from .diagnostics import Finding
+from .diagnostics import Finding, is_error_finding
 from .plan_observation import (
     OperationEffect,
     PlanObservation,
@@ -140,10 +140,11 @@ class SubagentPlan:
             views.append(view)
             if finding is not None:
                 findings.append(finding)
+        can_apply = self.can_apply and not any(is_error_finding(f) for f in findings)
         return PlanObservation(
             operations=tuple(views),
             findings=tuple(findings),
-            can_apply=self.can_apply,
+            can_apply=can_apply,
         )
 
 

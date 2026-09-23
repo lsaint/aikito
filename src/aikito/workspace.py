@@ -218,26 +218,18 @@ class Workspace:
                     f"Bundled Skill {view.resource_name}: {view.domain_action}"
                 )
             elif view.resource_type == "global_skill" and view.scope == "global":
-                if (
-                    view.effect
-                    in (
-                        OperationEffect.CREATE,
-                        OperationEffect.UPDATE,
-                        OperationEffect.REMOVE,
-                    )
-                    or view.domain_action == "CONFLICT"
-                ):
+                if view.effect in (
+                    OperationEffect.CREATE,
+                    OperationEffect.UPDATE,
+                    OperationEffect.REMOVE,
+                ) or (view.effect == OperationEffect.NONE and not view.authorized):
                     name = view.resource_name or Path(view.target).name
                     operations.append(f"Global Skill {view.domain_action}: {name}")
             elif view.resource_type == "instruction" and view.scope == "global":
-                if (
-                    view.effect
-                    in (
-                        OperationEffect.CREATE,
-                        OperationEffect.REMOVE,
-                    )
-                    or view.domain_action == "CONFLICT"
-                ):
+                if view.effect in (
+                    OperationEffect.CREATE,
+                    OperationEffect.REMOVE,
+                ) or (view.effect == OperationEffect.NONE and not view.authorized):
                     name = view.resource_name or Path(view.target).name
                     operations.append(
                         f"Global Instructions {view.domain_action}: {name}"
@@ -283,7 +275,7 @@ class Workspace:
             warnings=len(plan.warnings),
             conflicts=len(plan.conflicts),
             errors=len(plan.errors),
-            can_apply=plan.can_apply,
+            can_apply=obs.can_apply and plan.can_apply,
             will_mutate=plan.changes > 0,
             findings=preview_findings,
             operations=tuple(operations),

@@ -158,8 +158,8 @@ def combine_observations(
 
     combined_findings.extend(additional_findings)
 
-    if can_apply is False:
-        effective_can_apply = False
+    if can_apply is not None:
+        effective_can_apply = can_apply and all(obs.can_apply for obs in obs_list)
     else:
         effective_can_apply = all(obs.can_apply for obs in obs_list)
 
@@ -181,9 +181,37 @@ def safe_observe_plan(plan: Any) -> PlanObservation | None:
             obs = plan.observe()
             if isinstance(obs, PlanObservation):
                 return obs
-        except Exception:
-            pass
+            return PlanObservation(
+                operations=(),
+                findings=(
+                    Finding(
+                        status="ERROR",
+                        code="PLAN_OBSERVATION_ERROR",
+                        message=f"Plan {type(plan).__name__}.observe() returned invalid non-PlanObservation result: {obs!r}",
+                    ),
+                ),
+                can_apply=False,
+            )
+        except Exception as exc:
+            return PlanObservation(
+                operations=(),
+                findings=(
+                    Finding(
+                        status="ERROR",
+                        code="PLAN_OBSERVATION_ERROR",
+                        message=f"Failed to observe plan {type(plan).__name__}: {exc}",
+                    ),
+                ),
+                can_apply=False,
+            )
     can_apply = getattr(plan, "can_apply", True)
     if not isinstance(can_apply, bool):
         can_apply = True
-    return PlanObservation(can_apply=can_apply)
+    findings: list[Finding] = []
+    error_msg = getattr(plan, "error_message", None)
+    if error_msg:
+        findings.append(
+            Finding(status="ERROR", code="PLAN_ERROR", message=str(error_msg))
+        )
+        can_apply = False
+    return PlanObservation(can_apply=can_apply, findings=tuple(findings))

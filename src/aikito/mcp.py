@@ -41,7 +41,7 @@ from .config_runtime import (
     capture_file_snapshot,
     resolve_physical_identity,
 )
-from .diagnostics import Finding
+from .diagnostics import Finding, is_error_finding
 from .plan_observation import (
     OperationEffect,
     PlanObservation,
@@ -2523,10 +2523,11 @@ class MCPPlan:
             views.append(view)
             if finding is not None:
                 findings.append(finding)
+        can_apply = self.can_apply and not any(is_error_finding(f) for f in findings)
         return PlanObservation(
             operations=tuple(views),
             findings=tuple(findings),
-            can_apply=self.can_apply,
+            can_apply=can_apply,
         )
 
 
@@ -2545,7 +2546,13 @@ def mcp_operation_effect(op: MCPOperation) -> OperationEffect:
             return OperationEffect.NOOP
         case "SKIP":
             return OperationEffect.SKIP
-        case "CONFLICT" | "ERROR":
+        case "CONFLICT":
+            if op.is_authorized:
+                raise UnknownPlanActionError(
+                    f"Authorized CONFLICT is invalid for MCP: {op.target.logical_identity}"
+                )
+            return OperationEffect.NONE
+        case "ERROR":
             return OperationEffect.NONE
         case _:
             raise UnknownPlanActionError(f"Unhandled MCP action: {op.action}")

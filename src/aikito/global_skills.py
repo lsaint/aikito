@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Container, Sequence
 
 from .agents import AgentRegistry, Target, check_target_availability, resolve_targets
-from .diagnostics import Finding
+from .diagnostics import Finding, is_error_finding
 from .link import (
     LinkExecutionResult,
     LinkOperation,
@@ -136,10 +136,11 @@ class GlobalSkillBatchPlan:
             views.append(view)
             if finding is not None:
                 findings.append(finding)
+        can_apply = self.can_apply and not any(is_error_finding(f) for f in findings)
         return PlanObservation(
             operations=tuple(views),
             findings=tuple(findings),
-            can_apply=self.can_apply,
+            can_apply=can_apply,
         )
 
 
