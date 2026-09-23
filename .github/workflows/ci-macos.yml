@@ -8,7 +8,7 @@ jobs:
   macos-smoke-test:
     runs-on: macos-latest
     env:
-      PYTHONPATH: src
+      PYTHONPATH: ${{ github.workspace }}/src
 
     steps:
       - uses: actions/checkout@v4
@@ -642,6 +642,7 @@ jobs:
 
       - name: macOS CLI smoke - CWD-centric interaction
         run: |
+          export PYTHONPATH="$GITHUB_WORKSPACE/src"
           WS=${{ runner.temp }}/macos-ws
           CWD_PROJ=${{ runner.temp }}/cwd-test-proj
           OTHER_PROJ=${{ runner.temp }}/other-test-proj

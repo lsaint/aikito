@@ -33,7 +33,7 @@ jobs:
   windows-smoke-test:
     runs-on: windows-latest
     env:
-      PYTHONPATH: src
+      PYTHONPATH: ${{ github.workspace }}/src
     steps:
       - uses: actions/checkout@v4
 
@@ -683,6 +683,7 @@ jobs:
       - name: Windows smoke - CWD-centric interaction
         shell: pwsh
         run: |
+          $env:PYTHONPATH = Join-Path $env:GITHUB_WORKSPACE "src"
           $ws = Join-Path $env:RUNNER_TEMP "aikito-ws"
           $env:AIKITO_DIR = $ws
           $cwdProj = Join-Path $env:RUNNER_TEMP "cwd-test-proj"

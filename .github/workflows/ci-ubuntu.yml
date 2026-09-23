@@ -61,7 +61,7 @@ jobs:
   ubuntu-smoke-test:
     runs-on: ubuntu-latest
     env:
-      PYTHONPATH: src
+      PYTHONPATH: ${{ github.workspace }}/src
 
     steps:
       - uses: actions/checkout@v4
@@ -1300,6 +1300,7 @@ jobs:
 
       - name: CWD-centric interaction smoke test
         run: |
+          export PYTHONPATH="$GITHUB_WORKSPACE/src"
           WS=${{ runner.temp }}/aikito-ws
           CWD_PROJ=${{ runner.temp }}/cwd-test-proj
           OTHER_PROJ=${{ runner.temp }}/other-test-proj
