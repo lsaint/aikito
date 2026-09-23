@@ -794,7 +794,7 @@ class GlobalSyncSafetyTest(unittest.TestCase):
             patch.object(
                 AIKITO_CLI, "get_agents_dir", return_value=self.root / ".agents"
             ),
-            patch.object(AIKITO_CLI, "load_agents", return_value={}),
+            patch.object(AIKITO_CLI, "load_agent_definitions", return_value={}),
         ):
             args.func(args)
 
@@ -1016,7 +1016,7 @@ class GlobalSyncSafetyTest(unittest.TestCase):
         self.assertFalse(instr_source.exists())
 
         with (
-            patch.object(AIKITO_CLI, "load_agents", return_value={}),
+            patch.object(AIKITO_CLI, "load_agent_definitions", return_value={}),
             patch.object(
                 AIKITO_CLI, "get_agents_dir", return_value=self.root / ".agents"
             ),
@@ -1062,7 +1062,7 @@ class GlobalSyncSafetyTest(unittest.TestCase):
             patch.object(
                 AIKITO_CLI, "get_agents_dir", return_value=self.root / ".agents"
             ),
-            patch.object(AIKITO_CLI, "load_agents", return_value={}),
+            patch.object(AIKITO_CLI, "load_agent_definitions", return_value={}),
             patch("sys.stderr", new_callable=io.StringIO) as stderr,
             self.assertRaises(SystemExit) as cm,
         ):
@@ -1106,7 +1106,9 @@ class GlobalSyncSafetyTest(unittest.TestCase):
         }
 
         with (
-            patch.object(AIKITO_CLI, "load_agents", return_value=fake_registry),
+            patch.object(
+                AIKITO_CLI, "load_agent_definitions", return_value=fake_registry
+            ),
             patch.object(
                 AIKITO_CLI, "get_agents_dir", return_value=self.root / ".agents"
             ),

@@ -13,7 +13,7 @@ from pathlib import Path
 from .config import get_inbox_path
 from .inbox import resolve_inbox_target_for_command
 from .link import classify_symlink, symlink_verdict_to_status
-from .mcp import load_agents
+from .agents import load_agent_definitions
 from .memory import ensure_safe_path
 from .project import resolve_project_binding
 from .compat import (
@@ -352,7 +352,7 @@ def collect_instruction_agent_status(
         "CONFLICT": "conflict",
         "SKIP": "skipped",
     }
-    for definition in load_agents(aikito_dir, home).values():
+    for definition in load_agent_definitions(aikito_dir, home).values():
         target = definition.instruction_path
         if target is None or not target.parent.exists():
             status = "SKIP"

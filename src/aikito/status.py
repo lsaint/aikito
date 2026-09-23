@@ -10,7 +10,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from .agents import AgentRegistry
+from .agents import AgentRegistry, load_agent_definitions
 from .global_skills import build_global_skill_batch, plan_global_skills
 from .instructions import (
     build_global_instruction_batch,
@@ -20,7 +20,6 @@ from .mcp import (
     build_mcp_plan,
     evaluate_spec_status,
     load_agent_specs,
-    load_agents,
     probe_mcp_tools_for_specs,
     read_all_entries,
     read_entry,
@@ -103,7 +102,7 @@ def collect_mcp_details(
     server_target: str | None = None,
     agent_target: str | None = None,
 ) -> list[MCPDetailRow]:
-    agents = load_agents(aikito_dir, home)
+    agents = load_agent_definitions(aikito_dir, home)
     try:
         specs = load_agent_specs(aikito_dir, home)
         mcp_plan = build_mcp_plan(aikito_dir, home=home, specs=specs)
@@ -179,7 +178,7 @@ def collect_mcp_runtime(
     agent_target: str | None = None,
 ) -> tuple[str, list[MCPRuntimeRow]]:
     """Probe one managed MCP server through each selected Agent-native config."""
-    agents = load_agents(aikito_dir, home)
+    agents = load_agent_definitions(aikito_dir, home)
     specs = load_agent_specs(aikito_dir, home)
     server_names = sorted({spec.server for spec in specs if spec.enabled})
     server_name = _resolve_name(server_target, server_names, "MCP server")
@@ -343,7 +342,7 @@ def _summarize_subagent_status(actions: list[str]) -> str:
 def collect_agent_status_rows(
     aikito_dir: Path, home: Path
 ) -> tuple[list[AgentStatusRow], int, int, int]:
-    agents_dict = load_agents(aikito_dir, home)
+    agents_dict = load_agent_definitions(aikito_dir, home)
     instruction_batch = build_global_instruction_batch(
         aikito_dir, home, registry=AgentRegistry(agents_dict)
     )
@@ -740,7 +739,7 @@ def get_status_report_data(aikito_dir: Path, home: Path) -> StatusReportData:
 def collect_mcp_matrix(
     aikito_dir: Path, home: Path, live: bool = False
 ) -> tuple[list[MCPServerRow], list[str]]:
-    agents_dict = load_agents(aikito_dir, home)
+    agents_dict = load_agent_definitions(aikito_dir, home)
     try:
         specs = load_agent_specs(aikito_dir, home)
         mcp_plan = build_mcp_plan(aikito_dir, home=home, specs=specs)
@@ -808,7 +807,7 @@ def collect_subagents_matrix(
         plan_ops = subagent_plan.operations
     except SubagentConfigError:
         plan_ops = ()
-    agents_dict = load_agents(aikito_dir, home)
+    agents_dict = load_agent_definitions(aikito_dir, home)
     agent_names = [a.display_name for a in agents_dict.values()]
 
     subagents_map: dict[str, dict[str, str]] = {}

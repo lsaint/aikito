@@ -78,6 +78,7 @@ nav:
           - Python API: architecture/invariants-api.md
           - Application Coordination: architecture/invariants-application.md
           - Adoption Engine: architecture/invariants-adopt.md
+          - Agent Domain: architecture/invariants-agent.md
   - About:
       - Comparison: comparison.md
       - Why Memory Needs a Maintainer: programming-agent-memory.md

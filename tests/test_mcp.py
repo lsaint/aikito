@@ -1,4 +1,5 @@
 import base64
+import dataclasses
 import io
 import json
 import os
@@ -12,6 +13,8 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from unittest.mock import MagicMock, patch
 
+from aikito.agents import is_agent_installed
+from aikito.templating import load_agents_template
 from aikito.mcp import (
     BACKUP_DIR,
     STATE_FILE,
@@ -35,9 +38,7 @@ from aikito.mcp import (
     get_dsh_cordis_server,
     get_jsonc_server,
     get_toml_server,
-    is_agent_installed,
     load_agent_specs,
-    load_agents,
     probe_mcp_tools,
     probe_mcp_tools_for_specs,
     read_all_entries,
@@ -1010,84 +1011,34 @@ class AgentRegistryTest(unittest.TestCase):
         (self.aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
         (self.aikito_dir / "mcps/managed.toml").write_text(body.lstrip())
 
-    def test_load_agents_parses_registry(self) -> None:
-        agents = load_agents(self.aikito_dir, self.home)
+    def test_load_agent_specs_translates_agent_registry_errors(self) -> None:
+        (self.aikito_dir / "agents.toml").write_text(
+            "[agents.codex]\nmcp = 1\n", encoding="utf-8"
+        )
+        self.write_servers(
+            """
+transport = "remote"
+url = "https://example.com/mcp"
+agents = ["codex"]
+"""
+        )
+        with self.assertRaises(MCPConfigError) as ctx:
+            load_agent_specs(self.aikito_dir, self.home)
+        self.assertEqual(
+            str(ctx.exception), "Agent 'codex' mcp section must be a table"
+        )
 
-        self.assertEqual(
-            set(agents),
-            {"codex", "opencode", "agy", "claude-code", "dsh", "grok"},
-        )
-        self.assertEqual(
-            agents["codex"].instruction_path, self.home / ".codex/AGENTS.md"
-        )
-        self.assertIsNone(agents["codex"].skills_path)
-        self.assertTrue(agents["codex"].supports_mcp)
-        self.assertEqual(agents["codex"].mcp_config_format, "toml")
-        self.assertEqual(
-            agents["claude-code"].skills_path, self.home / ".claude/skills"
-        )
-        self.assertEqual(
-            agents["agy"].skills_path,
-            self.home / ".gemini/antigravity-cli/skills",
-        )
-        self.assertTrue(agents["claude-code"].supports_mcp)
-        self.assertEqual(
-            agents["claude-code"].mcp_config_path, self.home / ".claude.json"
-        )
-        self.assertEqual(agents["claude-code"].mcp_config_format, "claude_json")
-        self.assertEqual(agents["dsh"].instruction_path, self.home / ".dsh/AGENTS.md")
-        self.assertEqual(agents["dsh"].skills_path, self.home / ".agents/skills")
-        self.assertTrue(agents["dsh"].supports_mcp)
-        self.assertEqual(
-            agents["dsh"].mcp_config_path, self.home / ".dsh/cordis.patch.yml"
-        )
-        self.assertEqual(agents["dsh"].mcp_config_format, "dsh_cordis")
-
-    def test_missing_agents_config_raises(self) -> None:
+    def test_load_agent_specs_translates_missing_agents_config(self) -> None:
         (self.aikito_dir / "agents.toml").unlink()
+        self.write_servers(
+            """
+transport = "remote"
+url = "https://example.com/mcp"
+agents = ["codex"]
+"""
+        )
         with self.assertRaises(MCPConfigError):
-            load_agents(self.aikito_dir, self.home)
-
-    def test_load_agents_accepts_empty_registry(self) -> None:
-        (self.aikito_dir / "agents.toml").write_text("[agents]\n", encoding="utf-8")
-
-        self.assertEqual(load_agents(self.aikito_dir, self.home), {})
-
-    def test_load_agents_parses_builtin_mcps(self) -> None:
-        (self.aikito_dir / "agents.toml").write_text(
-            """
-[agents.codex]
-display_name = "Codex"
-[agents.codex.mcp]
-config_path = ".codex/config.toml"
-config_format = "toml"
-builtin_mcps = ["openaiDeveloperDocs", "other"]
-""".lstrip(),
-            encoding="utf-8",
-        )
-        agents = load_agents(self.aikito_dir, self.home)
-        self.assertEqual(
-            agents["codex"].mcp_builtin_servers,
-            ("openaiDeveloperDocs", "other"),
-        )
-
-    def test_load_agents_rejects_invalid_builtin_mcps(self) -> None:
-        (self.aikito_dir / "agents.toml").write_text(
-            """
-[agents.codex]
-display_name = "Codex"
-[agents.codex.mcp]
-config_path = ".codex/config.toml"
-config_format = "toml"
-builtin_mcps = [1]
-""".lstrip(),
-            encoding="utf-8",
-        )
-
-        with self.assertRaisesRegex(
-            MCPConfigError, "mcp.builtin_mcps must be a list of strings"
-        ):
-            load_agents(self.aikito_dir, self.home)
+            load_agent_specs(self.aikito_dir, self.home)
 
     def test_specs_synthesized_from_registry_and_servers(self) -> None:
         self.write_servers(
@@ -1873,6 +1824,114 @@ class AgentDetectionTest(unittest.TestCase):
         output = stream.getvalue()
         self.assertIn("\033[2mcodex loading .\033[0m", output)
         self.assertTrue(output.endswith("\r\033[K"))
+
+
+class AgentSpecGoldenTest(unittest.TestCase):
+    """Freeze v1.50.0 AgentSpec synthesis from the bundled agents.toml."""
+
+    def test_specs_from_bundled_template(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "ws"
+            (ws / "mcps").mkdir(parents=True)
+            home = Path("/HOME")
+            (ws / "agents.toml").write_text(load_agents_template(), encoding="utf-8")
+            (ws / "mcps/docs.toml").write_text(
+                """
+transport = "remote"
+url = "https://example.com/mcp"
+agents = ["codex", "claude-code", "agy", "opencode", "github-copilot", "dsh", "grok", "pi"]
+[overrides.grok]
+enabled = false
+reason = "off"
+""",
+                encoding="utf-8",
+            )
+            specs = load_agent_specs(ws, home)
+
+        url = "https://example.com/mcp"
+
+        def spec(agent, path, fmt, desired, **extra):
+            expected = {
+                "agent": agent,
+                "server": "docs",
+                "config_path": path,
+                "config_format": fmt,
+                "target_name": "docs",
+                "desired": desired,
+                "enabled": True,
+                "reason": "",
+                "live_command": (),
+                "auth_command": (),
+                "contains_secret": False,
+                "missing_credential_env": "",
+                "home": home,
+            }
+            expected.update(extra)
+            return expected
+
+        expected = [
+            spec(
+                "codex",
+                home / ".codex/config.toml",
+                "toml",
+                {"url": url},
+                live_command=("codex", "mcp", "list"),
+                auth_command=("codex", "mcp", "login", "docs"),
+            ),
+            spec(
+                "claude-code",
+                home / ".claude.json",
+                "claude_json",
+                {"type": "http", "url": url},
+                live_command=("claude", "mcp", "list"),
+                auth_command=("claude", "mcp", "login", "docs"),
+            ),
+            spec(
+                "agy",
+                home / ".gemini/config/mcp_config.json",
+                "agy_json",
+                {"serverUrl": url},
+            ),
+            spec(
+                "opencode",
+                home / ".config/opencode/opencode.jsonc",
+                "jsonc",
+                {"type": "remote", "url": url, "enabled": True, "timeout": 30000},
+                live_command=("opencode", "mcp", "list"),
+                auth_command=("opencode", "mcp", "auth", "docs"),
+            ),
+            spec(
+                "github-copilot",
+                home / ".copilot/mcp-config.json",
+                "copilot_json",
+                {"type": "http", "url": url, "tools": ["*"], "headers": {}},
+                live_command=("copilot", "mcp", "list"),
+            ),
+            spec(
+                "dsh",
+                home / ".dsh/cordis.patch.yml",
+                "dsh_cordis",
+                {"serverName": "docs", "transport": "streamable-http", "url": url},
+            ),
+            spec(
+                "grok",
+                home / ".grok/config.toml",
+                "toml",
+                {"url": url},
+                enabled=False,
+                reason="off",
+                live_command=("grok", "mcp", "list"),
+            ),
+            spec(
+                "pi",
+                Path(),
+                "unsupported",
+                {},
+                enabled=False,
+                reason="MCP synchronization is not supported for agent 'pi'",
+            ),
+        ]
+        self.assertEqual([dataclasses.asdict(item) for item in specs], expected)
 
 
 if __name__ == "__main__":

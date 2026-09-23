@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .add import _parse_markdown_frontmatter
 from .diagnostics import Finding, FindingAction
-from .mcp import AgentDefinition, MCPConfigError, load_agents
+from .agents import AgentDefinition, AgentRegistryError, load_agent_definitions
 from .render import render_finding_lines
 from .subagent import has_aikito_marker
 from .templating import (
@@ -549,8 +549,8 @@ def scan_mcp_servers(
     agents_path = aikito_dir / "agents.toml"
     if agents_path.is_file():
         try:
-            agent_definitions = load_agents(aikito_dir, home)
-        except MCPConfigError as exc:
+            agent_definitions = load_agent_definitions(aikito_dir, home)
+        except AgentRegistryError as exc:
             _record_scan_error(
                 errors,
                 str(exc),

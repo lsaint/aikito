@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Internal: moved `AgentDefinition` and the canonical Agent loader (`load_agent_definitions`) from `aikito.mcp` to `aikito.agents`; `aikito.mcp.load_agents` and Agent-symbol re-exports from `aikito.mcp` were removed. User-visible CLI behavior is unchanged.
+
 ## [1.50.0] - 2026-09-23
 
 ### Added

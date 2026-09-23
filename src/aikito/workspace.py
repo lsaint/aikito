@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .compat import get_workspace_config_dir
 from .doctor import run_doctor
-from .mcp import load_agents
+from .agents import load_agent_definitions
 from .project import collect_project_summaries
 from .subagent import load_subagent_definitions
 from .workspace_sync import plan_workspace_sync
@@ -118,7 +118,7 @@ class Workspace:
         agents_file = self.path / "agents.toml"
         if agents_file.is_file():
             try:
-                agents_def = load_agents(self.path, self.home)
+                agents_def = load_agent_definitions(self.path, self.home)
                 configured_agents = tuple(sorted(agents_def.keys()))
             except Exception:
                 configured_agents = ()

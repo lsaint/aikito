@@ -17,7 +17,7 @@ from typing import Any
 
 from .compat import can_symlink, safe_relative_path
 from .conflict import collect_resource_conflicts
-from .mcp import MCPConfigError, load_agents
+from .agents import AgentRegistryError, load_agent_definitions
 from .project import (
     _resolve_project_path,
     append_candidate_path_to_config,
@@ -182,8 +182,8 @@ class Project:
     ) -> PreparedProject:
         """Prepare persistent project resources and return Agent launch inputs."""
         try:
-            agents = load_agents(self.workspace, self._home)
-        except MCPConfigError as exc:
+            agents = load_agent_definitions(self.workspace, self._home)
+        except AgentRegistryError as exc:
             raise InvalidProjectConfigError(str(exc)) from exc
         if agent not in agents:
             raise UnsupportedProjectAgentError(

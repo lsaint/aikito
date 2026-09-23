@@ -33,7 +33,7 @@ When managing subagents in DeepSeek Harness (`cordis.patch.yml`), all pending su
 
 ### INV-SUB-05: Unified Agent Availability Resolution via AgentRegistry `[current]` {: #inv-sub-05 }
 
-Subagent target resolution resolves agent installation and availability exclusively through `agents.py::AgentRegistry` and `AgentAvailability`. Subagent planning must not import or depend on cross-resource availability helpers (such as `mcp.py::is_agent_installed`).
+Subagent target resolution resolves agent installation and availability exclusively through `agents.py::AgentRegistry` and `AgentAvailability`. Subagent planning must not import or depend on cross-resource availability helpers owned by other resource subsystems such as MCP.
 
 *Targeted tests*: `tests/test_subagent_plan.py`, `tests/test_subagent.py`
 

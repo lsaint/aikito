@@ -27,12 +27,10 @@ from urllib.parse import parse_qs, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .agents import (
-    AGENT_INSTALL_MARKERS as AGENT_INSTALL_MARKERS,
-    Agent,
-    AgentRegistry,
+    AgentDefinition,
     AgentRegistryError,
     is_agent_installed,
-    load_agent_document,
+    load_agent_definitions,
 )
 from .compat import resolve_executable, secure_file_permissions
 from .config_runtime import (
@@ -259,23 +257,6 @@ class AgentSpec:
 
 
 @dataclass(frozen=True)
-class AgentDefinition(Agent):
-    """Static identity and paths for one agent, loaded from agents.toml."""
-
-    mcp_config_path: Path | None = None
-    mcp_config_format: str = "unsupported"
-    mcp_name_style: str = "verbatim"
-    mcp_reason: str = ""
-    mcp_live_command: tuple[str, ...] = ()
-    mcp_auth_command: tuple[str, ...] = ()
-    mcp_builtin_servers: tuple[str, ...] = ()
-
-    @property
-    def supports_mcp(self) -> bool:
-        return self.mcp_config_path is not None
-
-
-@dataclass(frozen=True)
 class BasicTokenAuth:
     """Keeps credential policy canonical while resolving secrets only at runtime."""
 
@@ -316,71 +297,12 @@ class MCPToolProbeResult:
     error: str = ""
 
 
-def _resolve_home_path(home: Path, value: Any, field: str, agent: str) -> Path:
-    if not isinstance(value, str) or not value:
-        raise MCPConfigError(f"Agent '{agent}' requires a string '{field}'")
-    return home / value
-
-
-def load_agents(aikito_dir: Path, home: Path) -> dict[str, AgentDefinition]:
-    """Load the agent registry from agents.toml (the single source of truth)."""
+def _load_agent_definitions(aikito_dir: Path, home: Path) -> dict[str, AgentDefinition]:
+    """MCP boundary: expose Agent registry failures as MCPConfigError."""
     try:
-        document = load_agent_document(aikito_dir)
-        registry = AgentRegistry.from_document(document, home)
+        return load_agent_definitions(aikito_dir, home)
     except AgentRegistryError as exc:
         raise MCPConfigError(str(exc)) from exc
-
-    agents = document["agents"]
-
-    definitions: dict[str, AgentDefinition] = {}
-    for name, spec in agents.items():
-        base_agent = registry[name]
-
-        mcp = spec.get("mcp")
-        if mcp is None:
-            mcp_config_path = None
-            mcp_config_format = "unsupported"
-            mcp_name_style = "verbatim"
-            mcp_reason = ""
-            mcp_live_command: tuple[str, ...] = ()
-            mcp_auth_command: tuple[str, ...] = ()
-            mcp_builtin_servers: tuple[str, ...] = ()
-        else:
-            if not isinstance(mcp, dict):
-                raise MCPConfigError(f"Agent '{name}' mcp section must be a table")
-            mcp_config_path = _resolve_home_path(
-                home, mcp.get("config_path"), "mcp.config_path", name
-            )
-            mcp_config_format = str(mcp.get("config_format", "unsupported"))
-            mcp_name_style = str(mcp.get("name_style", "verbatim"))
-            mcp_reason = str(mcp.get("reason", ""))
-            mcp_live_command = tuple(mcp.get("live_command", ()) or ())
-            mcp_auth_command = tuple(mcp.get("auth_command", ()) or ())
-            builtin_raw = mcp.get("builtin_mcps", [])
-            if not isinstance(builtin_raw, list) or not all(
-                isinstance(server, str) and server for server in builtin_raw
-            ):
-                raise MCPConfigError(
-                    f"Agent '{name}' mcp.builtin_mcps must be a list of strings"
-                )
-            mcp_builtin_servers = tuple(builtin_raw)
-
-        definitions[name] = AgentDefinition(
-            name=name,
-            display_name=base_agent.display_name,
-            instruction_path=base_agent.instruction_path,
-            project_instruction_path=base_agent.project_instruction_path,
-            skills_path=base_agent.skills_path,
-            mcp_config_path=mcp_config_path,
-            mcp_config_format=mcp_config_format,
-            mcp_name_style=mcp_name_style,
-            mcp_reason=mcp_reason,
-            mcp_live_command=mcp_live_command,
-            mcp_auth_command=mcp_auth_command,
-            mcp_builtin_servers=mcp_builtin_servers,
-        )
-
-    return definitions
 
 
 def _target_name(name_style: str, server_name: str) -> str:
@@ -1340,7 +1262,7 @@ def load_agent_specs(aikito_dir: Path, home: Path) -> list[AgentSpec]:
         else:
             servers[server_name] = document
 
-    registry = load_agents(aikito_dir, home)
+    registry = _load_agent_definitions(aikito_dir, home)
 
     specs = []
     for server_name, server in servers.items():

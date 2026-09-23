@@ -18,6 +18,7 @@ from typing import Any, List, Optional
 from . import __version__
 from .add import add_mcp, add_skill, add_subagent
 from .remove import remove_mcp, remove_skill, remove_subagent
+from .agents import AgentRegistryError, load_agent_definitions
 from .adopt import (
     apply_adopt_skips,
     build_adopt_plan,
@@ -72,7 +73,6 @@ from .mcp import (
     MCPConfigError,
     authenticate_mcp,
     build_mcp_plan,
-    load_agents,  # noqa: F401
     sync_mcp_configs,
 )
 from .templating import TemplateError, detect_existing_agents
@@ -195,7 +195,7 @@ def sync_global_resources(
         dry_run=dry_run,
         container_path=container_path,
         outdated_bundled_skills_fn=outdated_bundled_skills,
-        load_agents_fn=load_agents,
+        load_agent_definitions_fn=load_agent_definitions,
     )
 
     if not plan.can_apply:
@@ -2421,6 +2421,7 @@ def main() -> None:
     try:
         args.func(args)
     except (
+        AgentRegistryError,
         MCPConfigError,
         SubagentConfigError,
         TemplateError,

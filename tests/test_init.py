@@ -11,7 +11,8 @@ from aikito.init import (
     init_workspace,
     project_sync_validation_error,
 )
-from aikito.mcp import load_agent_specs, load_agents
+from aikito.agents import load_agent_definitions
+from aikito.mcp import load_agent_specs
 from aikito.status import get_status_report_data
 from aikito.templating import (
     filter_agents_template,
@@ -96,7 +97,7 @@ class AikitoInitTest(unittest.TestCase):
             (self.fake_home / marker).mkdir(parents=True)
         init_workspace(self.target_path, self.fake_home)
 
-        agents = load_agents(self.target_path, self.fake_home)
+        agents = load_agent_definitions(self.target_path, self.fake_home)
         self.assertIn("codex", agents)
         self.assertIn("github-copilot", agents)
         self.assertEqual(

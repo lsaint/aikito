@@ -18,8 +18,12 @@ from typing import Optional
 from .bundled_skills import BundledSkillRefreshError, refresh_bundled_skills
 from .compat import safe_relative_path
 from .skill_state import SkillWriterLock
-from .agents import AgentRegistry, AgentRegistryError, resolve_targets
-from .mcp import MCPConfigError, load_agents
+from .agents import (
+    AgentRegistry,
+    AgentRegistryError,
+    load_agent_definitions,
+    resolve_targets,
+)
 from .project import resolve_project_binding
 from .templating import (
     BUNDLED_SKILL_NAMES,
@@ -351,7 +355,7 @@ def _project_validation_error(
 
     canonical_instructions = aikito_dir / "projects" / project_name / "AGENTS.md"
     try:
-        agents = load_agents(aikito_dir, home)
+        agents = load_agent_definitions(aikito_dir, home)
         instruction_targets = resolve_targets(
             "project_instructions",
             aikito_dir,
@@ -360,7 +364,7 @@ def _project_validation_error(
             project_name=project_name,
             registry=AgentRegistry(agents),
         )
-    except (MCPConfigError, AgentRegistryError) as exc:
+    except AgentRegistryError as exc:
         return str(exc)
     instructions_enabled = canonical_instructions.is_file() and bool(
         canonical_instructions.read_text(encoding="utf-8", errors="replace").strip()

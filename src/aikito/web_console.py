@@ -19,7 +19,8 @@ from .config import get_inbox_path, load_workspace_config
 from .diff import collect_drift_diffs
 from .doctor import run_doctor
 from .inbox import collect_inbox_rows
-from .mcp import load_agents, redact_mcp_entry
+from .agents import load_agent_definitions
+from .mcp import redact_mcp_entry
 from .compat import _package_resource_dir, launch_browser
 from .project import collect_project_summaries
 from .status import (
@@ -177,7 +178,7 @@ class ConsoleData:
             detail = self._markdown_detail(name, path, scope, "Canonical")
             detail["consumers"] = [
                 agent.display_name
-                for agent in load_agents(self.aikito_dir, self.home).values()
+                for agent in load_agent_definitions(self.aikito_dir, self.home).values()
             ]
             return detail
         if kind == "subagents":

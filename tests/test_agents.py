@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,14 +10,16 @@ from unittest.mock import patch
 
 from aikito.agents import (
     Agent,
+    AgentDefinition,
     AgentRegistry,
+    AgentRegistryError,
     Target,
     check_agent_availability,
     check_target_availability,
     is_agent_installed,
+    load_agent_definitions,
     resolve_targets,
 )
-from aikito.mcp import load_agents
 from aikito.templating import load_agents_template
 
 
@@ -33,9 +36,9 @@ class AgentsModelTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.td.cleanup()
 
-    def test_agent_registry_load_equivalence_with_load_agents(self) -> None:
+    def test_agent_registry_load_equivalence_with_definitions(self) -> None:
         registry = AgentRegistry.load(self.ws, self.home)
-        mcp_defs = load_agents(self.ws, self.home)
+        mcp_defs = load_agent_definitions(self.ws, self.home)
 
         self.assertEqual(len(registry), len(mcp_defs))
         self.assertEqual(set(registry), set(mcp_defs.keys()))
@@ -374,6 +377,206 @@ class TargetResolutionTests(unittest.TestCase):
         self.assertEqual(resolved, (ws_b / "skills" / "shared_skill").resolve())
         self.assertNotEqual(resolved, ws_a_canonical.resolve())
         self.assertTrue(runtime_link.is_symlink())
+
+
+def _definition(name: str, display_name: str, **fields: object) -> dict[str, object]:
+    """Build an expected AgentDefinition dict with v1.50.0 defaults."""
+    expected: dict[str, object] = {
+        "name": name,
+        "display_name": display_name,
+        "instruction_path": None,
+        "project_instruction_path": None,
+        "skills_path": None,
+        "mcp_config_path": None,
+        "mcp_config_format": "unsupported",
+        "mcp_name_style": "verbatim",
+        "mcp_reason": "",
+        "mcp_live_command": (),
+        "mcp_auth_command": (),
+        "mcp_builtin_servers": (),
+    }
+    expected.update(fields)
+    return expected
+
+
+class AgentDefinitionGoldenTests(unittest.TestCase):
+    """Freeze the v1.50.0 parsing behavior previously owned by mcp.load_agents."""
+
+    def setUp(self) -> None:
+        self.td = tempfile.TemporaryDirectory()
+        self.ws = Path(self.td.name) / "workspace"
+        self.ws.mkdir()
+        self.home = Path("/HOME")
+
+    def tearDown(self) -> None:
+        self.td.cleanup()
+
+    def _write(self, body: str) -> None:
+        (self.ws / "agents.toml").write_text(body, encoding="utf-8")
+
+    def _load(self) -> dict[str, dict[str, object]]:
+        return {
+            name: dataclasses.asdict(definition)
+            for name, definition in load_agent_definitions(self.ws, self.home).items()
+        }
+
+    def test_bundled_template(self) -> None:
+        self._write(load_agents_template())
+        h = self.home
+        expected = {
+            "codex": _definition(
+                "codex",
+                "Codex",
+                instruction_path=h / ".codex/AGENTS.md",
+                project_instruction_path=Path("AGENTS.md"),
+                skills_path=h / ".agents/skills",
+                mcp_config_path=h / ".codex/config.toml",
+                mcp_config_format="toml",
+                mcp_name_style="underscore",
+                mcp_live_command=("codex", "mcp", "list"),
+                mcp_auth_command=("codex", "mcp", "login", "{target}"),
+                mcp_builtin_servers=("openaiDeveloperDocs",),
+            ),
+            "claude-code": _definition(
+                "claude-code",
+                "Claude Code",
+                instruction_path=h / ".claude/CLAUDE.md",
+                project_instruction_path=Path(".claude/CLAUDE.md"),
+                skills_path=h / ".claude/skills",
+                mcp_config_path=h / ".claude.json",
+                mcp_config_format="claude_json",
+                mcp_live_command=("claude", "mcp", "list"),
+                mcp_auth_command=("claude", "mcp", "login", "{target}"),
+            ),
+            "agy": _definition(
+                "agy",
+                "Antigravity CLI",
+                instruction_path=h / ".gemini/GEMINI.md",
+                project_instruction_path=Path("AGENTS.md"),
+                skills_path=h / ".gemini/antigravity-cli/skills",
+                mcp_config_path=h / ".gemini/config/mcp_config.json",
+                mcp_config_format="agy_json",
+            ),
+            "opencode": _definition(
+                "opencode",
+                "OpenCode",
+                instruction_path=h / ".config/opencode/AGENTS.md",
+                project_instruction_path=Path("AGENTS.md"),
+                skills_path=h / ".agents/skills",
+                mcp_config_path=h / ".config/opencode/opencode.jsonc",
+                mcp_config_format="jsonc",
+                mcp_live_command=("opencode", "mcp", "list"),
+                mcp_auth_command=("opencode", "mcp", "auth", "{target}"),
+            ),
+            "github-copilot": _definition(
+                "github-copilot",
+                "GitHub Copilot CLI",
+                instruction_path=h / ".copilot/copilot-instructions.md",
+                project_instruction_path=Path("AGENTS.md"),
+                skills_path=h / ".agents/skills",
+                mcp_config_path=h / ".copilot/mcp-config.json",
+                mcp_config_format="copilot_json",
+                mcp_live_command=("copilot", "mcp", "list"),
+            ),
+            "dsh": _definition(
+                "dsh",
+                "DeepSeek Harness",
+                instruction_path=h / ".dsh/AGENTS.md",
+                project_instruction_path=Path("AGENTS.md"),
+                skills_path=h / ".agents/skills",
+                mcp_config_path=h / ".dsh/cordis.patch.yml",
+                mcp_config_format="dsh_cordis",
+            ),
+            "grok": _definition(
+                "grok",
+                "Grok Build",
+                instruction_path=h / ".grok/rules/aikito.md",
+                project_instruction_path=Path("AGENTS.md"),
+                skills_path=h / ".agents/skills",
+                mcp_config_path=h / ".grok/config.toml",
+                mcp_config_format="toml",
+                mcp_live_command=("grok", "mcp", "list"),
+            ),
+            "pi": _definition(
+                "pi",
+                "Pi",
+                instruction_path=h / ".pi/agent/AGENTS.md",
+                project_instruction_path=Path("AGENTS.md"),
+                skills_path=h / ".agents/skills",
+            ),
+        }
+        self.assertEqual(self._load(), expected)
+        for definition in load_agent_definitions(self.ws, self.home).values():
+            self.assertIsInstance(definition, AgentDefinition)
+            self.assertIsInstance(definition, Agent)
+
+    def test_custom_agents_and_legacy_coercion(self) -> None:
+        self._write(
+            """
+[agents.custom]
+display_name = "Custom"
+[agents.custom.mcp]
+config_path = "/abs/cfg.json"
+config_format = 123
+name_style = "underscore"
+reason = 7
+live_command = ["c", "mcp", "list"]
+auth_command = ["c", "login", "{target}"]
+builtin_mcps = ["a"]
+[agents.nullcmd]
+[agents.nullcmd.mcp]
+config_path = "x.toml"
+[agents.bare]
+"""
+        )
+        self.assertEqual(
+            self._load(),
+            {
+                "custom": _definition(
+                    "custom",
+                    "Custom",
+                    mcp_config_path=Path("/abs/cfg.json"),
+                    mcp_config_format="123",
+                    mcp_name_style="underscore",
+                    mcp_reason="7",
+                    mcp_live_command=("c", "mcp", "list"),
+                    mcp_auth_command=("c", "login", "{target}"),
+                    mcp_builtin_servers=("a",),
+                ),
+                "nullcmd": _definition(
+                    "nullcmd", "nullcmd", mcp_config_path=self.home / "x.toml"
+                ),
+                "bare": _definition("bare", "bare"),
+            },
+        )
+        definitions = load_agent_definitions(self.ws, self.home)
+        self.assertTrue(definitions["nullcmd"].supports_mcp)
+        self.assertFalse(definitions["bare"].supports_mcp)
+
+    def test_empty_registry(self) -> None:
+        self._write("[agents]\n")
+        self.assertEqual(load_agent_definitions(self.ws, self.home), {})
+
+    def test_missing_agents_config_raises(self) -> None:
+        with self.assertRaises(AgentRegistryError):
+            load_agent_definitions(self.ws, self.home)
+
+    def test_error_messages_are_frozen(self) -> None:
+        cases = {
+            "[agents.a]\nmcp = 1\n": "Agent 'a' mcp section must be a table",
+            '[agents.a.mcp]\nconfig_format = "toml"\n': (
+                "Agent 'a' requires a string 'mcp.config_path'"
+            ),
+            '[agents.a.mcp]\nconfig_path = "x"\nbuiltin_mcps = [1]\n': (
+                "Agent 'a' mcp.builtin_mcps must be a list of strings"
+            ),
+        }
+        for body, message in cases.items():
+            with self.subTest(body=body):
+                self._write(body)
+                with self.assertRaises(AgentRegistryError) as ctx:
+                    load_agent_definitions(self.ws, self.home)
+                self.assertEqual(str(ctx.exception), message)
 
 
 if __name__ == "__main__":

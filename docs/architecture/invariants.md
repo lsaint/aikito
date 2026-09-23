@@ -58,6 +58,7 @@ Each Rule ID is permanent. The table below maps every prefix to its canonical do
 | `INV-API-*` | Public Python API | [invariants-api.md](invariants-api.md) |
 | `INV-APP-*` | Application coordination | [invariants-application.md](invariants-application.md) |
 | `INV-ADOPT-*` | Adoption engine | [invariants-adopt.md](invariants-adopt.md) |
+| `INV-AGENT-*` | Agent domain ownership | [invariants-agent.md](invariants-agent.md) |
 
 ---
 
@@ -77,6 +78,7 @@ Each Rule ID is permanent. The table below maps every prefix to its canonical do
 | [invariants-api.md](invariants-api.md) | Public Python API invariants |
 | [invariants-application.md](invariants-application.md) | Application layer coordination and workspace synchronization |
 | [invariants-adopt.md](invariants-adopt.md) | Adoption engine, discovery, conflict resolution, and backups |
+| [invariants-agent.md](invariants-agent.md) | Agent definition ownership, strict loading, and error ownership |
 | [archive/core-model-migration.md](archive/core-model-migration.md) | Historical Core Model migration tracker (Phase 8 completed) |
 
 ---

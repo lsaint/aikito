@@ -39,7 +39,10 @@ from .conflict import (
 from .agents import (
     AGENT_INSTALL_MARKERS,
     AgentRegistry,
+    AgentRegistryError,
     check_target_availability,
+    is_agent_installed,
+    load_agent_definitions,
 )
 from .instructions import (
     build_global_instruction_batch,
@@ -54,9 +57,7 @@ from .mcp import (
     _parse_jsonc,
     build_mcp_plan,
     evaluate_spec_status,
-    is_agent_installed,
     load_agent_specs,
-    load_agents,
 )
 from .memory import validate_memory_name
 from .project import (
@@ -156,8 +157,8 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
     findings: list[DoctorFinding] = []
 
     try:
-        agents = load_agents(aikito_dir, home)
-    except MCPConfigError as exc:
+        agents = load_agent_definitions(aikito_dir, home)
+    except AgentRegistryError as exc:
         findings.append(_fail(f"Cannot load agents.toml: {exc}"))
         return DoctorSection(name="Symlinks", findings=findings)
 
@@ -414,7 +415,7 @@ def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
                 )
         else:
             findings.append(_ok("No orphan subagent files"))
-    except (SubagentConfigError, MCPConfigError) as exc:
+    except (SubagentConfigError, MCPConfigError, AgentRegistryError) as exc:
         findings.append(_warn(f"Cannot check subagent orphans: {exc}"))
 
     # 2b. Skills directory — entries not in skills.toml or project agent.toml
@@ -471,7 +472,7 @@ def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
     agents_skills_dir = home / ".agents" / "skills"
     if agents_skills_dir.is_dir():
         try:
-            agents_dict = load_agents(aikito_dir, home)
+            agents_dict = load_agent_definitions(aikito_dir, home)
             reg = AgentRegistry(agents_dict)
         except Exception:
             reg = None
@@ -524,7 +525,7 @@ def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
             except (json.JSONDecodeError, OSError):
                 pass
 
-        agents = load_agents(aikito_dir, home)
+        agents = load_agent_definitions(aikito_dir, home)
         for agent_name, definition in agents.items():
             if (
                 definition.mcp_config_path is None
@@ -579,7 +580,7 @@ def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
                             "aikito sync mcp",
                         )
                     )
-    except MCPConfigError:
+    except (MCPConfigError, AgentRegistryError):
         pass
 
     return DoctorSection(name="Orphans", findings=findings)
@@ -905,7 +906,7 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
 
     # 3c. Agent native config files
     try:
-        agents = load_agents(aikito_dir, home)
+        agents = load_agent_definitions(aikito_dir, home)
         for definition in agents.values():
             cfg = definition.mcp_config_path
             if cfg is None or not cfg.exists():
@@ -959,7 +960,7 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
                         f"{definition.display_name} config: read/parse error — {exc} ({display})"
                     )
                 )
-    except MCPConfigError as exc:
+    except AgentRegistryError as exc:
         findings.append(_warn(f"Cannot load agents for config check: {exc}"))
 
     # 3d. Subagent platform option schema

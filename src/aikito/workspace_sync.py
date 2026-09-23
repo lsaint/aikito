@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from .agents import AgentRegistry
+from .agents import AgentRegistry, AgentRegistryError, load_agent_definitions
 from .bundled_skills import (
     BundledSkillRefreshError,
     _backup_target,
@@ -37,7 +37,6 @@ from .mcp import (
     MCPPlan,
     build_mcp_plan,
     execute_mcp_plan,
-    load_agents,
 )
 from .project import resolve_project_binding
 from .project_sync import (
@@ -228,7 +227,7 @@ def build_global_sync_plan(
     container_path: Path | None = None,
     skills: Sequence[str] | None = None,
     outdated_bundled_skills_fn: Optional[Callable[[Path], Sequence[str]]] = None,
-    load_agents_fn: Optional[Callable[[Path, Path], Any]] = None,
+    load_agent_definitions_fn: Optional[Callable[[Path, Path], Any]] = None,
 ) -> GlobalSyncPlan:
     """Construct a read-only plan for global skills and instructions."""
     skills_toml_path = aikito_dir / "skills.toml"
@@ -347,9 +346,9 @@ def build_global_sync_plan(
         )
 
     try:
-        agent_loader = load_agents_fn or load_agents
+        agent_loader = load_agent_definitions_fn or load_agent_definitions
         agents = agent_loader(aikito_dir, home)
-    except MCPConfigError as exc:
+    except AgentRegistryError as exc:
         finding = Finding(
             status="ERROR",
             code="MCP_CONFIG_ERROR",
@@ -596,7 +595,7 @@ def sync_global_resources(
     *,
     dry_run: bool = False,
     container_path: Optional[Path] = None,
-    load_agents_fn: Optional[Callable] = None,
+    load_agent_definitions_fn: Optional[Callable] = None,
     execute_global_skills_fn: Optional[
         Callable[..., GlobalSkillExecutionResult]
     ] = None,
@@ -613,7 +612,7 @@ def sync_global_resources(
         home,
         dry_run=dry_run,
         container_path=container_path,
-        load_agents_fn=load_agents_fn,
+        load_agent_definitions_fn=load_agent_definitions_fn,
     )
 
     if not plan.can_apply:
@@ -1006,7 +1005,7 @@ def build_workspace_sync_plan(
     force: bool = False,
     prune: bool = False,
     force_targets: Sequence[str] | None = None,
-    load_agents_fn: Optional[Callable[..., Any]] = None,
+    load_agent_definitions_fn: Optional[Callable[..., Any]] = None,
     outdated_bundled_skills_fn: Optional[Callable[[Path], Sequence[str]]] = None,
     build_subagent_plan_fn: Optional[Callable[..., Any]] = None,
     build_mcp_plan_fn: Optional[Callable[..., Any]] = None,
@@ -1035,7 +1034,7 @@ def build_workspace_sync_plan(
         workspace_root,
         user_home,
         skills=req.skills,
-        load_agents_fn=load_agents_fn,
+        load_agent_definitions_fn=load_agent_definitions_fn,
         outdated_bundled_skills_fn=outdated_bundled_skills_fn,
     )
 
