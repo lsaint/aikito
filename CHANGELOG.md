@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.50.0] - 2026-09-23
+
+### Added
+
+- Context-aware project detection across CLI commands: Running `aikito sync project`, `aikito edit instructions`, `aikito show project`, `aikito diff`, `aikito show memory`, `aikito maintain memory`, or `aikito add skill` from within any registered project path automatically targets that project without requiring explicit project arguments.
+- Unified project status dashboard: Aligned table columns across `aikito status` and `aikito show projects` (`Project`, `Instr`, `Skills`, `Memory`, `Paths`, `Mode`, `Status`) and introduced a structured 3-line footer summarizing global resources, agent consumers, and workspace configuration.
+- Added `Updated` timestamp column to `aikito show memory` indicating when memory files were last modified.
+
+### Changed
+
+- Updated Bash, Zsh, and PowerShell completion scripts to support context-aware command invocations.
+- Refined project health status evaluation and instruction line calculation across status reports.
+
 ## [1.49.1] - 2026-09-23
 
 ### Fixed
@@ -898,7 +911,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.49.1...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.50.0...HEAD
+[1.50.0]: https://github.com/lsaint/aikito/compare/v1.49.1...v1.50.0
 [1.49.1]: https://github.com/lsaint/aikito/compare/v1.49.0...v1.49.1
 [1.49.0]: https://github.com/lsaint/aikito/compare/v1.48.0...v1.49.0
 [1.48.0]: https://github.com/lsaint/aikito/compare/v1.47.0...v1.48.0
