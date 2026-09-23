@@ -31,7 +31,11 @@ from .memory_runtime import (
     execute_memory_plan,
     plan_project_memory,
 )
-from .plan_observation import PlanObservation, combine_observations
+from .plan_observation import (
+    PlanObservation,
+    combine_observations,
+    safe_observe_plan,
+)
 from .project import (
     append_candidate_path_to_config,
     resolve_project_binding,
@@ -72,12 +76,17 @@ class ProjectSyncBatch:
     def observe(self) -> PlanObservation:
         """Project batch and child plans into a PlanObservation with single-source diagnostic ownership."""
         children: list[PlanObservation] = []
-        if self.skill_plan is not None:
-            children.append(self.skill_plan.observe())
+        s_obs = safe_observe_plan(self.skill_plan)
+        if s_obs is not None:
+            children.append(s_obs)
         if self.instruction_plan is not None:
-            children.append(self.instruction_plan.observe())
+            i_obs = safe_observe_plan(self.instruction_plan)
+            if i_obs is not None:
+                children.append(i_obs)
         if self.memory_plan is not None:
-            children.append(self.memory_plan.observe())
+            m_obs = safe_observe_plan(self.memory_plan)
+            if m_obs is not None:
+                children.append(m_obs)
 
         child_conflict_messages: set[str] = {
             f.message

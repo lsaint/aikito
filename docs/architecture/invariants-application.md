@@ -88,3 +88,29 @@
   - Touch or modify file mtimes
   - Trigger pending journal recovery or adoption writes
   - Mutate workspace pointer or runtime configuration
+
+### INV-APP-10: Coordinators Consume Plan Observations `[current]` {: #inv-app-10 }
+
+- Workspace-level and public-API coordinators MUST consume cross-resource plan semantics through stable plan observations and MUST NOT derive summary, diagnostic severity, or authorization semantics from resource-specific action strings.
+- All resource plans provide `.observe() -> PlanObservation` mapping domain operations to canonical `OperationEffect` and structured `Finding` objects.
+- Workspace summary properties (`changes`, `unchanged`) are computed strictly from observation summary counts.
+- Verified by: `tests/test_plan_observation.py`, `tests/test_plan_observation_architecture.py`.
+
+### INV-APP-11: Plan Observation Is Pure `[current]` {: #inv-app-11 }
+
+- Observing an immutable plan MUST NOT inspect mutable external state, re-plan resources, access the network, execute subprocess commands, or modify files.
+- `plan.observe()` is deterministic: calling `observe()` multiple times on the same plan produces identical results.
+- Verified by: `tests/test_plan_observation_architecture.py`.
+
+### INV-APP-12: Observation Semantics Are Domain-Owned `[current]` {: #inv-app-12 }
+
+- Mapping a domain-specific operation into generic effect and diagnostic semantics MUST be implemented by the owning domain or an adjacent operation adapter, never by a Workspace coordinator.
+- Diagnostic findings are single-source: each diagnostic is generated once by its owning domain and composed without duplicate reproduction.
+- Verified by: `tests/test_plan_observation.py`.
+
+### INV-APP-13: Unknown Observation Actions Fail Closed `[current]` {: #inv-app-13 }
+
+- A domain action without an observation mapping MUST produce an explicit internal failure during development/testing (via exhaustive action test suites) and MUST NOT silently default to NOOP, SKIP, or NONE.
+- In production observation paths, it MUST produce an `ERROR` finding and set `can_apply = False` to prevent uncontrolled runtime crashes while blocking execution.
+- Verified by: `tests/test_plan_observation.py`, `tests/test_plan_observation_architecture.py`.
+

@@ -48,6 +48,7 @@ from .plan_observation import (
     PlanObservation,
     PlanOperationView,
     combine_observations,
+    safe_observe_plan,
 )
 from .project import resolve_project_binding
 from .project_sync import (
@@ -135,12 +136,15 @@ class GlobalSyncPlan:
     def observe(self) -> PlanObservation:
         """Project global sync plan and child plans into a unified PlanObservation."""
         children: list[PlanObservation] = []
-        if self.bundled_refresh_plan is not None:
-            children.append(self.bundled_refresh_plan.observe())
-        if self.skill_plan is not None:
-            children.append(self.skill_plan.observe())
-        if self.instruction_plan is not None:
-            children.append(self.instruction_plan.observe())
+        b_obs = safe_observe_plan(self.bundled_refresh_plan)
+        if b_obs is not None:
+            children.append(b_obs)
+        s_obs = safe_observe_plan(self.skill_plan)
+        if s_obs is not None:
+            children.append(s_obs)
+        i_obs = safe_observe_plan(self.instruction_plan)
+        if i_obs is not None:
+            children.append(i_obs)
 
         child_conflict_messages: set[str] = {
             f.message
@@ -827,13 +831,22 @@ class WorkspaceSyncPlan:
 
     def observe(self) -> PlanObservation:
         """Project workspace sync plan and all child components into a unified PlanObservation."""
-        children: list[PlanObservation] = [self.global_plan.observe()]
+        children: list[PlanObservation] = []
+        g_obs = safe_observe_plan(self.global_plan)
+        if g_obs is not None:
+            children.append(g_obs)
         if self.subagent_plan is not None:
-            children.append(self.subagent_plan.observe())
+            s_obs = safe_observe_plan(self.subagent_plan)
+            if s_obs is not None:
+                children.append(s_obs)
         if self.mcp_plan is not None:
-            children.append(self.mcp_plan.observe())
+            m_obs = safe_observe_plan(self.mcp_plan)
+            if m_obs is not None:
+                children.append(m_obs)
         for entry in self.project_entries:
-            children.append(entry.observe())
+            e_obs = safe_observe_plan(entry)
+            if e_obs is not None:
+                children.append(e_obs)
 
         child_messages = {f.message for child in children for f in child.findings}
         workspace_findings = tuple(

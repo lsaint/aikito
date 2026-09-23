@@ -167,10 +167,7 @@ def skill_operation_effect(op: SkillOperation) -> OperationEffect:
         case "NOOP":
             return OperationEffect.NOOP
         case (
-            "RECONCILE_STATE"
-            | "CLAIM_STATE"
-            | "REACTIVATE_STATE"
-            | "DEACTIVATE_STATE"
+            "RECONCILE_STATE" | "CLAIM_STATE" | "REACTIVATE_STATE" | "DEACTIVATE_STATE"
         ):
             return OperationEffect.STATE_ONLY
         case "CONFLICT":

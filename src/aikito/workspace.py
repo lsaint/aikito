@@ -9,6 +9,7 @@ from pathlib import Path
 from .compat import get_workspace_config_dir
 from .doctor import run_doctor
 from .agents import load_agent_definitions
+from .plan_observation import OperationEffect
 from .project import collect_project_summaries
 from .subagent import load_subagent_definitions
 from .workspace_sync import plan_workspace_sync
@@ -207,40 +208,48 @@ class Workspace:
         plan = plan_workspace_sync(self.path, self.home)
 
         operations: list[str] = []
-        if plan.global_plan.bundled_refresh_plan:
-            for op in plan.global_plan.bundled_refresh_plan.operations:
-                if op.action == "REFRESH":
-                    operations.append(f"Bundled Skill {op.skill_name}: REFRESH")
-
-        if plan.global_plan.skill_plan:
-            for op in plan.global_plan.skill_plan.all_operations:
-                if op.action in ("CREATE", "UNLINK", "MIGRATE_CONTAINER", "CONFLICT"):
-                    name = op.resource_name or op.target_path.name
-                    operations.append(f"Global Skill {op.action}: {name}")
-
-        if plan.global_plan.instruction_plan:
-            for op in plan.global_plan.instruction_plan.operations:
-                if op.action in ("CREATE", "UNLINK", "CONFLICT"):
-                    name = op.resource_name or op.target_path.name
-                    operations.append(f"Global Instructions {op.action}: {name}")
-
-        if plan.subagent_plan:
-            for op in plan.subagent_plan.operations:
-                if op.is_authorized:
-                    agent = getattr(getattr(op, "target", None), "agent", "")
-                    identity = getattr(
-                        getattr(op, "target", None), "logical_identity", ""
+        obs = plan.observe()
+        for view in obs.operations:
+            if (
+                view.resource_type == "bundled_skill"
+                and view.effect == OperationEffect.UPDATE
+            ):
+                operations.append(
+                    f"Bundled Skill {view.resource_name}: {view.domain_action}"
+                )
+            elif view.resource_type == "global_skill" and view.scope == "global":
+                if (
+                    view.effect
+                    in (
+                        OperationEffect.CREATE,
+                        OperationEffect.UPDATE,
+                        OperationEffect.REMOVE,
                     )
-                    operations.append(f"Subagent {op.action}: {agent}/{identity}")
-
-        if plan.mcp_plan:
-            for op in getattr(plan.mcp_plan, "operations", ()):
-                if getattr(op, "is_authorized", True):
-                    agent = getattr(getattr(op, "target", None), "agent", "")
-                    identity = getattr(
-                        getattr(op, "target", None), "logical_identity", ""
+                    or view.domain_action == "CONFLICT"
+                ):
+                    name = view.resource_name or Path(view.target).name
+                    operations.append(f"Global Skill {view.domain_action}: {name}")
+            elif view.resource_type == "instruction" and view.scope == "global":
+                if (
+                    view.effect
+                    in (
+                        OperationEffect.CREATE,
+                        OperationEffect.REMOVE,
                     )
-                    operations.append(f"MCP {op.action}: {agent}/{identity}")
+                    or view.domain_action == "CONFLICT"
+                ):
+                    name = view.resource_name or Path(view.target).name
+                    operations.append(
+                        f"Global Instructions {view.domain_action}: {name}"
+                    )
+            elif view.resource_type == "subagent" and view.authorized:
+                operations.append(
+                    f"Subagent {view.domain_action}: {view.agent}/{view.resource_name}"
+                )
+            elif view.resource_type == "mcp" and view.authorized:
+                operations.append(
+                    f"MCP {view.domain_action}: {view.agent}/{view.resource_name}"
+                )
 
         for entry in plan.project_entries:
             if entry.batch:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from .diagnostics import (
     Finding,
@@ -168,3 +168,22 @@ def combine_observations(
         findings=tuple(combined_findings),
         can_apply=effective_can_apply,
     )
+
+
+def safe_observe_plan(plan: Any) -> PlanObservation | None:
+    """Safely obtain a PlanObservation from an ObservablePlan or test mock."""
+    if plan is None:
+        return None
+    if isinstance(plan, PlanObservation):
+        return plan
+    if hasattr(plan, "observe") and callable(plan.observe):
+        try:
+            obs = plan.observe()
+            if isinstance(obs, PlanObservation):
+                return obs
+        except Exception:
+            pass
+    can_apply = getattr(plan, "can_apply", True)
+    if not isinstance(can_apply, bool):
+        can_apply = True
+    return PlanObservation(can_apply=can_apply)
