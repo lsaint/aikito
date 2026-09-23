@@ -231,20 +231,59 @@ class AgentRegistry:
 
 
 @dataclass(frozen=True)
-class AgentDefinition(Agent):
-    """Static identity and paths for one agent, loaded from agents.toml."""
+class MCPCapability:
+    """MCP capability declared in an agent's [agents.<name>.mcp] section."""
 
-    mcp_config_path: Path | None = None
-    mcp_config_format: str = "unsupported"
-    mcp_name_style: str = "verbatim"
-    mcp_reason: str = ""
-    mcp_live_command: tuple[str, ...] = ()
-    mcp_auth_command: tuple[str, ...] = ()
-    mcp_builtin_servers: tuple[str, ...] = ()
+    config_path: Path
+    config_format: str = "unsupported"
+    name_style: str = "verbatim"
+    reason: str = ""
+    live_command: tuple[str, ...] = ()
+    auth_command: tuple[str, ...] = ()
+    builtin_servers: tuple[str, ...] = ()
 
     @property
-    def supports_mcp(self) -> bool:
-        return self.mcp_config_path is not None
+    def is_supported(self) -> bool:
+        """False when the section declares config_format = "unsupported"."""
+        return self.config_format != "unsupported"
+
+
+@dataclass(frozen=True)
+class AgentDefinition(Agent):
+    """Static identity, paths, and capabilities for one agent from agents.toml."""
+
+    # None means the agent declares no [agents.<name>.mcp] section.
+    mcp: MCPCapability | None = None
+
+
+def _load_mcp_capability(
+    spec: Mapping[str, Any], name: str, home: Path
+) -> MCPCapability | None:
+    mcp = spec.get("mcp")
+    if mcp is None:
+        return None
+    if not isinstance(mcp, dict):
+        raise AgentRegistryError(f"Agent '{name}' mcp section must be a table")
+    config_path = _resolve_home_path(
+        home, mcp.get("config_path"), "mcp.config_path", name
+    )
+    builtin_raw = mcp.get("builtin_mcps", [])
+    if not isinstance(builtin_raw, list) or not all(
+        isinstance(server, str) and server for server in builtin_raw
+    ):
+        raise AgentRegistryError(
+            f"Agent '{name}' mcp.builtin_mcps must be a list of strings"
+        )
+    # Legacy coercion (str()/tuple()) is preserved from v1.50.0 on purpose.
+    return MCPCapability(
+        config_path=config_path,
+        config_format=str(mcp.get("config_format", "unsupported")),
+        name_style=str(mcp.get("name_style", "verbatim")),
+        reason=str(mcp.get("reason", "")),
+        live_command=tuple(mcp.get("live_command", ()) or ()),
+        auth_command=tuple(mcp.get("auth_command", ()) or ()),
+        builtin_servers=tuple(builtin_raw),
+    )
 
 
 def load_agent_definitions(aikito_dir: Path, home: Path) -> dict[str, AgentDefinition]:
@@ -255,49 +294,13 @@ def load_agent_definitions(aikito_dir: Path, home: Path) -> dict[str, AgentDefin
     definitions: dict[str, AgentDefinition] = {}
     for name, spec in document["agents"].items():
         base_agent = registry[name]
-
-        mcp = spec.get("mcp")
-        if mcp is None:
-            mcp_config_path = None
-            mcp_config_format = "unsupported"
-            mcp_name_style = "verbatim"
-            mcp_reason = ""
-            mcp_live_command: tuple[str, ...] = ()
-            mcp_auth_command: tuple[str, ...] = ()
-            mcp_builtin_servers: tuple[str, ...] = ()
-        else:
-            if not isinstance(mcp, dict):
-                raise AgentRegistryError(f"Agent '{name}' mcp section must be a table")
-            mcp_config_path = _resolve_home_path(
-                home, mcp.get("config_path"), "mcp.config_path", name
-            )
-            mcp_config_format = str(mcp.get("config_format", "unsupported"))
-            mcp_name_style = str(mcp.get("name_style", "verbatim"))
-            mcp_reason = str(mcp.get("reason", ""))
-            mcp_live_command = tuple(mcp.get("live_command", ()) or ())
-            mcp_auth_command = tuple(mcp.get("auth_command", ()) or ())
-            builtin_raw = mcp.get("builtin_mcps", [])
-            if not isinstance(builtin_raw, list) or not all(
-                isinstance(server, str) and server for server in builtin_raw
-            ):
-                raise AgentRegistryError(
-                    f"Agent '{name}' mcp.builtin_mcps must be a list of strings"
-                )
-            mcp_builtin_servers = tuple(builtin_raw)
-
         definitions[name] = AgentDefinition(
             name=name,
             display_name=base_agent.display_name,
             instruction_path=base_agent.instruction_path,
             project_instruction_path=base_agent.project_instruction_path,
             skills_path=base_agent.skills_path,
-            mcp_config_path=mcp_config_path,
-            mcp_config_format=mcp_config_format,
-            mcp_name_style=mcp_name_style,
-            mcp_reason=mcp_reason,
-            mcp_live_command=mcp_live_command,
-            mcp_auth_command=mcp_auth_command,
-            mcp_builtin_servers=mcp_builtin_servers,
+            mcp=_load_mcp_capability(spec, name, home),
         )
 
     return definitions

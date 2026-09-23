@@ -1933,6 +1933,65 @@ reason = "off"
         ]
         self.assertEqual([dataclasses.asdict(item) for item in specs], expected)
 
+    def test_declared_unsupported_capability_keeps_path_and_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "ws"
+            (ws / "mcps").mkdir(parents=True)
+            home = Path("/HOME")
+            (ws / "agents.toml").write_text(
+                """
+[agents.legacy]
+display_name = "Legacy"
+[agents.legacy.mcp]
+config_path = ".legacy/mcp.json"
+config_format = "unsupported"
+reason = "Legacy agent has no MCP support"
+live_command = ["legacy", "mcp"]
+[agents.plain]
+[agents.plain.mcp]
+config_path = ".plain/mcp.json"
+""",
+                encoding="utf-8",
+            )
+            (ws / "mcps/docs.toml").write_text(
+                'transport = "remote"\n'
+                'url = "https://example.com/mcp"\n'
+                'agents = ["legacy", "plain"]\n'
+                "[overrides.plain]\n"
+                'reason = "override wins"\n',
+                encoding="utf-8",
+            )
+            specs = load_agent_specs(ws, home)
+
+        def unsupported(agent, path, reason):
+            return {
+                "agent": agent,
+                "server": "docs",
+                "config_path": path,
+                "config_format": "unsupported",
+                "target_name": "docs",
+                "desired": {},
+                "enabled": False,
+                "reason": reason,
+                "live_command": (),
+                "auth_command": (),
+                "contains_secret": False,
+                "missing_credential_env": "",
+                "home": home,
+            }
+
+        self.assertEqual(
+            [dataclasses.asdict(item) for item in specs],
+            [
+                unsupported(
+                    "legacy",
+                    home / ".legacy/mcp.json",
+                    "Legacy agent has no MCP support",
+                ),
+                unsupported("plain", home / ".plain/mcp.json", "override wins"),
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

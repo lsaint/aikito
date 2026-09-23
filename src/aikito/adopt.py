@@ -559,8 +559,8 @@ def scan_mcp_servers(
             )
         else:
             for ag_name, ag_def in agent_definitions.items():
-                if ag_def.mcp_builtin_servers:
-                    agent_builtin_mcps[ag_name] = set(ag_def.mcp_builtin_servers)
+                if ag_def.mcp and ag_def.mcp.builtin_servers:
+                    agent_builtin_mcps[ag_name] = set(ag_def.mcp.builtin_servers)
 
     existing_mcps: set[str] = set()
     mcps_dir = aikito_dir / "mcps"
@@ -579,7 +579,7 @@ def scan_mcp_servers(
 
     def _target_name(agent: str, canonical_name: str) -> str:
         definition = agent_definitions.get(agent)
-        if definition and definition.mcp_name_style == "underscore":
+        if definition and definition.mcp and definition.mcp.name_style == "underscore":
             return canonical_name.replace("-", "_")
         return canonical_name
 

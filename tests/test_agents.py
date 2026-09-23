@@ -379,7 +379,9 @@ class TargetResolutionTests(unittest.TestCase):
         self.assertTrue(runtime_link.is_symlink())
 
 
-def _definition(name: str, display_name: str, **fields: object) -> dict[str, object]:
+def _definition(
+    name: str, display_name: str, mcp: dict[str, object] | None = None, **fields: object
+) -> dict[str, object]:
     """Build an expected AgentDefinition dict with v1.50.0 defaults."""
     expected: dict[str, object] = {
         "name": name,
@@ -387,15 +389,19 @@ def _definition(name: str, display_name: str, **fields: object) -> dict[str, obj
         "instruction_path": None,
         "project_instruction_path": None,
         "skills_path": None,
-        "mcp_config_path": None,
-        "mcp_config_format": "unsupported",
-        "mcp_name_style": "verbatim",
-        "mcp_reason": "",
-        "mcp_live_command": (),
-        "mcp_auth_command": (),
-        "mcp_builtin_servers": (),
+        "mcp": None,
     }
     expected.update(fields)
+    if mcp is not None:
+        expected["mcp"] = {
+            "config_format": "unsupported",
+            "name_style": "verbatim",
+            "reason": "",
+            "live_command": (),
+            "auth_command": (),
+            "builtin_servers": (),
+            **mcp,
+        }
     return expected
 
 
@@ -430,12 +436,14 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
                 instruction_path=h / ".codex/AGENTS.md",
                 project_instruction_path=Path("AGENTS.md"),
                 skills_path=h / ".agents/skills",
-                mcp_config_path=h / ".codex/config.toml",
-                mcp_config_format="toml",
-                mcp_name_style="underscore",
-                mcp_live_command=("codex", "mcp", "list"),
-                mcp_auth_command=("codex", "mcp", "login", "{target}"),
-                mcp_builtin_servers=("openaiDeveloperDocs",),
+                mcp={
+                    "config_path": h / ".codex/config.toml",
+                    "config_format": "toml",
+                    "name_style": "underscore",
+                    "live_command": ("codex", "mcp", "list"),
+                    "auth_command": ("codex", "mcp", "login", "{target}"),
+                    "builtin_servers": ("openaiDeveloperDocs",),
+                },
             ),
             "claude-code": _definition(
                 "claude-code",
@@ -443,10 +451,12 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
                 instruction_path=h / ".claude/CLAUDE.md",
                 project_instruction_path=Path(".claude/CLAUDE.md"),
                 skills_path=h / ".claude/skills",
-                mcp_config_path=h / ".claude.json",
-                mcp_config_format="claude_json",
-                mcp_live_command=("claude", "mcp", "list"),
-                mcp_auth_command=("claude", "mcp", "login", "{target}"),
+                mcp={
+                    "config_path": h / ".claude.json",
+                    "config_format": "claude_json",
+                    "live_command": ("claude", "mcp", "list"),
+                    "auth_command": ("claude", "mcp", "login", "{target}"),
+                },
             ),
             "agy": _definition(
                 "agy",
@@ -454,8 +464,10 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
                 instruction_path=h / ".gemini/GEMINI.md",
                 project_instruction_path=Path("AGENTS.md"),
                 skills_path=h / ".gemini/antigravity-cli/skills",
-                mcp_config_path=h / ".gemini/config/mcp_config.json",
-                mcp_config_format="agy_json",
+                mcp={
+                    "config_path": h / ".gemini/config/mcp_config.json",
+                    "config_format": "agy_json",
+                },
             ),
             "opencode": _definition(
                 "opencode",
@@ -463,10 +475,12 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
                 instruction_path=h / ".config/opencode/AGENTS.md",
                 project_instruction_path=Path("AGENTS.md"),
                 skills_path=h / ".agents/skills",
-                mcp_config_path=h / ".config/opencode/opencode.jsonc",
-                mcp_config_format="jsonc",
-                mcp_live_command=("opencode", "mcp", "list"),
-                mcp_auth_command=("opencode", "mcp", "auth", "{target}"),
+                mcp={
+                    "config_path": h / ".config/opencode/opencode.jsonc",
+                    "config_format": "jsonc",
+                    "live_command": ("opencode", "mcp", "list"),
+                    "auth_command": ("opencode", "mcp", "auth", "{target}"),
+                },
             ),
             "github-copilot": _definition(
                 "github-copilot",
@@ -474,9 +488,11 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
                 instruction_path=h / ".copilot/copilot-instructions.md",
                 project_instruction_path=Path("AGENTS.md"),
                 skills_path=h / ".agents/skills",
-                mcp_config_path=h / ".copilot/mcp-config.json",
-                mcp_config_format="copilot_json",
-                mcp_live_command=("copilot", "mcp", "list"),
+                mcp={
+                    "config_path": h / ".copilot/mcp-config.json",
+                    "config_format": "copilot_json",
+                    "live_command": ("copilot", "mcp", "list"),
+                },
             ),
             "dsh": _definition(
                 "dsh",
@@ -484,8 +500,10 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
                 instruction_path=h / ".dsh/AGENTS.md",
                 project_instruction_path=Path("AGENTS.md"),
                 skills_path=h / ".agents/skills",
-                mcp_config_path=h / ".dsh/cordis.patch.yml",
-                mcp_config_format="dsh_cordis",
+                mcp={
+                    "config_path": h / ".dsh/cordis.patch.yml",
+                    "config_format": "dsh_cordis",
+                },
             ),
             "grok": _definition(
                 "grok",
@@ -493,9 +511,11 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
                 instruction_path=h / ".grok/rules/aikito.md",
                 project_instruction_path=Path("AGENTS.md"),
                 skills_path=h / ".agents/skills",
-                mcp_config_path=h / ".grok/config.toml",
-                mcp_config_format="toml",
-                mcp_live_command=("grok", "mcp", "list"),
+                mcp={
+                    "config_path": h / ".grok/config.toml",
+                    "config_format": "toml",
+                    "live_command": ("grok", "mcp", "list"),
+                },
             ),
             "pi": _definition(
                 "pi",
@@ -535,23 +555,27 @@ config_path = "x.toml"
                 "custom": _definition(
                     "custom",
                     "Custom",
-                    mcp_config_path=Path("/abs/cfg.json"),
-                    mcp_config_format="123",
-                    mcp_name_style="underscore",
-                    mcp_reason="7",
-                    mcp_live_command=("c", "mcp", "list"),
-                    mcp_auth_command=("c", "login", "{target}"),
-                    mcp_builtin_servers=("a",),
+                    mcp={
+                        "config_path": Path("/abs/cfg.json"),
+                        "config_format": "123",
+                        "name_style": "underscore",
+                        "reason": "7",
+                        "live_command": ("c", "mcp", "list"),
+                        "auth_command": ("c", "login", "{target}"),
+                        "builtin_servers": ("a",),
+                    },
                 ),
                 "nullcmd": _definition(
-                    "nullcmd", "nullcmd", mcp_config_path=self.home / "x.toml"
+                    "nullcmd", "nullcmd", mcp={"config_path": self.home / "x.toml"}
                 ),
                 "bare": _definition("bare", "bare"),
             },
         )
         definitions = load_agent_definitions(self.ws, self.home)
-        self.assertTrue(definitions["nullcmd"].supports_mcp)
-        self.assertFalse(definitions["bare"].supports_mcp)
+        self.assertIsNotNone(definitions["nullcmd"].mcp)
+        self.assertFalse(definitions["nullcmd"].mcp.is_supported)
+        self.assertTrue(definitions["custom"].mcp.is_supported)
+        self.assertIsNone(definitions["bare"].mcp)
 
     def test_empty_registry(self) -> None:
         self._write("[agents]\n")

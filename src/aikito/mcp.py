@@ -1310,22 +1310,20 @@ def load_agent_specs(aikito_dir: Path, home: Path) -> list[AgentSpec]:
             enabled = override.get("enabled", True)
             reason = str(override.get("reason", ""))
 
-            if (
-                not definition.supports_mcp
-                or definition.mcp_config_format == "unsupported"
-            ):
+            capability = definition.mcp
+            if capability is None or not capability.is_supported:
                 specs.append(
                     AgentSpec(
                         agent=agent,
                         server=server_name,
-                        config_path=definition.mcp_config_path or Path(),
+                        config_path=capability.config_path if capability else Path(),
                         config_format="unsupported",
                         target_name=server_name,
                         desired={},
                         enabled=False,
                         reason=(
                             reason
-                            or definition.mcp_reason
+                            or (capability.reason if capability else "")
                             or f"MCP synchronization is not supported for agent '{agent}'"
                         ),
                         home=home,
@@ -1333,18 +1331,18 @@ def load_agent_specs(aikito_dir: Path, home: Path) -> list[AgentSpec]:
                 )
                 continue
 
-            name_style = definition.mcp_name_style
+            name_style = capability.name_style
             default_target = _target_name(name_style, server_name)
             target_name = str(override.get("name", default_target))
             desired, contains_secret, missing_credential_env = _build_desired(
-                definition.mcp_config_format,
+                capability.config_format,
                 url,
                 override,
                 authentication,
                 headers,
                 agent=agent,
             )
-            if definition.mcp_config_format == "dsh_cordis" and not desired.get(
+            if capability.config_format == "dsh_cordis" and not desired.get(
                 "serverName"
             ):
                 desired = dict(desired)
@@ -1353,19 +1351,17 @@ def load_agent_specs(aikito_dir: Path, home: Path) -> list[AgentSpec]:
                 AgentSpec(
                     agent=agent,
                     server=server_name,
-                    config_path=definition.mcp_config_path,
-                    config_format=definition.mcp_config_format,
+                    config_path=capability.config_path,
+                    config_format=capability.config_format,
                     target_name=target_name,
                     desired=desired,
                     enabled=bool(enabled),
                     reason=reason,
-                    live_command=_render_command(
-                        definition.mcp_live_command, target_name
-                    ),
+                    live_command=_render_command(capability.live_command, target_name),
                     auth_command=(
                         ()
                         if authentication
-                        else _render_command(definition.mcp_auth_command, target_name)
+                        else _render_command(capability.auth_command, target_name)
                     ),
                     contains_secret=contains_secret,
                     missing_credential_env=missing_credential_env,

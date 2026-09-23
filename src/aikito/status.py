@@ -147,10 +147,11 @@ def collect_mcp_details(
 
     if agent_name and not server_name:
         definition = agents[agent_name]
-        path = definition.mcp_config_path
-        if path and path.is_file():
+        capability = definition.mcp
+        path = capability.config_path if capability else None
+        if capability and path and path.is_file():
             entries = read_all_entries(
-                definition.mcp_config_format, path.read_text(encoding="utf-8")
+                capability.config_format, path.read_text(encoding="utf-8")
             )
             for target_name in sorted(
                 entries.keys() - managed_targets.get(agent_name, set())
@@ -164,7 +165,7 @@ def collect_mcp_details(
                         source="unmanaged",
                         status="PRESENT",
                         config_path=path,
-                        config_format=definition.mcp_config_format,
+                        config_format=capability.config_format,
                         entry=None,
                     )
                 )
@@ -471,7 +472,7 @@ def collect_agent_status_rows(
         # 3. MCP Status
         mcp_status = "SKIP"
         agent_mcp_specs = [s for s in mcp_specs if s.agent == name]
-        if definition.mcp_config_format != "unsupported":
+        if definition.mcp is not None and definition.mcp.is_supported:
             if not agent_mcp_specs:
                 mcp_status = "OK (0)"
             else:

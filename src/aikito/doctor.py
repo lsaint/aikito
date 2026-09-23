@@ -527,12 +527,10 @@ def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
 
         agents = load_agent_definitions(aikito_dir, home)
         for agent_name, definition in agents.items():
-            if (
-                definition.mcp_config_path is None
-                or not definition.mcp_config_path.exists()
-            ):
+            capability = definition.mcp
+            if capability is None or not capability.config_path.exists():
                 continue
-            cfg = definition.mcp_config_path
+            cfg = capability.config_path
             try:
                 text = cfg.read_text(encoding="utf-8")
             except (UnicodeDecodeError, PermissionError, OSError) as exc:
@@ -545,7 +543,7 @@ def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
                 continue
 
             existing_servers: set[str] = set()
-            fmt = definition.mcp_config_format
+            fmt = capability.config_format
             if fmt in ("agy_json", "claude_json", "copilot_json"):
                 try:
                     doc = json.loads(text)
@@ -908,10 +906,11 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
     try:
         agents = load_agent_definitions(aikito_dir, home)
         for definition in agents.values():
-            cfg = definition.mcp_config_path
-            if cfg is None or not cfg.exists():
+            capability = definition.mcp
+            if capability is None or not capability.config_path.exists():
                 continue
-            fmt = definition.mcp_config_format
+            cfg = capability.config_path
+            fmt = capability.config_format
             display = _home_rel(cfg, home)
             try:
                 text = cfg.read_text(encoding="utf-8")
