@@ -38,7 +38,12 @@ from .mcp import (
     build_mcp_plan,
     execute_mcp_plan,
 )
-from .plan_observation import OperationEffect, PlanObservation, PlanOperationView
+from .plan_observation import (
+    OperationEffect,
+    PlanObservation,
+    PlanOperationView,
+    combine_observations,
+)
 from .project import resolve_project_binding
 from .project_sync import (
     ProjectSyncBatch,
@@ -121,6 +126,46 @@ class GlobalSyncPlan:
     can_apply: bool = True
     replan_required_after_apply: bool = False
     error_message: str | None = None
+
+    def observe(self) -> PlanObservation:
+        """Project global sync plan and child plans into a unified PlanObservation."""
+        children: list[PlanObservation] = []
+        if self.bundled_refresh_plan is not None:
+            children.append(self.bundled_refresh_plan.observe())
+        if self.skill_plan is not None:
+            children.append(self.skill_plan.observe())
+        if self.instruction_plan is not None:
+            children.append(self.instruction_plan.observe())
+
+        child_conflict_messages: set[str] = {
+            f.message
+            for child in children
+            for f in child.findings
+            if f.status == "CONFLICT"
+        }
+        if self.skill_plan is not None:
+            for op in getattr(self.skill_plan, "all_operations", ()):
+                if getattr(op, "action", None) == "CONFLICT":
+                    if getattr(op, "reason", None):
+                        child_conflict_messages.add(op.reason)
+                    if getattr(op, "finding", None):
+                        child_conflict_messages.add(op.finding)
+        if self.instruction_plan is not None:
+            for op in getattr(self.instruction_plan, "conflicts", ()):
+                if getattr(op, "reason", None):
+                    child_conflict_messages.add(op.reason)
+                if getattr(op, "finding", None):
+                    child_conflict_messages.add(op.finding)
+
+        global_findings = tuple(
+            f for f in self.findings if f.message not in child_conflict_messages
+        )
+
+        return combine_observations(
+            children,
+            additional_findings=global_findings,
+            can_apply=self.can_apply,
+        )
 
 
 @dataclass(frozen=True)
@@ -717,6 +762,45 @@ class ProjectSyncEntry:
     offline_paths: tuple[str, ...] = ()
     error_message: str | None = None
 
+    def observe(self) -> PlanObservation:
+        """Project entry into a PlanObservation."""
+        if self.batch is not None:
+            batch_obs = self.batch.observe()
+            if self.binding_status == "error" or self.error_message:
+                finding = Finding(
+                    status="ERROR",
+                    code="PROJECT_CONFIG_ERROR",
+                    message=self.error_message
+                    or f"Project '{self.project_name}' has configuration errors.",
+                    resource=self.project_name,
+                )
+                return combine_observations(
+                    [batch_obs],
+                    additional_findings=(finding,),
+                    can_apply=False,
+                )
+            return batch_obs
+
+        if self.binding_status == "error" or self.error_message:
+            finding = Finding(
+                status="ERROR",
+                code="PROJECT_CONFIG_ERROR",
+                message=self.error_message
+                or f"Project '{self.project_name}' has configuration errors.",
+                resource=self.project_name,
+            )
+            return PlanObservation(
+                operations=(),
+                findings=(finding,),
+                can_apply=False,
+            )
+
+        return PlanObservation(
+            operations=(),
+            findings=(),
+            can_apply=True,
+        )
+
 
 @dataclass(frozen=True)
 class WorkspaceSyncPlan:
@@ -735,6 +819,27 @@ class WorkspaceSyncPlan:
     findings: tuple[Finding, ...] = ()
     can_apply: bool = True
     replan_required_after_apply: bool = False
+
+    def observe(self) -> PlanObservation:
+        """Project workspace sync plan and all child components into a unified PlanObservation."""
+        children: list[PlanObservation] = [self.global_plan.observe()]
+        if self.subagent_plan is not None:
+            children.append(self.subagent_plan.observe())
+        if self.mcp_plan is not None:
+            children.append(self.mcp_plan.observe())
+        for entry in self.project_entries:
+            children.append(entry.observe())
+
+        child_messages = {f.message for child in children for f in child.findings}
+        workspace_findings = tuple(
+            f for f in self.findings if f.message not in child_messages
+        )
+
+        return combine_observations(
+            children,
+            additional_findings=workspace_findings,
+            can_apply=self.can_apply,
+        )
 
     @property
     def changes(self) -> int:

@@ -15,6 +15,7 @@ from typing import Any, Mapping
 
 from .compat import check_case_collision, safe_relative_path
 from .conflict import collect_resource_conflicts
+from .diagnostics import Finding
 from .init import project_sync_validation_error
 from .instructions import (
     InstructionExecutionResult,
@@ -30,6 +31,7 @@ from .memory_runtime import (
     execute_memory_plan,
     plan_project_memory,
 )
+from .plan_observation import PlanObservation, combine_observations
 from .project import (
     append_candidate_path_to_config,
     resolve_project_binding,
@@ -66,6 +68,59 @@ class ProjectSyncBatch:
     config_cas: CandidatePathCAS | None = None
     instruction_plan: InstructionPlan | None = None
     memory_plan: MemoryPlan | None = None
+
+    def observe(self) -> PlanObservation:
+        """Project batch and child plans into a PlanObservation with single-source diagnostic ownership."""
+        children: list[PlanObservation] = []
+        if self.skill_plan is not None:
+            children.append(self.skill_plan.observe())
+        if self.instruction_plan is not None:
+            children.append(self.instruction_plan.observe())
+        if self.memory_plan is not None:
+            children.append(self.memory_plan.observe())
+
+        child_conflict_messages: set[str] = {
+            f.message
+            for child in children
+            for f in child.findings
+            if f.status == "CONFLICT"
+        }
+        if self.instruction_plan is not None:
+            for op in getattr(self.instruction_plan, "conflicts", ()):
+                msg = getattr(op, "finding", None) or getattr(op, "reason", None)
+                if msg:
+                    child_conflict_messages.add(msg)
+        if self.memory_plan is not None:
+            for op in getattr(self.memory_plan, "conflicts", ()):
+                msg = getattr(op, "finding", None) or getattr(op, "reason", None)
+                if msg:
+                    child_conflict_messages.add(msg)
+        if self.skill_plan is not None:
+            for op in getattr(self.skill_plan, "operations", ()):
+                if getattr(op, "finding", None):
+                    child_conflict_messages.add(op.finding)
+                if getattr(op, "action", None) == "CONFLICT" and getattr(
+                    op, "reason", None
+                ):
+                    child_conflict_messages.add(op.reason)
+
+        project_findings: list[Finding] = []
+        for text in self.preflight_findings:
+            if text and text not in child_conflict_messages:
+                project_findings.append(
+                    Finding(
+                        status="ERROR",
+                        code="PREFLIGHT_ERROR",
+                        message=text,
+                        resource=self.project_name,
+                    )
+                )
+
+        return combine_observations(
+            children,
+            additional_findings=tuple(project_findings),
+            can_apply=self.can_apply,
+        )
 
 
 @dataclass(frozen=True)

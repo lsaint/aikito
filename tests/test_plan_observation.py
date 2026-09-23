@@ -250,7 +250,7 @@ def test_observable_plan_protocol() -> None:
 
 
 def test_link_operation_effect_mappings() -> None:
-    
+
     from aikito.link import LinkOperation, link_operation_effect
     from aikito.plan_observation import UnknownPlanActionError
 
@@ -272,7 +272,7 @@ def test_link_operation_effect_mappings() -> None:
 
 
 def test_link_operation_finding() -> None:
-    
+
     from aikito.link import LinkOperation, link_operation_finding
 
     target = Path("/tmp/t")
@@ -294,7 +294,7 @@ def test_link_operation_finding() -> None:
 
 
 def test_observe_link_operation_fallback_on_unknown() -> None:
-    
+
     from aikito.link import LinkOperation, observe_link_operation
 
     target = Path("/tmp/t")
@@ -644,3 +644,289 @@ def test_subagent_plan_observe(tmp_path: Path) -> None:
     assert obs.can_apply is False
 
 
+def test_project_sync_batch_observe_and_provenance(tmp_path: Path) -> None:
+    from aikito.instructions import InstructionBatch, InstructionPlan
+    from aikito.link import LinkOperation
+    from aikito.project_sync import ProjectSyncBatch
+    from aikito.skill_plan import SkillPlan
+
+    child_conflict_op = LinkOperation(
+        action="CONFLICT",
+        rule_id="INV-TR-01",
+        target_path=tmp_path / "AGENTS.md",
+        reason="Link conflict on AGENTS.md",
+        finding="instruction conflict finding",
+    )
+    inst_plan = InstructionPlan(
+        batch=InstructionBatch(
+            scope="project",
+            canonical_source=tmp_path / "AGENTS.md",
+            project_name="proj1",
+        ),
+        operations=(child_conflict_op,),
+    )
+    skill_plan = SkillPlan(
+        workspace_root=tmp_path,
+        project_name="proj1",
+        operations=(),
+        findings=(),
+        authorizations=(),
+        can_apply=True,
+    )
+
+    batch = ProjectSyncBatch(
+        workspace_root=tmp_path,
+        project_name="proj1",
+        active_checkouts=(tmp_path / "co",),
+        offline_checkouts=(),
+        skill_plan=skill_plan,
+        preflight_findings=(
+            "instruction conflict finding",
+            "Project codebase path does not exist: /missing/path",
+        ),
+        can_apply=False,
+        instruction_plan=inst_plan,
+    )
+
+    child_obs = inst_plan.observe()
+    assert len(child_obs.findings) == 1
+    assert child_obs.findings[0].status == "CONFLICT"
+    assert child_obs.findings[0].message == "instruction conflict finding"
+
+    batch_obs = batch.observe()
+    assert isinstance(batch_obs, PlanObservation)
+    assert len(batch_obs.findings) == 2
+    assert batch_obs.summary.conflicts == 1
+    assert batch_obs.summary.errors == 1
+    assert batch_obs.can_apply is False
+
+    conflict_finding = next(f for f in batch_obs.findings if f.status == "CONFLICT")
+    assert conflict_finding.message == "instruction conflict finding"
+    assert conflict_finding.resource == str(tmp_path / "AGENTS.md")
+
+    error_finding = next(f for f in batch_obs.findings if f.status == "ERROR")
+    assert error_finding.code == "PREFLIGHT_ERROR"
+    assert (
+        error_finding.message == "Project codebase path does not exist: /missing/path"
+    )
+    assert error_finding.resource == "proj1"
+
+
+def test_global_sync_plan_observe_and_provenance(tmp_path: Path) -> None:
+    from aikito.agents import Target
+    from aikito.global_skills import GlobalSkillBatch, GlobalSkillBatchPlan
+    from aikito.link import LinkOperation
+    from aikito.workspace_sync import BundledSkillRefreshPlan, GlobalSyncPlan
+
+    child_op = LinkOperation(
+        action="CONFLICT",
+        rule_id="RULE-1",
+        target_path=tmp_path / "skills" / "skillA",
+        reason="global skill collision",
+        finding="global skill collision finding",
+    )
+    batch = GlobalSkillBatch(
+        workspace_root=tmp_path,
+        container=Target(
+            kind="managed_container", scope="global", path=tmp_path / "skills"
+        ),
+        selected_entries=(),
+        stale_entries=(),
+        consumers=(),
+    )
+    skill_plan = GlobalSkillBatchPlan(
+        batch=batch,
+        container_op=LinkOperation(action="NOOP", rule_id="R0", target_path=tmp_path),
+        entry_ops=(child_op,),
+        consumer_ops=(),
+    )
+
+    global_plan = GlobalSyncPlan(
+        bundled_refresh_plan=BundledSkillRefreshPlan(),
+        skill_plan=skill_plan,
+        instruction_plan=None,
+        findings=(
+            Finding(
+                status="CONFLICT",
+                code="SKILL_CONFLICT",
+                message="global skill collision",
+                resource=str(child_op.target_path),
+            ),
+            Finding(
+                status="ERROR",
+                code="GLOBAL_INSTRUCTION_MISSING",
+                message="Global instruction file not found",
+                resource="global/AGENTS.md",
+            ),
+        ),
+        can_apply=False,
+        error_message="Conflicts detected in global plan.",
+    )
+
+    child_obs = skill_plan.observe()
+    assert len(child_obs.findings) == 1
+    assert child_obs.findings[0].status == "CONFLICT"
+
+    global_obs = global_plan.observe()
+    assert isinstance(global_obs, PlanObservation)
+    assert len(global_obs.findings) == 2
+    assert global_obs.summary.conflicts == 1
+    assert global_obs.summary.errors == 1
+
+    assert not any(
+        f.message == "Conflicts detected in global plan." for f in global_obs.findings
+    )
+
+
+def test_project_sync_entry_observe(tmp_path: Path) -> None:
+    from aikito.project_sync import ProjectSyncBatch
+    from aikito.skill_plan import SkillPlan
+    from aikito.workspace_sync import ProjectSyncEntry
+
+    # 1. Active with batch
+    skill_plan = SkillPlan(
+        workspace_root=tmp_path,
+        project_name="p1",
+        operations=(),
+        findings=(),
+        authorizations=(),
+        can_apply=True,
+    )
+    batch = ProjectSyncBatch(
+        workspace_root=tmp_path,
+        project_name="p1",
+        active_checkouts=(tmp_path / "co",),
+        offline_checkouts=(),
+        skill_plan=skill_plan,
+        preflight_findings=(),
+        can_apply=True,
+    )
+    entry_active = ProjectSyncEntry(
+        project_name="p1",
+        binding_status="active",
+        batch=batch,
+    )
+    obs_active = entry_active.observe()
+    assert obs_active.can_apply is True
+    assert len(obs_active.findings) == 0
+
+    # 2. Config error
+    entry_error = ProjectSyncEntry(
+        project_name="p2",
+        binding_status="error",
+        error_message="agent.toml parse error",
+    )
+    obs_error = entry_error.observe()
+    assert obs_error.can_apply is False
+    assert len(obs_error.findings) == 1
+    assert obs_error.findings[0].code == "PROJECT_CONFIG_ERROR"
+    assert obs_error.findings[0].status == "ERROR"
+    assert obs_error.findings[0].message == "agent.toml parse error"
+
+    # 3. Offline (no error)
+    entry_offline = ProjectSyncEntry(
+        project_name="p3",
+        binding_status="offline",
+        offline_paths=("/remote/path",),
+    )
+    obs_offline = entry_offline.observe()
+    assert obs_offline.can_apply is True
+    assert len(obs_offline.findings) == 0
+
+
+def test_finding_provenance_single_source_across_hierarchy(tmp_path: Path) -> None:
+    """PR 4 Finding Provenance Test (§54):
+
+    A child conflict must appear exactly once in child observation,
+    once in composite project observation, and once in workspace observation.
+    Ownership is single-source, not relying on dedup.
+    """
+    from aikito.instructions import InstructionBatch, InstructionPlan
+    from aikito.link import LinkOperation
+    from aikito.project_sync import ProjectSyncBatch
+    from aikito.skill_plan import SkillPlan
+    from aikito.workspace_sync import (
+        BundledSkillRefreshPlan,
+        GlobalSyncPlan,
+        ProjectSyncEntry,
+        WorkspaceSyncPlan,
+    )
+
+    conflict_op = LinkOperation(
+        action="CONFLICT",
+        rule_id="INV-TR-01",
+        target_path=tmp_path / "AGENTS.md",
+        reason="Link conflict on AGENTS.md",
+        finding="instruction conflict finding",
+    )
+    inst_plan = InstructionPlan(
+        batch=InstructionBatch(
+            scope="project",
+            canonical_source=tmp_path / "AGENTS.md",
+            project_name="p1",
+        ),
+        operations=(conflict_op,),
+    )
+    skill_plan = SkillPlan(
+        workspace_root=tmp_path,
+        project_name="p1",
+        operations=(),
+        findings=(),
+        authorizations=(),
+        can_apply=True,
+    )
+    batch = ProjectSyncBatch(
+        workspace_root=tmp_path,
+        project_name="p1",
+        active_checkouts=(tmp_path / "co",),
+        offline_checkouts=(),
+        skill_plan=skill_plan,
+        preflight_findings=("instruction conflict finding",),
+        can_apply=False,
+        instruction_plan=inst_plan,
+    )
+    entry = ProjectSyncEntry(
+        project_name="p1",
+        binding_status="active",
+        batch=batch,
+    )
+    global_plan = GlobalSyncPlan(
+        bundled_refresh_plan=BundledSkillRefreshPlan(),
+        skill_plan=None,
+        instruction_plan=None,
+        findings=(),
+        can_apply=True,
+    )
+    legacy_project_finding = Finding(
+        status="error",
+        message="instruction conflict finding",
+        resource="p1",
+        code="PREFLIGHT_ERROR",
+    )
+    workspace_plan = WorkspaceSyncPlan(
+        workspace_root=tmp_path,
+        home=tmp_path,
+        global_plan=global_plan,
+        subagent_plan=None,
+        mcp_plan=None,
+        project_entries=(entry,),
+        findings=(legacy_project_finding,),
+        can_apply=False,
+    )
+
+    # 1. Child observation
+    child_obs = inst_plan.observe()
+    assert len(child_obs.findings) == 1
+    assert child_obs.findings[0].message == "instruction conflict finding"
+
+    # 2. Project observation
+    project_obs = entry.observe()
+    assert len(project_obs.findings) == 1
+    assert project_obs.findings[0].message == "instruction conflict finding"
+
+    # 3. Workspace observation
+    ws_obs = workspace_plan.observe()
+    assert len(ws_obs.findings) == 1
+    assert ws_obs.findings[0].message == "instruction conflict finding"
+    assert ws_obs.summary.conflicts == 1
+    assert ws_obs.summary.errors == 0
