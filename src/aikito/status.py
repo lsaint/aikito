@@ -5,20 +5,15 @@ Gathers synchronization status data across agents, memory, instructions, skills,
 
 import sys
 import tomllib
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
 
-from .agents import AgentRegistry, load_agent_definitions
-from .global_skills import build_global_skill_batch, plan_global_skills
-from .instructions import (
-    build_global_instruction_batch,
-    plan_instructions,
-)
+from .agents import load_agent_definitions
+from .inspection import InspectionStatus, ResourceInspectionView
 from .mcp import (
-    build_mcp_plan,
-    evaluate_spec_status,
     load_agent_specs,
     probe_mcp_tools_for_specs,
     read_all_entries,
@@ -26,7 +21,6 @@ from .mcp import (
     redact_mcp_entry,
 )
 from .memory import extract_note_title
-from .memory_runtime import build_project_memory_batch, plan_project_memory
 from .project import (
     collect_project_summaries,
     get_instructions_line_count_display,
@@ -44,7 +38,8 @@ from .render import (
     SubagentRow,
     get_consumer_display_name,
 )
-from .subagent import SubagentConfigError, build_subagent_plan
+from .subagent import SubagentConfigError
+from .workspace_inspection import WorkspaceInspection, inspect_workspace
 
 
 @dataclass(frozen=True)
@@ -101,14 +96,16 @@ def collect_mcp_details(
     home: Path,
     server_target: str | None = None,
     agent_target: str | None = None,
+    *,
+    inspection: WorkspaceInspection | None = None,
 ) -> list[MCPDetailRow]:
-    agents = load_agent_definitions(aikito_dir, home)
+    inspection = inspection or inspect_workspace(aikito_dir, home)
+    agents = inspection.agents
     try:
-        specs = load_agent_specs(aikito_dir, home)
-        mcp_plan = build_mcp_plan(aikito_dir, home=home, specs=specs)
+        specs = inspection.mcp_specs
+        inspection.ensure_mcp_plan()
     except Exception:
         specs = []
-        mcp_plan = None
     server_names = sorted({spec.server for spec in specs if spec.enabled})
     server_name = (
         _resolve_name(server_target, server_names, "MCP server")
@@ -137,7 +134,7 @@ def collect_mcp_details(
                 agent_name=spec.agent,
                 agent_display_name=definition.display_name,
                 source="managed",
-                status=evaluate_spec_status(spec, home=home, plan=mcp_plan),
+                status=inspection.mcp_status(spec),
                 config_path=spec.config_path,
                 config_format=spec.config_format,
                 entry=redact_mcp_entry(current) if current is not None else None,
@@ -217,6 +214,8 @@ def collect_subagent_details(
     home: Path,
     subagent_target: str | None = None,
     agent_target: str | None = None,
+    *,
+    inspection: WorkspaceInspection | None = None,
 ) -> list[SubagentDetailRow]:
     from .subagent import (
         FORMAT_EXTENSIONS,
@@ -224,13 +223,13 @@ def collect_subagent_details(
         load_subagent_definitions,
     )
 
+    inspection = inspection or inspect_workspace(aikito_dir, home)
     agent_configs, all_agent_names = load_all_agents(aikito_dir, home)
     subagent_defs = load_subagent_definitions(aikito_dir, allow_empty=True)
     try:
-        subagent_plan = build_subagent_plan(aikito_dir, home, allow_empty=True)
-        plan_ops = subagent_plan.operations
+        inspections = inspection.subagent_views
     except SubagentConfigError:
-        plan_ops = ()
+        inspections = ()
 
     subagent_names = sorted(subagent_defs.keys())
     subagent_name = (
@@ -244,8 +243,8 @@ def collect_subagent_details(
         else None
     )
 
-    plan_map: dict[tuple[str, str], Any] = {
-        (op.target.logical_identity, op.target.agent): op for op in plan_ops
+    inspection_map: dict[tuple[str, str], ResourceInspectionView] = {
+        (v.resource_name, v.agent): v for v in inspections
     }
 
     rows: list[SubagentDetailRow] = []
@@ -262,25 +261,19 @@ def collect_subagent_details(
             if ag_key not in sub_def.agents and not (subagent_name and agent_name):
                 continue
 
-            plan_op = plan_map.get((name, ag_key))
+            insp_view = inspection_map.get((name, ag_key))
             if ag_key not in sub_def.agents:
                 status = "NOT_TARGETED"
                 ext = FORMAT_EXTENSIONS.get(ag_cfg.config_format, ".md")
                 target_path = ag_cfg.config_path / f"{name}{ext}"
-            elif plan_op:
-                if plan_op.action in ("OK", "NOOP"):
-                    status = "OK"
-                elif plan_op.action in ("UPDATE", "FORCE UPDATE"):
+            elif insp_view:
+                if insp_view.status == InspectionStatus.UPDATE:
                     status = "DRIFT"
-                elif plan_op.action == "CREATE":
-                    status = "MISSING"
-                elif plan_op.action == "CONFLICT":
-                    status = "CONFLICT"
-                elif plan_op.action == "SKIP":
-                    status = "SKIP"
                 else:
-                    status = plan_op.action
-                target_path = plan_op.target.path
+                    status = str(insp_view.status)
+                target_path = insp_view.target_path or (
+                    ag_cfg.config_path / f"{name}.md"
+                )
             else:
                 status = "MISSING"
                 ext = FORMAT_EXTENSIONS.get(ag_cfg.config_format, ".md")
@@ -324,77 +317,61 @@ def _get_skills_list(aikito_dir: Path) -> list[str]:
     return []
 
 
-def _summarize_subagent_status(actions: list[str]) -> str:
-    total = len(actions)
-    ok_count = actions.count("OK")
+def _summarize_subagent_status(statuses: Sequence[InspectionStatus]) -> str:
+    total = len(statuses)
+    ok_count = statuses.count(InspectionStatus.OK)
     if ok_count == total:
         return f"OK ({total})"
-    if "ERROR" in actions:
+    if InspectionStatus.ERROR in statuses:
         return f"ERROR ({ok_count}/{total})"
-    if "CONFLICT" in actions:
+    if InspectionStatus.CONFLICT in statuses:
         return f"CONFLICT ({ok_count}/{total})"
-    if any(action in ("UPDATE", "FORCE UPDATE") for action in actions):
+    if any(s in (InspectionStatus.UPDATE, InspectionStatus.DRIFT) for s in statuses):
         return f"DRIFT ({ok_count}/{total})"
-    if "CREATE" in actions:
+    if InspectionStatus.MISSING in statuses:
         return f"MISSING ({ok_count}/{total})"
     return f"CONFLICT ({ok_count}/{total})"
 
 
 def collect_agent_status_rows(
-    aikito_dir: Path, home: Path
+    aikito_dir: Path,
+    home: Path,
+    *,
+    inspection: WorkspaceInspection | None = None,
 ) -> tuple[list[AgentStatusRow], int, int, int]:
-    agents_dict = load_agent_definitions(aikito_dir, home)
-    instruction_batch = build_global_instruction_batch(
-        aikito_dir, home, registry=AgentRegistry(agents_dict)
-    )
-    instruction_plan = plan_instructions(instruction_batch, home)
+    inspection = inspection or inspect_workspace(aikito_dir, home)
+    agents_dict = inspection.agents
 
-    instruction_target_status: dict[Path, str] = {}
-    for op in instruction_plan.operations:
-        if op.action in ("NOOP", "SHARED_PATH"):
-            st = "OK"
-        elif op.action == "CREATE":
-            st = "MISSING"
-        elif op.action == "CONFLICT":
-            st = "CONFLICT"
-        elif op.action == "SKIP":
-            st = "SKIP"
-        elif op.action == "UNLINK":
-            st = "DRIFT"
-        else:
-            st = op.action
-        instruction_target_status[op.target_path] = st
+    instruction_target_status: dict[Path, str] = {
+        v.target_path: v.status.value
+        for v in inspection.instruction_views
+        if v.target_path
+    }
 
     global_skills = _get_skills_list(aikito_dir)
     total_global_skills = len(global_skills)
 
-    global_skill_batch = build_global_skill_batch(
-        aikito_dir,
-        home,
-        skills=global_skills,
-        registry=AgentRegistry(agents_dict),
-        container_path=home / ".agents" / "skills",
+    skill_inspections = inspection.skill_views(global_skills)
+    container_view = next(
+        (v for v in skill_inspections if v.resource_type == "global_skill_container"),
+        None,
     )
-    global_skill_plan = plan_global_skills(global_skill_batch, home, dry_run=True)
 
     agent_issues = 0
 
     # Pre-fetch MCP specs and Subagent plan items
     try:
-        mcp_specs = load_agent_specs(aikito_dir, home)
-        mcp_plan = build_mcp_plan(aikito_dir, home=home, specs=mcp_specs)
+        mcp_specs = inspection.mcp_specs
+        inspection.ensure_mcp_plan()
     except Exception:
         mcp_specs = []
-        mcp_plan = None
         agent_issues += 1
 
     try:
-        subagent_plan = build_subagent_plan(aikito_dir, home, allow_empty=True)
-        subagent_ops = subagent_plan.operations
-        subagent_configs = dict(subagent_plan.agent_configs)
+        subagent_inspections = inspection.subagent_views
+        subagent_configs = dict(inspection.subagent_configs)
     except SubagentConfigError:
-        subagent_plan = None
-        subagent_ops = ()
+        subagent_inspections = ()
         subagent_configs = {}
         agent_issues += 1
 
@@ -404,7 +381,9 @@ def collect_agent_status_rows(
 
     # Unique active subagents
     active_subagents = set(
-        op.target.logical_identity for op in subagent_ops if op.action != "SKIP"
+        v.resource_name
+        for v in subagent_inspections
+        if v.status not in (InspectionStatus.SKIP, InspectionStatus.ORPHAN)
     )
     total_subagents_count = len(active_subagents)
 
@@ -423,20 +402,21 @@ def collect_agent_status_rows(
         # 2. Skills Status
         skills_status = "SKIP"
         if definition.skills_path is not None:
-            consumer_op = next(
+            consumer_view = next(
                 (
-                    op
-                    for op in global_skill_plan.consumer_ops
-                    if op.target_path == definition.skills_path
+                    v
+                    for v in skill_inspections
+                    if v.resource_type == "global_skill_consumer"
+                    and v.target_path == definition.skills_path
                 ),
                 None,
             )
-            if consumer_op is None or consumer_op.action == "SKIP":
+            if consumer_view is None or consumer_view.status == InspectionStatus.SKIP:
                 skills_status = "SKIP"
-            elif consumer_op.action == "CREATE":
+            elif consumer_view.status == InspectionStatus.MISSING:
                 skills_status = "MISSING"
                 agent_issues += 1
-            elif consumer_op.action == "CONFLICT":
+            elif consumer_view.status == InspectionStatus.CONFLICT:
                 skills_status = (
                     f"CONFLICT (0/{total_global_skills})"
                     if total_global_skills > 0
@@ -444,22 +424,28 @@ def collect_agent_status_rows(
                 )
                 agent_issues += 1
             else:
-                # Consumer link is OK (NOOP or SHARED_PATH). Now check container & managed entries.
-                if global_skill_plan.container_op.action == "CONFLICT":
+                # Consumer link is OK. Now check container & managed entries.
+                if (
+                    container_view
+                    and container_view.status == InspectionStatus.CONFLICT
+                ):
                     skills_status = (
                         f"CONFLICT (0/{total_global_skills})"
                         if total_global_skills > 0
                         else "CONFLICT"
                     )
                     agent_issues += 1
-                elif global_skill_plan.container_op.action == "CREATE":
+                elif (
+                    container_view and container_view.status == InspectionStatus.MISSING
+                ):
                     skills_status = "MISSING"
                     agent_issues += 1
                 else:
                     ok_skills = sum(
                         1
-                        for op in global_skill_plan.entry_ops
-                        if op.desired_representation == "link" and op.action == "NOOP"
+                        for v in skill_inspections
+                        if v.resource_type == "global_skill_entry"
+                        and v.status == InspectionStatus.OK
                     )
                     if ok_skills == total_global_skills and total_global_skills > 0:
                         skills_status = f"OK ({total_global_skills})"
@@ -484,7 +470,7 @@ def collect_agent_status_rows(
                 has_error = False
 
                 for spec in agent_mcp_specs:
-                    st = evaluate_spec_status(spec, home=home, plan=mcp_plan)
+                    st = inspection.mcp_status(spec)
                     if st == "OK":
                         ok_mcp += 1
                     elif st == "SKIP":
@@ -515,15 +501,19 @@ def collect_agent_status_rows(
 
         # 4. Subagent Status
         subagent_status = "SKIP"
-        agent_subagent_ops = [
-            op
-            for op in subagent_ops
-            if op.target.agent in (name, definition.display_name)
+        agent_subagent_views = [
+            v
+            for v in subagent_inspections
+            if v.agent in (name, definition.display_name)
         ]
-        active_ops = [op for op in agent_subagent_ops if op.action != "SKIP"]
-        if active_ops:
+        active_views = [
+            v
+            for v in agent_subagent_views
+            if v.status not in (InspectionStatus.SKIP, InspectionStatus.ORPHAN)
+        ]
+        if active_views:
             subagent_status = _summarize_subagent_status(
-                ["OK" if op.action == "NOOP" else op.action for op in active_ops]
+                [v.status for v in active_views]
             )
             if not subagent_status.startswith("OK"):
                 agent_issues += 1
@@ -554,8 +544,12 @@ def collect_agent_status_rows(
 
 
 def collect_memory_status_rows(
-    aikito_dir: Path, home: Path
+    aikito_dir: Path,
+    home: Path,
+    *,
+    inspection: WorkspaceInspection | None = None,
 ) -> tuple[list[MemoryStatusRow], int, int]:
+    inspection = inspection or inspect_workspace(aikito_dir, home)
     rows: list[MemoryStatusRow] = []
     total_notes = 0
     mem_issues = 0
@@ -621,24 +615,16 @@ def collect_memory_status_rows(
                     if binding and binding.active_entries:
                         active_statuses = []
                         for entry in binding.active_entries:
-                            mem_batch = build_project_memory_batch(
-                                aikito_dir,
-                                proj_folder.name,
-                                toml_data,
-                                active_checkouts=[entry.resolved_path],
+                            views = inspection.project_memory_views(
+                                proj_folder.name, toml_data, entry.resolved_path
                             )
-                            mem_plan = plan_project_memory(mem_batch)
-                            entry_statuses = []
-                            for op in mem_plan.operations:
-                                if op.action in ("NOOP", "SHARED_PATH"):
-                                    entry_statuses.append("OK")
-                                elif op.action == "CREATE":
-                                    entry_statuses.append("MISSING")
-                                elif op.action in ("UNLINK", "CONFLICT"):
-                                    entry_statuses.append("CONFLICT")
-                            if "CONFLICT" in entry_statuses:
+                            if any(
+                                v.status == InspectionStatus.CONFLICT for v in views
+                            ):
                                 active_statuses.append("CONFLICT")
-                            elif "MISSING" in entry_statuses:
+                            elif any(
+                                v.status == InspectionStatus.MISSING for v in views
+                            ):
                                 active_statuses.append("MISSING")
                             else:
                                 active_statuses.append("OK")
@@ -673,11 +659,12 @@ def collect_memory_status_rows(
 
 
 def get_status_report_data(aikito_dir: Path, home: Path) -> StatusReportData:
+    inspection = inspect_workspace(aikito_dir, home)
     agent_rows, agent_issues, total_subagents, total_mcp = collect_agent_status_rows(
-        aikito_dir, home
+        aikito_dir, home, inspection=inspection
     )
     memory_rows, total_memory_notes, mem_issues = collect_memory_status_rows(
-        aikito_dir, home
+        aikito_dir, home, inspection=inspection
     )
     skills_list = _get_skills_list(aikito_dir)
     total_skills_count = len(skills_list)
@@ -738,15 +725,19 @@ def get_status_report_data(aikito_dir: Path, home: Path) -> StatusReportData:
 
 
 def collect_mcp_matrix(
-    aikito_dir: Path, home: Path, live: bool = False
+    aikito_dir: Path,
+    home: Path,
+    live: bool = False,
+    *,
+    inspection: WorkspaceInspection | None = None,
 ) -> tuple[list[MCPServerRow], list[str]]:
-    agents_dict = load_agent_definitions(aikito_dir, home)
+    inspection = inspection or inspect_workspace(aikito_dir, home)
+    agents_dict = inspection.agents
     try:
-        specs = load_agent_specs(aikito_dir, home)
-        mcp_plan = build_mcp_plan(aikito_dir, home=home, specs=specs)
+        specs = inspection.mcp_specs
+        inspection.ensure_mcp_plan()
     except Exception:
         specs = []
-        mcp_plan = None
     agent_names = [a.display_name for a in agents_dict.values()]
     agent_key_to_display = {k: v.display_name for k, v in agents_dict.items()}
 
@@ -759,7 +750,7 @@ def collect_mcp_matrix(
             servers[srv_name] = {}
 
         if spec.agent in agents_dict:
-            st = evaluate_spec_status(spec, home=home, plan=mcp_plan)
+            st = inspection.mcp_status(spec)
         else:
             st = "SKIP"
 
@@ -799,51 +790,46 @@ def collect_mcp_matrix(
 
 
 def collect_subagents_matrix(
-    aikito_dir: Path, home: Path
+    aikito_dir: Path,
+    home: Path,
+    *,
+    inspection: WorkspaceInspection | None = None,
 ) -> tuple[list[SubagentRow], list[OrphanSubagentFile], list[str]]:
+    inspection = inspection or inspect_workspace(aikito_dir, home)
     try:
-        subagent_plan = build_subagent_plan(
-            aikito_dir=aikito_dir, home=home, allow_empty=True
-        )
-        plan_ops = subagent_plan.operations
+        views = inspection.subagent_views
     except SubagentConfigError:
-        plan_ops = ()
-    agents_dict = load_agent_definitions(aikito_dir, home)
+        views = ()
+    agents_dict = inspection.agents
     agent_names = [a.display_name for a in agents_dict.values()]
 
     subagents_map: dict[str, dict[str, str]] = {}
     orphan_files: list[OrphanSubagentFile] = []
 
-    for op in plan_ops:
-        ag_def = agents_dict.get(op.target.agent)
-        ag_display = ag_def.display_name if ag_def else op.target.agent
+    for view in views:
+        ag_def = agents_dict.get(view.agent) if view.agent else None
+        ag_display = ag_def.display_name if ag_def else (view.agent or "")
 
-        if op.action in ("ORPHAN", "REMOVE"):
-            rel_path = str(op.target.path)
-            try:
-                rel_path = f"~/{op.target.path.relative_to(home)}"
-            except ValueError:
-                pass
+        if view.status == InspectionStatus.ORPHAN:
+            rel_path = str(view.target_path)
+            if view.target_path:
+                try:
+                    rel_path = f"~/{view.target_path.relative_to(home)}"
+                except ValueError:
+                    pass
             orphan_files.append(
                 OrphanSubagentFile(agent_display_name=ag_display, file_path=rel_path)
             )
             continue
 
-        if op.target.logical_identity == "*":
+        if view.resource_name == "*":
             continue
 
-        sub_name = op.target.logical_identity
+        sub_name = view.resource_name
         if sub_name not in subagents_map:
             subagents_map[sub_name] = {}
 
-        if op.action in ("CREATE", "UPDATE"):
-            subagents_map[sub_name][ag_display] = "MISSING"
-        elif op.action == "CONFLICT":
-            subagents_map[sub_name][ag_display] = "CONFLICT"
-        elif op.action in ("OK", "NOOP"):
-            subagents_map[sub_name][ag_display] = "OK"
-        elif op.action == "SKIP":
-            subagents_map[sub_name][ag_display] = "SKIP"
+        subagents_map[sub_name][ag_display] = view.status.value
 
     for sub_name, st_dict in subagents_map.items():
         for ag_def in agents_dict.values():

@@ -9,6 +9,7 @@ from pathlib import Path
 from .agents import AgentRegistry, Target, check_target_availability, resolve_targets
 from .compat import is_same_target_location
 from .diagnostics import Finding, is_error_finding
+from .inspection import InspectionStatus, ResourceInspectionView
 from .link import (
     LinkOperation,
     apply_link_operation,
@@ -128,6 +129,61 @@ class InstructionPlan:
             findings=tuple(findings),
             can_apply=can_apply,
         )
+
+    def inspect(self) -> tuple[ResourceInspectionView, ...]:
+        """Project plan into structured resource inspection views."""
+        views: list[ResourceInspectionView] = []
+        for op in self.operations:
+            if op.action in ("NOOP", "SHARED_PATH"):
+                status = InspectionStatus.OK
+            elif op.action == "CREATE":
+                status = InspectionStatus.MISSING
+            elif op.action == "CONFLICT":
+                status = InspectionStatus.CONFLICT
+            elif op.action == "SKIP":
+                status = InspectionStatus.SKIP
+            elif op.action == "UNLINK":
+                status = InspectionStatus.MISSING
+            else:
+                status = InspectionStatus.ERROR
+
+            finding = (
+                Finding(
+                    status="CONFLICT",
+                    code=op.rule_id or "INSTRUCTION_CONFLICT",
+                    message=op.reason,
+                    resource=str(op.target_path),
+                )
+                if op.action == "CONFLICT"
+                else None
+            )
+
+            agent_name = ""
+            for target in self.batch.targets:
+                if target.path == op.target_path or is_same_target_location(
+                    target.path, op.target_path
+                ):
+                    agent_name = target.consumers[0] if target.consumers else ""
+                    break
+            if not agent_name:
+                agent_name = op.resource_name
+
+            views.append(
+                ResourceInspectionView(
+                    resource_type="instruction",
+                    resource_name=op.resource_name or "AGENTS.md",
+                    status=status,
+                    scope=self.batch.scope,
+                    agent=agent_name,
+                    project=self.batch.project_name or "",
+                    target_path=op.target_path,
+                    source_path=self.batch.canonical_source,
+                    reason=op.reason,
+                    finding=finding,
+                    details={"expected_representation": op.expected_representation},
+                )
+            )
+        return tuple(views)
 
 
 @dataclass(frozen=True)

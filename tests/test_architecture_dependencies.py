@@ -239,6 +239,54 @@ class ArchitectureDependencyTests(unittest.TestCase):
         self.assertTrue(hasattr(aikito, "__all__"))
         self.assertEqual(set(aikito.__all__), expected_exports)
 
+    def test_status_and_doctor_do_not_access_domain_action(self) -> None:
+        """Status and doctor consume shared inspection facts, not domain plans or actions."""
+        target_files = [SRC / "status.py", SRC / "doctor.py"]
+        violations: list[str] = []
+        forbidden_builders = {
+            "build_global_instruction_batch",
+            "plan_instructions",
+            "build_global_skill_batch",
+            "plan_global_skills",
+            "build_subagent_plan",
+            "build_mcp_plan",
+            "build_project_memory_batch",
+            "plan_project_memory",
+        }
+
+        for file_path in target_files:
+            tree = ast.parse(
+                file_path.read_text(encoding="utf-8"), filename=str(file_path)
+            )
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Attribute) and node.attr in (
+                    "action",
+                    "domain_action",
+                ):
+                    violations.append(
+                        f"{file_path.name}:{node.lineno} accesses attribute '.{node.attr}'"
+                    )
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                    if node.func.id in forbidden_builders:
+                        violations.append(
+                            f"{file_path.name}:{node.lineno} builds a resource plan"
+                        )
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "get"
+                    and isinstance(node.func.value, ast.Attribute)
+                    and node.func.value.attr == "details"
+                    and node.args
+                    and isinstance(node.args[0], ast.Constant)
+                    and node.args[0].value in ("action", "domain_action")
+                ):
+                    violations.append(
+                        f"{file_path.name}:{node.lineno} reads action from inspection details"
+                    )
+
+        self.assertEqual(violations, [])
+
 
 if __name__ == "__main__":
     unittest.main()

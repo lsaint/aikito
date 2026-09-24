@@ -1041,7 +1041,9 @@ agents = ["claude-code"]
         )
         plan = SubagentPlan(operations=(op,), file_plans=())
 
-        with patch("aikito.doctor.build_subagent_plan", return_value=plan):
+        with patch(
+            "aikito.workspace_inspection.build_subagent_plan", return_value=plan
+        ):
             section = check_drift(self.aikito_dir, self.home)
 
         failures = [finding for finding in section.findings if finding.status == "FAIL"]
@@ -1065,10 +1067,13 @@ agents = ["claude-code"]
         )
 
         with (
-            patch("aikito.doctor.load_agent_specs", return_value=[spec]),
-            patch("aikito.doctor.evaluate_spec_status", return_value="DRIFT"),
+            patch("aikito.workspace_inspection.load_agent_specs", return_value=[spec]),
             patch(
-                "aikito.doctor.build_subagent_plan",
+                "aikito.workspace_inspection.WorkspaceInspection.mcp_status",
+                return_value="DRIFT",
+            ),
+            patch(
+                "aikito.workspace_inspection.build_subagent_plan",
                 return_value=SubagentPlan(operations=(), file_plans=()),
             ),
         ):
@@ -1110,11 +1115,15 @@ agents = ["claude-code"]
 
         with (
             patch(
-                "aikito.doctor.load_agent_specs", return_value=[spec_update, spec_drift]
+                "aikito.workspace_inspection.load_agent_specs",
+                return_value=[spec_update, spec_drift],
             ),
-            patch("aikito.doctor.evaluate_spec_status", side_effect=eval_status),
             patch(
-                "aikito.doctor.build_subagent_plan",
+                "aikito.workspace_inspection.WorkspaceInspection.mcp_status",
+                side_effect=eval_status,
+            ),
+            patch(
+                "aikito.workspace_inspection.build_subagent_plan",
                 return_value=SubagentPlan(operations=(), file_plans=()),
             ),
         ):

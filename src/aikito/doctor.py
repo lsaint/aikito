@@ -44,18 +44,12 @@ from .agents import (
     is_agent_installed,
     load_agent_definitions,
 )
-from .instructions import (
-    build_global_instruction_batch,
-    plan_instructions,
-)
+from .inspection import InspectionStatus
 from .diagnostics import Finding, FindingAction
-from .global_skills import build_global_skill_batch, plan_global_skills
 from .link import classify_symlink  # noqa: F401
 from .mcp.adapters.jsonc import _load_document, _parse_jsonc
 from .mcp import (
     MCPConfigError,
-    build_mcp_plan,
-    evaluate_spec_status,
     load_agent_specs,
 )
 from .memory import validate_memory_name
@@ -72,10 +66,10 @@ from .render import DoctorFinding, DoctorReport, DoctorSection
 from .status import collect_subagents_matrix
 from .subagent import (
     SubagentConfigError,
-    build_subagent_plan,
     load_subagent_definitions,
     validate_platform_opts,
 )
+from .workspace_inspection import WorkspaceInspection, inspect_workspace
 from .templating import (
     detect_existing_agents,
     detected_agent_names,
@@ -151,66 +145,65 @@ def _home_rel(path: Path, home: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
+def check_symlinks(
+    aikito_dir: Path,
+    home: Path,
+    *,
+    inspection: WorkspaceInspection | None = None,
+) -> DoctorSection:
     """Check all managed symlinks for dangling, wrong-target, or missing."""
     findings: list[DoctorFinding] = []
 
+    inspection = inspection or inspect_workspace(aikito_dir, home)
     try:
-        agents = load_agent_definitions(aikito_dir, home)
+        inspection.agents
     except AgentRegistryError as exc:
         findings.append(_fail(f"Cannot load agents.toml: {exc}"))
         return DoctorSection(name="Symlinks", findings=findings)
 
-    agents_skills_dir = home / ".agents" / "skills"
-
-    registry = AgentRegistry(agents)
-
     # 1a. Per-target instruction symlinks
-    instruction_batch = build_global_instruction_batch(
-        aikito_dir, home, registry=registry
-    )
-    instruction_plan = plan_instructions(instruction_batch, home)
-
     inst_fail_count = 0
     instr_total = 0
     instr_target_total = 0
 
     formal_target_paths = {
-        t.path.resolve(strict=False): t for t in instruction_batch.targets
+        t.path.resolve(strict=False): t for t in inspection.instruction_targets
     }
 
-    for target in instruction_batch.targets:
+    for target in inspection.instruction_targets:
         avail = check_target_availability(target, home)
         if not avail.is_installed:
             continue
         instr_total += len(target.consumers)
         instr_target_total += 1
 
-    for op in instruction_plan.operations:
-        resolved_op_path = op.target_path.resolve(strict=False)
+    for view in inspection.instruction_views:
+        if view.target_path is None:
+            continue
+        resolved_op_path = view.target_path.resolve(strict=False)
         if resolved_op_path not in formal_target_paths:
             continue
         target = formal_target_paths[resolved_op_path]
         avail = check_target_availability(target, home)
         if not avail.is_installed:
             continue
-        if op.action in ("NOOP", "SHARED_PATH", "SKIP"):
+        if view.status in (InspectionStatus.OK, InspectionStatus.SKIP):
             continue
 
-        display = _home_rel(op.target_path, home)
-        display_name = op.resource_name
+        display = _home_rel(view.target_path, home)
+        display_name = view.resource_name
         inst_fail_count += 1
 
-        if op.action == "CREATE":
+        if view.status == InspectionStatus.MISSING:
             findings.append(
                 _fail(
                     f"{display_name}: missing ({display})",
                     "aikito sync global",
                 )
             )
-        elif op.action == "CONFLICT":
-            if op.expected_representation == "symlink":
-                if op.target_path.is_symlink() and not op.target_path.exists():
+        elif view.status == InspectionStatus.CONFLICT:
+            if view.details.get("expected_representation") == "symlink":
+                if view.target_path.is_symlink() and not view.target_path.exists():
                     findings.append(
                         _fail(
                             f"{display_name}: dangling symlink ({display})",
@@ -253,89 +246,88 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
         except tomllib.TOMLDecodeError:
             pass
 
-    global_skill_batch = build_global_skill_batch(
-        aikito_dir,
-        home,
-        skills=global_skills,
-        registry=registry,
-        container_path=agents_skills_dir,
-    )
-    global_skill_plan = plan_global_skills(global_skill_batch, home, dry_run=True)
+    skill_views = inspection.skill_views(global_skills)
 
     # 1. Managed container
-    cop = global_skill_plan.container_op
-    display_container = _home_rel(cop.target_path, home)
-    if cop.action == "CONFLICT":
-        skills_fail_count += 1
-        findings.append(
-            _fail(
-                f"Global skills container: {cop.reason} ({display_container})",
-                "aikito sync global",
+    container_view = next(
+        (v for v in skill_views if v.resource_type == "global_skill_container"),
+        None,
+    )
+    if container_view and container_view.target_path:
+        display_container = _home_rel(container_view.target_path, home)
+        if container_view.status == InspectionStatus.CONFLICT:
+            skills_fail_count += 1
+            findings.append(
+                _fail(
+                    f"Global skills container: {container_view.reason} ({display_container})",
+                    "aikito sync global",
+                )
             )
-        )
-    elif cop.action == "CREATE":
-        skills_fail_count += 1
-        findings.append(
-            _fail(
-                f"Global skills container: missing directory ({display_container})",
-                "aikito sync global",
+        elif container_view.status == InspectionStatus.MISSING:
+            skills_fail_count += 1
+            findings.append(
+                _fail(
+                    f"Global skills container: missing directory ({display_container})",
+                    "aikito sync global",
+                )
             )
-        )
-    elif cop.action == "MIGRATE_CONTAINER":
-        findings.append(
-            _warn(
-                f"Global skills container: legacy symlink ({display_container})",
-                "aikito sync global",
+        elif container_view.status == InspectionStatus.UPDATE:
+            findings.append(
+                _warn(
+                    f"Global skills container: legacy symlink ({display_container})",
+                    "aikito sync global",
+                )
             )
-        )
 
     # 2. Managed entries
-    for op in global_skill_plan.entry_ops:
-        if op.desired_representation == "link":
+    for view in skill_views:
+        if view.resource_type != "global_skill_entry":
+            continue
+        if view.details.get("desired_representation") == "link":
             skills_checked_count += 1
-            display = _home_rel(op.target_path, home)
-            if op.action == "NOOP":
+            display = _home_rel(view.target_path, home) if view.target_path else ""
+            if view.status == InspectionStatus.OK:
                 pass
-            elif op.action == "CREATE":
+            elif view.status == InspectionStatus.MISSING:
                 skills_fail_count += 1
                 findings.append(
                     _fail(
-                        f"Global skill '{op.resource_name}': missing symlink ({display})",
+                        f"Global skill '{view.resource_name}': missing symlink ({display})",
                         "aikito sync global",
                     )
                 )
-            elif op.action == "CONFLICT":
+            elif view.status == InspectionStatus.CONFLICT:
                 skills_fail_count += 1
                 findings.append(
                     _fail(
-                        f"Global skill '{op.resource_name}': {op.reason} ({display})",
+                        f"Global skill '{view.resource_name}': {view.reason} ({display})",
                         "aikito sync global",
                     )
                 )
 
     # 3. Consumer links
-    for op in global_skill_plan.consumer_ops:
-        if op.action == "SHARED_PATH":
+    for view in skill_views:
+        if view.resource_type != "global_skill_consumer":
             continue
-        if op.action == "SKIP":
+        if view.details.get("shared_target") or view.status == InspectionStatus.SKIP:
             continue
-        display = _home_rel(op.target_path, home)
+        display = _home_rel(view.target_path, home) if view.target_path else ""
         skills_checked_count += 1
-        if op.action == "NOOP":
+        if view.status == InspectionStatus.OK:
             pass
-        elif op.action == "CREATE":
+        elif view.status == InspectionStatus.MISSING:
             skills_fail_count += 1
             findings.append(
                 _fail(
-                    f"{op.resource_name} skills: missing symlink ({display})",
+                    f"{view.resource_name} skills: missing symlink ({display})",
                     "aikito sync global",
                 )
             )
-        elif op.action == "CONFLICT":
+        elif view.status == InspectionStatus.CONFLICT:
             skills_fail_count += 1
             findings.append(
                 _fail(
-                    f"{op.resource_name} skills: {op.reason} ({display})",
+                    f"{view.resource_name} skills: {view.reason} ({display})",
                     "aikito sync global",
                 )
             )
@@ -343,7 +335,7 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
     if global_skills and skills_fail_count == 0 and skills_checked_count > 0:
         installed_targets = [
             t
-            for t in global_skill_batch.consumers
+            for t in inspection.skill_consumers(global_skills)
             if check_target_availability(t, home).is_installed
         ]
         total_installed_consumers = sum(len(t.consumers) for t in installed_targets)
@@ -397,13 +389,21 @@ def check_symlinks(aikito_dir: Path, home: Path) -> DoctorSection:
 # ---------------------------------------------------------------------------
 
 
-def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
+def check_orphans(
+    aikito_dir: Path,
+    home: Path,
+    *,
+    inspection: WorkspaceInspection | None = None,
+) -> DoctorSection:
     """Check for orphan subagent config files and unused skill directories."""
+    inspection = inspection or inspect_workspace(aikito_dir, home)
     findings: list[DoctorFinding] = []
 
     # 2a. Subagent orphans — reuse collect_subagents_matrix output
     try:
-        _, orphan_files, _ = collect_subagents_matrix(aikito_dir, home)
+        _, orphan_files, _ = collect_subagents_matrix(
+            aikito_dir, home, inspection=inspection
+        )
         if orphan_files:
             for orphan in orphan_files:
                 findings.append(
@@ -471,34 +471,33 @@ def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
     agents_skills_dir = home / ".agents" / "skills"
     if agents_skills_dir.is_dir():
         try:
-            agents_dict = load_agent_definitions(aikito_dir, home)
+            agents_dict = inspection.agents
             reg = AgentRegistry(agents_dict)
         except Exception:
             reg = None
-        s_batch = build_global_skill_batch(
-            aikito_dir,
-            home,
-            skills=sorted(global_skills),
-            registry=reg,
-            container_path=agents_skills_dir,
-        )
-        s_plan = plan_global_skills(s_batch, home, dry_run=True)
-        stale_ops = [
-            op for op in s_plan.entry_ops if op.desired_representation == "absent"
+        stale_views = [
+            v
+            for v in inspection.skill_views(
+                sorted(global_skills),
+                registry=reg,
+                use_registered_agents=reg is not None,
+            )
+            if v.resource_type == "global_skill_entry"
+            and v.details.get("desired_representation") == "absent"
         ]
-        if stale_ops:
-            for op in stale_ops:
-                if op.action == "CONFLICT":
+        if stale_views:
+            for v in stale_views:
+                if v.status == InspectionStatus.CONFLICT:
                     findings.append(
                         _fail(
-                            f"~/.agents/skills/{op.resource_name}: unmanaged item: {op.reason}",
+                            f"~/.agents/skills/{v.resource_name}: unmanaged item: {v.reason}",
                             "aikito sync global",
                         )
                     )
                 else:
                     findings.append(
                         _fail(
-                            f"~/.agents/skills/{op.resource_name}: not in skills.toml",
+                            f"~/.agents/skills/{v.resource_name}: not in skills.toml",
                             "aikito sync global",
                         )
                     )
@@ -507,7 +506,7 @@ def check_orphans(aikito_dir: Path, home: Path) -> DoctorSection:
 
     # 2c. MCP residual managed entries in agent configs
     try:
-        specs = load_agent_specs(aikito_dir, home)
+        specs = inspection.mcp_specs
         currently_defined = {(spec.agent, spec.target_name) for spec in specs}
 
         state_file = home / ".local/state/aikito/mcp-state.json"
@@ -1050,27 +1049,28 @@ def check_projects(aikito_dir: Path, home: Path) -> DoctorSection:
 # ---------------------------------------------------------------------------
 
 
-def check_drift(aikito_dir: Path, home: Path) -> DoctorSection:
+def check_drift(
+    aikito_dir: Path,
+    home: Path,
+    *,
+    inspection: WorkspaceInspection | None = None,
+) -> DoctorSection:
     """Check MCP managed-section fingerprint drift via evaluate_spec_status."""
+    inspection = inspection or inspect_workspace(aikito_dir, home)
     findings: list[DoctorFinding] = []
 
     try:
-        specs = load_agent_specs(aikito_dir, home)
+        specs = inspection.mcp_specs
     except MCPConfigError as exc:
         findings.append(_fail(f"Cannot load MCP specs: {exc}"))
         return DoctorSection(name="Drift", findings=findings)
-
-    try:
-        plan = build_mcp_plan(aikito_dir, home, specs=specs)
-    except Exception:
-        plan = None
 
     drift_count = 0
     checked = 0
     for spec in specs:
         if not spec.enabled:
             continue
-        st = evaluate_spec_status(spec, home=home, plan=plan)
+        st = inspection.mcp_status(spec)
         if st == "SKIP":
             continue
         checked += 1
@@ -1130,27 +1130,27 @@ def check_drift(aikito_dir: Path, home: Path) -> DoctorSection:
         findings.append(_ok("No managed MCP entries to check"))
 
     try:
-        subagent_plan = build_subagent_plan(aikito_dir, home, allow_empty=True)
+        subagent_views = inspection.subagent_views
     except SubagentConfigError as exc:
         findings.append(_fail(f"Cannot build subagent synchronization plan: {exc}"))
         return DoctorSection(name="Drift", findings=findings)
 
     subagent_checked = 0
     subagent_issues = 0
-    for op in subagent_plan.operations:
-        if op.action in ("SKIP", "ORPHAN"):
+    for view in subagent_views:
+        if view.status in (InspectionStatus.SKIP, InspectionStatus.ORPHAN):
             continue
-        subagent_name = op.target.logical_identity
+        subagent_name = view.resource_name
         if subagent_name == "*":
             continue
 
-        agent_name = op.target.agent
-        target_path = op.target.path
-        reason = op.reason
+        agent_name = view.agent
+        target_path = view.target_path
+        reason = view.reason
         subagent_checked += 1
         target = _home_rel(target_path, home) if target_path else ""
         target_key = f"{agent_name}/{subagent_name}"
-        if op.action == "CREATE":
+        if view.status == InspectionStatus.MISSING:
             subagent_issues += 1
             findings.append(
                 _fail(
@@ -1158,7 +1158,7 @@ def check_drift(aikito_dir: Path, home: Path) -> DoctorSection:
                     "aikito sync subagents",
                 )
             )
-        elif op.action in ("UPDATE", "FORCE UPDATE"):
+        elif view.status == InspectionStatus.UPDATE:
             subagent_issues += 1
             findings.append(
                 _fail(
@@ -1166,7 +1166,7 @@ def check_drift(aikito_dir: Path, home: Path) -> DoctorSection:
                     "aikito sync subagents",
                 )
             )
-        elif op.action == "CONFLICT":
+        elif view.status == InspectionStatus.CONFLICT:
             subagent_issues += 1
             findings.append(
                 _fail(
@@ -1174,7 +1174,7 @@ def check_drift(aikito_dir: Path, home: Path) -> DoctorSection:
                     f"aikito sync subagents --force {target_key}",
                 )
             )
-        elif op.action == "ERROR":
+        elif view.status == InspectionStatus.ERROR:
             subagent_issues += 1
             findings.append(
                 _fail(
@@ -1549,16 +1549,20 @@ def run_doctor(
     on_progress: Callable[[str | None], None] | None = None,
 ) -> DoctorReport:
     """Run all diagnostic checks and return a structured DoctorReport."""
+    inspection = inspect_workspace(aikito_dir, home)
     steps = [
-        ("Symlinks", lambda: check_symlinks(aikito_dir, home)),
-        ("Orphans", lambda: check_orphans(aikito_dir, home)),
+        (
+            "Symlinks",
+            lambda: check_symlinks(aikito_dir, home, inspection=inspection),
+        ),
+        ("Orphans", lambda: check_orphans(aikito_dir, home, inspection=inspection)),
         (
             "Memory",
             lambda: check_memory_integrity(
                 aikito_dir, home, stale_days_override=stale_days
             ),
         ),
-        ("Drift", lambda: check_drift(aikito_dir, home)),
+        ("Drift", lambda: check_drift(aikito_dir, home, inspection=inspection)),
         ("Security", lambda: check_security(aikito_dir, home)),
         ("Environment", lambda: check_environment(aikito_dir, home)),
         ("Adoption", lambda: check_adoption(aikito_dir, home)),

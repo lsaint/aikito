@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aikito.init import init_workspace
+from aikito.inspection import InspectionStatus
 from aikito.mcp import MCPToolProbeResult
 from aikito.project import (
     ProjectSummary,
@@ -157,7 +158,9 @@ class AikitoStatusRenderTest(unittest.TestCase):
         )
 
     def test_subagent_status_distinguishes_missing_drift_and_conflict(self) -> None:
-        self.assertEqual(_summarize_subagent_status(["CREATE"]), "MISSING (0/1)")
+        self.assertEqual(
+            _summarize_subagent_status([InspectionStatus.MISSING]), "MISSING (0/1)"
+        )
 
     def test_count_badges_render_without_checkmark(self) -> None:
         from aikito.render import render_agents_table
@@ -200,8 +203,12 @@ class AikitoStatusRenderTest(unittest.TestCase):
         rendered_ascii = render_agents_table(rows, use_unicode=False, use_color=False)
         self.assertIn("| 3 ", rendered_ascii)
         self.assertNotIn("v 3", rendered_ascii)
-        self.assertEqual(_summarize_subagent_status(["UPDATE"]), "DRIFT (0/1)")
-        self.assertEqual(_summarize_subagent_status(["CONFLICT"]), "CONFLICT (0/1)")
+        self.assertEqual(
+            _summarize_subagent_status([InspectionStatus.UPDATE]), "DRIFT (0/1)"
+        )
+        self.assertEqual(
+            _summarize_subagent_status([InspectionStatus.CONFLICT]), "CONFLICT (0/1)"
+        )
 
     def test_render_mcp_status_table(self) -> None:
         server_rows = [

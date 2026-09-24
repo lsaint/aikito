@@ -170,6 +170,7 @@ def _format_badge_text(status_str: str, use_unicode: bool) -> Tuple[str, str]:
         "CONFLICT": "C",
         "MISSING": "M",
         "DRIFT": "D",
+        "UPDATE": "D",
         "ERROR": "E",
     }
 

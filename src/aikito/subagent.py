@@ -21,6 +21,7 @@ from .config_runtime import (
     aggregate_file_plans,
 )
 from .diagnostics import Finding, is_error_finding
+from .inspection import InspectionStatus, ResourceInspectionView
 from .plan_observation import (
     OperationEffect,
     PlanObservation,
@@ -146,6 +147,42 @@ class SubagentPlan:
             findings=tuple(findings),
             can_apply=can_apply,
         )
+
+    def inspect(self) -> tuple[ResourceInspectionView, ...]:
+        """Project plan into structured resource inspection views."""
+        views: list[ResourceInspectionView] = []
+        for op in self.operations:
+            if op.action in ("OK", "NOOP"):
+                status = InspectionStatus.OK
+            elif op.action == "CREATE":
+                status = InspectionStatus.MISSING
+            elif op.action == "UPDATE":
+                status = InspectionStatus.UPDATE
+            elif op.action in ("ORPHAN", "REMOVE"):
+                status = InspectionStatus.ORPHAN
+            elif op.action == "CONFLICT":
+                status = InspectionStatus.CONFLICT
+            elif op.action == "SKIP":
+                status = InspectionStatus.SKIP
+            elif op.action == "ERROR":
+                status = InspectionStatus.ERROR
+            else:
+                status = InspectionStatus.ERROR
+
+            finding = subagent_operation_finding(op)
+            views.append(
+                ResourceInspectionView(
+                    resource_type="subagent",
+                    resource_name=op.target.logical_identity,
+                    status=status,
+                    scope="global",
+                    agent=op.target.agent,
+                    target_path=op.target.path,
+                    reason=op.reason,
+                    finding=finding,
+                )
+            )
+        return tuple(views)
 
 
 def subagent_operation_effect(op: ConfigOperation) -> OperationEffect:

@@ -1,12 +1,17 @@
 """Domain models, dataclasses, constants, and exceptions for MCP."""
 
+from __future__ import annotations
+
 import base64
 import hashlib
 import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ..inspection import ResourceInspectionView
 from urllib.request import HTTPRedirectHandler
 
 from ..config_runtime import ConfigTarget, FileSnapshot, StaleConfigPlanError
@@ -433,6 +438,30 @@ class MCPPlan:
             findings=tuple(findings),
             can_apply=can_apply,
         )
+
+    def inspect(self) -> tuple[ResourceInspectionView, ...]:
+        """Project plan into structured resource inspection views."""
+        from ..inspection import InspectionStatus, ResourceInspectionView
+        from .planner import _map_operation_to_status, mcp_operation_finding
+
+        views: list[ResourceInspectionView] = []
+        for op in self.operations:
+            st = _map_operation_to_status(op)
+            status = InspectionStatus(st)
+            finding = mcp_operation_finding(op)
+            views.append(
+                ResourceInspectionView(
+                    resource_type="mcp",
+                    resource_name=op.target.logical_identity,
+                    status=status,
+                    scope="global",
+                    agent=op.target.agent,
+                    target_path=op.target.path,
+                    reason=op.reason,
+                    finding=finding,
+                )
+            )
+        return tuple(views)
 
 
 @dataclass(frozen=True)

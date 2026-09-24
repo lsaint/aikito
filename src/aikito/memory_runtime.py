@@ -24,6 +24,7 @@ from .link import (
     observe_link_operation,
 )
 from .plan_observation import PlanObservation, PlanOperationView
+from .inspection import InspectionStatus, ResourceInspectionView
 
 
 @dataclass(frozen=True)
@@ -124,6 +125,36 @@ class MemoryPlan:
             findings=tuple(findings),
             can_apply=can_apply,
         )
+
+    def inspect(self) -> tuple[ResourceInspectionView, ...]:
+        """Project memory plan into structured resource inspection views."""
+
+        views: list[ResourceInspectionView] = []
+        for op in self.operations:
+            if op.action in ("NOOP", "SHARED_PATH"):
+                status = InspectionStatus.OK
+            elif op.action == "CREATE":
+                status = InspectionStatus.MISSING
+            elif op.action in ("UNLINK", "CONFLICT"):
+                status = InspectionStatus.CONFLICT
+            elif op.action == "SKIP":
+                status = InspectionStatus.SKIP
+            else:
+                status = InspectionStatus.ERROR
+
+            views.append(
+                ResourceInspectionView(
+                    resource_type="project_memory",
+                    resource_name=op.resource_name,
+                    status=status,
+                    scope="project",
+                    project=self.batch.project_name or "",
+                    target_path=op.target_path,
+                    source_path=op.canonical_path,
+                    reason=op.reason,
+                )
+            )
+        return tuple(views)
 
 
 @dataclass(frozen=True)

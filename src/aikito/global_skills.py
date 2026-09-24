@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Container, Sequence
 
 from .agents import AgentRegistry, Target, check_target_availability, resolve_targets
+from .compat import is_same_target_location
 from .diagnostics import Finding, is_error_finding
+from .inspection import InspectionStatus, ResourceInspectionView
 from .link import (
     LinkExecutionResult,
     LinkOperation,
@@ -154,6 +156,135 @@ class GlobalSkillBatchPlan:
             findings=tuple(findings),
             can_apply=can_apply,
         )
+
+    def inspect(self) -> tuple[ResourceInspectionView, ...]:
+        """Project plan into structured resource inspection views."""
+        views: list[ResourceInspectionView] = []
+
+        # 1. Managed container
+        cop = self.container_op
+        if cop.action == "NOOP":
+            c_status = InspectionStatus.OK
+        elif cop.action == "CREATE":
+            c_status = InspectionStatus.MISSING
+        elif cop.action == "CONFLICT":
+            c_status = InspectionStatus.CONFLICT
+        elif cop.action == "MIGRATE_CONTAINER":
+            c_status = InspectionStatus.UPDATE
+        else:
+            c_status = InspectionStatus.ERROR
+
+        c_finding = (
+            Finding(
+                status="CONFLICT",
+                code=cop.rule_id or "SKILL_CONTAINER_CONFLICT",
+                message=cop.reason,
+                resource=str(cop.target_path),
+            )
+            if cop.action == "CONFLICT"
+            else None
+        )
+
+        views.append(
+            ResourceInspectionView(
+                resource_type="global_skill_container",
+                resource_name=self.batch.container.path.name,
+                status=c_status,
+                scope="global",
+                target_path=cop.target_path,
+                reason=cop.reason,
+                finding=c_finding,
+            )
+        )
+
+        # 2. Managed entries inside container
+        for op in self.entry_ops:
+            if op.action == "NOOP":
+                e_status = InspectionStatus.OK
+            elif op.action == "CREATE":
+                e_status = InspectionStatus.MISSING
+            elif op.action == "CONFLICT":
+                e_status = InspectionStatus.CONFLICT
+            elif op.action == "SKIP":
+                e_status = InspectionStatus.SKIP
+            elif op.action == "UNLINK":
+                e_status = InspectionStatus.ORPHAN
+            else:
+                e_status = InspectionStatus.ERROR
+
+            e_finding = (
+                Finding(
+                    status="CONFLICT",
+                    code=op.rule_id or "SKILL_ENTRY_CONFLICT",
+                    message=op.reason,
+                    resource=str(op.target_path),
+                )
+                if op.action == "CONFLICT"
+                else None
+            )
+
+            views.append(
+                ResourceInspectionView(
+                    resource_type="global_skill_entry",
+                    resource_name=op.resource_name,
+                    status=e_status,
+                    scope="global",
+                    target_path=op.target_path,
+                    reason=op.reason,
+                    finding=e_finding,
+                    details={"desired_representation": op.desired_representation},
+                )
+            )
+
+        # 3. Consumer symlinks (agents linking to container)
+        for op in self.consumer_ops:
+            if op.action in ("NOOP", "SHARED_PATH"):
+                cons_status = InspectionStatus.OK
+            elif op.action == "CREATE":
+                cons_status = InspectionStatus.MISSING
+            elif op.action == "CONFLICT":
+                cons_status = InspectionStatus.CONFLICT
+            elif op.action == "SKIP":
+                cons_status = InspectionStatus.SKIP
+            else:
+                cons_status = InspectionStatus.ERROR
+
+            cons_finding = (
+                Finding(
+                    status="CONFLICT",
+                    code=op.rule_id or "SKILL_CONSUMER_CONFLICT",
+                    message=op.reason,
+                    resource=str(op.target_path),
+                )
+                if op.action == "CONFLICT"
+                else None
+            )
+
+            agent_name = ""
+            for target in self.batch.consumers:
+                if target.path == op.target_path or is_same_target_location(
+                    target.path, op.target_path
+                ):
+                    agent_name = target.consumers[0] if target.consumers else ""
+                    break
+            if not agent_name:
+                agent_name = op.resource_name
+
+            views.append(
+                ResourceInspectionView(
+                    resource_type="global_skill_consumer",
+                    resource_name=op.resource_name,
+                    status=cons_status,
+                    scope="global",
+                    agent=agent_name,
+                    target_path=op.target_path,
+                    reason=op.reason,
+                    finding=cons_finding,
+                    details={"shared_target": op.action == "SHARED_PATH"},
+                )
+            )
+
+        return tuple(views)
 
 
 @dataclass(frozen=True)
