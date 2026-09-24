@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.52.0] - 2026-09-24
+
 ### Added
 
 - `WorkspaceSyncPreview.operation_views`: structured, frozen `WorkspaceOperationView` projections alongside the legacy string `operations`.
@@ -938,7 +940,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.51.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.52.0...HEAD
+[1.52.0]: https://github.com/lsaint/aikito/compare/v1.51.0...v1.52.0
 [1.51.0]: https://github.com/lsaint/aikito/compare/v1.50.0...v1.51.0
 [1.50.0]: https://github.com/lsaint/aikito/compare/v1.49.1...v1.50.0
 [1.49.1]: https://github.com/lsaint/aikito/compare/v1.49.0...v1.49.1
