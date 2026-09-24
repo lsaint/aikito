@@ -2,7 +2,6 @@
 
 import base64
 import hashlib
-import ipaddress
 import json
 import os
 import queue
@@ -18,290 +17,157 @@ import tomllib
 from collections import defaultdict
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.parse import urlsplit
+from urllib.request import Request, build_opener
 
-from .agents import (
+from ..agents import (
     AgentDefinition,
     AgentRegistryError,
     is_agent_installed,
     load_agent_definitions,
 )
-from .compat import resolve_executable, secure_file_permissions
-from .config_runtime import (
+from ..compat import resolve_executable, secure_file_permissions
+from ..config_runtime import (
     ConfigCollisionError,
-    ConfigTarget,
-    FileSnapshot,
     StaleConfigPlanError,
     capture_file_snapshot,
     resolve_physical_identity,
 )
-from .diagnostics import Finding, is_error_finding
-from .plan_observation import (
+from ..diagnostics import Finding
+from ..plan_observation import (
     OperationEffect,
-    PlanObservation,
     PlanOperationView,
     UnknownPlanActionError,
 )
-
-STATE_VERSION = 1
-DEFAULT_MCPS_DIR = Path("mcps")
-DEFAULT_AGENTS_CONFIG = Path("agents.toml")
-STATE_FILE = Path(".local/state/aikito/mcp-state.json")
-BACKUP_DIR = Path(".local/state/aikito/backups")
-URL_PATTERN = re.compile(r"https?://[^\s<>\"']+")
-SENSITIVE_URL_PARAMETERS = frozenset(
-    {
-        # OAuth / OIDC tokens
-        "code",
-        "access_token",
-        "refresh_token",
-        "id_token",
-        # Generic secrets
-        "token",
-        "secret",
-        "client_secret",
-        "password",
-        "pass",
-        "credential",
-        "signature",
-        # API keys (various naming conventions)
-        "api_key",
-        "apikey",
-        "api-key",
-        "x-api-key",
-        "key",
-        # Authorization / bearer
-        "authorization",
-        "auth",
-        # Session / identity
-        "session",
-        "session_token",
-        "user_token",
-        "private_token",
-        # AWS pre-signed URLs
-        "x-amz-signature",
-        "x_amz_signature",
-        "x-amz-credential",
-        "x_amz_credential",
-        "x-amz-security-token",
-        "x_amz_security_token",
-        # Google Cloud signed URLs
-        "x-goog-signature",
-        "x_goog_signature",
-        "x-goog-credential",
-        "x_goog_credential",
-        # Azure SAS (ONLY sig is the secret credential; spr is protocol constraint)
-        "sig",
-        # Personal-access / app tokens
-        "pat",
-        "app_token",
-        "app-token",
-        "auth_token",
-        "auth-token",
-        # JWT / bearer literals
-        "jwt",
-        "bearer",
-    }
+from .model import (
+    BACKUP_DIR,
+    BROWSER_HELPER,
+    DEFAULT_AGENTS_CONFIG,
+    DEFAULT_MCPS_DIR,
+    LEGACY_PLACEHOLDER_TOKEN,
+    STATE_FILE,
+    STATE_VERSION,
+    AgentSpec,
+    BasicTokenAuth,
+    LiveMCPResult,
+    MCPConfigError,
+    MCPConfigTarget,
+    MCPDesiredEntry,
+    MCPExecutionResult,
+    MCPFilePlan,
+    MCPObservedEntry,
+    MCPOperation,
+    MCPPlan,
+    MCPToolProbeResult,
+    Token,
+    _MCPProbeError,
+    _RejectRedirects,
+    _state_file_hash,
+)
+from .redact import (
+    SENSITIVE_URL_PARAMETERS,
+    URL_PATTERN,
+    _environment_reference,
+    _headers_contain_credentials,
+    _is_authorization_url,
+    _is_loopback_url,
+    _redact_probe_error,
+    _redact_sensitive_urls,
+    _urls_in_text,
+    environment_reference,
+    is_credential_header,
+    is_sensitive_url_parameter,
+    redact_mcp_entry,
 )
 
-# Word segments: only matches when the normalized param name (delimited by _ or -)
-# contains one of these exact words (e.g. 'auth_token' or 'custom-secret-param').
-# This prevents false positives on words like 'author', 'authority',
-# 'authentication_mode', or 'private_mode'.
-_SENSITIVE_PARAM_SEGMENTS: frozenset[str] = frozenset(
-    {
-        "token",
-        "secret",
-        "password",
-        "passwd",
-        "credential",
-        "credentials",
-        "signature",
-        "jwt",
-        "apikey",
-    }
-)
-
-_SENSITIVE_PARAM_PREFIXES: tuple[str, ...] = (
-    "auth_",
-    "oauth_",
-)
-
-_SENSITIVE_PARAM_SUFFIXES: tuple[str, ...] = (
-    "_key",
-    "_token",
-    "_secret",
-    "_password",
-    "_pass",
-    "_sig",
-    "_signature",
-    "_credential",
-    "_credentials",
-    "_jwt",
-    "_pat",
-)
-
-
-def is_sensitive_url_parameter(param_name: str) -> bool:
-    """Return True if a URL query-parameter name represents a credential.
-
-    Uses exact naming plus controlled segment and prefix/suffix matching to avoid
-    false positives on legitimate parameters such as 'author', 'authority',
-    'authentication_mode', or 'private_mode'.
-    """
-    lowered = param_name.lower()
-    normalized = lowered.replace("-", "_").replace(".", "_")
-
-    if lowered in SENSITIVE_URL_PARAMETERS or normalized in SENSITIVE_URL_PARAMETERS:
-        return True
-
-    segments = set(normalized.split("_"))
-    if segments & _SENSITIVE_PARAM_SEGMENTS:
-        return True
-
-    if any(normalized.startswith(prefix) for prefix in _SENSITIVE_PARAM_PREFIXES):
-        return True
-
-    if any(normalized.endswith(suffix) for suffix in _SENSITIVE_PARAM_SUFFIXES):
-        return True
-
-    return False
-
-
-def _has_sensitive_parameters(url: str) -> bool:
-    parameters = {key.lower() for key in parse_qs(urlsplit(url).query)}
-    return any(is_sensitive_url_parameter(p) for p in parameters)
-
-
-LEGACY_PLACEHOLDER_TOKEN = "placeholder-token-set-environment-variable"
-BROWSER_HELPER = """#!/usr/bin/env python3
-import os
-import shutil
-import subprocess
-import sys
-import webbrowser
-from pathlib import Path
-
-
-urls = [argument for argument in sys.argv[1:] if argument.startswith(("http://", "https://"))]
-url_file = os.environ.get("AIKITO_AUTH_URL_FILE")
-if url_file and urls:
-    with Path(url_file).open("a", encoding="utf-8") as handle:
-        handle.writelines(f"{url}\\n" for url in urls)
-
-if os.environ.get("AIKITO_OPEN_BROWSER") == "1":
-    for url in urls:
-        if sys.platform == "win32" and hasattr(os, "startfile"):
-            try:
-                os.startfile(url)
-                continue
-            except OSError:
-                pass
-        browser_env = os.environ.copy()
-        browser_env.pop("BROWSER", None)
-        if sys.platform == "darwin":
-            subprocess.Popen(
-                ["/usr/bin/open", url],
-                env=browser_env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        else:
-            opener = shutil.which("xdg-open")
-            if opener:
-                subprocess.Popen(
-                    [opener, url],
-                    env=browser_env,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-            else:
-                webbrowser.open(url)
-"""
-
-
-class MCPConfigError(RuntimeError):
-    """Raised when an MCP definition or target config cannot be safely managed."""
-
-
-@dataclass(frozen=True)
-class Token:
-    kind: str
-    text: str
-    start: int
-    end: int
-
-    @property
-    def value(self) -> Any:
-        return json.loads(self.text) if self.kind == "string" else self.text
-
-
-@dataclass(frozen=True)
-class AgentSpec:
-    agent: str
-    server: str
-    config_path: Path
-    config_format: str
-    target_name: str
-    desired: dict[str, Any]
-    enabled: bool = True
-    reason: str = ""
-    live_command: tuple[str, ...] = ()
-    auth_command: tuple[str, ...] = ()
-    contains_secret: bool = False
-    missing_credential_env: str = ""
-    home: Path | None = None
-
-    @property
-    def state_key(self) -> str:
-        return f"{self.agent}:{self.server}"
-
-
-@dataclass(frozen=True)
-class BasicTokenAuth:
-    """Keeps credential policy canonical while resolving secrets only at runtime."""
-
-    account_email: str
-    token_env: str
-    authorization_env: str
-
-    def authorization_header(self) -> str:
-        token = os.environ.get(self.token_env)
-        if not token:
-            raise MCPConfigError(
-                f"Required MCP credential environment variable is missing: "
-                f"{self.token_env}"
-            )
-        credentials = f"{self.account_email}:{token}".encode()
-        return f"Basic {base64.b64encode(credentials).decode()}"
-
-
-@dataclass(frozen=True)
-class LiveMCPResult:
-    """Result of one agent CLI's live MCP status command."""
-
-    agent: str
-    command: tuple[str, ...]
-    status: str
-    returncode: int | None
-    output: str = ""
-
-
-@dataclass(frozen=True)
-class MCPToolProbeResult:
-    """Read-only result of discovering one Agent's tools for one MCP server."""
-
-    agent: str
-    status: str
-    auth_method: str
-    tool_names: tuple[str, ...] = ()
-    error: str = ""
+__all__ = [
+    # Models & Exceptions
+    "AgentSpec",
+    "BasicTokenAuth",
+    "LiveMCPResult",
+    "MCPConfigError",
+    "MCPConfigTarget",
+    "MCPDesiredEntry",
+    "MCPExecutionResult",
+    "MCPFilePlan",
+    "MCPObservedEntry",
+    "MCPOperation",
+    "MCPPlan",
+    "MCPToolProbeResult",
+    "Token",
+    # Constants
+    "BACKUP_DIR",
+    "BROWSER_HELPER",
+    "DEFAULT_AGENTS_CONFIG",
+    "DEFAULT_MCPS_DIR",
+    "LEGACY_PLACEHOLDER_TOKEN",
+    "SENSITIVE_URL_PARAMETERS",
+    "STATE_FILE",
+    "STATE_VERSION",
+    "URL_PATTERN",
+    # Loader
+    "load_agent_specs",
+    # Adapters (formats)
+    "get_agy_json_server",
+    "get_claude_json_server",
+    "get_copilot_json_server",
+    "get_dsh_cordis_server",
+    "get_jsonc_server",
+    "get_toml_server",
+    "parse_jsonc",
+    "read_all_entries",
+    "read_entry",
+    "remove_claude_json_server",
+    "remove_dsh_cordis_server",
+    "remove_jsonc_server",
+    "remove_toml_server",
+    "update_agy_json_server",
+    "update_claude_json_server",
+    "update_copilot_json_server",
+    "update_dsh_cordis_server",
+    "update_jsonc_server",
+    "update_toml_server",
+    # Redaction
+    "environment_reference",
+    "is_credential_header",
+    "is_sensitive_url_parameter",
+    "redact_mcp_entry",
+    # Planner
+    "build_mcp_plan",
+    "evaluate_spec_status",
+    "mcp_operation_effect",
+    "mcp_operation_finding",
+    "observe_mcp_operation",
+    # Executor & State
+    "execute_mcp_plan",
+    "sync_mcp_configs",
+    "sync_remove_mcp_from_agents",
+    # Auth & Probe
+    "authenticate_mcp",
+    "describe_mcp_auth",
+    "probe_mcp_tools",
+    "probe_mcp_tools_for_specs",
+    "run_live_mcp_commands",
+    # Backward compatibility / test access
+    "_LiveLoadingIndicator",
+    "_MCPProbeError",
+    "_RejectRedirects",
+    "_agent_detected",
+    "_atomic_write",
+    "_list_remote_mcp_tools",
+    "_load_basic_token_auth",
+    "_load_document",
+    "_load_state",
+    "_parse_jsonc",
+    "_post_mcp_message",
+    "_read_entry",
+    "_redact_probe_error",
+    "_response_message",
+]
 
 
 def _load_agent_definitions(aikito_dir: Path, home: Path) -> dict[str, AgentDefinition]:
@@ -1509,46 +1375,9 @@ def run_live_mcp_commands(
     return results
 
 
-class _MCPProbeError(RuntimeError):
-    pass
-
-
-class _RejectRedirects(HTTPRedirectHandler):
-    """Keep configured credentials on exactly the configured MCP origin."""
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
-        return None
-
-
 _MCP_PROTOCOL_VERSION = "2025-11-25"
 _MCP_USER_AGENT = "aikito"
 _MAX_MCP_RESPONSE_BYTES = 8 * 1024 * 1024
-_ENV_REFERENCE_PATTERNS = (
-    re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$"),
-    re.compile(r"^\{env:([A-Za-z_][A-Za-z0-9_]*)\}$"),
-    re.compile(r"^!!js process\.env\.([A-Za-z_][A-Za-z0-9_]*)$"),
-)
-_CREDENTIAL_HEADER_FRAGMENTS = (
-    "authorization",
-    "token",
-    "secret",
-    "password",
-    "api-key",
-    "api_key",
-    "apikey",
-    "cookie",
-)
-
-
-def _environment_reference(value: str) -> str | None:
-    for pattern in _ENV_REFERENCE_PATTERNS:
-        match = pattern.fullmatch(value)
-        if match:
-            return match.group(1)
-    return None
-
-
-environment_reference = _environment_reference
 
 
 def _authorization_label(value: str | None, source: str) -> str:
@@ -1655,50 +1484,6 @@ def _response_message(body: bytes) -> str:
             return ""
 
     return message
-
-
-def _is_credential_header(name: str) -> bool:
-    return any(fragment in name.lower() for fragment in _CREDENTIAL_HEADER_FRAGMENTS)
-
-
-is_credential_header = _is_credential_header
-
-
-def _redact_probe_error(text: str, headers: dict[str, str]) -> str:
-    """Redact runtime credentials and terminal control characters at the boundary."""
-    secrets = set()
-    for name, value in headers.items():
-        if not value or not _is_credential_header(name):
-            continue
-        secrets.add(value)
-        if name.lower() == "authorization":
-            _scheme, separator, credential = value.partition(" ")
-            if separator and credential:
-                secrets.add(credential)
-
-    redacted = text
-    for secret in sorted(secrets, key=len, reverse=True):
-        redacted = redacted.replace(secret, "<redacted>")
-    printable = "".join(
-        character if character.isprintable() else " " for character in redacted
-    )
-    return " ".join(printable.split())[:300]
-
-
-def _is_loopback_url(url: str) -> bool:
-    host = urlsplit(url).hostname
-    if not host:
-        return False
-    if host == "localhost" or host.endswith(".localhost"):
-        return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
-
-
-def _headers_contain_credentials(headers: dict[str, str]) -> bool:
-    return any(_is_credential_header(name) for name in headers)
 
 
 def _decode_mcp_response(body: bytes, request_id: int) -> dict[str, Any]:
@@ -1964,71 +1749,6 @@ def read_all_entries(config_format: str, text: str) -> dict[str, dict[str, Any]]
     return {name: entry for name, entry in servers.items() if isinstance(entry, dict)}
 
 
-_SENSITIVE_KEY_FRAGMENTS = (
-    "authorization",
-    "token",
-    "secret",
-    "password",
-    "credential",
-    "bearer",
-    "api-key",
-    "api_key",
-    "apikey",
-)
-
-_SENSITIVE_PARAM_PATTERN = re.compile(
-    r"([?&](?:token|secret|key|api_key|api-key|password|credential|bearer|pat)=)[^&]+",
-    re.IGNORECASE,
-)
-
-
-def redact_mcp_entry(entry: dict[str, Any]) -> dict[str, Any]:
-    """Return a display-safe MCP entry without exposing runtime credentials."""
-
-    def redact(value: Any, key: str = "", parent: str = "") -> Any:
-        if isinstance(value, dict):
-            return {
-                item_key: redact(item, item_key, key)
-                for item_key, item in value.items()
-            }
-        if isinstance(value, list):
-            return [redact(item, key, parent) for item in value]
-        if not isinstance(value, str):
-            return value
-
-        # Do not redact environment variable references like ${VAR} or {env:VAR}
-        if (value.startswith("${") and value.endswith("}")) or (
-            value.startswith("{env:") and value.endswith("}")
-        ):
-            return value
-
-        # env_http_headers stores environment variable names rather than secret values.
-        if parent == "env_http_headers":
-            return value
-
-        # Redact all string values inside headers containers (e.g. headers, http_headers)
-        if parent in ("headers", "http_headers") or parent.endswith("headers"):
-            return "<redacted>"
-
-        # Redact values associated with sensitive key names
-        key_lower = key.lower()
-        sensitive_key = (
-            any(fragment in key_lower for fragment in _SENSITIVE_KEY_FRAGMENTS)
-            or key_lower in ("key", "pat")
-            or key_lower.endswith(("_key", "-key", "_pat", "-pat"))
-        )
-        if sensitive_key:
-            return "<redacted>"
-
-        # Sanitize sensitive query parameters inside URLs or string values
-        if "?" in value and "=" in value:
-            return _SENSITIVE_PARAM_PATTERN.sub(r"\1<redacted>", value)
-
-        return value
-
-    return redact(entry)
-
-
 _read_entry = read_entry
 
 
@@ -2095,34 +1815,6 @@ def _agent_detected(spec: AgentSpec) -> bool:
         if installed is not None:
             return installed
     return spec.config_path.parent.exists()
-
-
-def _urls_in_text(text: str) -> list[str]:
-    return [match.rstrip(").,;]") for match in URL_PATTERN.findall(text)]
-
-
-def _is_authorization_url(url: str) -> bool:
-    if _has_sensitive_parameters(url):
-        return False
-    parsed = urlsplit(url)
-    location = f"{parsed.netloc}{parsed.path}".lower()
-    parameters = {key.lower() for key in parse_qs(parsed.query)}
-    return (
-        "authorize" in location
-        or "oauth" in location
-        or {"client_id", "redirect_uri"} <= parameters
-    )
-
-
-def _redact_sensitive_urls(text: str) -> str:
-    return URL_PATTERN.sub(
-        lambda match: (
-            "[REDACTED CALLBACK URL]"
-            if _has_sensitive_parameters(match.group())
-            else match.group()
-        ),
-        text,
-    )
 
 
 def _write_browser_helper(directory: Path) -> Path:
@@ -2254,281 +1946,6 @@ def authenticate_mcp(
         return False
     output(f"[SUCCESS] {agent}/{server} authentication completed")
     return True
-
-
-def _state_file_hash(state_path: Path) -> str:
-    """Return SHA-256 hex digest of the state file content, or 'absent' if it does not exist."""
-    if not state_path.is_file():
-        return "absent"
-    try:
-        return hashlib.sha256(state_path.read_bytes()).hexdigest()
-    except OSError:
-        return "error"
-
-
-@dataclass(frozen=True)
-class MCPConfigTarget(ConfigTarget):
-    """A logical configuration target node representing an MCP server in an agent config."""
-
-    target_name: str = ""
-
-
-@dataclass(frozen=True)
-class MCPObservedEntry:
-    """Observed runtime state of an MCP server entry in an agent config file."""
-
-    target: MCPConfigTarget
-    exists: bool
-    fingerprint: str | None
-    managed_fingerprint: str | None
-    is_managed: bool
-
-    def __init__(
-        self,
-        target: MCPConfigTarget,
-        exists: bool,
-        fingerprint: str | None,
-        managed_fingerprint: str | None,
-        is_managed: bool,
-        raw_entry: dict[str, Any] | None = None,
-    ) -> None:
-        object.__setattr__(self, "target", target)
-        object.__setattr__(self, "exists", exists)
-        object.__setattr__(self, "fingerprint", fingerprint)
-        object.__setattr__(self, "managed_fingerprint", managed_fingerprint)
-        object.__setattr__(self, "is_managed", is_managed)
-        object.__setattr__(self, "_raw_entry", raw_entry)
-
-    @property
-    def entry(self) -> dict[str, Any] | None:
-        """Display-safe observed entry with credentials redacted."""
-        raw = getattr(self, "_raw_entry", None)
-        return redact_mcp_entry(raw) if raw is not None else None
-
-    @property
-    def raw_entry(self) -> dict[str, Any] | None:
-        """Raw unredacted entry for internal use only."""
-        return getattr(self, "_raw_entry", None)
-
-    def __repr__(self) -> str:
-        return (
-            f"MCPObservedEntry(target={self.target!r}, exists={self.exists!r}, "
-            f"fingerprint={self.fingerprint!r}, managed_fingerprint={self.managed_fingerprint!r}, "
-            f"is_managed={self.is_managed!r}, entry={self.entry!r})"
-        )
-
-
-@dataclass(frozen=True)
-class MCPDesiredEntry:
-    """Desired configuration state of an MCP server."""
-
-    target: MCPConfigTarget
-    fingerprint: str | None
-    contains_secret: bool = False
-    missing_credential_env: str = ""
-    live_command: tuple[str, ...] = ()
-    auth_command: tuple[str, ...] = ()
-
-    def __init__(
-        self,
-        target: MCPConfigTarget,
-        fingerprint: str | None,
-        contains_secret: bool = False,
-        missing_credential_env: str = "",
-        live_command: tuple[str, ...] = (),
-        auth_command: tuple[str, ...] = (),
-        raw_desired: dict[str, Any] | None = None,
-    ) -> None:
-        object.__setattr__(self, "target", target)
-        object.__setattr__(self, "fingerprint", fingerprint)
-        object.__setattr__(self, "contains_secret", contains_secret)
-        object.__setattr__(self, "missing_credential_env", missing_credential_env)
-        object.__setattr__(self, "live_command", live_command)
-        object.__setattr__(self, "auth_command", auth_command)
-        object.__setattr__(self, "_raw_desired", raw_desired)
-
-    @property
-    def desired(self) -> dict[str, Any] | None:
-        """Display-safe desired entry with credentials redacted."""
-        raw = getattr(self, "_raw_desired", None)
-        return redact_mcp_entry(raw) if raw is not None else None
-
-    @property
-    def raw_desired(self) -> dict[str, Any] | None:
-        """Raw unredacted desired payload for internal use only."""
-        return getattr(self, "_raw_desired", None)
-
-    def __repr__(self) -> str:
-        return (
-            f"MCPDesiredEntry(target={self.target!r}, fingerprint={self.fingerprint!r}, "
-            f"contains_secret={self.contains_secret!r}, "
-            f"missing_credential_env={self.missing_credential_env!r}, desired={self.desired!r})"
-        )
-
-
-@dataclass(frozen=True)
-class MCPOperation:
-    """A planned logical mutation for an MCP server in an agent config."""
-
-    target: MCPConfigTarget
-    action: str  # "NOOP", "CREATE", "UPDATE", "REMOVE", "CONFLICT", "SKIP", "ERROR"
-    reason: str = ""
-    observed: MCPObservedEntry | None = None
-    desired: MCPDesiredEntry | None = None
-    requires_force: bool = False
-    force_identity: str | None = None
-    is_authorized: bool = True
-    state_transition: tuple[str, str | None] | None = None
-
-    def __init__(
-        self,
-        target: MCPConfigTarget,
-        action: str,
-        reason: str = "",
-        observed: MCPObservedEntry | None = None,
-        desired: MCPDesiredEntry | None = None,
-        requires_force: bool = False,
-        force_identity: str | None = None,
-        is_authorized: bool = True,
-        state_transition: tuple[str, str | None] | None = None,
-        spec: AgentSpec | None = None,
-    ) -> None:
-        object.__setattr__(self, "target", target)
-        object.__setattr__(self, "action", action)
-        object.__setattr__(self, "reason", reason)
-        object.__setattr__(self, "observed", observed)
-        object.__setattr__(self, "desired", desired)
-        object.__setattr__(self, "requires_force", requires_force)
-        object.__setattr__(self, "force_identity", force_identity)
-        object.__setattr__(self, "is_authorized", is_authorized)
-        object.__setattr__(self, "state_transition", state_transition)
-        object.__setattr__(self, "_spec", spec)
-
-    @property
-    def spec(self) -> AgentSpec | None:
-        return getattr(self, "_spec", None)
-
-    @property
-    def is_drift(self) -> bool:
-        return self.requires_force or self.action == "CONFLICT"
-
-    def __repr__(self) -> str:
-        return (
-            f"MCPOperation(target={self.target!r}, action={self.action!r}, "
-            f"reason={self.reason!r}, requires_force={self.requires_force!r}, "
-            f"is_authorized={self.is_authorized!r})"
-        )
-
-
-@dataclass(frozen=True)
-class MCPFilePlan:
-    """Aggregates all operations targeting a single physical agent configuration file."""
-
-    path: Path
-    physical_identity: str
-    format: str
-    sensitive: bool
-    pre_image: FileSnapshot
-    operations: tuple[MCPOperation, ...] = ()
-    orig_content: str | None = field(default=None, repr=False)
-    final_content: str | None = field(default=None, repr=False)
-
-    def __repr__(self) -> str:
-        return (
-            f"MCPFilePlan(path={self.path!r}, physical_identity={self.physical_identity!r}, "
-            f"format={self.format!r}, sensitive={self.sensitive!r}, "
-            f"pre_image={self.pre_image!r}, operations={self.operations!r})"
-        )
-
-    @property
-    def will_mutate(self) -> bool:
-        return any(
-            op.action in ("CREATE", "UPDATE", "REMOVE") and op.is_authorized
-            for op in self.operations
-        )
-
-    @property
-    def should_backup(self) -> bool:
-        return (
-            self.will_mutate
-            and self.pre_image.exists
-            and not self.sensitive
-            and self.format not in ("claude_json", "agy_json")
-        )
-
-    def validate_precondition(self) -> None:
-        valid, msg = self.pre_image.validate_precondition(self.path)
-        if not valid:
-            raise StaleConfigPlanError(msg)
-
-
-@dataclass(frozen=True)
-class MCPPlan:
-    """Immutable, fully-evaluated synchronization plan for MCP servers."""
-
-    operations: tuple[MCPOperation, ...]
-    file_plans: tuple[MCPFilePlan, ...]
-    state_snapshot_hash: str
-    specs: tuple[AgentSpec, ...] = field(default=(), repr=False)
-
-    def __repr__(self) -> str:
-        return (
-            f"MCPPlan(operations={self.operations!r}, file_plans={self.file_plans!r}, "
-            f"state_snapshot_hash={self.state_snapshot_hash!r})"
-        )
-
-    @property
-    def can_apply(self) -> bool:
-        return not any(
-            (op.action == "CONFLICT" and not op.is_authorized) or op.action == "ERROR"
-            for op in self.operations
-        )
-
-    @property
-    def changes_count(self) -> int:
-        return sum(
-            1
-            for op in self.operations
-            if op.action in ("CREATE", "UPDATE", "REMOVE") and op.is_authorized
-        )
-
-    @property
-    def conflicts_count(self) -> int:
-        return sum(
-            1
-            for op in self.operations
-            if op.action == "CONFLICT" and not op.is_authorized
-        )
-
-    @property
-    def has_conflicts(self) -> bool:
-        return self.conflicts_count > 0
-
-    def validate_preconditions(self, home: Path) -> None:
-        state_path = home / STATE_FILE
-        curr_hash = _state_file_hash(state_path)
-        if curr_hash != self.state_snapshot_hash:
-            raise StaleConfigPlanError(
-                f"MCP state store '{state_path}' has been modified externally since plan generation"
-            )
-        for fp in self.file_plans:
-            fp.validate_precondition()
-
-    def observe(self) -> PlanObservation:
-        """Project plan into a pure PlanObservation."""
-        views: list[PlanOperationView] = []
-        findings: list[Finding] = []
-        for op in self.operations:
-            view, finding = observe_mcp_operation(op)
-            views.append(view)
-            if finding is not None:
-                findings.append(finding)
-        can_apply = self.can_apply and not any(is_error_finding(f) for f in findings)
-        return PlanObservation(
-            operations=tuple(views),
-            findings=tuple(findings),
-            can_apply=can_apply,
-        )
 
 
 def mcp_operation_effect(op: MCPOperation) -> OperationEffect:
@@ -3064,24 +2481,6 @@ def evaluate_spec_status(
         return "SKIP"
     except Exception:
         return "ERROR"
-
-
-@dataclass(frozen=True)
-class MCPExecutionResult:
-    """Structured execution result of applying an MCPPlan."""
-
-    success: bool
-    applied_count: int
-    noop_count: int
-    skipped_count: int
-    conflict_count: int
-    failed_count: int
-    backups_created: tuple[Path, ...] = ()
-    failed_files: tuple[Path, ...] = ()
-    backup_warnings: tuple[str, ...] = ()
-    error_message: str | None = None
-    recovery_required: bool = False
-    recovery_guidance: str | None = None
 
 
 def _backup_file_plan(home: Path, file_plan: MCPFilePlan) -> Path | None:
