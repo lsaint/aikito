@@ -18,6 +18,7 @@ from .workspace import (
     WorkspaceFinding,
     WorkspaceInspection,
     WorkspaceNotFoundError,
+    WorkspaceOperationView,
     WorkspaceProjectView,
     WorkspaceSyncPreview,
 )
@@ -40,6 +41,7 @@ __all__ = [
     "WorkspaceFinding",
     "WorkspaceInspection",
     "WorkspaceNotFoundError",
+    "WorkspaceOperationView",
     "WorkspaceProjectView",
     "WorkspaceSyncPreview",
     "__version__",

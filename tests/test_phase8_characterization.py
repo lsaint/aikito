@@ -180,7 +180,7 @@ args = ["-y", "@modelcontextprotocol/server-everything"]
             "WorkspaceFinding",
             "WorkspaceInspection",
             "WorkspaceNotFoundError",
-            "InvalidWorkspaceError",
+            "WorkspaceOperationView",
             "WorkspaceProjectView",
             "WorkspaceSyncPreview",
             "__version__",

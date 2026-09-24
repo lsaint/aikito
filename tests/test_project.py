@@ -20,7 +20,10 @@ from aikito import (
     WorkspaceNotFoundError,
     __version__,
 )
-from aikito.project_config import append_candidate_path_to_config, resolve_project_binding
+from aikito.project_config import (
+    append_candidate_path_to_config,
+    resolve_project_binding,
+)
 from aikito.project import (
     ProjectResourceDetail,
     ProjectSummary,
@@ -369,6 +372,7 @@ class ProjectApiTest(unittest.TestCase):
             "WorkspaceInspection",
             "WorkspaceNotFoundError",
             "InvalidWorkspaceError",
+            "WorkspaceOperationView",
             "WorkspaceProjectView",
             "WorkspaceSyncPreview",
             "__version__",

@@ -211,6 +211,34 @@ class ArchitectureDependencyTests(unittest.TestCase):
                             )
         self.assertEqual(violations, [])
 
+    def test_aikito_public_exports_locked(self) -> None:
+        """Gate P2-A / P2-D: Lock public re-export surface of aikito root package."""
+        import aikito
+
+        expected_exports = {
+            "AmbiguousProjectPathError",
+            "InvalidProjectConfigError",
+            "InvalidWorkspaceError",
+            "NoAvailableProjectPathError",
+            "PreparedProject",
+            "Project",
+            "ProjectError",
+            "ProjectNotFoundError",
+            "ProjectPrepareConflictError",
+            "UnsupportedProjectAgentError",
+            "Workspace",
+            "WorkspaceError",
+            "WorkspaceFinding",
+            "WorkspaceInspection",
+            "WorkspaceNotFoundError",
+            "WorkspaceOperationView",
+            "WorkspaceProjectView",
+            "WorkspaceSyncPreview",
+            "__version__",
+        }
+        self.assertTrue(hasattr(aikito, "__all__"))
+        self.assertEqual(set(aikito.__all__), expected_exports)
+
 
 if __name__ == "__main__":
     unittest.main()

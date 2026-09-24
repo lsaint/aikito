@@ -9,7 +9,7 @@ from pathlib import Path
 from .compat import get_workspace_config_dir
 from .doctor import run_doctor
 from .agents import load_agent_definitions
-from .plan_observation import OperationEffect
+from .plan_observation import OperationEffect, PlanOperationView
 from .project import collect_project_summaries
 from .subagent import load_subagent_definitions
 from .workspace_sync import plan_workspace_sync
@@ -63,8 +63,89 @@ class WorkspaceInspection:
 
 
 @dataclass(frozen=True)
+class WorkspaceOperationView:
+    """Read-only, structured projection of a planned workspace operation.
+
+    Provides safe, typed metadata about a resource mutation or inspection
+    without exposing raw domain mutation objects, file handles, or secrets.
+
+    Migration Strategy:
+        This model replaces the legacy human-readable string descriptions
+        found in `WorkspaceSyncPreview.operations`. Callers should prefer
+        inspecting `WorkspaceSyncPreview.operation_views` for programmatic
+        filtering, grouping, and metrics.
+    """
+
+    resource_type: str
+    """Category of the resource (e.g. 'global_skill', 'bundled_skill', 'instruction', 'subagent', 'mcp', 'project')."""
+
+    resource_name: str
+    """Logical identifier or name of the resource."""
+
+    effect: str
+    """Planned lifecycle effect: 'create', 'update', 'remove', 'state_only', 'noop', 'skip', or 'none'."""
+
+    scope: str = ""
+    """Scope of operation: 'global', 'project', etc."""
+
+    agent: str = ""
+    """Agent associated with the operation (e.g. 'claude', 'codex'), if agent-scoped."""
+
+    project: str = ""
+    """Project name associated with the operation, if project-scoped."""
+
+    target: str = ""
+    """Target path or destination representation."""
+
+    source: str = ""
+    """Canonical or source path representation."""
+
+    reason: str = ""
+    """Human-readable explanation or justification for the operation/effect."""
+
+    domain_action: str = ""
+    """Underlying domain action code (e.g. 'CREATE', 'UPDATE', 'REFRESH', 'UNLINK', etc.)."""
+
+    authorized: bool = True
+    """Whether the operation is authorized to proceed without conflict."""
+
+    @classmethod
+    def from_plan_operation(cls, view: PlanOperationView) -> WorkspaceOperationView:
+        """Project an internal PlanOperationView into the public WorkspaceOperationView."""
+        return cls(
+            resource_type=view.resource_type,
+            resource_name=view.resource_name,
+            effect=view.effect.value,
+            scope=view.scope,
+            agent=view.agent,
+            project=view.project,
+            target=view.target,
+            source=view.source,
+            reason=view.reason,
+            domain_action=view.domain_action,
+            authorized=view.authorized,
+        )
+
+
+@dataclass(frozen=True)
 class WorkspaceSyncPreview:
-    """Read-only preview of workspace synchronization operations."""
+    """Read-only preview of workspace synchronization operations.
+
+    Attributes:
+        workspace_path: Absolute path to the inspected workspace.
+        changes: Total count of mutative changes.
+        unchanged: Total count of unchanged (NOOP) resources.
+        offline: Count of offline project checkouts.
+        warnings: Count of warning-level diagnostics.
+        conflicts: Count of blocking conflicts.
+        errors: Count of error-level diagnostics.
+        can_apply: True if the plan is authorized and ready to execute.
+        will_mutate: True if applying the plan will perform file writes.
+        findings: Sequence of diagnostic findings.
+        operations: Legacy human-readable string summaries of operations.
+            Prefer `operation_views` for structured inspection.
+        operation_views: Structured, frozen projections of each planned operation.
+    """
 
     workspace_path: Path
     changes: int
@@ -77,6 +158,7 @@ class WorkspaceSyncPreview:
     will_mutate: bool
     findings: tuple[WorkspaceFinding, ...] = ()
     operations: tuple[str, ...] = ()
+    operation_views: tuple[WorkspaceOperationView, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -208,8 +290,10 @@ class Workspace:
         plan = plan_workspace_sync(self.path, self.home)
 
         operations: list[str] = []
+        structured_views: list[WorkspaceOperationView] = []
         obs = plan.observe()
         for view in obs.operations:
+            structured_views.append(WorkspaceOperationView.from_plan_operation(view))
             if (
                 view.resource_type == "bundled_skill"
                 and view.effect == OperationEffect.UPDATE
@@ -249,12 +333,43 @@ class Workspace:
                 if b.active_checkouts:
                     checkouts_str = ", ".join(str(c) for c in b.active_checkouts)
                     operations.append(f"Project {entry.project_name}: {checkouts_str}")
+                    structured_views.append(
+                        WorkspaceOperationView(
+                            resource_type="project",
+                            resource_name=entry.project_name,
+                            effect="noop",
+                            project=entry.project_name,
+                            target=checkouts_str,
+                            domain_action="active_checkouts",
+                            reason=f"Active checkouts: {checkouts_str}",
+                        )
+                    )
                 else:
                     operations.append(
                         f"Project {entry.project_name}: no active checkouts"
                     )
+                    structured_views.append(
+                        WorkspaceOperationView(
+                            resource_type="project",
+                            resource_name=entry.project_name,
+                            effect="noop",
+                            project=entry.project_name,
+                            domain_action="no_active_checkouts",
+                            reason="No active checkouts",
+                        )
+                    )
             elif entry.binding_status == "offline":
                 operations.append(f"Project {entry.project_name}: offline")
+                structured_views.append(
+                    WorkspaceOperationView(
+                        resource_type="project",
+                        resource_name=entry.project_name,
+                        effect="skip",
+                        project=entry.project_name,
+                        domain_action="offline",
+                        reason="Project binding is offline",
+                    )
+                )
 
         preview_findings = tuple(
             WorkspaceFinding(
@@ -279,6 +394,7 @@ class Workspace:
             will_mutate=plan.changes > 0,
             findings=preview_findings,
             operations=tuple(operations),
+            operation_views=tuple(structured_views),
         )
 
 

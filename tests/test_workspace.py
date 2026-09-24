@@ -52,6 +52,7 @@ class AikitoWorkspaceTest(unittest.TestCase):
             Workspace,
             WorkspaceFinding,
             WorkspaceInspection,
+            WorkspaceOperationView,
             WorkspaceProjectView,
             WorkspaceSyncPreview,
         )
@@ -123,6 +124,44 @@ class AikitoWorkspaceTest(unittest.TestCase):
             any("Global Instructions CREATE" in op for op in ops),
             f"Expected Global Instructions CREATE in operations, got: {ops}",
         )
+
+        # 3. P2-A: Structured operation views projection
+        self.assertIsInstance(preview.operation_views, tuple)
+        self.assertGreater(len(preview.operation_views), 0)
+        for view in preview.operation_views:
+            self.assertIsInstance(view, WorkspaceOperationView)
+            self.assertIsInstance(view.resource_type, str)
+            self.assertIsInstance(view.effect, str)
+            # Ensure model is frozen / immutable
+            with self.assertRaises((AttributeError, TypeError)):
+                view.effect = "mutated"  # type: ignore
+
+        # Verify structured attributes for global skill create
+        skill_ops = [
+            v
+            for v in preview.operation_views
+            if v.resource_type == "global_skill" and v.resource_name == "my-skill"
+        ]
+        self.assertEqual(len(skill_ops), 1)
+        self.assertEqual(skill_ops[0].effect, "create")
+        self.assertEqual(skill_ops[0].scope, "global")
+        self.assertEqual(skill_ops[0].domain_action, "CREATE")
+        self.assertTrue(skill_ops[0].authorized)
+
+        # Verify structured attributes for instruction create
+        inst_ops = [
+            v for v in preview.operation_views if v.resource_type == "instruction"
+        ]
+        self.assertGreater(len(inst_ops), 0)
+        self.assertTrue(all(v.effect in ("create", "noop", "none") for v in inst_ops))
+
+        # Verify project structured view
+        project_ops = [
+            v for v in preview.operation_views if v.resource_type == "project"
+        ]
+        self.assertEqual(len(project_ops), 1)
+        self.assertEqual(project_ops[0].project, "test-proj")
+        self.assertEqual(project_ops[0].effect, "noop")
 
 
 if __name__ == "__main__":
