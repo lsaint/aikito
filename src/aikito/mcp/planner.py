@@ -23,7 +23,6 @@ from .adapters import (
     _remove_entry,
     _update_entry,
 )
-from .executor import _load_state
 from .loader import _agent_detected, load_agent_specs
 from .model import (
     STATE_FILE,
@@ -125,6 +124,8 @@ def build_mcp_plan(
     force_targets: set[str] | Sequence[str] | None = None,
     desired_absent_servers: set[str] | Sequence[str] | None = None,
 ) -> MCPPlan:
+    from .executor import _load_state
+
     """Build a pure, immutable MCP synchronization plan without modifying any files or state.
 
     Enforces INV-MCP-01, INV-MCP-02, INV-MCP-04, INV-MCP-05, INV-CFG-01, INV-CFG-02, INV-CFG-03.

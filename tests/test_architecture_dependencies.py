@@ -160,6 +160,7 @@ class ArchitectureDependencyTests(unittest.TestCase):
             "_MCPProbeError",
             "_RejectRedirects",
             "_agent_detected",
+            "_backup_config",
             "_atomic_write",
             "_list_remote_mcp_tools",
             "_load_basic_token_auth",
