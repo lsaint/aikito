@@ -6,6 +6,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from .agents import AgentRegistryError, RunnerCapability, load_agent_definition
 from .compat import resolve_executable
 from .project import resolve_project_binding
 from .resolve import ProjectContextConflictError, detect_current_project
@@ -20,12 +21,6 @@ class MemoryMaintenanceScope:
     name: str
     memory_dir: Path
     workdir: Path
-
-
-@dataclass(frozen=True)
-class AgentRunner:
-    command: tuple[str, ...]
-    env: dict[str, str]
 
 
 @dataclass(frozen=True)
@@ -139,44 +134,18 @@ def resolve_memory_maintenance_scope(
     raise MemoryMaintenanceError(f"Memory scope '{target}' not found")
 
 
-def load_agent_runner(aikito_dir: Path, agent_name: str) -> AgentRunner:
+def load_agent_runner(aikito_dir: Path, agent_name: str) -> RunnerCapability:
     config_path = aikito_dir / "agents.toml"
     try:
-        config = tomllib.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise MemoryMaintenanceError(f"Failed to read {config_path}: {exc}") from exc
-
-    agents = config.get("agents")
-    if not isinstance(agents, dict) or agent_name not in agents:
-        raise MemoryMaintenanceError(f"Agent '{agent_name}' not found in {config_path}")
-    agent = agents[agent_name]
-    if not isinstance(agent, dict):
-        raise MemoryMaintenanceError(
-            f"Agent '{agent_name}' has invalid configuration in {config_path}"
-        )
-    runner = agent.get("runner")
-    if not isinstance(runner, dict):
+        agent = load_agent_definition(aikito_dir, Path.home(), agent_name)
+    except AgentRegistryError as exc:
+        raise MemoryMaintenanceError(str(exc)) from exc
+    runner = agent.runner
+    if runner is None:
         raise MemoryMaintenanceError(
             f"Agent '{agent_name}' has no runner configuration in {config_path}"
         )
-    command = runner.get("command")
-    if (
-        not isinstance(command, list)
-        or not command
-        or not all(isinstance(part, str) and part for part in command)
-    ):
-        raise MemoryMaintenanceError(
-            f"Agent '{agent_name}' has invalid runner.command in {config_path}"
-        )
-    configured_env = runner.get("env", {})
-    if not isinstance(configured_env, dict) or not all(
-        isinstance(key, str) and key and isinstance(value, str)
-        for key, value in configured_env.items()
-    ):
-        raise MemoryMaintenanceError(
-            f"Agent '{agent_name}' has invalid runner.env in {config_path}"
-        )
-    return AgentRunner(tuple(command), configured_env)
+    return runner
 
 
 def build_memory_maintenance_prompt(scope: MemoryMaintenanceScope) -> str:

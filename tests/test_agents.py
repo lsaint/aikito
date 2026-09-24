@@ -17,9 +17,11 @@ from aikito.agents import (
     check_agent_availability,
     check_target_availability,
     is_agent_installed,
+    load_agent_definition,
     load_agent_definitions,
     resolve_targets,
 )
+from aikito.subagent import SubagentConfigError, load_all_agents
 from aikito.templating import load_agents_template
 
 
@@ -380,7 +382,12 @@ class TargetResolutionTests(unittest.TestCase):
 
 
 def _definition(
-    name: str, display_name: str, mcp: dict[str, object] | None = None, **fields: object
+    name: str,
+    display_name: str,
+    mcp: dict[str, object] | None = None,
+    subagents: dict[str, object] | None = None,
+    runner: dict[str, object] | None = None,
+    **fields: object,
 ) -> dict[str, object]:
     """Build an expected AgentDefinition dict with v1.50.0 defaults."""
     expected: dict[str, object] = {
@@ -390,6 +397,8 @@ def _definition(
         "project_instruction_path": None,
         "skills_path": None,
         "mcp": None,
+        "subagents": subagents,
+        "runner": runner,
     }
     expected.update(fields)
     if mcp is not None:
@@ -429,6 +438,7 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
     def test_bundled_template(self) -> None:
         self._write(load_agents_template())
         h = self.home
+        resolved_home = h.resolve()
         expected = {
             "codex": _definition(
                 "codex",
@@ -444,6 +454,15 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
                     "auth_command": ("codex", "mcp", "login", "{target}"),
                     "builtin_servers": ("openaiDeveloperDocs",),
                 },
+                subagents={
+                    "config_path": resolved_home / ".codex/agents",
+                    "config_format": "codex_toml",
+                    "requires_path": None,
+                },
+                runner={
+                    "command": ("codex", "-C", "{workdir}", "{prompt}"),
+                    "env": {},
+                },
             ),
             "claude-code": _definition(
                 "claude-code",
@@ -457,6 +476,12 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
                     "live_command": ("claude", "mcp", "list"),
                     "auth_command": ("claude", "mcp", "login", "{target}"),
                 },
+                subagents={
+                    "config_path": resolved_home / ".claude/agents",
+                    "config_format": "claude_markdown",
+                    "requires_path": None,
+                },
+                runner={"command": ("claude", "{prompt}"), "env": {}},
             ),
             "agy": _definition(
                 "agy",
@@ -467,6 +492,15 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
                 mcp={
                     "config_path": h / ".gemini/config/mcp_config.json",
                     "config_format": "agy_json",
+                },
+                subagents={
+                    "config_path": resolved_home / ".gemini/config/agents",
+                    "config_format": "agy_markdown",
+                    "requires_path": None,
+                },
+                runner={
+                    "command": ("agy", "--prompt-interactive", "{prompt}"),
+                    "env": {},
                 },
             ),
             "opencode": _definition(
@@ -481,6 +515,15 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
                     "live_command": ("opencode", "mcp", "list"),
                     "auth_command": ("opencode", "mcp", "auth", "{target}"),
                 },
+                subagents={
+                    "config_path": resolved_home / ".config/opencode/agents",
+                    "config_format": "opencode_markdown",
+                    "requires_path": None,
+                },
+                runner={
+                    "command": ("opencode", "{workdir}", "--prompt", "{prompt}"),
+                    "env": {},
+                },
             ),
             "github-copilot": _definition(
                 "github-copilot",
@@ -493,6 +536,15 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
                     "config_format": "copilot_json",
                     "live_command": ("copilot", "mcp", "list"),
                 },
+                subagents={
+                    "config_path": resolved_home / ".copilot/agents",
+                    "config_format": "copilot_markdown",
+                    "requires_path": None,
+                },
+                runner={
+                    "command": ("copilot", "-C", "{workdir}", "-i", "{prompt}"),
+                    "env": {},
+                },
             ),
             "dsh": _definition(
                 "dsh",
@@ -503,6 +555,15 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
                 mcp={
                     "config_path": h / ".dsh/cordis.patch.yml",
                     "config_format": "dsh_cordis",
+                },
+                subagents={
+                    "config_path": resolved_home / ".dsh/cordis.patch.yml",
+                    "config_format": "dsh_cordis_subagent",
+                    "requires_path": None,
+                },
+                runner={
+                    "command": ("dsh", "--profile", "headless", "{prompt}"),
+                    "env": {},
                 },
             ),
             "grok": _definition(
@@ -516,6 +577,15 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
                     "config_format": "toml",
                     "live_command": ("grok", "mcp", "list"),
                 },
+                subagents={
+                    "config_path": resolved_home / ".grok/agents",
+                    "config_format": "grok_markdown",
+                    "requires_path": None,
+                },
+                runner={
+                    "command": ("grok", "--cwd", "{workdir}", "-p", "{prompt}"),
+                    "env": {},
+                },
             ),
             "pi": _definition(
                 "pi",
@@ -523,6 +593,13 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
                 instruction_path=h / ".pi/agent/AGENTS.md",
                 project_instruction_path=Path("AGENTS.md"),
                 skills_path=h / ".agents/skills",
+                subagents={
+                    "config_path": resolved_home / ".pi/agent/agents",
+                    "config_format": "pi_markdown",
+                    "requires_path": resolved_home
+                    / ".pi/agent/extensions/subagent/index.ts",
+                },
+                runner={"command": ("pi", "-p", "{prompt}"), "env": {}},
             ),
         }
         self.assertEqual(self._load(), expected)
@@ -576,10 +653,70 @@ config_path = "x.toml"
         self.assertFalse(definitions["nullcmd"].mcp.is_supported)
         self.assertTrue(definitions["custom"].mcp.is_supported)
         self.assertIsNone(definitions["bare"].mcp)
+        self.assertIsNone(definitions["bare"].runner)
+
+    def test_runner_loader_reads_command_and_environment(self) -> None:
+        self._write(
+            '[agents.custom.runner]\ncommand = ["custom", "{prompt}"]\n'
+            '[agents.custom.runner.env]\nCUSTOM = "{scope}"\n'
+        )
+        runner = load_agent_definitions(self.ws, self.home)["custom"].runner
+        self.assertIsNotNone(runner)
+        self.assertEqual(runner.command, ("custom", "{prompt}"))
+        self.assertEqual(runner.env, {"CUSTOM": "{scope}"})
+
+    def test_single_agent_loader_ignores_unrelated_invalid_runner(self) -> None:
+        self._write(
+            '[agents.good.runner]\ncommand = ["good"]\n'
+            '[agents.bad.runner]\ncommand = "invalid"\n'
+        )
+        self.assertEqual(
+            load_agent_definition(self.ws, self.home, "good").runner.command,
+            ("good",),
+        )
+        with self.assertRaisesRegex(AgentRegistryError, "invalid runner.command"):
+            load_agent_definitions(self.ws, self.home)
 
     def test_empty_registry(self) -> None:
         self._write("[agents]\n")
         self.assertEqual(load_agent_definitions(self.ws, self.home), {})
+
+    def test_subagent_loader_uses_agent_definitions(self) -> None:
+        self._write(
+            '[agents.custom]\ndisplay_name = "Custom"\n'
+            '[agents.custom.subagents]\nconfig_path = "agents"\n'
+            'config_format = "codex_toml"\nrequires_path = "extension.ts"\n'
+            "[agents.bare]\n"
+        )
+        definitions = load_agent_definitions(self.ws, self.home)
+        configs, names = load_all_agents(self.ws, self.home)
+        self.assertEqual(names, {"custom", "bare"})
+        self.assertIsNone(definitions["bare"].subagents)
+        self.assertEqual(
+            configs["custom"].config_path, definitions["custom"].subagents.config_path
+        )
+        self.assertEqual(
+            configs["custom"].requires_path,
+            definitions["custom"].subagents.requires_path,
+        )
+        self.assertEqual(configs["custom"].display_name, "Custom")
+
+    def test_subagent_loader_translates_agent_errors(self) -> None:
+        self._write('[agents.a.subagents]\nconfig_format = "codex_toml"\n')
+        with self.assertRaisesRegex(
+            SubagentConfigError,
+            "Agent 'a' subagents section missing 'config_path' or 'config_format'",
+        ):
+            load_all_agents(self.ws, self.home)
+
+    def test_subagent_loader_rejects_unsupported_format(self) -> None:
+        self._write(
+            '[agents.a.subagents]\nconfig_path = "agents"\nconfig_format = "unknown"\n'
+        )
+        with self.assertRaisesRegex(
+            SubagentConfigError, "Agent 'a' unsupported config_format 'unknown'"
+        ):
+            load_all_agents(self.ws, self.home)
 
     def test_missing_agents_config_raises(self) -> None:
         with self.assertRaises(AgentRegistryError):
@@ -593,6 +730,21 @@ config_path = "x.toml"
             ),
             '[agents.a.mcp]\nconfig_path = "x"\nbuiltin_mcps = [1]\n': (
                 "Agent 'a' mcp.builtin_mcps must be a list of strings"
+            ),
+            "[agents.a]\nsubagents = 1\n": (
+                "Agent 'a' subagents section must be a table"
+            ),
+            '[agents.a.subagents]\nconfig_path = "x"\n': (
+                "Agent 'a' subagents section missing 'config_path' or 'config_format'"
+            ),
+            '[agents.a.subagents]\nconfig_path = "x"\nconfig_format = "codex_toml"\nrequires_path = ""\n': (
+                "Agent 'a' subagents 'requires_path' must be a non-empty string"
+            ),
+            '[agents.a.runner]\ncommand = "bad"\n': (
+                f"Agent 'a' has invalid runner.command in {self.ws / 'agents.toml'}"
+            ),
+            '[agents.a.runner]\ncommand = ["agent"]\n[agents.a.runner.env]\nBAD = 1\n': (
+                f"Agent 'a' has invalid runner.env in {self.ws / 'agents.toml'}"
             ),
         }
         for body, message in cases.items():

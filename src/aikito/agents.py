@@ -249,11 +249,30 @@ class MCPCapability:
 
 
 @dataclass(frozen=True)
+class SubagentCapability:
+    """Native subagent target declared in an agent's subagents section."""
+
+    config_path: Path
+    config_format: str
+    requires_path: Path | None = None
+
+
+@dataclass(frozen=True)
+class RunnerCapability:
+    """Command and environment used to launch an agent for maintenance."""
+
+    command: tuple[str, ...]
+    env: dict[str, str]
+
+
+@dataclass(frozen=True)
 class AgentDefinition(Agent):
     """Static identity, paths, and capabilities for one agent from agents.toml."""
 
     # None means the agent declares no [agents.<name>.mcp] section.
     mcp: MCPCapability | None = None
+    subagents: SubagentCapability | None = None
+    runner: RunnerCapability | None = None
 
 
 def _load_mcp_capability(
@@ -286,24 +305,106 @@ def _load_mcp_capability(
     )
 
 
+def _load_subagent_capability(
+    spec: Mapping[str, Any], name: str, home: Path
+) -> SubagentCapability | None:
+    section = spec.get("subagents")
+    if section is None:
+        return None
+    if not isinstance(section, dict):
+        raise AgentRegistryError(f"Agent '{name}' subagents section must be a table")
+    config_path = section.get("config_path")
+    config_format = section.get("config_format")
+    if (
+        not isinstance(config_path, str)
+        or not config_path
+        or not isinstance(config_format, str)
+        or not config_format
+    ):
+        raise AgentRegistryError(
+            f"Agent '{name}' subagents section missing 'config_path' or 'config_format'"
+        )
+    requires_path = section.get("requires_path")
+    if requires_path is not None and (
+        not isinstance(requires_path, str) or not requires_path
+    ):
+        raise AgentRegistryError(
+            f"Agent '{name}' subagents 'requires_path' must be a non-empty string"
+        )
+    return SubagentCapability(
+        config_path=(home / config_path).resolve(),
+        config_format=config_format,
+        requires_path=(home / requires_path).resolve() if requires_path else None,
+    )
+
+
+def _load_runner_capability(
+    spec: Mapping[str, Any], name: str, config_path: Path
+) -> RunnerCapability | None:
+    runner = spec.get("runner")
+    if runner is None:
+        return None
+    if not isinstance(runner, dict):
+        raise AgentRegistryError(
+            f"Agent '{name}' has no runner configuration in {config_path}"
+        )
+    command = runner.get("command")
+    if (
+        not isinstance(command, list)
+        or not command
+        or not all(isinstance(part, str) and part for part in command)
+    ):
+        raise AgentRegistryError(
+            f"Agent '{name}' has invalid runner.command in {config_path}"
+        )
+    configured_env = runner.get("env", {})
+    if not isinstance(configured_env, dict) or not all(
+        isinstance(key, str) and key and isinstance(value, str)
+        for key, value in configured_env.items()
+    ):
+        raise AgentRegistryError(
+            f"Agent '{name}' has invalid runner.env in {config_path}"
+        )
+    return RunnerCapability(tuple(command), configured_env)
+
+
+def _build_agent_definition(
+    base_agent: Agent, spec: Mapping[str, Any], home: Path, config_path: Path
+) -> AgentDefinition:
+    name = base_agent.name
+    return AgentDefinition(
+        name=name,
+        display_name=base_agent.display_name,
+        instruction_path=base_agent.instruction_path,
+        project_instruction_path=base_agent.project_instruction_path,
+        skills_path=base_agent.skills_path,
+        mcp=_load_mcp_capability(spec, name, home),
+        subagents=_load_subagent_capability(spec, name, home),
+        runner=_load_runner_capability(spec, name, config_path),
+    )
+
+
+def load_agent_definition(aikito_dir: Path, home: Path, name: str) -> AgentDefinition:
+    """Load one agent without validating unrelated agent declarations."""
+    document = load_agent_document(aikito_dir)
+    config_path = aikito_dir / "agents.toml"
+    agents = document["agents"]
+    if name not in agents:
+        raise AgentRegistryError(f"Agent '{name}' not found in {config_path}")
+    spec = agents[name]
+    registry = AgentRegistry.from_document({"agents": {name: spec}}, home)
+    return _build_agent_definition(registry[name], spec, home, config_path)
+
+
 def load_agent_definitions(aikito_dir: Path, home: Path) -> dict[str, AgentDefinition]:
     """Strictly load agents.toml; raise AgentRegistryError on invalid input."""
     document = load_agent_document(aikito_dir)
     registry = AgentRegistry.from_document(document, home)
-
-    definitions: dict[str, AgentDefinition] = {}
-    for name, spec in document["agents"].items():
-        base_agent = registry[name]
-        definitions[name] = AgentDefinition(
-            name=name,
-            display_name=base_agent.display_name,
-            instruction_path=base_agent.instruction_path,
-            project_instruction_path=base_agent.project_instruction_path,
-            skills_path=base_agent.skills_path,
-            mcp=_load_mcp_capability(spec, name, home),
-        )
-
-    return definitions
+    config_path = aikito_dir / "agents.toml"
+    return {
+        name: _build_agent_definition(registry[name], spec, home, config_path)
+        for name, spec in document["agents"].items()
+    }
 
 
 @dataclass(frozen=True)

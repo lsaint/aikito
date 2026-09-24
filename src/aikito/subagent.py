@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from collections.abc import Mapping, Sequence
 
-from .agents import is_agent_installed
+from .agents import AgentRegistryError, is_agent_installed, load_agent_definitions
 from .config_runtime import (
     ConfigOperation,
     ConfigTarget,
@@ -30,7 +30,6 @@ from .plan_observation import (
 )
 
 
-DEFAULT_AGENTS_CONFIG = Path("agents.toml")
 DEFAULT_SUBAGENTS_CONFIG = Path("subagents.toml")
 SUBAGENTS_DIR = Path("subagents")
 BACKUP_DIR = Path(".local/state/aikito/backups")
@@ -308,61 +307,28 @@ def has_aikito_marker(file_path: Path) -> bool:
 def load_all_agents(
     aikito_dir: Path, home: Path
 ) -> tuple[dict[str, AgentSubagentConfig], set[str]]:
-    agents_toml_path = aikito_dir / DEFAULT_AGENTS_CONFIG
-    if not agents_toml_path.is_file():
-        raise SubagentConfigError(f"agents.toml not found at {agents_toml_path}")
-
-    with agents_toml_path.open("rb") as f:
-        data = tomllib.load(f)
-
-    agents_data = data.get("agents", {})
+    try:
+        agents_data = load_agent_definitions(aikito_dir, home)
+    except AgentRegistryError as exc:
+        raise SubagentConfigError(str(exc)) from exc
     subagent_configs: dict[str, AgentSubagentConfig] = {}
-    all_agent_names: set[str] = set()
-
-    for agent_name, agent_info in agents_data.items():
-        all_agent_names.add(agent_name)
-        subagents_sec = agent_info.get("subagents")
-        if not subagents_sec:
+    for agent_name, agent in agents_data.items():
+        capability = agent.subagents
+        if capability is None:
             continue
-
-        raw_config_path = subagents_sec.get("config_path")
-        config_format = subagents_sec.get("config_format")
-        raw_requires_path = subagents_sec.get("requires_path")
-
-        if not raw_config_path or not config_format:
+        if capability.config_format not in FORMAT_EXTENSIONS:
             raise SubagentConfigError(
-                f"Agent '{agent_name}' subagents section missing 'config_path' or 'config_format'"
+                f"Agent '{agent_name}' unsupported config_format '{capability.config_format}'"
             )
-
-        if config_format not in FORMAT_EXTENSIONS:
-            raise SubagentConfigError(
-                f"Agent '{agent_name}' unsupported config_format '{config_format}'"
-            )
-
-        if raw_requires_path is not None and (
-            not isinstance(raw_requires_path, str) or not raw_requires_path
-        ):
-            raise SubagentConfigError(
-                f"Agent '{agent_name}' subagents 'requires_path' must be a non-empty string"
-            )
-
-        config_path = (home / raw_config_path).resolve()
-        requires_path = (
-            (home / raw_requires_path).resolve()
-            if isinstance(raw_requires_path, str) and raw_requires_path
-            else None
-        )
-        display_name = agent_info.get("display_name", agent_name)
-
         subagent_configs[agent_name] = AgentSubagentConfig(
             agent_name=agent_name,
-            display_name=display_name,
-            config_path=config_path,
-            config_format=config_format,
-            requires_path=requires_path,
+            display_name=agent.display_name,
+            config_path=capability.config_path,
+            config_format=capability.config_format,
+            requires_path=capability.requires_path,
         )
 
-    return subagent_configs, all_agent_names
+    return subagent_configs, set(agents_data)
 
 
 def load_subagent_definitions(

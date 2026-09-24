@@ -203,6 +203,12 @@ display_name = "No Runner"
 
 [agents.bad-command.runner]
 command = "not-an-array"
+
+[agents.bad-env.runner]
+command = ["agent"]
+
+[agents.bad-env.runner.env]
+INVALID = 1
 """,
             encoding="utf-8",
         )
@@ -211,6 +217,8 @@ command = "not-an-array"
             load_agent_runner(self.aikito_dir, "no-runner")
         with self.assertRaisesRegex(MemoryMaintenanceError, "invalid runner.command"):
             load_agent_runner(self.aikito_dir, "bad-command")
+        with self.assertRaisesRegex(MemoryMaintenanceError, "invalid runner.env"):
+            load_agent_runner(self.aikito_dir, "bad-env")
 
     @patch("aikito.maintain.subprocess.run")
     def test_reports_invalid_placeholder_syntax(self, run_mock) -> None:
