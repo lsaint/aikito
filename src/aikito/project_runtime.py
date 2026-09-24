@@ -18,10 +18,10 @@ from typing import Any
 from .compat import can_symlink, safe_relative_path
 from .conflict import collect_resource_conflicts
 from .agents import AgentRegistryError, load_agent_definitions
-from .project import (
-    _resolve_project_path,
+from .project_config import (
     append_candidate_path_to_config,
     resolve_project_binding,
+    resolve_project_path,
 )
 from .project_sync import apply_project_sync_batch, build_project_sync_batch
 from .workspace import resolve_workspace
@@ -251,7 +251,7 @@ def _resolve_supplied_project_path(path: Path | str, home: Path) -> Path:
     raw = str(path).strip()
     if not raw:
         raise InvalidProjectConfigError("Project path cannot be empty")
-    resolved = _resolve_project_path(raw, home)
+    resolved = resolve_project_path(raw, home)
     if resolved is None:
         raise InvalidProjectConfigError(f"Invalid project path: {path!r}")
     if not resolved.exists():

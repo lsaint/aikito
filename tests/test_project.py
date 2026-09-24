@@ -20,10 +20,10 @@ from aikito import (
     WorkspaceNotFoundError,
     __version__,
 )
+from aikito.project_config import append_candidate_path_to_config, resolve_project_binding
 from aikito.project import (
     ProjectResourceDetail,
     ProjectSummary,
-    append_candidate_path_to_config,
     classify_project_skill_state,
     collect_project_skill_states,
     collect_project_summaries,
@@ -31,7 +31,6 @@ from aikito.project import (
     find_selected_runtime_conflicts,
     map_skill_operation_to_project_state,
     plan_runtime_cleanup,
-    resolve_project_binding,
 )
 from aikito.render import render_project_detail, render_projects_table
 from aikito.skill_plan import (

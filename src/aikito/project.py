@@ -1,17 +1,23 @@
 """Inspect copied project skills without mutating canonical or runtime content."""
 
 import difflib
-import json
-import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
 from .instructions import build_project_instruction_batch, plan_instructions
 from .memory_runtime import build_project_memory_batch, plan_project_memory
-from .compat import _resolve_symlink_target, safe_relative_path
+from .compat import _resolve_symlink_target
+from .project_config import (
+    candidate_path_views as _candidate_path_views,
+    joined_candidate_paths as _joined_candidate_paths,
+    resolve_project_binding,
+    resolve_project_path,
+)
 from .skill_plan import SkillOperation, SkillTarget, plan_single_skill
 from .skill_runtime import ObservedSkill, inspect_skill_target
+
+_resolve_project_path = resolve_project_path
 
 
 @dataclass(frozen=True)
@@ -37,27 +43,6 @@ class ProjectResourceDetail:
     runtime_path: Path | None
     status: str
     detail: str = ""
-
-
-@dataclass(frozen=True)
-class ProjectPathEntry:
-    label: str
-    raw_path: str
-    resolved_path: Path
-    exists: bool
-
-
-@dataclass(frozen=True)
-class ProjectBinding:
-    entries: tuple[ProjectPathEntry, ...]
-
-    @property
-    def active_entries(self) -> tuple[ProjectPathEntry, ...]:
-        return tuple(e for e in self.entries if e.exists)
-
-    @property
-    def offline_entries(self) -> tuple[ProjectPathEntry, ...]:
-        return tuple(e for e in self.entries if not e.exists)
 
 
 @dataclass(frozen=True)
@@ -132,271 +117,6 @@ class ProjectSummary:
                 "to reconcile runtime"
             )
         return ""
-
-
-def get_project_candidate_paths(config: dict) -> list[tuple[str, str]]:
-    """Return list of (label, raw_path) from config.
-
-    Supports:
-      1. [paths] table: { "mac": "~/path1", "win": "D:/path2" }
-      2. paths array: ["~/path1", "D:/path2"]
-      3. path array: ["~/path1", "D:/path2"]
-      4. path string: "~/path1"
-    """
-    candidates: list[tuple[str, str]] = []
-    raw_paths_sec = config.get("paths")
-    if isinstance(raw_paths_sec, dict):
-        for key, val in raw_paths_sec.items():
-            if isinstance(val, str) and val.strip():
-                candidates.append((str(key), val.strip()))
-    elif isinstance(raw_paths_sec, list):
-        for idx, item in enumerate(raw_paths_sec, start=1):
-            if isinstance(item, str) and item.strip():
-                candidates.append((str(idx), item.strip()))
-
-    if not candidates:
-        raw_path = config.get("path")
-        if isinstance(raw_path, list):
-            for idx, item in enumerate(raw_path, start=1):
-                if isinstance(item, str) and item.strip():
-                    candidates.append((str(idx), item.strip()))
-        elif isinstance(raw_path, str) and raw_path.strip():
-            candidates.append(("default", raw_path.strip()))
-
-    return candidates
-
-
-def resolve_project_binding(config: dict, home: Path) -> ProjectBinding:
-    """Resolve all configured project candidate paths and categorize them."""
-    candidates = get_project_candidate_paths(config)
-    entries: list[ProjectPathEntry] = []
-    seen_paths: set[Path] = set()
-    for label, raw in candidates:
-        resolved = _resolve_project_path(raw, home)
-        if resolved is not None:
-            if resolved in seen_paths:
-                continue
-            seen_paths.add(resolved)
-            entries.append(
-                ProjectPathEntry(
-                    label=label,
-                    raw_path=raw,
-                    resolved_path=resolved,
-                    exists=resolved.is_dir(),
-                )
-            )
-    return ProjectBinding(tuple(entries))
-
-
-def append_candidate_path_to_config(
-    config_path: Path, new_raw_path: str, home: Path
-) -> bool:
-    """Append a new candidate path to an existing agent.toml if not already present.
-
-    Returns True if appended, False if candidate already exists.
-    Raises FileNotFoundError if config_path does not exist.
-    Raises ValueError on invalid input or if rewritten TOML is invalid.
-    """
-    if not config_path.is_file():
-        raise FileNotFoundError(f"Project config file not found: {config_path}")
-    try:
-        content = config_path.read_text(encoding="utf-8")
-        data = tomllib.loads(content)
-    except OSError as exc:
-        raise OSError(f"Failed to read {config_path}: {exc}") from exc
-    except tomllib.TOMLDecodeError as exc:
-        raise ValueError(f"Invalid TOML in {config_path}: {exc}") from exc
-
-    candidates = get_project_candidate_paths(data)
-    new_resolved = _resolve_project_path(new_raw_path, home)
-    for _, raw in candidates:
-        if raw == new_raw_path or (
-            new_resolved and _resolve_project_path(raw, home) == new_resolved
-        ):
-            return False
-
-    lines = content.splitlines()
-
-    first_section_idx = len(lines)
-    paths_section_header_idx: int | None = None
-    paths_section_end_idx = len(lines)
-
-    for i, line in enumerate(lines):
-        section_match = re.match(r"^\s*\[([a-zA-Z0-9_.\-]+)\]\s*(?:#.*)?$", line)
-        if section_match:
-            sec_name = section_match.group(1)
-            if first_section_idx == len(lines):
-                first_section_idx = i
-            if sec_name == "paths":
-                paths_section_header_idx = i
-            elif paths_section_header_idx is not None and paths_section_end_idx == len(
-                lines
-            ):
-                paths_section_end_idx = i
-
-    new_path_repr = json.dumps(new_raw_path)
-
-    if paths_section_header_idx is not None:
-        existing_keys = (
-            set(data["paths"].keys()) if isinstance(data.get("paths"), dict) else set()
-        )
-        idx = 1
-        while f"path_{idx}" in existing_keys:
-            idx += 1
-        new_key = f"path_{idx}"
-        lines.insert(paths_section_end_idx, f"{new_key} = {new_path_repr}")
-
-    elif isinstance(data.get("paths"), dict):
-        existing_keys = set(data["paths"].keys())
-        idx = 1
-        while f"path_{idx}" in existing_keys:
-            idx += 1
-        new_key = f"path_{idx}"
-
-        replaced = False
-        for i in range(first_section_idx):
-            if re.match(r"^\s*paths\s*=\s*\{", lines[i]):
-                if "}" in lines[i]:
-                    r_idx = lines[i].rindex("}")
-                    before = lines[i][:r_idx].rstrip()
-                    after = lines[i][r_idx:]
-                    sep = ", " if before and not before.endswith("{") else " "
-                    lines[i] = (
-                        f"{before}{sep}{new_key} = {new_path_repr} {after.lstrip()}"
-                    )
-                    replaced = True
-                    break
-                else:
-                    for j in range(i + 1, first_section_idx):
-                        if "}" in lines[j]:
-                            lines.insert(j, f"    {new_key} = {new_path_repr},")
-                            replaced = True
-                            break
-                    if replaced:
-                        break
-        if not replaced:
-            lines.insert(first_section_idx, f"[paths]\n{new_key} = {new_path_repr}\n")
-
-    elif isinstance(data.get("paths"), list):
-        replaced = False
-        for i in range(first_section_idx):
-            if re.match(r"^\s*paths\s*=\s*\[", lines[i]):
-                if "]" in lines[i]:
-                    r_idx = lines[i].rindex("]")
-                    before = lines[i][:r_idx].rstrip()
-                    after = lines[i][r_idx:]
-                    sep = ", " if before and not before.endswith("[") else " "
-                    lines[i] = f"{before}{sep}{new_path_repr}{after}"
-                    replaced = True
-                    break
-                else:
-                    for j in range(i + 1, len(lines)):
-                        if "]" in lines[j]:
-                            lines.insert(j, f"    {new_path_repr},")
-                            replaced = True
-                            break
-                    if replaced:
-                        break
-        if not replaced:
-            lines.insert(first_section_idx, f"paths = [{new_path_repr}]")
-
-    elif "path" in data and any(
-        re.match(r"^\s*path\s*=", lines[i]) for i in range(first_section_idx)
-    ):
-        for i in range(first_section_idx):
-            if re.match(r"^\s*path\s*=", lines[i]):
-                old_val = data["path"]
-                if isinstance(old_val, list):
-                    items = [json.dumps(p) for p in old_val] + [new_path_repr]
-                else:
-                    items = [json.dumps(old_val), new_path_repr]
-                lines[i] = (
-                    "paths = [\n" + "".join(f"    {item},\n" for item in items) + "]"
-                )
-                break
-
-    else:
-        entry = f"paths = [\n    {new_path_repr},\n]\n"
-        if first_section_idx < len(lines):
-            lines.insert(first_section_idx, entry)
-        else:
-            lines.append(entry)
-
-    new_content = "\n".join(lines).strip() + "\n"
-
-    try:
-        verified_data = tomllib.loads(new_content)
-    except tomllib.TOMLDecodeError as exc:
-        raise ValueError(
-            f"Failed to generate valid TOML for {config_path}: {exc}\nGenerated:\n{new_content}"
-        ) from exc
-
-    verified_candidates = [raw for _, raw in get_project_candidate_paths(verified_data)]
-    if new_raw_path not in verified_candidates:
-        raise ValueError(
-            f"Failed to record new candidate path '{new_raw_path}' in {config_path}"
-        )
-
-    config_path.write_text(new_content, encoding="utf-8")
-    return True
-
-
-def _resolve_project_path(raw_path: object, home: Path) -> Path | None:
-    if not isinstance(raw_path, str) or not raw_path:
-        return None
-    raw = raw_path.strip()
-    if raw == "~":
-        return home.resolve()
-    normalized = raw.replace("\\", "/")
-    if normalized.startswith("~/"):
-        return (home / normalized[2:]).resolve()
-    return Path(raw).expanduser().resolve()
-
-
-def _display_path(path: Path | None, home: Path) -> str:
-    if path is None:
-        return "-"
-    resolved_home = home.resolve()
-    for base in (home, resolved_home):
-        displayed = safe_relative_path(path, base)
-        if displayed.startswith("~/"):
-            return displayed
-    resolved_path = path.resolve()
-    if resolved_path != path:
-        displayed = safe_relative_path(resolved_path, resolved_home)
-        if displayed.startswith("~/"):
-            return displayed
-    return path.as_posix()
-
-
-def _display_candidate_path(entry: ProjectPathEntry, home: Path) -> str:
-    if entry.exists:
-        return _display_path(entry.resolved_path, home)
-    raw = entry.raw_path.strip().replace("\\", "/")
-    if raw == "~" or raw.startswith("~/"):
-        return raw
-    unresolved = Path(raw)
-    if unresolved.is_absolute():
-        return _display_path(unresolved, home)
-    # Keep configured other-OS paths (e.g. D:/...) instead of cwd-resolving them.
-    return raw
-
-
-def _candidate_path_views(
-    binding: ProjectBinding, home: Path
-) -> tuple[tuple[str, str, bool], ...]:
-    return tuple(
-        (entry.label, _display_candidate_path(entry, home), entry.exists)
-        for entry in binding.entries
-    )
-
-
-def _joined_candidate_paths(
-    candidate_paths: tuple[tuple[str, str, bool], ...],
-) -> str:
-    if not candidate_paths:
-        return "-"
-    return ", ".join(path for _, path, _ in candidate_paths)
 
 
 def _link_status(target: Path, expected: Path) -> str:

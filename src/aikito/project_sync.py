@@ -36,8 +36,8 @@ from .plan_observation import (
     combine_observations,
     safe_observe_plan,
 )
-from .project import (
-    append_candidate_path_to_config,
+from .project_config import (
+    add_candidate_path,
     resolve_project_binding,
 )
 from .skill_plan import (
@@ -170,7 +170,6 @@ def build_project_sync_batch(
     explicit_path: Path | None = None,
     force: bool = False,
     register_explicit_path: bool = True,
-    append_fn: Any = None,
 ) -> ProjectSyncBatch:
     """Evaluate preflight checks and construct a deterministic ProjectSyncBatch.
 
@@ -257,20 +256,18 @@ def build_project_sync_batch(
                     is_noop=True,
                 )
             else:
-                # Simulate appending candidate path
-                import tempfile
+                post_bytes = add_candidate_path(pre_bytes, raw_to_append, home)
 
-                with tempfile.NamedTemporaryFile(mode="wb", delete=False) as tmp_f:
-                    tmp_f.write(pre_bytes)
-                    tmp_path = Path(tmp_f.name)
-                fn = (
-                    append_fn
-                    if append_fn is not None
-                    else append_candidate_path_to_config
-                )
-                try:
-                    fn(tmp_path, raw_to_append, home)
-                    post_bytes = tmp_path.read_bytes()
+                if post_bytes is None:
+                    config_cas = CandidatePathCAS(
+                        config_path=agent_toml,
+                        pre_image_bytes=pre_bytes,
+                        pre_image_hash=pre_hash,
+                        post_image_bytes=pre_bytes,
+                        post_image_hash=pre_hash,
+                        is_noop=True,
+                    )
+                else:
                     post_hash = hashlib.sha256(post_bytes).hexdigest()
                     config_cas = CandidatePathCAS(
                         config_path=agent_toml,
@@ -280,14 +277,6 @@ def build_project_sync_batch(
                         post_image_hash=post_hash,
                         is_noop=False,
                     )
-                except Exception as exc:
-                    errors.append(
-                        f"Failed to save codebase path for project '{project_name}': {exc}\n"
-                        f"Please configure the codebase path for project '{project_name}'."
-                    )
-                finally:
-                    if tmp_path.exists():
-                        tmp_path.unlink()
         except Exception as exc:
             errors.append(
                 f"Failed to save codebase path for project '{project_name}': {exc}\n"
@@ -527,7 +516,6 @@ def sync_project(
     project_path: Path | str | None = None,
     dry_run: bool = False,
     force: bool = False,
-    append_fn: Any = None,
 ) -> bool:
     """Coordinate preflight, display, and execution for 'aikito sync project' command."""
     proj_dir = aikito_dir / "projects" / project_name
@@ -593,7 +581,6 @@ def sync_project(
         data,
         explicit_path=target_path,
         force=force,
-        append_fn=append_fn,
     )
 
     if not batch.can_apply:

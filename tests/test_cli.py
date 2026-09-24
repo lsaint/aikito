@@ -3433,9 +3433,8 @@ class ProjectSyncCliTest(unittest.TestCase):
 
         with (
             patch.dict(os.environ, {"AIKITO_DIR": str(self.aikito_dir)}),
-            patch.object(
-                AIKITO_CLI,
-                "append_candidate_path_to_config",
+            patch(
+                "aikito.project_sync.add_candidate_path",
                 side_effect=ValueError("Corrupt TOML"),
             ),
             patch(

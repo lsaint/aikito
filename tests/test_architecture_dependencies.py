@@ -86,6 +86,29 @@ class ArchitectureDependencyTests(unittest.TestCase):
         }
         self.assertEqual(defined & AGENT_DOMAIN_SYMBOLS, set())
 
+    def test_no_cross_module_private_project_imports(self) -> None:
+        """Gate P1-B: No cross-module imports of private symbols from project modules."""
+        project_modules = {
+            "project",
+            "project_config",
+            "project_runtime",
+            "project_sync",
+        }
+        violations: list[str] = []
+        for path in sorted(SRC.rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ImportFrom):
+                    continue
+                mod = (node.module or "").removeprefix("aikito.")
+                if mod in project_modules:
+                    for alias in node.names:
+                        if alias.name.startswith("_"):
+                            violations.append(
+                                f"{path.relative_to(SRC)}:{node.lineno} imports private {alias.name} from {node.module}"
+                            )
+        self.assertEqual(violations, [])
+
 
 if __name__ == "__main__":
     unittest.main()

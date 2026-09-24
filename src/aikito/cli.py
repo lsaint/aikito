@@ -76,10 +76,7 @@ from .mcp import (
     sync_mcp_configs,
 )
 from .templating import TemplateError, detect_existing_agents
-from .project import (
-    append_candidate_path_to_config,
-    collect_project_summaries,
-)
+from .project import collect_project_summaries
 
 from .config import get_inbox_path
 from .inbox import (
@@ -344,7 +341,6 @@ def sync_project_by_name(
         project_path=project_path,
         dry_run=dry_run,
         force=force,
-        append_fn=append_candidate_path_to_config,
     )
 
 
