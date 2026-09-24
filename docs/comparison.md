@@ -1,150 +1,94 @@
 # Comparison and Design Boundaries
 
-Different approaches exist for managing configurations, context, and persistent knowledge for AI coding agents. This document outlines where Aikito fits in the landscape, compares specific closest overlaps, explains core design choices, and helps you evaluate when to combine tools or when you may not need Aikito.
-
----
+Aikito and configuration distribution tools address some of the same problems:
+keeping coding-agent resources consistent across different native formats. [Ruler](https://github.com/intellectronica/ruler) is a close overlap. Their organizing models differ, so the useful question is which workflow each model serves.
 
 ## Where Aikito Fits
 
-| Category | Primary job | Typical state |
+| Category | Primary job |
+| --- | --- |
+| Agent configuration distribution | Apply shared configuration to agent-native files |
+| Agent memory systems | Capture and retrieve historical context |
+| Agent orchestration platforms | Run and coordinate agents |
+| Aikito | Govern reusable agent resources across agents, projects, and machines |
+
+These categories can overlap. Aikito manages the resources consumed by existing agents; it does not run agents or automatically capture their sessions.
+
+## Aikito and Ruler
+
+Both Aikito and Ruler manage instructions, MCP servers, skills, and subagents across coding agents. Both provide a canonical source, adapt resources to native agent locations, and offer a preview before applying changes. Ruler's [skills](https://github.com/intellectronica/ruler#skills-support-experimental) and [subagent](https://github.com/intellectronica/ruler#subagents-support-experimental) support are experimental; subagent propagation is disabled by default.
+
+Ruler primarily applies shared configuration to a project. Aikito keeps a persistent workspace independent of any one repository, where projects register and consume selected resources.
+
+| Dimension | Aikito | Ruler |
 | --- | --- | --- |
-| **Agent memory systems** | Preserve and retrieve past context | DB, index, Markdown, embeddings |
-| **Project-local sync tools** | Keep one project's Agent configs aligned | Project `.agents/` or equivalent |
-| **Skill managers** | Discover and install Agent skills | Registry + installed skills |
-| **Agent orchestration platforms** | Run and coordinate multiple agents | Tasks, workers, sessions, DB |
-| **Aikito** | **Govern reusable resources across agents and projects** | **Canonical Git workspace** |
+| Organizing source | Persistent Aikito workspace with a project registry | Project `.ruler/`; global configuration is a fallback when no local `.ruler/` is found |
+| Instructions and memory | Global and project instructions and curated Markdown memory | Shared rules; durable memory is not a primary resource |
+| Skills, MCP, subagents | Workspace resources distributed to supported agents; projects select skills | Project configuration propagates resources to supported agents; skills and subagents are experimental |
+| Cross-project workflow | Registered projects can select shared skills and have multiple local paths | Apply project configuration to each repository, or use the global fallback |
+| Distribution | Links for project instructions and memory; project skills can be linked or copied; native MCP and subagent configuration is synchronized | Writes agent-native configuration and copies supported skills and subagents |
+| Existing setup | `aikito adopt` imports supported existing agent resources | `ruler init` and `ruler apply` establish and apply Ruler configuration |
+| Inspection | `status` and `show` inspect resources; `diff` shows supported managed-resource drift | `apply --dry-run` and verbose output preview changes; the README shows a CI drift-check workflow |
+| Write safety | `adopt` and `sync` preflight complete plans before writing and stop on conflicts | Dry-run, backups, and revert; subagent output has separate cleanup behavior |
+| Moving between machines | Bring a Git-managed workspace to another host, connect local paths, then sync | Install and apply project configuration or a global fallback on each host |
 
-These categories overlap. Aikito intentionally focuses on the workspace and resource-governance layer rather than replacing specialized memory, skill, or orchestration engines.
+### Workspace and project ownership
 
----
+Aikito's workspace stores reusable skills, MCP definitions, subagents, and global resources separately from code repositories. Its project registry holds each project's instructions, memory, selected skills, and candidate paths. This lets the same project resolve different checkouts or host-specific paths. Ruler looks for the nearest project `.ruler/` when applying configuration and falls back to its global configuration if no local one exists. See [Aikito's architecture](architecture.md) and [Ruler's README](https://github.com/intellectronica/ruler#usage-the-apply-command).
 
-## Closest Overlaps
+### Durable memory
 
-### 1. Aikito vs AgentSync
+Aikito treats [curated, Git-versioned Markdown memory](durable-memory.md) as a resource with global and project scopes. Agents decide what to retrieve and preserve. It is not an automatic session recorder, vector store, or prompt-injection engine. Ruler's documented model centers on distributing agent configuration rather than maintaining curated memory.
 
-AgentSync focuses on aligning multi-agent configurations within an individual project directory, whereas Aikito establishes a personal canonical workspace for cross-project resource management.
+### Adoption, inspection, and distribution
 
-| Dimension | Aikito | AgentSync |
-| --- | --- | --- |
-| **Center of gravity** | Personal AI workspace | Individual project |
-| **Canonical source** | Configurable `<workspace>` | Project `.agents/` |
-| **Cross-agent sync** | Yes | Yes |
-| **Cross-project reuse** | Core model | Secondary |
-| **Skills** | Yes | Yes |
-| **Instructions** | Yes | Yes |
-| **MCP** | Yes | Yes |
-| **Durable memory** | First-class resource | Not primary focus |
-| **Distribution** | Link or copy | Primarily symlink |
-| **Git model** | Workspace itself is Git-managed state | Project repository manages source |
-| **Main goal** | Reusable resources across tools and projects | Keep one project's Agent configs synchronized |
+Aikito can [adopt supported existing configuration](workspace-setup.md), preflight synchronization, and show aggregate state across registered projects. `aikito diff` covers drifted MCP entries, subagents, and copied project skills; other missing resources and unmanaged conflicts appear in status findings. The project's `link` or `copy` setting applies only to skills: project instructions and memory remain linked to the workspace. Ruler generates agent-native output from its configuration and offers dry-run, backups, and revert. Its README also demonstrates checking generated-file drift in CI. See [Aikito's project skill modes](architecture.md#project-skill-sync-modes), [CLI reference](cli-reference.md#drift-diff), and [Ruler's README](https://github.com/intellectronica/ruler).
 
-* **Choose AgentSync** when your primary problem is keeping one repository's Agent configuration synchronized across tools.
-* **Choose Aikito** when you want a personal canonical workspace whose resources can be reused and selectively exposed across many projects.
+## Which Workflow Fits?
 
----
+**Ruler may fit well** when one repository's agent configuration is the main concern, especially if generated native files or nested project rules suit the team. Ruler's nested mode is currently experimental.
 
-### 2. Aikito vs agent-memory
+**Aikito may fit well** when several projects need selected shared resources, a persistent workspace independent of their repositories, curated memory, or an aggregate view of resource state and drift. A [Git-managed workspace can be connected on another machine](workspace-portability.md), followed by local path setup and synchronization.
 
-agent-memory provides dedicated Markdown context persistence with hybrid search and context injection, whereas Aikito manages memory as one part of a broader file-based workspace.
+The tools could serve different projects or resources in one workflow. If used in the same repository, assign ownership of native output paths so their writes do not collide. There is no implied integration between them.
 
-| Dimension | Aikito | agent-memory |
-| --- | --- | --- |
-| **Primary focus** | Entire Agent workspace | Persistent memory |
-| **Memory storage** | Curated Markdown | Markdown |
-| **Search engine** | Native file search / agent-driven retrieval | `qmd` BM25 / vector / hybrid |
-| **Automatic injection** | No dedicated injection engine | Yes |
-| **Background indexing** | No | Optional `qmd` indexing |
-| **Skills / Instructions / MCP** | Managed resources | Outside core scope |
-| **Memory philosophy** | Small, curated, durable | Searchable persistent memory |
+## Adjacent Layers
 
-* **Choose agent-memory** when memory retrieval and automatic context injection are the main problem.
-* **Choose Aikito** when lightweight durable memory is one part of a broader reusable Agent workspace.
+**Memory systems** can capture sessions, index history, and retrieve or inject context automatically. Aikito instead keeps selected durable conclusions in plain Markdown.
 
----
+**Orchestration platforms** schedule work and coordinate agent execution. Aikito supplies resources to agent runtimes but does not supervise their tasks.
 
-### 3. Aikito vs claude-mem
-
-*claude-mem remembers agent activity. Aikito curates durable agent resources.*
-
-| Dimension | Aikito | claude-mem |
-| --- | --- | --- |
-| **Automatic capture** | No (manual distillation) | Yes (automated session capture) |
-| **Storage layer** | Ordinary Markdown files | SQLite & Chroma vector database |
-| **Vector search** | No | Yes |
-| **Automatic context injection** | No | Yes |
-| **Memory artifact** | Human-readable curated Markdown | Tool-generated observations and summaries |
-| **Resource breadth** | Memory, skills, instructions, MCP, subagents | Memory & conversation context |
-| **Git-native review** | Yes | Tool-managed DB |
-
-* **Choose claude-mem** when you want automated session capture, background memory processing, and vector-based retrieval across supported agent workflows.
-* **Choose Aikito** when you prefer explicit, Git-versioned curation of durable memory alongside your other agent resources.
-
----
-
-### 4. Aikito vs CAS
-
-*CAS runs the agents. Aikito prepares their workspace.*
-
-| Dimension | Aikito | CAS |
-| --- | --- | --- |
-| **Primary role** | Workspace / resource governance | Agent execution / orchestration |
-| **Runtime model** | Uses existing Agent runtimes | Runs and coordinates workers |
-| **State storage** | Plain-file state | Structured DB / context system |
-| **Execution pattern** | No supervisor | Supervisor / worker factory |
-| **Task scheduling** | No task scheduler | Task / dependency coordination |
-
-* **Choose CAS** when building an automated multi-agent execution pipeline or worker factory.
-* **Choose Aikito** when governing the workspace resources consumed by the coding agents you already run.
-
----
+Other configuration tools also distribute agent resources. Ruler is the detailed comparison here because its documented resource coverage closely overlaps with Aikito's.
 
 ## Design Choices: Why These Boundaries Exist
 
-Aikito's boundaries are deliberate design choices aimed at keeping the system transparent, portable, and low-maintenance.
-
 ### Plain files over a database
-Aikito prioritizes inspectability, Git history, and portability. Storing resources as plain Markdown, TOML, and JSON files ensures they remain human-readable and versionable without background daemons or database migrations.
+
+Markdown, TOML, and JSON keep canonical resources inspectable, portable, and reviewable through Git, without a background database service.
 
 ### Curated memory over automatic capture
-Aikito stores durable conclusions rather than attempting to retain every Agent event. Manual or semi-automated distillation prevents noise accumulation and keeps memory notes concise, reliable, and easy to review via Git diffs.
+
+Aikito keeps durable conclusions instead of recording every agent event. The [durable-memory workflow](durable-memory.md) guides retrieval, curation, and correction.
 
 ### Existing agents over orchestration
-Aikito configures and supplies resources to Agent runtimes rather than replacing them. It leaves execution, reasoning, and prompt assembly to native coding agents like Codex, Claude Code, Antigravity `agy`, OpenCode, GitHub Copilot CLI, or DeepSeek Harness (`dsh`).
 
-### Central workspace over project-local ownership
-Reusable resources live once in the active Aikito workspace, and projects select what they need. This eliminates duplication while allowing projects to remain isolated when required.
+Aikito configures supported agent runtimes. Execution, reasoning, and prompt assembly stay with those agents.
+
+### A persistent workspace across projects
+
+Aikito's source of truth is independent of any single project repository. Registered projects consume selected workspace resources, while their own instructions and memory remain project-specific.
 
 ### Explicit scopes over implicit context
-Aikito separates global and project-specific resources explicitly instead of depending on an opaque retrieval layer to decide where context belongs.
 
-### Additional Engineering Considerations
-* **Capability Asymmetry**: Supported agents do not expose identical resource models. Aikito normalizes only the capabilities available for each agent runtime.
-* **File-Based Context Boundary**: Aikito manages durable files and configurations. It does not automatically decide which memory should be injected into every prompt; context loading remains subject to each agent's native behavior.
+Instructions and memory have explicit global and project scopes. Skills live in the workspace and can be selected by projects. MCP and subagent definitions are shared workspace resources. Agent capabilities differ, so Aikito synchronizes only supported resource types to each runtime.
 
-### Platform Support
-* **macOS / Linux / Windows / WSL2**: Supported natively across macOS, Linux, and Windows (PowerShell/CMD). Uses POSIX permissions and symlinks on Unix, with NTFS ACL security hardening (`icacls`) and Developer Mode symlink support on Windows.
-
-
-
----
-
-## Which Tool Solves Which Problem?
-
-AI tooling is not mutually exclusive. Different tools address different layers of your development workflow:
-
-* **Need automatic conversation/history memory?** → Use a dedicated memory system (e.g., `claude-mem`, `agent-memory`).
-* **Need one project's Agent configs synchronized?** → Use a project-local sync tool (e.g., `AgentSync`).
-* **Need to run many coding agents in parallel?** → Use an orchestration platform (e.g., `CAS`).
-* **Need reusable resources shared across agents AND projects?** → Use **Aikito**.
-* **Need several of these?** → **Combine them.**
-
----
+Aikito supports macOS, Linux, Windows, and WSL2. Its [workspace portability guide](workspace-portability.md) explains how to connect another machine and resolve local project paths.
 
 ## When You May Not Need Aikito
 
-Aikito is designed for developers managing multiple agents and projects. You may not need Aikito if:
+Aikito may add little value if:
 
-* you use only one coding agent and work mostly in a single project repository
-* you have only a few instructions or skills that rarely change
-* manual copy-paste is still sufficient for your workflow
-* you prefer your agent's built-in memory system without cross-tool sharing
+- you use one coding agent in one project and have few resources to maintain
+- manual copying is sufficient for your workflow
+- you prefer your agent's built-in memory and do not need cross-tool sharing
+- you only need to distribute agent configuration within one repository; a project-focused tool such as Ruler may be sufficient
