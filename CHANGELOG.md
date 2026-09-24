@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `WorkspaceSyncPreview.operation_views`: structured, frozen `WorkspaceOperationView` projections alongside the legacy string `operations`.
+
+### Changed
+
+- Internal: `aikito.mcp` is now a package (`model`, `loader`, `adapters`, `planner`, `executor`, `auth`, `probe`, `redact`); the public `aikito.mcp` export surface is unchanged and private helpers are no longer re-exported.
+- Internal: project configuration parsing and pure candidate-path transforms moved to `aikito.project_config`; sync planning no longer writes temporary files, and candidate-path registration writes `agent.toml` atomically.
+- Internal: workspace synchronization and sync-plan rendering consume plan observations instead of domain operation actions; argument parsing moved to `aikito.cli_parser`. User-visible CLI behavior is unchanged.
+
 ## [1.51.0] - 2026-09-24
 
 ### Added
