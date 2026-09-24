@@ -1,4 +1,4 @@
-"""Tests for SyncPlan and stdout independence invariant (INV-APP-03)."""
+"""Tests for synchronization planning independence from output (INV-APP-03)."""
 
 from __future__ import annotations
 
@@ -9,11 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from aikito.sync_plan import SyncPlan
-from aikito.workspace_sync import (
-    WorkspaceSyncPlan,
-    build_workspace_sync_plan,
-)
+from aikito.workspace_sync import build_workspace_sync_plan
 
 
 class SyncPlanIndependenceTest(unittest.TestCase):
@@ -54,10 +50,6 @@ class SyncPlanIndependenceTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.td.cleanup()
-
-    def test_sync_plan_is_workspace_sync_plan(self) -> None:
-        """INV-APP-03: SyncPlan is the presentation-tier alias of WorkspaceSyncPlan."""
-        self.assertIs(SyncPlan, WorkspaceSyncPlan)
 
     def test_stdout_stderr_pollution_has_zero_effect_on_plan(self) -> None:
         """INV-APP-03: Arbitrary output in stdout/stderr does not influence plan decisions or counts."""

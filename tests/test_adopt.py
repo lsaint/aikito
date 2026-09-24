@@ -16,7 +16,6 @@ from aikito.adopt import (
     apply_adopt_skips,
     build_adopt_plan,
     collect_adopt_findings,
-    execute_adopt_plan,
     execute_adoption,
     summarize_adopt_plan,
     _write_text_atomic,
@@ -960,7 +959,7 @@ config_format = "claude_json"
         target_file.write_text("Interfering content", encoding="utf-8")
 
         # Execution must fail due to stale pre-image, zero writes made to that plan
-        result = execute_adopt_plan(plan, dry_run=False, verbose=False)
+        result = execute_adoption(plan, dry_run=False, verbose=False)
         self.assertIsInstance(result, AdoptExecutionResult)
         self.assertFalse(result.success)
         self.assertFalse(bool(result))
@@ -968,13 +967,13 @@ config_format = "claude_json"
         # File content was untouched
         self.assertEqual(target_file.read_text(encoding="utf-8"), "Interfering content")
 
-    def test_execute_adopt_plan_returns_structured_execution_result(self) -> None:
+    def test_execute_adoption_returns_structured_execution_result(self) -> None:
         codex_dir = self.fake_home / ".codex"
         codex_dir.mkdir(parents=True)
         (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
 
         plan = build_adopt_plan(self.target_path, self.fake_home)
-        result = execute_adopt_plan(plan, dry_run=False, verbose=False)
+        result = execute_adoption(plan, dry_run=False, verbose=False)
 
         self.assertIsInstance(result, AdoptExecutionResult)
         self.assertTrue(result.success)

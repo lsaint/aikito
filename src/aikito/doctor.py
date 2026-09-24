@@ -62,7 +62,7 @@ from .registry import (
     add_missing_agent_fields,
     missing_agent_fields,
 )
-from .render import DoctorFinding, DoctorReport, DoctorSection
+from .render import DoctorReport, DoctorSection
 from .status import collect_subagents_matrix
 from .subagent import (
     SubagentConfigError,
@@ -96,16 +96,16 @@ def _has_user_files(directory: Path) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _ok(message: str) -> DoctorFinding:
-    return DoctorFinding(status="OK", message=message)
+def _ok(message: str) -> Finding:
+    return Finding(status="OK", message=message)
 
 
-def _fail(message: str, fix_hint: str = "") -> DoctorFinding:
-    return DoctorFinding(status="FAIL", message=message, fix_hint=fix_hint)
+def _fail(message: str, fix_hint: str = "") -> Finding:
+    return Finding(status="FAIL", message=message, fix_hint=fix_hint)
 
 
-def _warn(message: str, fix_hint: str = "") -> DoctorFinding:
-    return DoctorFinding(status="WARN", message=message, fix_hint=fix_hint)
+def _warn(message: str, fix_hint: str = "") -> Finding:
+    return Finding(status="WARN", message=message, fix_hint=fix_hint)
 
 
 def check_adoption(aikito_dir: Path, home: Path) -> DoctorSection:
@@ -152,7 +152,7 @@ def check_symlinks(
     inspection: WorkspaceInspection | None = None,
 ) -> DoctorSection:
     """Check all managed symlinks for dangling, wrong-target, or missing."""
-    findings: list[DoctorFinding] = []
+    findings: list[Finding] = []
 
     inspection = inspection or inspect_workspace(aikito_dir, home)
     try:
@@ -397,7 +397,7 @@ def check_orphans(
 ) -> DoctorSection:
     """Check for orphan subagent config files and unused skill directories."""
     inspection = inspection or inspect_workspace(aikito_dir, home)
-    findings: list[DoctorFinding] = []
+    findings: list[Finding] = []
 
     # 2a. Subagent orphans — reuse collect_subagents_matrix output
     try:
@@ -643,7 +643,7 @@ def check_memory_integrity(
     rather than config file syntax. Memory is curated knowledge, so a dangling
     [[wikilink]] or an old note is a curation gap, not a parse error.
     """
-    findings: list[DoctorFinding] = []
+    findings: list[Finding] = []
     scope_dirs = _memory_scope_dirs(aikito_dir)
     ws_config = load_workspace_config(aikito_dir)
 
@@ -763,7 +763,7 @@ def check_memory_integrity(
 
 def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
     """Validate syntax of all TOML/JSON workspace config files."""
-    findings: list[DoctorFinding] = []
+    findings: list[Finding] = []
 
     # Optional workspace config (config.toml)
     cfg_path = get_workspace_config_path(aikito_dir)
@@ -981,7 +981,7 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
 
 def check_projects(aikito_dir: Path, home: Path) -> DoctorSection:
     """Report project runtime health using the same model as `show project`."""
-    findings: list[DoctorFinding] = []
+    findings: list[Finding] = []
     projects = collect_project_summaries(aikito_dir, home)
     active_ok_count = 0
     failing_projects: list[ProjectSummary] = []
@@ -1057,7 +1057,7 @@ def check_drift(
 ) -> DoctorSection:
     """Check MCP managed-section fingerprint drift via evaluate_spec_status."""
     inspection = inspection or inspect_workspace(aikito_dir, home)
-    findings: list[DoctorFinding] = []
+    findings: list[Finding] = []
 
     try:
         specs = inspection.mcp_specs
@@ -1198,7 +1198,7 @@ def check_drift(
 
 def check_security(aikito_dir: Path, home: Path) -> DoctorSection:
     """Check file permissions and security-sensitive configurations."""
-    findings: list[DoctorFinding] = []
+    findings: list[Finding] = []
 
     # 5a. Platform synchronization capability
     if is_windows():
@@ -1278,7 +1278,7 @@ def check_security(aikito_dir: Path, home: Path) -> DoctorSection:
 
 def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
     """Check runtime environment: AIKITO_DIR, interpreter consistency, agent CLIs."""
-    findings: list[DoctorFinding] = []
+    findings: list[Finding] = []
 
     # 6a. AIKITO_DIR resolves to a valid workspace
     env_dir = os.environ.get("AIKITO_DIR")
@@ -1385,7 +1385,7 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
 
 def check_conflict_markers(aikito_dir: Path, home: Path) -> DoctorSection:
     """Detect Git conflict markers in memory notes and workspace config files."""
-    findings: list[DoctorFinding] = []
+    findings: list[Finding] = []
     checked = 0
 
     # --- collect files to scan ---
@@ -1526,15 +1526,6 @@ def _find_agent_references(aikito_dir: Path, agent_name: str) -> list[str]:
             if found:
                 references.append(f"mcps/{mcp_path.name}:agents")
     return references
-
-
-def run_doctor_prune(
-    aikito_dir: Path, home: Path | None = None
-) -> tuple[list[str], list[str]]:
-    """Deprecated: In multi-host SoT setups, offline agents must not be pruned from agents.toml."""
-    return [], [
-        "Doctor prune is deprecated in multi-host setups. Undetected agents are offline on this host and preserved in agents.toml."
-    ]
 
 
 # ---------------------------------------------------------------------------

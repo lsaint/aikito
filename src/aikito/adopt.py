@@ -1648,6 +1648,3 @@ def execute_adoption(
         unwritten_files=(),
         error_message=None,
     )
-
-
-execute_adopt_plan = execute_adoption

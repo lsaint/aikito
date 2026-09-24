@@ -1,8 +1,8 @@
 """Characterization tests for Phase 8: Application Layer, Diagnostics, and Adoption.
 
 Freezes baseline behavior in Aikito 1.48.0 prior to Phase 8 convergence:
-1. Workspace sync dry-run behavior, stdout marker capture, and SyncPlan statistics.
-2. Global sync orchestration and GlobalSyncResult in cli.py.
+1. Workspace sync dry-run behavior, stdout marker capture, and plan statistics.
+2. Global sync orchestration and GlobalSyncExecutionResult in cli.py.
 3. Subagent legacy PlanItem / build_plan compatibility view.
 4. Doctor diagnostics consistency across subagent and MCP states.
 5. Adoption plan construction, finding collection, summary, and backup creation.
@@ -24,12 +24,12 @@ from aikito.adopt import (
     execute_adoption,
     summarize_adopt_plan,
 )
-from aikito.cli import GlobalSyncResult, sync_global_resources
+from aikito.cli import sync_global_resources
 from aikito.doctor import run_doctor
 from aikito.mcp import redact_mcp_entry
 from aikito.subagent import SubagentPlan, build_subagent_plan
-from aikito.sync_plan import SyncPlan
 from aikito.web_console import ConsoleData, _redact
+from aikito.workspace_sync import GlobalSyncExecutionResult
 
 
 class Phase8CharacterizationTests(unittest.TestCase):
@@ -79,21 +79,15 @@ name_style = "verbatim"
     def tearDown(self) -> None:
         self.td.cleanup()
 
-    def test_sync_plan_is_workspace_sync_plan(self) -> None:
-        """Verify SyncPlan is unified with WorkspaceSyncPlan under INV-APP-03."""
-        from aikito.workspace_sync import WorkspaceSyncPlan
-
-        self.assertIs(SyncPlan, WorkspaceSyncPlan)
-
     def test_global_sync_cli_orchestration_characterization(self) -> None:
-        """Freeze sync_global_resources in cli.py returning GlobalSyncResult."""
+        """Freeze sync_global_resources in cli.py returning GlobalSyncExecutionResult."""
         with patch("aikito.cli.get_agents_dir", return_value=self.home / ".agents"):
             result = sync_global_resources(
                 self.ws,
                 self.home,
                 dry_run=True,
             )
-            self.assertIsInstance(result, GlobalSyncResult)
+            self.assertIsInstance(result, GlobalSyncExecutionResult)
             self.assertTrue(result.success)
             self.assertEqual(result.refreshed_bundled, ("aikito", "durable-memory"))
             self.assertIsNone(result.error_message)

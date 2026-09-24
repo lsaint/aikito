@@ -12,7 +12,7 @@ from .agents import load_agent_definitions
 from .plan_observation import OperationEffect, PlanOperationView
 from .project import collect_project_summaries
 from .subagent import load_subagent_definitions
-from .workspace_sync import plan_workspace_sync
+from .workspace_sync import build_workspace_sync_plan
 
 
 class WorkspaceError(RuntimeError):
@@ -287,7 +287,7 @@ class Workspace:
 
     def plan_sync(self) -> WorkspaceSyncPreview:
         """Return a strictly read-only synchronization preview."""
-        plan = plan_workspace_sync(self.path, self.home)
+        plan = build_workspace_sync_plan(self.path, self.home)
 
         operations: list[str] = []
         structured_views: list[WorkspaceOperationView] = []

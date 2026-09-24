@@ -30,9 +30,6 @@ from .bundled_skills import (
     print_bundled_skill_notice,
 )
 from .cli_parser import (
-    AikitoArgumentParser as AikitoArgumentParser,
-    AikitoSubParsersAction as AikitoSubParsersAction,
-    add_color_args as add_color_args,
     build_parser,
     resolve_color_flags,
 )
@@ -60,7 +57,7 @@ from .project_sync import (
     sync_project,
 )
 from .workspace_sync import (
-    GlobalSyncResult,
+    GlobalSyncExecutionResult,
     build_global_sync_plan,
     build_workspace_sync_plan,
     execute_global_sync_plan,
@@ -164,7 +161,7 @@ def sync_global_resources(
     home: Path,
     *,
     dry_run: bool = False,
-) -> GlobalSyncResult:
+) -> GlobalSyncExecutionResult:
     """Synchronize global resources (skills and instructions) via workspace_sync."""
     container_path = get_agents_dir() / "skills"
     plan = build_global_sync_plan(
@@ -192,18 +189,24 @@ def sync_global_resources(
             "Conflict markers detected in global resources.",
         ):
             print("[ERROR] Global synchronization aborted.", file=sys.stderr)
-            return GlobalSyncResult(success=False, error_message=plan.error_message)
+            return GlobalSyncExecutionResult(
+                success=False, error_message=plan.error_message
+            )
 
         if plan.error_message in (
             "Global skills configuration not found.",
             "Global skills configuration is malformed.",
         ):
-            return GlobalSyncResult(success=False, error_message=plan.error_message)
+            return GlobalSyncExecutionResult(
+                success=False, error_message=plan.error_message
+            )
 
         if any(
             f.code in ("TOML_DECODE_ERROR", "MCP_CONFIG_ERROR") for f in plan.findings
         ):
-            return GlobalSyncResult(success=False, error_message=plan.error_message)
+            return GlobalSyncExecutionResult(
+                success=False, error_message=plan.error_message
+            )
 
         if plan.skill_plan:
             all_conflicts = plan.skill_plan.conflicts
@@ -216,7 +219,7 @@ def sync_global_resources(
                     )
                     print(f"{prefix} {op.reason}", file=sys.stderr)
                 print("[ERROR] Global synchronization aborted.", file=sys.stderr)
-                return GlobalSyncResult(
+                return GlobalSyncExecutionResult(
                     success=False,
                     error_message="Conflicts detected in global skill plan.",
                 )

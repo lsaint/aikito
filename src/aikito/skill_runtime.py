@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from .compat import (
-    _resolve_symlink_target,
+    resolve_symlink_target,
     get_physical_path,
     is_reparse_point,
     normalize_file_bytes,
@@ -149,7 +149,7 @@ def inspect_skill_target(
         entry_type = "symlink"
         try:
             target_lstat = runtime_path.lstat()
-            resolved_link_target = _resolve_symlink_target(runtime_path)
+            resolved_link_target = resolve_symlink_target(runtime_path)
             raw_val = os.readlink(runtime_path)
             raw_link_target = (
                 runtime_path.parent / raw_val
@@ -459,7 +459,7 @@ def execute_skill_plan(
                     link_dest_valid = False
                     try:
                         resolved_target = get_physical_path(
-                            _resolve_symlink_target(target.target_path)
+                            resolve_symlink_target(target.target_path)
                         )
                         if (
                             resolved_target == canon_dest
@@ -585,7 +585,7 @@ def execute_skill_plan(
 
                 if op.action == "UNLINK":
                     orig_link = (
-                        str(_resolve_symlink_target(target.target_path))
+                        str(resolve_symlink_target(target.target_path))
                         if target.target_path.is_symlink()
                         else None
                     )
@@ -598,7 +598,7 @@ def execute_skill_plan(
                     )
                 elif op.action == "CREATE" and op.desired_representation == "link":
                     orig_link = (
-                        str(_resolve_symlink_target(target.target_path))
+                        str(resolve_symlink_target(target.target_path))
                         if target.target_path.is_symlink()
                         else None
                     )

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .compat import (
-    _resolve_symlink_target,
+    resolve_symlink_target,
     get_physical_path,
     is_same_target_location,
     require_symlink_support,
@@ -159,7 +159,7 @@ def inspect_link_target(
         entry_type = "symlink"
         try:
             target_lstat = target_path.lstat()
-            resolved_link_target = _resolve_symlink_target(target_path)
+            resolved_link_target = resolve_symlink_target(target_path)
             raw_val = os.readlink(target_path)
             raw_link_target = (
                 target_path.parent / raw_val
@@ -757,7 +757,7 @@ def apply_link_operation(
                     applied=False,
                     error_message=f"Preflight failed: target is no longer a symlink: {target} (stale plan)",
                 )
-            resolved = _resolve_symlink_target(target)
+            resolved = resolve_symlink_target(target)
             raw_val = ""
             try:
                 raw_val = os.readlink(target)
@@ -851,7 +851,7 @@ def apply_link_operation(
                 applied=False,
                 error_message=f"Preflight failed: container is no longer a symlink: {target}",
             )
-        resolved = _resolve_symlink_target(target)
+        resolved = resolve_symlink_target(target)
         if canonical is not None and resolved is not None:
             if os.path.normcase(str(get_physical_path(resolved))) != os.path.normcase(
                 str(get_physical_path(canonical))
@@ -1020,7 +1020,7 @@ def apply_link_operation(
             raw_val = os.readlink(target)
         except OSError:
             pass
-        resolved = _resolve_symlink_target(target)
+        resolved = resolve_symlink_target(target)
         owned = False
         if canonical is not None:
             canon_norm = os.path.normcase(str(get_physical_path(canonical)))

@@ -17,9 +17,8 @@ from aikito.doctor import (
     check_security,
     check_symlinks,
     run_doctor,
-    run_doctor_prune,
 )
-from aikito.diagnostics import FindingAction
+from aikito.diagnostics import Finding, FindingAction
 from aikito.link import (
     SymlinkVerdict,
     classify_symlink,
@@ -27,7 +26,6 @@ from aikito.link import (
 )
 from aikito.mcp import AgentSpec
 from aikito.render import (
-    DoctorFinding,
     DoctorReport,
     DoctorSection,
     render_doctor_report,
@@ -109,8 +107,8 @@ class RenderDoctorReportTest(unittest.TestCase):
                 DoctorSection(
                     name="Symlinks",
                     findings=[
-                        DoctorFinding(status="OK", message="Global instructions OK"),
-                        DoctorFinding(
+                        Finding(status="OK", message="Global instructions OK"),
+                        Finding(
                             status="FAIL",
                             message="Project foo: dangling symlink",
                             fix_hint="aikito sync project foo",
@@ -120,9 +118,7 @@ class RenderDoctorReportTest(unittest.TestCase):
                 DoctorSection(
                     name="Environment",
                     findings=[
-                        DoctorFinding(
-                            status="WARN", message="opencode not found in $PATH"
-                        ),
+                        Finding(status="WARN", message="opencode not found in $PATH"),
                     ],
                 ),
             ]
@@ -140,7 +136,7 @@ class RenderDoctorReportTest(unittest.TestCase):
         self.assertIn("aikito sync project foo", rendered)
 
     def test_renders_structured_finding_details_and_actions(self) -> None:
-        finding = DoctorFinding(
+        finding = Finding(
             status="WARN",
             message="MCP server cannot be adopted",
             resource="mcp/example",
@@ -181,7 +177,7 @@ class RenderDoctorReportTest(unittest.TestCase):
                 DoctorSection(
                     name="Test",
                     findings=[
-                        DoctorFinding(status="OK", message="Everything fine"),
+                        Finding(status="OK", message="Everything fine"),
                     ],
                 )
             ]
@@ -1606,18 +1602,6 @@ class DoctorFixesTest(unittest.TestCase):
         self.assertEqual(grok["project_instruction_path"], "AGENTS.md")
         self.assertEqual(grok["runner"]["command"][0], "grok")
         self.assertTrue(any("agents.grok" in fix for fix in result))
-
-    def test_run_doctor_prune_is_deprecated_and_preserves_agents(self) -> None:
-        self.aikito_dir.mkdir(exist_ok=True)
-        agents_path = self.aikito_dir / "agents.toml"
-        original_content = '[agents.codex]\ndisplay_name = "Codex"\n[agents.grok]\ndisplay_name = "Grok"\n'
-        agents_path.write_text(original_content, encoding="utf-8")
-
-        actions, blockers = run_doctor_prune(self.aikito_dir, self.home)
-
-        self.assertEqual(actions, [])
-        self.assertTrue(any("deprecated" in b for b in blockers))
-        self.assertEqual(agents_path.read_text(encoding="utf-8"), original_content)
 
     def test_check_projects_reports_offline_project_as_ok(self) -> None:
         workspace = self.aikito_dir

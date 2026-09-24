@@ -7,17 +7,14 @@ from pathlib import Path
 
 from .instructions import build_project_instruction_batch, plan_instructions
 from .memory_runtime import build_project_memory_batch, plan_project_memory
-from .compat import _resolve_symlink_target
+from .compat import resolve_symlink_target
 from .project_config import (
     candidate_path_views as _candidate_path_views,
     joined_candidate_paths as _joined_candidate_paths,
     resolve_project_binding,
-    resolve_project_path,
 )
 from .skill_plan import SkillOperation, SkillTarget, plan_single_skill
 from .skill_runtime import ObservedSkill, inspect_skill_target
-
-_resolve_project_path = resolve_project_path
 
 
 @dataclass(frozen=True)
@@ -178,7 +175,7 @@ def _symlink_points_within(path: Path, expected_targets: tuple[Path, ...]) -> bo
     """Check if a symlink precisely resolves to one of the expected canonical target paths."""
     if not path.is_symlink():
         return False
-    target = _resolve_symlink_target(path)
+    target = resolve_symlink_target(path)
     fallback = path.resolve(strict=False)
     for expected in expected_targets:
         try:

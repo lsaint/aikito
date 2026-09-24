@@ -23,7 +23,7 @@ __all__ = [
     "__version__",
 ]
 ```
-Internal modules (`aikito.project`, `aikito.sync`, etc.) are private and must not be imported by external consumers.
+Internal modules (`aikito.project`, `aikito.adopt`, etc.) are private and must not be imported by external consumers.
 
 ### INV-API-02: `Project.load` Contract `[current]` {: #inv-api-02 }
 
@@ -102,4 +102,3 @@ All public exceptions inherit from `ProjectError -> RuntimeError`.
 - Does not expose internal resource plan types (`SkillPlan`, `MCPPlan`, `SubagentPlan`) directly.
 
 ---
-

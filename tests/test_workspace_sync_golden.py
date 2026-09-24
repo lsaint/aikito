@@ -168,7 +168,7 @@ def test_golden_project_instruction_and_memory_conflict_in_both_conflicts_and_er
         skill_plan=None,
         instruction_plan=None,
     )
-    # plan_workspace_sync adds preflight_findings as Finding(code="PREFLIGHT_ERROR")
+    # Workspace sync planning adds preflight findings as PREFLIGHT_ERROR.
     findings = (
         Finding(
             status="error",
@@ -892,7 +892,9 @@ def test_golden_full_preview_equivalence_matrix(tmp_path: Path) -> None:
 
     # Compute legacy simulated preview and actual preview via Workspace.plan_sync
     legacy_preview = _legacy_plan_sync_simulation(tmp_path, workspace_plan)
-    with patch("aikito.workspace.plan_workspace_sync", return_value=workspace_plan):
+    with patch(
+        "aikito.workspace.build_workspace_sync_plan", return_value=workspace_plan
+    ):
         actual_preview = ws.plan_sync()
 
     # Assert exact golden string sequence and ordering
@@ -1211,7 +1213,9 @@ def test_execution_gate_and_preview_enforce_observation_can_apply(
 
     # 2. Public preview can_apply is False
     ws = Workspace(path=tmp_path, home=tmp_path)
-    with patch("aikito.workspace.plan_workspace_sync", return_value=workspace_plan):
+    with patch(
+        "aikito.workspace.build_workspace_sync_plan", return_value=workspace_plan
+    ):
         preview = ws.plan_sync()
     assert preview.can_apply is False
 

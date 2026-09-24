@@ -12,6 +12,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from aikito import cli as AIKITO_CLI
+from aikito.cli_parser import AikitoArgumentParser
 from aikito.compat import resolve_symlink_target
 from aikito.init import init_project
 from aikito.status import MCPRuntimeRow
@@ -3455,7 +3456,7 @@ class ProjectSyncCliTest(unittest.TestCase):
 
 class CliSubparserDescriptionTest(unittest.TestCase):
     def test_explicit_description_is_preserved(self) -> None:
-        parser = AIKITO_CLI.AikitoArgumentParser(prog="test")
+        parser = AikitoArgumentParser(prog="test")
         subparsers = parser.add_subparsers(dest="cmd")
         sub = subparsers.add_parser(
             "foo",

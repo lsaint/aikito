@@ -108,13 +108,10 @@ class MemoryNoteRow:
     updated_on: Optional[date] = None
 
 
-DoctorFinding = Finding
-
-
 @dataclass
 class DoctorSection:
     name: str
-    findings: List["DoctorFinding"]
+    findings: List[Finding]
 
 
 @dataclass

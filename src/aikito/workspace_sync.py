@@ -185,9 +185,6 @@ class GlobalSyncExecutionResult:
     error_message: str | None = None
 
 
-GlobalSyncResult = GlobalSyncExecutionResult
-
-
 def build_bundled_refresh_plan(
     workspace_root: Path,
     home: Path,
@@ -1328,6 +1325,3 @@ def execute_workspace_sync_plan(
         replan_required=False,
         error_message=first_proj_error if not overall_success else None,
     )
-
-
-plan_workspace_sync = build_workspace_sync_plan

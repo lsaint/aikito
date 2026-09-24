@@ -43,7 +43,7 @@
 
 ### INV-ADOPT-06: Stale Adopt Plan Zero-Write Guarantee `[current]` {: #inv-adopt-06 }
 
-- `execute_adopt_plan(plan)` verifies target file pre-images and source file availability before performing any workspace mutation.
+- `execute_adoption(plan)` verifies target file pre-images and source file availability before performing any workspace mutation.
 - If a target workspace file was created or modified between plan creation and execution:
   - The plan is marked stale.
   - Zero workspace writes are executed.
@@ -58,7 +58,7 @@
 
 ### INV-ADOPT-08: Structured Adopt Execution Result `[current]` {: #inv-adopt-08 }
 
-- `execute_adopt_plan()` returns an `AdoptExecutionResult` detailing:
+- `execute_adoption()` returns an `AdoptExecutionResult` detailing:
   - `instructions`: List of adopted instruction targets
   - `mcps`: List of adopted MCP definitions
   - `subagents`: List of adopted subagent prompt files and registry entries

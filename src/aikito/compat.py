@@ -133,9 +133,6 @@ def resolve_symlink_target(path: Path) -> Path:
     return resolved_curr
 
 
-_resolve_symlink_target = resolve_symlink_target
-
-
 def secure_file_permissions(path: Path) -> bool:
     """Harden file permissions for sensitive/credential files.
 
