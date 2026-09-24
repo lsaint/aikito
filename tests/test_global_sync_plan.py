@@ -112,6 +112,30 @@ skills_path = ".claude/skills"
         self.assertTrue(backup_dir.exists())
         self.assertGreater(len(list(backup_dir.glob("bundled-skills_*"))), 0)
 
+    def test_global_skill_conflict_findings_keep_operation_reason(self) -> None:
+        """v1.50 contract: global plan findings carry op.reason, observation carries op.finding."""
+        (self.ws / "skills.toml").write_text('skills = ["alpha"]\n', encoding="utf-8")
+        (self.ws / "skills" / "alpha").mkdir()
+        (self.ws / "skills" / "alpha" / "SKILL.md").write_text(
+            "---\nname: alpha\ndescription: a\n---\n", encoding="utf-8"
+        )
+        consumer = self.home / ".claude" / "skills" / "alpha"
+        consumer.mkdir(parents=True)
+        (consumer / "SKILL.md").write_text("mine\n", encoding="utf-8")
+
+        plan = build_global_sync_plan(self.ws, self.home)
+        conflict_ops = plan.skill_plan.conflicts
+        self.assertTrue(conflict_ops)
+        self.assertFalse(plan.can_apply)
+        self.assertEqual(
+            [f.message for f in plan.findings],
+            [op.reason for op in conflict_ops],
+        )
+        workspace_plan = build_workspace_sync_plan(self.ws, home=self.home)
+        for op in conflict_ops:
+            self.assertIn(op.reason, workspace_plan.conflicts)
+            self.assertIn(op.finding, workspace_plan.conflicts)
+
     def test_build_global_sync_plan_missing_skills_toml(self) -> None:
         """Missing skills.toml produces non-applicable plan with GLOBAL_SKILLS_MISSING finding."""
         (self.ws / "skills.toml").unlink()

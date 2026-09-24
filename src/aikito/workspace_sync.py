@@ -253,7 +253,13 @@ def execute_bundled_refresh_plan(
     *,
     dry_run: bool = False,
 ) -> tuple[str, ...]:
-    refresh_ops = [op for op in plan.operations if op.action == "REFRESH"]
+    b_obs = plan.observe()
+    refreshed_names = {
+        view.resource_name
+        for view in b_obs.operations
+        if view.effect != OperationEffect.NOOP
+    }
+    refresh_ops = [op for op in plan.operations if op.skill_name in refreshed_names]
     if not refresh_ops:
         return ()
 
@@ -466,20 +472,10 @@ def build_global_sync_plan(
     instruction_plan = plan_instructions(instruction_batch, home)
 
     can_apply = True
-    for op in skill_plan.all_operations:
-        if op.action == "CONFLICT":
-            can_apply = False
-            findings.append(
-                Finding(
-                    status="CONFLICT",
-                    code=op.rule_id or "SKILL_CONFLICT",
-                    message=op.reason,
-                    resource=str(
-                        getattr(op, "canonical_path", None)
-                        or getattr(op, "target_path", "")
-                    ),
-                )
-            )
+    skill_obs = skill_plan.observe()
+    if skill_obs.summary.blocked or not skill_obs.can_apply:
+        can_apply = False
+    findings.extend(skill_plan.blocking_findings())
 
     if not global_instruction_source.is_file():
         can_apply = False
@@ -492,17 +488,10 @@ def build_global_sync_plan(
         findings.append(missing_instruction)
         owned_findings.append(missing_instruction)
 
-    if instruction_plan.conflicts:
+    instruction_obs = instruction_plan.observe()
+    if instruction_obs.summary.blocked or not instruction_obs.can_apply:
         can_apply = False
-        for op in instruction_plan.conflicts:
-            findings.append(
-                Finding(
-                    status="CONFLICT",
-                    code=op.rule_id or "INSTRUCTION_CONFLICT",
-                    message=op.reason,
-                    resource=str(getattr(op, "target_path", "")),
-                )
-            )
+    findings.extend(instruction_plan.blocking_findings())
 
     return GlobalSyncPlan(
         bundled_refresh_plan=bundled_plan,
@@ -530,8 +519,9 @@ def execute_global_sync_plan(
     ] = None,
 ) -> GlobalSyncExecutionResult:
     """Execute global skill, instruction, and bundled refresh plans under proper lock boundaries."""
-    has_skill_conflicts = plan.skill_plan is not None and any(
-        op.action == "CONFLICT" for op in plan.skill_plan.all_operations
+    skill_obs = safe_observe_plan(plan.skill_plan)
+    has_skill_conflicts = skill_obs is not None and (
+        skill_obs.summary.blocked or not skill_obs.can_apply
     )
     if plan.skill_plan is None or has_skill_conflicts:
         return GlobalSyncExecutionResult(
@@ -971,33 +961,45 @@ class WorkspaceSyncPlan:
         if verbose:
             details: list[str] = []
             if self.global_plan.bundled_refresh_plan:
-                for op in self.global_plan.bundled_refresh_plan.operations:
-                    if op.action == "REFRESH":
-                        details.append(f"  [REFRESH] bundled skill '{op.skill_name}'")
+                b_obs = safe_observe_plan(self.global_plan.bundled_refresh_plan)
+                if b_obs is not None:
+                    for view in b_obs.operations:
+                        if view.effect != OperationEffect.NOOP:
+                            details.append(
+                                f"  [{view.domain_action}] bundled skill '{view.resource_name}'"
+                            )
             if self.global_plan.skill_plan:
-                for op in getattr(self.global_plan.skill_plan, "all_operations", ()):
-                    if op.action != "NOOP":
-                        details.append(
-                            f"  [{op.action}] {op.canonical_path} -> {op.target_path}"
-                        )
+                s_obs = safe_observe_plan(self.global_plan.skill_plan)
+                if s_obs is not None:
+                    for view in s_obs.operations:
+                        if view.effect != OperationEffect.NOOP:
+                            details.append(
+                                f"  [{view.domain_action}] {view.source} -> {view.target}"
+                            )
             if self.global_plan.instruction_plan:
-                for op in self.global_plan.instruction_plan.operations:
-                    if op.action != "NOOP":
-                        details.append(
-                            f"  [{op.action}] {op.canonical_path} -> {op.target_path}"
-                        )
+                i_obs = safe_observe_plan(self.global_plan.instruction_plan)
+                if i_obs is not None:
+                    for view in i_obs.operations:
+                        if view.effect != OperationEffect.NOOP:
+                            details.append(
+                                f"  [{view.domain_action}] {view.source} -> {view.target}"
+                            )
             if self.subagent_plan:
-                for op in self.subagent_plan.operations:
-                    if op.action != "NOOP":
-                        details.append(
-                            f"  [{op.action}] {op.target.agent}/{op.target.logical_identity} -> {op.target.path}"
-                        )
+                sub_obs = safe_observe_plan(self.subagent_plan)
+                if sub_obs is not None:
+                    for view in sub_obs.operations:
+                        if view.effect != OperationEffect.NOOP:
+                            details.append(
+                                f"  [{view.domain_action}] {view.agent}/{view.resource_name} -> {view.target}"
+                            )
             if self.mcp_plan:
-                for op in self.mcp_plan.operations:
-                    if op.action != "NOOP":
-                        details.append(
-                            f"  [{op.action}] {op.target.agent}/{op.target.logical_identity} ({op.reason})"
-                        )
+                mcp_obs = safe_observe_plan(self.mcp_plan)
+                if mcp_obs is not None:
+                    for view in mcp_obs.operations:
+                        if view.effect != OperationEffect.NOOP:
+                            details.append(
+                                f"  [{view.domain_action}] {view.agent}/{view.resource_name} ({view.reason})"
+                            )
             for entry in self.project_entries:
                 if entry.binding_status == "offline":
                     candidates_str = ", ".join(entry.offline_paths) or "-"
@@ -1009,11 +1011,13 @@ class WorkspaceSyncPlan:
                         f"  Project '{entry.project_name}': no configured paths (unbound), skipping."
                     )
                 elif entry.binding_status == "active" and entry.batch:
-                    for op in entry.batch.skill_plan.operations:
-                        if op.action != "NOOP":
-                            details.append(
-                                f"  [{op.action}] {entry.project_name}/{op.target.skill_name} -> {op.target.path}"
-                            )
+                    p_skill_obs = safe_observe_plan(entry.batch.skill_plan)
+                    if p_skill_obs is not None:
+                        for view in p_skill_obs.operations:
+                            if view.effect != OperationEffect.NOOP:
+                                details.append(
+                                    f"  [{view.domain_action}] {view.project}/{view.resource_name} -> {view.target}"
+                                )
             if details:
                 lines.extend(("", "Details", "", *details))
         return "\n".join(lines)
@@ -1216,19 +1220,18 @@ def build_workspace_sync_plan(
                         code="PREFLIGHT_ERROR",
                     )
                 )
-            for op in batch.skill_plan.operations:
-                if op.action == "CONFLICT" or (
-                    op.requires_force and not op.is_authorized
-                ):
-                    msg = op.finding or op.reason
-                    project_findings.append(
-                        Finding(
-                            status="conflict",
-                            message=msg,
-                            resource=project_name,
-                            code="SKILL_CONFLICT",
+            skill_obs = safe_observe_plan(batch.skill_plan)
+            if skill_obs is not None:
+                for f in skill_obs.findings:
+                    if is_conflict_finding(f):
+                        project_findings.append(
+                            Finding(
+                                status="conflict",
+                                message=f.message,
+                                resource=project_name,
+                                code="SKILL_CONFLICT",
+                            )
                         )
-                    )
 
             project_entries.append(
                 ProjectSyncEntry(
@@ -1325,15 +1328,12 @@ def execute_workspace_sync_plan(
     sub_res: SubagentExecutionResult | None = None
     if plan.subagent_plan is not None:
         if dry_run:
+            sub_obs = plan.subagent_plan.observe()
             sub_res = SubagentExecutionResult(
                 success=plan.subagent_plan.can_apply,
                 applied_count=0,
-                noop_count=sum(
-                    1 for op in plan.subagent_plan.operations if op.action == "NOOP"
-                ),
-                skipped_count=sum(
-                    1 for op in plan.subagent_plan.operations if op.action == "SKIP"
-                ),
+                noop_count=sub_obs.summary.unchanged,
+                skipped_count=sub_obs.summary.skipped,
                 conflict_count=plan.subagent_plan.conflicts_count,
                 failed_count=0,
             )
@@ -1354,15 +1354,12 @@ def execute_workspace_sync_plan(
     mcp_res: MCPExecutionResult | None = None
     if plan.mcp_plan is not None:
         if dry_run:
+            mcp_obs = plan.mcp_plan.observe()
             mcp_res = MCPExecutionResult(
                 success=plan.mcp_plan.can_apply,
                 applied_count=0,
-                noop_count=sum(
-                    1 for op in plan.mcp_plan.operations if op.action == "NOOP"
-                ),
-                skipped_count=sum(
-                    1 for op in plan.mcp_plan.operations if op.action == "SKIP"
-                ),
+                noop_count=mcp_obs.summary.unchanged,
+                skipped_count=mcp_obs.summary.skipped,
                 conflict_count=plan.mcp_plan.conflicts_count,
                 failed_count=0,
             )

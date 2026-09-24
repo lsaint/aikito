@@ -75,6 +75,18 @@ class InstructionPlan:
             op.is_authorized for op in self.operations
         )
 
+    def blocking_findings(self) -> tuple[Finding, ...]:
+        """Conflict findings carrying the actionable operation reason."""
+        return tuple(
+            Finding(
+                status="CONFLICT",
+                code=op.rule_id or "INSTRUCTION_CONFLICT",
+                message=op.reason,
+                resource=str(op.target_path),
+            )
+            for op in self.conflicts
+        )
+
     @property
     def planned_change_count(self) -> int:
         return sum(1 for op in self.operations if op.action in ("CREATE", "UNLINK"))

@@ -316,3 +316,66 @@ def test_plan_observation_sensitive_redaction(tmp_path: Path) -> None:
     for finding in obs.findings:
         assert secret_token not in finding.message
         assert secret_key not in finding.message
+
+
+def test_workspace_facades_do_not_interpret_domain_actions() -> None:
+    """Gate P0-B': workspace coordinators and sync rendering must not read domain `.action`
+    or reflectively probe operations outside observe() implementations."""
+    import ast
+
+    src_dir = Path(__file__).resolve().parents[1] / "src" / "aikito"
+    files = [src_dir / "workspace.py", src_dir / "workspace_sync.py"]
+    render_tree = ast.parse((src_dir / "render.py").read_text(encoding="utf-8"))
+    render_sync = next(
+        (
+            node
+            for node in ast.walk(render_tree)
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "render_workspace_sync_plan"
+        ),
+        None,
+    )
+
+    violations: list[str] = []
+
+    def is_inside_observe(stack: list[str]) -> bool:
+        return any(name == "observe" or name.startswith("observe_") for name in stack)
+
+    def scan(tree: ast.AST, label: str) -> None:
+        stack: list[str] = []
+
+        def visit(node: ast.AST) -> None:
+            is_func = isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            if is_func:
+                stack.append(node.name)
+            if not is_inside_observe(stack):
+                if (
+                    isinstance(node, ast.Attribute)
+                    and node.attr == "action"
+                    and isinstance(node.ctx, ast.Load)
+                ):
+                    violations.append(f"{label}:{node.lineno} reads '.action'")
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id in ("getattr", "hasattr")
+                ):
+                    violations.append(f"{label}:{node.lineno} uses {node.func.id}()")
+            for child in ast.iter_child_nodes(node):
+                visit(child)
+            if is_func:
+                stack.pop()
+
+        visit(tree)
+
+    for file_path in files:
+        scan(
+            ast.parse(file_path.read_text(encoding="utf-8"), filename=str(file_path)),
+            file_path.name,
+        )
+    if render_sync is not None:
+        scan(render_sync, "render.py")
+
+    assert violations == [], "Architecture invariant violated:\n" + "\n".join(
+        violations
+    )

@@ -101,6 +101,18 @@ class GlobalSkillBatchPlan:
             op.is_authorized for op in self.all_operations
         )
 
+    def blocking_findings(self) -> tuple[Finding, ...]:
+        """Conflict findings carrying the actionable operation reason."""
+        return tuple(
+            Finding(
+                status="CONFLICT",
+                code=op.rule_id or "SKILL_CONFLICT",
+                message=op.reason,
+                resource=str(op.canonical_path or op.target_path),
+            )
+            for op in self.conflicts
+        )
+
     @property
     def planned_change_count(self) -> int:
         """Count of write operations that mutate disk (CREATE, UNLINK, MIGRATE_CONTAINER)."""

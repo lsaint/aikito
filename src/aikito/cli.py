@@ -227,10 +227,8 @@ def sync_global_resources(
         ):
             return GlobalSyncResult(success=False, error_message=plan.error_message)
 
-        if plan.skill_plan and plan.skill_plan.all_operations:
-            all_conflicts = [
-                op for op in plan.skill_plan.all_operations if op.action == "CONFLICT"
-            ]
+        if plan.skill_plan:
+            all_conflicts = plan.skill_plan.conflicts
             if all_conflicts:
                 for op in all_conflicts:
                     prefix = (
