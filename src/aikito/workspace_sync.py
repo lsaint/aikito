@@ -142,8 +142,6 @@ class GlobalSyncPlan:
     can_apply: bool = True
     replan_required_after_apply: bool = False
     error_message: str | None = None
-    # None treats findings on directly constructed plans as owned.
-    owned_findings: tuple[Finding, ...] | None = None
 
     def observe(self) -> PlanObservation:
         """Project global sync plan and child plans into a unified PlanObservation."""
@@ -158,13 +156,9 @@ class GlobalSyncPlan:
         if i_obs is not None:
             children.append(i_obs)
 
-        global_findings = (
-            self.owned_findings if self.owned_findings is not None else self.findings
-        )
-
         return combine_observations(
             children,
-            additional_findings=global_findings,
+            additional_findings=self.findings,
             can_apply=self.can_apply,
         )
 
@@ -320,7 +314,6 @@ def build_global_sync_plan(
     skills_toml_path = aikito_dir / "skills.toml"
     global_instruction_source = aikito_dir / "global" / "AGENTS.md"
     findings: list[Finding] = []
-    owned_findings: list[Finding] = []
 
     if container_path is None:
         agents_env = os.environ.get("AIKITO_AGENTS_DIR")
@@ -472,7 +465,6 @@ def build_global_sync_plan(
     skill_obs = skill_plan.observe()
     if skill_obs.summary.blocked or not skill_obs.can_apply:
         can_apply = False
-    findings.extend(skill_plan.blocking_findings())
 
     if not global_instruction_source.is_file():
         can_apply = False
@@ -483,19 +475,16 @@ def build_global_sync_plan(
             resource=str(global_instruction_source),
         )
         findings.append(missing_instruction)
-        owned_findings.append(missing_instruction)
 
     instruction_obs = instruction_plan.observe()
     if instruction_obs.summary.blocked or not instruction_obs.can_apply:
         can_apply = False
-    findings.extend(instruction_plan.blocking_findings())
 
     return GlobalSyncPlan(
         bundled_refresh_plan=bundled_plan,
         skill_plan=skill_plan,
         instruction_plan=instruction_plan,
         findings=tuple(findings),
-        owned_findings=tuple(owned_findings),
         can_apply=can_apply,
         replan_required_after_apply=bundled_plan.replan_required,
         error_message="Conflicts detected in global plan." if not can_apply else None,
@@ -516,6 +505,7 @@ def execute_global_sync_plan(
     ] = None,
 ) -> GlobalSyncExecutionResult:
     """Execute global skill, instruction, and bundled refresh plans under proper lock boundaries."""
+    plan_obs = plan.observe()
     skill_obs = safe_observe_plan(plan.skill_plan)
     has_skill_conflicts = skill_obs is not None and (
         skill_obs.summary.blocked or not skill_obs.can_apply
@@ -523,7 +513,7 @@ def execute_global_sync_plan(
     if plan.skill_plan is None or has_skill_conflicts:
         return GlobalSyncExecutionResult(
             success=False,
-            findings=plan.findings,
+            findings=plan_obs.findings,
             replan_required=False,
             error_message=plan.error_message or "Global sync plan cannot be applied.",
         )
@@ -544,7 +534,7 @@ def execute_global_sync_plan(
             except BundledSkillRefreshError as exc:
                 return GlobalSyncExecutionResult(
                     success=False,
-                    findings=plan.findings,
+                    findings=plan_obs.findings,
                     replan_required=False,
                     error_message=str(exc),
                 )
@@ -575,7 +565,7 @@ def execute_global_sync_plan(
         except BundledSkillRefreshError as exc:
             return GlobalSyncExecutionResult(
                 success=False,
-                findings=plan.findings,
+                findings=plan_obs.findings,
                 replan_required=False,
                 error_message=str(exc),
             )
@@ -657,7 +647,7 @@ def execute_global_sync_plan(
         skill_result=skill_res,
         instruction_result=instruction_res,
         refreshed_bundled=refreshed,
-        findings=plan.findings,
+        findings=plan_obs.findings,
         replan_required=plan.replan_required_after_apply,
     )
 
@@ -691,7 +681,7 @@ def sync_global_resources(
     if not plan.can_apply:
         return GlobalSyncExecutionResult(
             success=False,
-            findings=plan.findings,
+            findings=plan.observe().findings,
             replan_required=False,
             error_message=plan.error_message or "Global sync plan cannot be applied.",
         )
@@ -809,8 +799,6 @@ class WorkspaceSyncPlan:
     findings: tuple[Finding, ...] = ()
     can_apply: bool = True
     replan_required_after_apply: bool = False
-    # Builders set this explicitly so legacy child copies stay out of observations.
-    owned_findings: tuple[Finding, ...] | None = None
 
     def __post_init__(self) -> None:
         if self.can_apply:
@@ -837,13 +825,9 @@ class WorkspaceSyncPlan:
             if e_obs is not None:
                 children.append(e_obs)
 
-        workspace_findings = (
-            self.owned_findings if self.owned_findings is not None else self.findings
-        )
-
         return combine_observations(
             children,
-            additional_findings=workspace_findings,
+            additional_findings=self.findings,
             can_apply=self.can_apply,
         )
 
@@ -876,11 +860,6 @@ class WorkspaceSyncPlan:
             if f.code == "MCP_ERROR" and f.message not in result:
                 result.append(f.message)
 
-        # 3. Include any legacy conflict findings from global_plan.findings or self.findings
-        for f in (*self.global_plan.findings, *self.findings):
-            if is_conflict_finding(f) and f.message not in result:
-                result.append(f.message)
-
         return tuple(result)
 
     @property
@@ -902,18 +881,6 @@ class WorkspaceSyncPlan:
             ):
                 result.append(f.message)
 
-        for entry in self.project_entries:
-            if entry.error_message and entry.error_message not in result:
-                result.append(entry.error_message)
-            if entry.batch is not None:
-                for err in entry.batch.preflight_findings:
-                    if err not in result:
-                        result.append(err)
-
-        for f in self.findings:
-            if is_error_finding(f) and f.message not in result:
-                result.append(f.message)
-
         return tuple(result)
 
     @property
@@ -921,10 +888,6 @@ class WorkspaceSyncPlan:
         result: list[str] = []
         obs = self.observe()
         for f in obs.findings:
-            if is_warning_finding(f) and f.message not in result:
-                result.append(f.message)
-
-        for f in self.findings:
             if is_warning_finding(f) and f.message not in result:
                 result.append(f.message)
 
@@ -1023,8 +986,7 @@ def build_workspace_sync_plan(
             subagent_plan=None,
             mcp_plan=None,
             project_entries=(),
-            findings=(*global_plan.findings, subagent_err_finding),
-            owned_findings=(subagent_err_finding,),
+            findings=(subagent_err_finding,),
             can_apply=False,
         )
 
@@ -1050,14 +1012,12 @@ def build_workspace_sync_plan(
             subagent_plan=subagent_plan,
             mcp_plan=None,
             project_entries=(),
-            findings=(*global_plan.findings, mcp_err_finding),
-            owned_findings=(mcp_err_finding,),
+            findings=(mcp_err_finding,),
             can_apply=False,
         )
 
     # 4. Project entries
     project_entries: list[ProjectSyncEntry] = []
-    project_findings: list[Finding] = []
     projects_dir = workspace_root / "projects"
 
     if projects_dir.is_dir():
@@ -1081,14 +1041,6 @@ def build_workspace_sync_plan(
             except (OSError, tomllib.TOMLDecodeError) as exc:
                 err_msg = (
                     f"Failed to read configuration for project '{project_name}': {exc}"
-                )
-                project_findings.append(
-                    Finding(
-                        status="error",
-                        message=err_msg,
-                        resource=project_name,
-                        code="PROJECT_CONFIG_ERROR",
-                    )
                 )
                 project_entries.append(
                     ProjectSyncEntry(
@@ -1129,28 +1081,6 @@ def build_workspace_sync_plan(
                 data,
                 force=req.force,
             )
-            for err in batch.preflight_findings:
-                project_findings.append(
-                    Finding(
-                        status="error",
-                        message=err,
-                        resource=project_name,
-                        code="PREFLIGHT_ERROR",
-                    )
-                )
-            skill_obs = safe_observe_plan(batch.skill_plan)
-            if skill_obs is not None:
-                for f in skill_obs.findings:
-                    if is_conflict_finding(f):
-                        project_findings.append(
-                            Finding(
-                                status="conflict",
-                                message=f.message,
-                                resource=project_name,
-                                code="SKILL_CONFLICT",
-                            )
-                        )
-
             project_entries.append(
                 ProjectSyncEntry(
                     project_name=project_name,
@@ -1161,14 +1091,12 @@ def build_workspace_sync_plan(
                 )
             )
 
-    all_findings = (*global_plan.findings, *project_findings)
     can_apply = (
         global_plan.can_apply
         and (subagent_plan is None or subagent_plan.can_apply)
         and (mcp_plan is None or mcp_plan.can_apply)
         and all(e.batch.can_apply for e in project_entries if e.batch is not None)
         and not any(e.binding_status == "error" for e in project_entries)
-        and not any(f.status.lower() in ("error", "fail") for f in all_findings)
     )
 
     replan_required_after_apply = global_plan.replan_required_after_apply and any(
@@ -1182,8 +1110,6 @@ def build_workspace_sync_plan(
         subagent_plan=subagent_plan,
         mcp_plan=mcp_plan,
         project_entries=tuple(project_entries),
-        findings=all_findings,
-        owned_findings=(),
         can_apply=can_apply,
         replan_required_after_apply=replan_required_after_apply,
     )
@@ -1206,9 +1132,7 @@ def execute_workspace_sync_plan(
     """
     plan_obs = plan.observe()
     if not dry_run and (not plan.can_apply or not plan_obs.can_apply):
-        findings = plan.findings + tuple(
-            finding for finding in plan_obs.findings if finding not in plan.findings
-        )
+        findings = plan_obs.findings
         return WorkspaceSyncExecutionResult(
             success=False,
             findings=findings,
@@ -1223,7 +1147,7 @@ def execute_workspace_sync_plan(
         return WorkspaceSyncExecutionResult(
             success=False,
             global_result=global_res,
-            findings=plan.findings,
+            findings=plan_obs.findings,
             replan_required=False,
             error_message=global_res.error_message or "Global sync failed.",
         )
@@ -1234,7 +1158,7 @@ def execute_workspace_sync_plan(
         return WorkspaceSyncExecutionResult(
             success=False,
             global_result=global_res,
-            findings=plan.findings,
+            findings=plan_obs.findings,
             replan_required=True,
             error_message=(
                 "Bundled skills refreshed or canonical skills changed during global sync; "
@@ -1263,7 +1187,7 @@ def execute_workspace_sync_plan(
                 success=False,
                 global_result=global_res,
                 subagent_result=sub_res,
-                findings=plan.findings,
+                findings=plan_obs.findings,
                 replan_required=False,
                 error_message=sub_res.error_message or "Subagents sync failed.",
             )
@@ -1290,7 +1214,7 @@ def execute_workspace_sync_plan(
                 global_result=global_res,
                 subagent_result=sub_res,
                 mcp_result=mcp_res,
-                findings=plan.findings,
+                findings=plan_obs.findings,
                 replan_required=False,
                 error_message=mcp_res.error_message or "MCP sync failed.",
             )
@@ -1321,7 +1245,7 @@ def execute_workspace_sync_plan(
         subagent_result=sub_res,
         mcp_result=mcp_res,
         project_results=tuple(project_results),
-        findings=plan.findings,
+        findings=plan_obs.findings,
         replan_required=False,
         error_message=first_proj_error if not overall_success else None,
     )

@@ -379,7 +379,7 @@ class Workspace:
                 resource=f.resource,
                 fix_hint=f.fix_hint,
             )
-            for f in plan.findings
+            for f in obs.findings
         )
 
         return WorkspaceSyncPreview(

@@ -120,10 +120,10 @@ def test_golden_global_conflict_duplicate_and_error_message(tmp_path: Path) -> N
     assert "Conflicts detected in global plan." in plan.errors
 
 
-def test_golden_project_instruction_and_memory_conflict_in_both_conflicts_and_errors(
+def test_independently_owned_preflight_and_instruction_conflict_share_text(
     tmp_path: Path,
 ) -> None:
-    """3: Project instruction/memory conflicts count in conflicts AND in errors via preflight_findings."""
+    """An independent preflight error and child conflict keep their own status."""
     inst_op = _make_dummy_link_op(
         action="CONFLICT",
         name="AGENTS.md",
@@ -139,7 +139,7 @@ def test_golden_project_instruction_and_memory_conflict_in_both_conflicts_and_er
         operations=(inst_op,),
     )
 
-    # In legacy build_project_sync_batch, conflict finding is added to extra_findings -> preflight_findings
+    # The preflight error and instruction conflict are independently owned.
     batch = ProjectSyncBatch(
         workspace_root=tmp_path,
         project_name="proj1",
@@ -168,7 +168,7 @@ def test_golden_project_instruction_and_memory_conflict_in_both_conflicts_and_er
         skill_plan=None,
         instruction_plan=None,
     )
-    # Workspace sync planning adds preflight findings as PREFLIGHT_ERROR.
+    # A caller may add a separate workspace-level error with matching text.
     findings = (
         Finding(
             status="error",
@@ -191,7 +191,7 @@ def test_golden_project_instruction_and_memory_conflict_in_both_conflicts_and_er
     assert len(plan.conflicts) == 1
     assert "instruction finding" in plan.conflicts
 
-    # Appears in errors (via entry.batch.preflight_findings and plan.findings)
+    # The same text also appears in errors with its separate status.
     assert len(plan.errors) == 1
     assert "instruction finding" in plan.errors
 
@@ -963,7 +963,13 @@ def test_golden_full_preview_equivalence_matrix(tmp_path: Path) -> None:
     assert actual_preview.errors == legacy_preview.errors
     assert actual_preview.can_apply == legacy_preview.can_apply
     assert actual_preview.will_mutate == legacy_preview.will_mutate
-    assert actual_preview.findings == legacy_preview.findings
+    assert tuple(
+        (f.status, f.code, f.message, f.resource, f.fix_hint)
+        for f in actual_preview.findings
+    ) == tuple(
+        (f.status, f.code, f.message, f.resource, f.fix_hint)
+        for f in workspace_plan.observe().findings
+    )
 
 
 def test_fail_closed_unknown_actions_across_all_domains(tmp_path: Path) -> None:
@@ -1317,7 +1323,6 @@ def test_owned_preflight_error_survives_matching_child_conflict(tmp_path: Path) 
         skill_plan=None,
         instruction_plan=instruction_plan,
         preflight_findings=(message,),
-        owned_preflight_findings=(message,),
         can_apply=False,
     )
 
@@ -1343,7 +1348,6 @@ def test_workspace_owned_error_survives_matching_child_warning(tmp_path: Path) -
         mcp_plan=None,
         project_entries=(),
         findings=(error,),
-        owned_findings=(error,),
     )
 
     observation = plan.observe()
@@ -1374,10 +1378,9 @@ def test_blocked_execution_includes_observation_error_with_legacy_warning(
         mcp_plan=None,
         project_entries=(),
         findings=(warning,),
-        owned_findings=(warning,),
     )
 
     result = execute_workspace_sync_plan(plan, tmp_path, tmp_path)
     assert result.success is False
-    assert result.findings[0] == warning
+    assert warning in result.findings
     assert any(f.code == "UNKNOWN_PLAN_ACTION" for f in result.findings)

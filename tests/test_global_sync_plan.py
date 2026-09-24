@@ -113,7 +113,7 @@ skills_path = ".claude/skills"
         self.assertGreater(len(list(backup_dir.glob("bundled-skills_*"))), 0)
 
     def test_global_skill_conflict_findings_keep_operation_reason(self) -> None:
-        """v1.50 contract: global plan findings carry op.reason, observation carries op.finding."""
+        """Global conflicts belong to the skill plan and appear once in observations."""
         (self.ws / "skills.toml").write_text('skills = ["alpha"]\n', encoding="utf-8")
         (self.ws / "skills" / "alpha").mkdir()
         (self.ws / "skills" / "alpha" / "SKILL.md").write_text(
@@ -127,13 +127,11 @@ skills_path = ".claude/skills"
         conflict_ops = plan.skill_plan.conflicts
         self.assertTrue(conflict_ops)
         self.assertFalse(plan.can_apply)
-        self.assertEqual(
-            [f.message for f in plan.findings],
-            [op.reason for op in conflict_ops],
-        )
+        self.assertEqual(plan.findings, ())
+        observed = plan.observe().findings
         workspace_plan = build_workspace_sync_plan(self.ws, home=self.home)
         for op in conflict_ops:
-            self.assertIn(op.reason, workspace_plan.conflicts)
+            self.assertEqual(sum(f.message == op.finding for f in observed), 1)
             self.assertIn(op.finding, workspace_plan.conflicts)
 
     def test_build_global_sync_plan_missing_skills_toml(self) -> None:

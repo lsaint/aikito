@@ -72,8 +72,6 @@ class ProjectSyncBatch:
     config_cas: CandidatePathCAS | None = None
     instruction_plan: InstructionPlan | None = None
     memory_plan: MemoryPlan | None = None
-    # Builders separate project-owned errors from legacy copies of child conflicts.
-    owned_preflight_findings: tuple[str, ...] | None = None
 
     def observe(self) -> PlanObservation:
         """Project batch and child plans into a PlanObservation with single-source diagnostic ownership."""
@@ -91,12 +89,7 @@ class ProjectSyncBatch:
                 children.append(m_obs)
 
         project_findings: list[Finding] = []
-        owned_preflight = (
-            self.owned_preflight_findings
-            if self.owned_preflight_findings is not None
-            else self.preflight_findings
-        )
-        for text in owned_preflight:
+        for text in self.preflight_findings:
             if text:
                 project_findings.append(
                     Finding(
@@ -285,8 +278,7 @@ def build_project_sync_batch(
 
     # Inspect skills and build operations across all checkouts
     all_operations: list[SkillOperation] = []
-    extra_findings: list[str] = list(errors)
-    owned_preflight_findings: list[str] = list(errors)
+    preflight_findings: list[str] = list(errors)
 
     selected_skill_set = set(skills)
 
@@ -301,8 +293,7 @@ def build_project_sync_batch(
                 f"Case collision detected between skills '{name1}' and '{name2}' "
                 f"on case-insensitive filesystem at {agents_skills_dir}"
             )
-            extra_findings.append(collision_msg)
-            owned_preflight_findings.append(collision_msg)
+            preflight_findings.append(collision_msg)
 
         # Enumerate union of selected skills and existing runtime entries/state
         state_doc, _ = load_project_skill_state(
@@ -359,7 +350,6 @@ def build_project_sync_batch(
         project_name,
         all_operations,
         config_cas=config_cas,
-        extra_findings=extra_findings,
     )
 
     instruction_plan: InstructionPlan | None = None
@@ -372,8 +362,6 @@ def build_project_sync_batch(
             offline_checkouts=offline_checkouts,
         )
         instruction_plan = plan_instructions(inst_batch, home)
-        for conflict_op in instruction_plan.conflicts:
-            extra_findings.append(conflict_op.finding or conflict_op.reason)
 
     mem_batch = build_project_memory_batch(
         workspace_root,
@@ -383,16 +371,11 @@ def build_project_sync_batch(
         offline_checkouts=offline_checkouts,
     )
     memory_plan = plan_project_memory(mem_batch)
-    for conflict_op in memory_plan.conflicts:
-        finding = conflict_op.finding or conflict_op.reason
-        if finding and finding not in extra_findings:
-            extra_findings.append(finding)
-
     can_apply = (
         plan.can_apply
         and (instruction_plan is None or instruction_plan.can_apply)
         and memory_plan.can_apply
-        and not extra_findings
+        and not preflight_findings
     )
 
     return ProjectSyncBatch(
@@ -401,12 +384,11 @@ def build_project_sync_batch(
         active_checkouts=tuple(active_checkouts),
         offline_checkouts=tuple(offline_checkouts),
         skill_plan=plan,
-        preflight_findings=tuple(extra_findings),
+        preflight_findings=tuple(preflight_findings),
         can_apply=can_apply,
         config_cas=config_cas,
         instruction_plan=instruction_plan,
         memory_plan=memory_plan,
-        owned_preflight_findings=tuple(owned_preflight_findings),
     )
 
 
@@ -419,9 +401,14 @@ def apply_project_sync_batch(
 ) -> ProjectSyncExecutionResult:
     """Execute skill plan and compatible instruction/memory synchronizations."""
     if not batch.can_apply and not dry_run:
+        blocking_findings = tuple(
+            finding
+            for finding in batch.observe().findings
+            if finding.status.upper() in {"ERROR", "FAIL", "CONFLICT"}
+        )
         err_msg = (
-            batch.preflight_findings[0]
-            if batch.preflight_findings
+            blocking_findings[0].message
+            if blocking_findings
             else "Project sync batch contains unresolved conflicts; cannot apply."
         )
         skill_failed_ops = (

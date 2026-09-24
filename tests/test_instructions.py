@@ -286,10 +286,16 @@ class InstructionBatchAndPlanTests(TestCase):
         self.assertFalse(batch.can_apply)
         self.assertIsNotNone(batch.instruction_plan)
         self.assertTrue(batch.instruction_plan.has_conflicts)
-        self.assertTrue(
+        self.assertFalse(
             any(
                 "Pre-existing regular instruction file" in err
                 for err in batch.preflight_findings
+            )
+        )
+        self.assertTrue(
+            any(
+                "Pre-existing regular instruction file" in finding.message
+                for finding in batch.observe().findings
             )
         )
 

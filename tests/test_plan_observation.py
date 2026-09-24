@@ -680,15 +680,9 @@ def test_project_sync_batch_observe_and_provenance(tmp_path: Path) -> None:
         active_checkouts=(tmp_path / "co",),
         offline_checkouts=(),
         skill_plan=skill_plan,
-        preflight_findings=(
-            "instruction conflict finding",
-            "Project codebase path does not exist: /missing/path",
-        ),
+        preflight_findings=("Project codebase path does not exist: /missing/path",),
         can_apply=False,
         instruction_plan=inst_plan,
-        owned_preflight_findings=(
-            "Project codebase path does not exist: /missing/path",
-        ),
     )
 
     child_obs = inst_plan.observe()
@@ -750,12 +744,6 @@ def test_global_sync_plan_observe_and_provenance(tmp_path: Path) -> None:
         instruction_plan=None,
         findings=(
             Finding(
-                status="CONFLICT",
-                code="SKILL_CONFLICT",
-                message="global skill collision",
-                resource=str(child_op.target_path),
-            ),
-            Finding(
                 status="ERROR",
                 code="GLOBAL_INSTRUCTION_MISSING",
                 message="Global instruction file not found",
@@ -764,14 +752,6 @@ def test_global_sync_plan_observe_and_provenance(tmp_path: Path) -> None:
         ),
         can_apply=False,
         error_message="Conflicts detected in global plan.",
-        owned_findings=(
-            Finding(
-                status="ERROR",
-                code="GLOBAL_INSTRUCTION_MISSING",
-                message="Global instruction file not found",
-                resource="global/AGENTS.md",
-            ),
-        ),
     )
 
     child_obs = skill_plan.observe()
@@ -892,10 +872,9 @@ def test_finding_provenance_single_source_across_hierarchy(tmp_path: Path) -> No
         active_checkouts=(tmp_path / "co",),
         offline_checkouts=(),
         skill_plan=skill_plan,
-        preflight_findings=("instruction conflict finding",),
+        preflight_findings=(),
         can_apply=False,
         instruction_plan=inst_plan,
-        owned_preflight_findings=(),
     )
     entry = ProjectSyncEntry(
         project_name="p1",
@@ -909,12 +888,6 @@ def test_finding_provenance_single_source_across_hierarchy(tmp_path: Path) -> No
         findings=(),
         can_apply=True,
     )
-    legacy_project_finding = Finding(
-        status="error",
-        message="instruction conflict finding",
-        resource="p1",
-        code="PREFLIGHT_ERROR",
-    )
     workspace_plan = WorkspaceSyncPlan(
         workspace_root=tmp_path,
         home=tmp_path,
@@ -922,9 +895,7 @@ def test_finding_provenance_single_source_across_hierarchy(tmp_path: Path) -> No
         subagent_plan=None,
         mcp_plan=None,
         project_entries=(entry,),
-        findings=(legacy_project_finding,),
         can_apply=False,
-        owned_findings=(),
     )
 
     # 1. Child observation
