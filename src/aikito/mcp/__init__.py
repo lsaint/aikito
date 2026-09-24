@@ -11,9 +11,6 @@ import sys
 import tempfile
 import threading
 import time
-import tomllib
-from collections import defaultdict
-from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,25 +19,34 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, build_opener
 
-from ..agents import (
-    AgentDefinition,
-    AgentRegistryError,
-    is_agent_installed,
-    load_agent_definitions,
-)
 from ..compat import resolve_executable, secure_file_permissions
-from ..config_runtime import (
-    ConfigCollisionError,
-    StaleConfigPlanError,
-    capture_file_snapshot,
-    resolve_physical_identity,
+from ..config_runtime import StaleConfigPlanError
+from .adapters import (
+    _entry_matches_desired,
+    _load_document,
+    _parse_jsonc,
+    _read_entry,
+    get_agy_json_server,
+    get_claude_json_server,
+    get_copilot_json_server,
+    get_dsh_cordis_server,
+    get_jsonc_server,
+    get_toml_server,
+    parse_jsonc,
+    read_all_entries,
+    read_entry,
+    remove_claude_json_server,
+    remove_dsh_cordis_server,
+    remove_jsonc_server,
+    remove_toml_server,
+    update_agy_json_server,
+    update_claude_json_server,
+    update_copilot_json_server,
+    update_dsh_cordis_server,
+    update_jsonc_server,
+    update_toml_server,
 )
-from ..diagnostics import Finding
-from ..plan_observation import (
-    OperationEffect,
-    PlanOperationView,
-    UnknownPlanActionError,
-)
+
 from .model import (
     BACKUP_DIR,
     BROWSER_HELPER,
@@ -64,7 +70,6 @@ from .model import (
     Token,
     _MCPProbeError,
     _RejectRedirects,
-    _state_file_hash,
 )
 from .redact import (
     SENSITIVE_URL_PARAMETERS,
@@ -81,35 +86,21 @@ from .redact import (
     is_sensitive_url_parameter,
     redact_mcp_entry,
 )
-from .adapters import (
-    _build_desired,
-    _entry_matches_desired,
-    _fingerprint,
-    _load_document,
-    _parse_jsonc,
-    _read_entry,
-    _remove_entry,
-    _update_entry,
-    get_agy_json_server,
-    get_claude_json_server,
-    get_copilot_json_server,
-    get_dsh_cordis_server,
-    get_jsonc_server,
-    get_toml_server,
-    parse_jsonc,
-    read_all_entries,
-    read_entry,
-    remove_claude_json_server,
-    remove_dsh_cordis_server,
-    remove_jsonc_server,
-    remove_toml_server,
-    update_agy_json_server,
-    update_claude_json_server,
-    update_copilot_json_server,
-    update_dsh_cordis_server,
-    update_jsonc_server,
-    update_toml_server,
+from .executor import _load_state
+from .loader import (
+    _agent_detected,
+    _find_agent_spec,
+    _load_basic_token_auth,
+    load_agent_specs,
 )
+from .planner import (
+    build_mcp_plan,
+    evaluate_spec_status,
+    mcp_operation_effect,
+    mcp_operation_finding,
+    observe_mcp_operation,
+)
+
 
 __all__ = [
     # Models & Exceptions
@@ -197,39 +188,6 @@ __all__ = [
 ]
 
 
-def _load_agent_definitions(aikito_dir: Path, home: Path) -> dict[str, AgentDefinition]:
-    """MCP boundary: expose Agent registry failures as MCPConfigError."""
-    try:
-        return load_agent_definitions(aikito_dir, home)
-    except AgentRegistryError as exc:
-        raise MCPConfigError(str(exc)) from exc
-
-
-def _target_name(name_style: str, server_name: str) -> str:
-    if name_style == "underscore":
-        return server_name.replace("-", "_")
-    return server_name
-
-
-def _render_command(template: tuple[str, ...], target: str) -> tuple[str, ...]:
-    return tuple(part.replace("{target}", target) for part in template)
-
-
-def _load_state(home: Path) -> dict[str, Any]:
-    path = home / STATE_FILE
-    if not path.exists():
-        return {"version": STATE_VERSION, "entries": {}}
-    try:
-        state = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
-        raise MCPConfigError(f"Cannot read MCP state file {path}: {exc}") from exc
-    if state.get("version") != STATE_VERSION or not isinstance(
-        state.get("entries"), dict
-    ):
-        raise MCPConfigError(f"Unsupported MCP state file: {path}")
-    return state
-
-
 def _atomic_write(path: Path, content: str, secure_permissions: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else None
@@ -266,166 +224,6 @@ def _backup_config(home: Path, spec: AgentSpec) -> Path | None:
     backup.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(spec.config_path, backup)
     return backup
-
-
-def _load_basic_token_auth(
-    server_name: str, server: dict[str, Any]
-) -> BasicTokenAuth | None:
-    authentication = server.get("authentication")
-    if authentication is None:
-        return None
-    if not isinstance(authentication, dict):
-        raise MCPConfigError(f"Server '{server_name}' authentication must be a table")
-    method = authentication.get("method")
-    if method != "basic_api_token":
-        raise MCPConfigError(
-            f"Server '{server_name}' has unsupported authentication method: {method!r}"
-        )
-
-    fields = {}
-    for auth_field in ("account_email", "token_env", "authorization_env"):
-        value = authentication.get(auth_field)
-        if not isinstance(value, str) or not value:
-            raise MCPConfigError(
-                f"Server '{server_name}' authentication requires '{auth_field}'"
-            )
-        fields[auth_field] = value
-    return BasicTokenAuth(**fields)
-
-
-def load_agent_specs(aikito_dir: Path, home: Path) -> list[AgentSpec]:
-    mcps_dir = aikito_dir / DEFAULT_MCPS_DIR
-    if not mcps_dir.exists():
-        raise MCPConfigError(f"MCP config directory not found: {mcps_dir}")
-    if not mcps_dir.is_dir():
-        raise MCPConfigError(f"MCP config path is not a directory: {mcps_dir}")
-
-    servers: dict[str, dict[str, Any]] = {}
-    for config_path in sorted(mcps_dir.glob("*.toml")):
-        server_name = config_path.stem
-        try:
-            document = tomllib.loads(config_path.read_text(encoding="utf-8"))
-        except tomllib.TOMLDecodeError as exc:
-            raise MCPConfigError(f"Invalid MCP config {config_path}: {exc}") from exc
-
-        if "servers" in document and isinstance(document["servers"], dict):
-            for s_name, s_val in document["servers"].items():
-                if isinstance(s_val, dict):
-                    servers[s_name] = s_val
-                else:
-                    raise MCPConfigError(
-                        f"Server '{s_name}' in {config_path} must be a table"
-                    )
-        else:
-            servers[server_name] = document
-
-    registry = _load_agent_definitions(aikito_dir, home)
-
-    specs = []
-    for server_name, server in servers.items():
-        if not isinstance(server, dict):
-            raise MCPConfigError(f"Server '{server_name}' must be a table")
-        if server.get("transport") != "remote":
-            raise MCPConfigError(f"Server '{server_name}' must use remote transport")
-        url = server.get("url")
-        agents = server.get("agents")
-        if not isinstance(url, str) or not url:
-            raise MCPConfigError(f"Server '{server_name}' requires a URL")
-        if not isinstance(agents, list) or not all(
-            isinstance(agent, str) for agent in agents
-        ):
-            raise MCPConfigError(f"Server '{server_name}' requires an agents list")
-        overrides = server.get("overrides", {})
-        if not isinstance(overrides, dict):
-            raise MCPConfigError(f"Server '{server_name}' overrides must be a table")
-        authentication = _load_basic_token_auth(server_name, server)
-        headers = server.get("headers")
-        if headers is not None and (
-            not isinstance(headers, dict)
-            or not all(
-                isinstance(key, str) and isinstance(value, str)
-                for key, value in headers.items()
-            )
-        ):
-            raise MCPConfigError(
-                f"Server '{server_name}' headers must be a string-to-string table"
-            )
-
-        for agent in agents:
-            definition = registry.get(agent)
-            if definition is None:
-                raise MCPConfigError(
-                    f"Server '{server_name}' references unknown agent '{agent}'; "
-                    f"define it in {DEFAULT_AGENTS_CONFIG}"
-                )
-
-            override = overrides.get(agent, {})
-            if not isinstance(override, dict):
-                raise MCPConfigError(
-                    f"Server '{server_name}' override for {agent} must be a table"
-                )
-            enabled = override.get("enabled", True)
-            reason = str(override.get("reason", ""))
-
-            capability = definition.mcp
-            if capability is None or not capability.is_supported:
-                specs.append(
-                    AgentSpec(
-                        agent=agent,
-                        server=server_name,
-                        config_path=capability.config_path if capability else Path(),
-                        config_format="unsupported",
-                        target_name=server_name,
-                        desired={},
-                        enabled=False,
-                        reason=(
-                            reason
-                            or (capability.reason if capability else "")
-                            or f"MCP synchronization is not supported for agent '{agent}'"
-                        ),
-                        home=home,
-                    )
-                )
-                continue
-
-            name_style = capability.name_style
-            default_target = _target_name(name_style, server_name)
-            target_name = str(override.get("name", default_target))
-            desired, contains_secret, missing_credential_env = _build_desired(
-                capability.config_format,
-                url,
-                override,
-                authentication,
-                headers,
-                agent=agent,
-            )
-            if capability.config_format == "dsh_cordis" and not desired.get(
-                "serverName"
-            ):
-                desired = dict(desired)
-                desired["serverName"] = target_name
-            specs.append(
-                AgentSpec(
-                    agent=agent,
-                    server=server_name,
-                    config_path=capability.config_path,
-                    config_format=capability.config_format,
-                    target_name=target_name,
-                    desired=desired,
-                    enabled=bool(enabled),
-                    reason=reason,
-                    live_command=_render_command(capability.live_command, target_name),
-                    auth_command=(
-                        ()
-                        if authentication
-                        else _render_command(capability.auth_command, target_name)
-                    ),
-                    contains_secret=contains_secret,
-                    missing_credential_env=missing_credential_env,
-                    home=home,
-                )
-            )
-    return specs
 
 
 class _LiveLoadingIndicator:
@@ -903,14 +701,6 @@ def probe_mcp_tools_for_specs(
             return list(executor.map(_probe_worker, specs))
 
 
-def _agent_detected(spec: AgentSpec) -> bool:
-    if spec.home is not None:
-        installed = is_agent_installed(spec.agent, spec.home)
-        if installed is not None:
-            return installed
-    return spec.config_path.parent.exists()
-
-
 def _write_browser_helper(directory: Path) -> Path:
     if sys.platform == "win32":
         py_helper = directory / "aikito-browser.py"
@@ -924,17 +714,6 @@ def _write_browser_helper(directory: Path) -> Path:
     helper.write_text(BROWSER_HELPER, encoding="utf-8")
     helper.chmod(0o700)
     return helper
-
-
-def _find_agent_spec(specs: list[AgentSpec], agent: str, server: str) -> AgentSpec:
-    try:
-        return next(
-            spec for spec in specs if spec.agent == agent and spec.server == server
-        )
-    except StopIteration as exc:
-        raise MCPConfigError(
-            f"MCP server '{server}' is not configured for agent '{agent}'"
-        ) from exc
 
 
 def authenticate_mcp(
@@ -1040,541 +819,6 @@ def authenticate_mcp(
         return False
     output(f"[SUCCESS] {agent}/{server} authentication completed")
     return True
-
-
-def mcp_operation_effect(op: MCPOperation) -> OperationEffect:
-    """Map MCP operation action to canonical OperationEffect."""
-    if op.action in ("CREATE", "UPDATE", "REMOVE") and not op.is_authorized:
-        return OperationEffect.NONE
-    match op.action:
-        case "CREATE":
-            return OperationEffect.CREATE
-        case "UPDATE":
-            return OperationEffect.UPDATE
-        case "REMOVE":
-            return OperationEffect.REMOVE
-        case "NOOP":
-            return OperationEffect.NOOP
-        case "SKIP":
-            return OperationEffect.SKIP
-        case "CONFLICT":
-            if op.is_authorized:
-                raise UnknownPlanActionError(
-                    f"Authorized CONFLICT is invalid for MCP: {op.target.logical_identity}"
-                )
-            return OperationEffect.NONE
-        case "ERROR":
-            return OperationEffect.NONE
-        case _:
-            raise UnknownPlanActionError(f"Unhandled MCP action: {op.action}")
-
-
-def mcp_operation_finding(op: MCPOperation) -> Finding | None:
-    """Produce a Finding for MCP conflict or error conditions."""
-    if (op.action == "CONFLICT" and not op.is_authorized) or (
-        op.action in ("CREATE", "UPDATE", "REMOVE") and not op.is_authorized
-    ):
-        return Finding(
-            status="CONFLICT",
-            code="MCP_CONFLICT",
-            message=f"{op.target.agent}/{op.target.logical_identity}: {op.reason}",
-            resource=str(op.target.path),
-        )
-    if op.action == "ERROR":
-        return Finding(
-            status="ERROR",
-            code="MCP_ERROR",
-            message=f"{op.target.agent}/{op.target.logical_identity}: {op.reason}",
-            resource=str(op.target.path),
-        )
-    return None
-
-
-def observe_mcp_operation(
-    op: MCPOperation,
-) -> tuple[PlanOperationView, Finding | None]:
-    """Project an MCPOperation into a PlanOperationView and optional Finding."""
-    try:
-        effect = mcp_operation_effect(op)
-        finding = mcp_operation_finding(op)
-    except UnknownPlanActionError as err:
-        effect = OperationEffect.NONE
-        finding = Finding(
-            status="ERROR",
-            code="UNKNOWN_PLAN_ACTION",
-            message=str(err),
-            resource=str(op.target.path),
-        )
-
-    view = PlanOperationView(
-        resource_type="mcp",
-        resource_name=op.target.logical_identity,
-        effect=effect,
-        scope="global",
-        agent=op.target.agent,
-        target=str(op.target.path),
-        reason=op.reason,
-        domain_action=op.action,
-        authorized=op.is_authorized,
-    )
-    return view, finding
-
-
-def build_mcp_plan(
-    aikito_dir: Path,
-    home: Path,
-    *,
-    specs: Sequence[AgentSpec] | None = None,
-    force: bool = False,
-    force_targets: set[str] | Sequence[str] | None = None,
-    desired_absent_servers: set[str] | Sequence[str] | None = None,
-) -> MCPPlan:
-    """Build a pure, immutable MCP synchronization plan without modifying any files or state.
-
-    Enforces INV-MCP-01, INV-MCP-02, INV-MCP-04, INV-MCP-05, INV-CFG-01, INV-CFG-02, INV-CFG-03.
-    """
-    if specs is not None:
-        raw_specs = list(specs)
-    else:
-        raw_specs = load_agent_specs(aikito_dir, home)
-
-    absent_servers = set(desired_absent_servers or ())
-    force_targets_set = set(force_targets or ())
-
-    state = _load_state(home)
-    entries = state.get("entries", {})
-    state_snapshot_hash = _state_file_hash(home / STATE_FILE)
-
-    groups: dict[str, list[AgentSpec]] = defaultdict(list)
-    canonical_paths: dict[str, Path] = {}
-    unsupported_operations: list[MCPOperation] = []
-
-    for s in raw_specs:
-        if s.config_format == "unsupported":
-            # Unsupported agents never own a config file: skip without reading,
-            # grouping, or collision-checking their (possibly empty) path.
-            unsupported_operations.append(
-                MCPOperation(
-                    target=MCPConfigTarget(
-                        path=s.config_path,
-                        logical_identity=s.server,
-                        key_path=("mcpServers", s.target_name),
-                        format=s.config_format,
-                        agent=s.agent,
-                        target_name=s.target_name,
-                    ),
-                    action="SKIP",
-                    reason=s.reason or "MCP synchronization is not supported",
-                    spec=s,
-                    is_authorized=True,
-                )
-            )
-            continue
-        phys_id = resolve_physical_identity(s.config_path)
-        groups[phys_id].append(s)
-        if phys_id not in canonical_paths:
-            canonical_paths[phys_id] = s.config_path
-
-    # Check collisions across specs
-    for phys_id, g_specs in groups.items():
-        canonical_path = canonical_paths[phys_id]
-        formats = {s.config_format for s in g_specs if s.config_format}
-        if len(formats) > 1:
-            raise ConfigCollisionError(
-                f"Conflicting formats declared for physical file '{canonical_path}': {sorted(formats)}"
-            )
-
-        seen_target_names: dict[str, AgentSpec] = {}
-        for s in g_specs:
-            t_name = s.target_name
-            is_absent = (s.server in absent_servers) or (s.desired is None)
-            if t_name in seen_target_names:
-                prev_s = seen_target_names[t_name]
-                prev_is_absent = (prev_s.server in absent_servers) or (
-                    prev_s.desired is None
-                )
-                if prev_s.server != s.server:
-                    raise ConfigCollisionError(
-                        f"Colliding MCP server names: '{prev_s.server}' and '{s.server}' both map to target name '{t_name}' in '{canonical_path}'"
-                    )
-                elif prev_is_absent != is_absent:
-                    raise ConfigCollisionError(
-                        f"Conflicting operations on MCP server '{t_name}' in '{canonical_path}': conflicting REMOVE and UPDATE"
-                    )
-            else:
-                seen_target_names[t_name] = s
-
-    all_operations: list[MCPOperation] = []
-    file_plans: list[MCPFilePlan] = []
-
-    for phys_id, g_specs in groups.items():
-        canonical_path = canonical_paths[phys_id]
-        resolved_format = g_specs[0].config_format if g_specs else ""
-        file_sensitive = any(
-            s.contains_secret or s.config_format in ("claude_json", "agy_json")
-            for s in g_specs
-        )
-        file_snapshot = capture_file_snapshot(
-            canonical_path, format=resolved_format, sensitive=file_sensitive
-        )
-        file_existed = file_snapshot.exists
-        orig_text = canonical_path.read_text(encoding="utf-8") if file_existed else ""
-        current_text = orig_text
-        group_ops: list[MCPOperation] = []
-
-        for spec in g_specs:
-            target_key = f"{spec.agent}/{spec.server}"
-            is_authorized = (
-                force
-                or (target_key in force_targets_set)
-                or (spec.server in force_targets_set)
-            )
-            is_absent = (spec.server in absent_servers) or (spec.desired is None)
-            config_target = MCPConfigTarget(
-                path=canonical_path,
-                logical_identity=spec.server,
-                key_path=("mcpServers", spec.target_name),
-                format=spec.config_format,
-                agent=spec.agent,
-                sensitive=spec.contains_secret
-                or spec.config_format in ("claude_json", "agy_json"),
-                target_name=spec.target_name,
-            )
-
-            if is_absent:
-                if not file_existed:
-                    observed = MCPObservedEntry(
-                        target=config_target,
-                        exists=False,
-                        fingerprint=None,
-                        managed_fingerprint=None,
-                        is_managed=False,
-                        raw_entry=None,
-                    )
-                    op = MCPOperation(
-                        target=config_target,
-                        action="NOOP",
-                        reason="Target file does not exist",
-                        observed=observed,
-                        desired=None,
-                        spec=spec,
-                        requires_force=False,
-                        force_identity=target_key,
-                        is_authorized=True,
-                        state_transition=(spec.state_key, None),
-                    )
-                    group_ops.append(op)
-                    all_operations.append(op)
-                    continue
-
-                try:
-                    current = _read_entry(spec, current_text)
-                except Exception as exc:
-                    op = MCPOperation(
-                        target=config_target,
-                        action="ERROR",
-                        reason=f"Failed to read entry: {exc}",
-                        spec=spec,
-                        is_authorized=False,
-                    )
-                    group_ops.append(op)
-                    all_operations.append(op)
-                    continue
-
-                previous = entries.get(spec.state_key, {})
-                managed_fp = previous.get("fingerprint")
-                current_fp = _fingerprint(current) if current is not None else None
-                observed = MCPObservedEntry(
-                    target=config_target,
-                    exists=current is not None,
-                    fingerprint=current_fp,
-                    managed_fingerprint=managed_fp,
-                    is_managed=managed_fp is not None,
-                    raw_entry=current,
-                )
-
-                if current is None:
-                    op = MCPOperation(
-                        target=config_target,
-                        action="NOOP",
-                        reason="Already absent",
-                        observed=observed,
-                        desired=None,
-                        spec=spec,
-                        requires_force=False,
-                        force_identity=target_key,
-                        is_authorized=True,
-                        state_transition=(spec.state_key, None),
-                    )
-                else:
-                    safe_to_remove = is_authorized or (
-                        managed_fp is not None and current_fp == managed_fp
-                    )
-                    if not safe_to_remove:
-                        op = MCPOperation(
-                            target=config_target,
-                            action="CONFLICT",
-                            reason="Existing config was not last written by aikito; review it or rerun with --force",
-                            observed=observed,
-                            desired=None,
-                            spec=spec,
-                            requires_force=True,
-                            force_identity=target_key,
-                            is_authorized=False,
-                        )
-                    else:
-                        op = MCPOperation(
-                            target=config_target,
-                            action="REMOVE",
-                            reason="Removed from agent configuration",
-                            observed=observed,
-                            desired=None,
-                            spec=spec,
-                            requires_force=(
-                                managed_fp is None or current_fp != managed_fp
-                            ),
-                            force_identity=target_key,
-                            is_authorized=True,
-                            state_transition=(spec.state_key, None),
-                        )
-                        try:
-                            current_text = _remove_entry(spec, current_text)
-                        except Exception as exc:
-                            op = MCPOperation(
-                                target=config_target,
-                                action="ERROR",
-                                reason=f"Failed to remove entry: {exc}",
-                                spec=spec,
-                                is_authorized=False,
-                            )
-                group_ops.append(op)
-                all_operations.append(op)
-                continue
-
-            # Desired Present
-            if not spec.enabled:
-                op = MCPOperation(
-                    target=config_target,
-                    action="SKIP",
-                    reason=spec.reason or "Agent or server disabled",
-                    spec=spec,
-                    is_authorized=True,
-                )
-                group_ops.append(op)
-                all_operations.append(op)
-                continue
-
-            if not _agent_detected(spec):
-                op = MCPOperation(
-                    target=config_target,
-                    action="SKIP",
-                    reason=f"Agent '{spec.agent}' is not installed or detected",
-                    spec=spec,
-                    is_authorized=True,
-                )
-                group_ops.append(op)
-                all_operations.append(op)
-                continue
-
-            try:
-                current = _read_entry(spec, current_text) if file_existed else None
-            except Exception as exc:
-                op = MCPOperation(
-                    target=config_target,
-                    action="ERROR",
-                    reason=f"Failed to read entry: {exc}",
-                    spec=spec,
-                    is_authorized=False,
-                )
-                group_ops.append(op)
-                all_operations.append(op)
-                continue
-
-            previous = entries.get(spec.state_key, {})
-            managed_fp = previous.get("fingerprint")
-            current_fp = _fingerprint(current) if current is not None else None
-            desired_fp = _fingerprint(spec.desired)
-            observed = MCPObservedEntry(
-                target=config_target,
-                exists=current is not None,
-                fingerprint=current_fp,
-                managed_fingerprint=managed_fp,
-                is_managed=managed_fp is not None,
-                raw_entry=current,
-            )
-            desired_entry = MCPDesiredEntry(
-                target=config_target,
-                fingerprint=desired_fp,
-                contains_secret=spec.contains_secret,
-                missing_credential_env=spec.missing_credential_env,
-                live_command=spec.live_command,
-                auth_command=spec.auth_command,
-                raw_desired=spec.desired,
-            )
-
-            if spec.missing_credential_env:
-                op = MCPOperation(
-                    target=config_target,
-                    action="SKIP",
-                    reason=f"Requires missing environment variable: {spec.missing_credential_env}",
-                    observed=observed,
-                    desired=desired_entry,
-                    spec=spec,
-                    is_authorized=True,
-                )
-                group_ops.append(op)
-                all_operations.append(op)
-                continue
-
-            if _entry_matches_desired(spec, current):
-                op = MCPOperation(
-                    target=config_target,
-                    action="NOOP",
-                    reason="Already synchronized",
-                    observed=observed,
-                    desired=desired_entry,
-                    spec=spec,
-                    requires_force=False,
-                    force_identity=target_key,
-                    is_authorized=True,
-                    state_transition=(spec.state_key, desired_fp),
-                )
-                group_ops.append(op)
-                all_operations.append(op)
-                continue
-
-            safe_to_update = (
-                current is None
-                or is_authorized
-                or (managed_fp is not None and current_fp == managed_fp)
-            )
-            if not safe_to_update:
-                op = MCPOperation(
-                    target=config_target,
-                    action="CONFLICT",
-                    reason="Existing config was not last written by aikito; review it or rerun with --force",
-                    observed=observed,
-                    desired=desired_entry,
-                    spec=spec,
-                    requires_force=True,
-                    force_identity=target_key,
-                    is_authorized=False,
-                )
-                group_ops.append(op)
-                all_operations.append(op)
-                continue
-
-            action = "CREATE" if current is None else "UPDATE"
-            reason = "New server entry" if current is None else "Configuration updated"
-            requires_force_flag = current is not None and (
-                managed_fp is None or managed_fp != current_fp
-            )
-            op = MCPOperation(
-                target=config_target,
-                action=action,
-                reason=reason,
-                observed=observed,
-                desired=desired_entry,
-                spec=spec,
-                requires_force=requires_force_flag,
-                force_identity=target_key,
-                is_authorized=True,
-                state_transition=(spec.state_key, desired_fp),
-            )
-            group_ops.append(op)
-            all_operations.append(op)
-
-            try:
-                current_text = _update_entry(spec, current_text)
-            except Exception as exc:
-                err_op = MCPOperation(
-                    target=config_target,
-                    action="ERROR",
-                    reason=f"Failed to update entry: {exc}",
-                    spec=spec,
-                    is_authorized=False,
-                )
-                group_ops[-1] = err_op
-                all_operations[-1] = err_op
-
-        file_mutating = current_text != orig_text
-        file_plan = MCPFilePlan(
-            path=canonical_path,
-            physical_identity=phys_id,
-            format=resolved_format,
-            sensitive=file_sensitive,
-            pre_image=file_snapshot,
-            operations=tuple(group_ops),
-            orig_content=orig_text if file_existed else None,
-            final_content=current_text if file_mutating else orig_text,
-        )
-        file_plans.append(file_plan)
-
-    all_operations.extend(unsupported_operations)
-    return MCPPlan(
-        operations=tuple(all_operations),
-        file_plans=tuple(file_plans),
-        state_snapshot_hash=state_snapshot_hash,
-        specs=tuple(raw_specs),
-    )
-
-
-def _map_operation_to_status(op: MCPOperation) -> str:
-    """Map pure MCPOperation action to user-facing inspection status."""
-    if op.action == "NOOP":
-        return "OK"
-    elif op.action == "CREATE":
-        return "MISSING"
-    elif op.action == "UPDATE":
-        return "UPDATE"
-    elif op.action == "CONFLICT":
-        return "DRIFT"
-    elif op.action == "SKIP":
-        if op.spec and op.spec.missing_credential_env:
-            if op.observed and op.observed.exists and op.observed.raw_entry is not None:
-                if _entry_matches_desired(op.spec, op.observed.raw_entry):
-                    return "OK"
-                return "DRIFT"
-        return "SKIP"
-    elif op.action == "ERROR":
-        return "ERROR"
-    return op.action
-
-
-def evaluate_spec_status(
-    spec: AgentSpec,
-    state: dict[str, Any] | None = None,
-    home: Path | None = None,
-    plan: MCPPlan | None = None,
-) -> str:
-    """Evaluates synchronization status for a single AgentSpec via pure MCP planning.
-
-    Guarantees status, diff, and Doctor share the exact same decision engine as sync.
-    Returns one of: 'OK', 'MISSING', 'UPDATE', 'DRIFT', 'ERROR', 'SKIP'.
-    """
-    if plan is not None:
-        for op in plan.operations:
-            if (
-                op.target.agent == spec.agent
-                and op.target.logical_identity == spec.server
-            ):
-                return _map_operation_to_status(op)
-
-    effective_home = home or spec.home
-    if effective_home is None:
-        effective_home = Path.home()
-
-    try:
-        single_plan = build_mcp_plan(
-            aikito_dir=effective_home,
-            home=effective_home,
-            specs=[spec],
-        )
-        if single_plan.operations:
-            return _map_operation_to_status(single_plan.operations[0])
-        return "SKIP"
-    except Exception:
-        return "ERROR"
 
 
 def _backup_file_plan(home: Path, file_plan: MCPFilePlan) -> Path | None:
