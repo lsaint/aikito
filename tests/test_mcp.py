@@ -15,23 +15,25 @@ from unittest.mock import MagicMock, patch
 
 from aikito.agents import is_agent_installed
 from aikito.templating import load_agents_template
+from aikito.mcp.adapters.jsonc import _parse_jsonc
+from aikito.mcp.loader import _agent_detected
+from aikito.mcp.model import _MCPProbeError
+from aikito.mcp.probe import (
+    _LiveLoadingIndicator,
+    _list_remote_mcp_tools,
+    _post_mcp_message,
+    _response_message,
+)
+from aikito.mcp.redact import _redact_probe_error
 from aikito.mcp import (
     BACKUP_DIR,
     STATE_FILE,
     AgentSpec,
     MCPConfigError,
     MCPToolProbeResult,
-    _LiveLoadingIndicator,
-    _MCPProbeError,
-    _agent_detected,
-    _list_remote_mcp_tools,
-    _post_mcp_message,
-    _redact_probe_error,
-    _response_message,
     authenticate_mcp,
     describe_mcp_auth,
     evaluate_spec_status,
-    _parse_jsonc,
     get_agy_json_server,
     get_claude_json_server,
     get_copilot_json_server,
@@ -736,7 +738,7 @@ printf '%s\\n' 'callback: http://127.0.0.1/callback?code=secret'
                 raise OSError("Simulated state file promotion failure")
             return real_replace(src, dst)
 
-        with patch("aikito.mcp.os.replace", side_effect=fake_replace):
+        with patch("aikito.mcp.executor.os.replace", side_effect=fake_replace):
             result = sync_mcp_configs(aikito_dir=self.aikito_dir, home=self.home)
 
         self.assertFalse(result)
@@ -756,7 +758,7 @@ printf '%s\\n' 'callback: http://127.0.0.1/callback?code=secret'
         claude_config = self.home / ".claude.json"
         claude_config.write_text('{"initial": true}\n', encoding="utf-8")
 
-        from aikito.mcp import _atomic_write as real_atomic_write
+        from aikito.mcp.executor import _atomic_write as real_atomic_write
 
         call_count = [0]
 
@@ -766,7 +768,9 @@ printf '%s\\n' 'callback: http://127.0.0.1/callback?code=secret'
                 raise IOError("Disk write error")
             return real_atomic_write(path, content, secure_permissions)
 
-        with patch("aikito.mcp._atomic_write", side_effect=failing_atomic_write):
+        with patch(
+            "aikito.mcp.executor._atomic_write", side_effect=failing_atomic_write
+        ):
             result = sync_mcp_configs(aikito_dir=self.aikito_dir, home=self.home)
 
         self.assertFalse(result)
@@ -794,14 +798,14 @@ printf '%s\\n' 'callback: http://127.0.0.1/callback?code=secret'
             encoding="utf-8",
         )
 
-        from aikito.mcp import _atomic_write as real_atomic_write
+        from aikito.mcp.executor import _atomic_write as real_atomic_write
 
         def fail_on_claude(path, content, secure_permissions=False):
             if Path(path) == claude_config:
                 raise IOError("Cannot write claude config")
             return real_atomic_write(path, content, secure_permissions)
 
-        with patch("aikito.mcp._atomic_write", side_effect=fail_on_claude):
+        with patch("aikito.mcp.executor._atomic_write", side_effect=fail_on_claude):
             result = sync_mcp_configs(aikito_dir=self.aikito_dir, home=self.home)
 
         self.assertFalse(result)
@@ -841,7 +845,7 @@ authorization_env = "TEST_MCP_AUTHORIZATION"
         backup_dir = self.home / ".local/state/aikito/backups"
 
         atomic_writes: list[tuple[Path, bool]] = []
-        from aikito.mcp import _atomic_write as real_atomic_write
+        from aikito.mcp.executor import _atomic_write as real_atomic_write
 
         def tracking_atomic_write(path, content, secure_permissions=False):
             atomic_writes.append((Path(path), secure_permissions))
@@ -849,7 +853,9 @@ authorization_env = "TEST_MCP_AUTHORIZATION"
 
         os.environ["TEST_MCP_TOKEN"] = "token123"
         try:
-            with patch("aikito.mcp._atomic_write", side_effect=tracking_atomic_write):
+            with patch(
+                "aikito.mcp.executor._atomic_write", side_effect=tracking_atomic_write
+            ):
                 result = sync_mcp_configs(aikito_dir=self.aikito_dir, home=self.home)
         finally:
             os.environ.pop("TEST_MCP_TOKEN", None)
@@ -874,7 +880,7 @@ authorization_env = "TEST_MCP_AUTHORIZATION"
         codex_config.write_text(initial_content, encoding="utf-8")
 
         with patch(
-            "aikito.mcp._backup_config",
+            "aikito.mcp.executor._backup_config",
             side_effect=OSError("Simulated backup failure: disk full"),
         ):
             result = sync_mcp_configs(aikito_dir=self.aikito_dir, home=self.home)
@@ -921,13 +927,15 @@ authorization_env = "TEST_MCP_AUTHORIZATION"
             )
 
             atomic_writes: list[tuple[Path, bool]] = []
-            from aikito.mcp import _atomic_write as real_atomic_write
+            from aikito.mcp.executor import _atomic_write as real_atomic_write
 
             def tracking_atomic_write(path, content, secure_permissions=False):
                 atomic_writes.append((Path(path), secure_permissions))
                 return real_atomic_write(path, content, secure_permissions)
 
-            with patch("aikito.mcp._atomic_write", side_effect=tracking_atomic_write):
+            with patch(
+                "aikito.mcp.executor._atomic_write", side_effect=tracking_atomic_write
+            ):
                 result = sync_mcp_configs(aikito_dir=self.aikito_dir, home=self.home)
 
             self.assertTrue(result)
@@ -960,7 +968,7 @@ authorization_env = "TEST_MCP_AUTHORIZATION"
         backup_dir = self.home / BACKUP_DIR
         output: list[str] = []
 
-        from aikito.mcp import _atomic_write as real_atomic_write
+        from aikito.mcp.executor import _atomic_write as real_atomic_write
 
         codex_write_count = 0
 
@@ -975,7 +983,9 @@ authorization_env = "TEST_MCP_AUTHORIZATION"
                     raise OSError("Simulated rollback failure")
             return real_atomic_write(path, content, secure_permissions)
 
-        with patch("aikito.mcp._atomic_write", side_effect=fail_write_and_rollback):
+        with patch(
+            "aikito.mcp.executor._atomic_write", side_effect=fail_write_and_rollback
+        ):
             result = sync_mcp_configs(
                 aikito_dir=self.aikito_dir,
                 home=self.home,
@@ -1404,7 +1414,7 @@ class MCPToolProbeTest(unittest.TestCase):
             }
         ).encode()
         with patch(
-            "aikito.mcp._post_mcp_message",
+            "aikito.mcp.probe._post_mcp_message",
             side_effect=[
                 (initialize_response, "session-id"),
                 (b"", ""),
@@ -1447,7 +1457,7 @@ env_http_headers = { Authorization = "TEST_AUTH" }
             with (
                 patch.dict(os.environ, {"TEST_AUTH": "Basic secret"}),
                 patch(
-                    "aikito.mcp._list_remote_mcp_tools",
+                    "aikito.mcp.probe._list_remote_mcp_tools",
                     return_value=("one", "two"),
                 ) as list_tools,
             ):
@@ -1490,7 +1500,7 @@ env_http_headers = { Authorization = "TEST_AUTH" }
                     with (
                         self.subTest(failure=type(failure).__name__),
                         patch(
-                            "aikito.mcp._list_remote_mcp_tools",
+                            "aikito.mcp.probe._list_remote_mcp_tools",
                             side_effect=failure,
                         ),
                     ):
@@ -1532,7 +1542,7 @@ env_http_headers = { Authorization = "TEST_AUTH" }
             with (
                 patch.dict(os.environ, {"TEST_AUTH": "Basic echoed-token-123"}),
                 patch(
-                    "aikito.mcp._post_mcp_message",
+                    "aikito.mcp.probe._post_mcp_message",
                     return_value=(error_response, ""),
                 ),
             ):
@@ -1563,7 +1573,7 @@ env_http_headers = { Authorization = "TEST_AUTH" }
             )
             with (
                 patch.dict(os.environ, {"TEST_AUTH": "Basic secret"}),
-                patch("aikito.mcp._list_remote_mcp_tools") as list_tools,
+                patch("aikito.mcp.probe._list_remote_mcp_tools") as list_tools,
             ):
                 result = probe_mcp_tools(spec)
 
@@ -1592,7 +1602,7 @@ env_http_headers = { Authorization = "TEST_AUTH" }
             with (
                 patch.dict(os.environ, {"TEST_AUTH": "Basic secret"}),
                 patch(
-                    "aikito.mcp._list_remote_mcp_tools",
+                    "aikito.mcp.probe._list_remote_mcp_tools",
                     return_value=("one",),
                 ) as list_tools,
             ):
@@ -1604,8 +1614,8 @@ env_http_headers = { Authorization = "TEST_AUTH" }
 
     def test_probe_sends_user_agent_header(self) -> None:
         with (
-            patch("aikito.mcp.build_opener") as mock_opener,
-            patch("aikito.mcp.Request") as mock_request,
+            patch("aikito.mcp.probe.build_opener") as mock_opener,
+            patch("aikito.mcp.probe.Request") as mock_request,
         ):
             mock_resp = unittest.mock.MagicMock()
             mock_resp.read.return_value = b"{}"
@@ -1639,8 +1649,8 @@ env_http_headers = { Authorization = "TEST_AUTH" }
         )
 
         with (
-            patch("aikito.mcp.build_opener") as mock_opener,
-            patch("aikito.mcp.time.sleep") as mock_sleep,
+            patch("aikito.mcp.probe.build_opener") as mock_opener,
+            patch("aikito.mcp.probe.time.sleep") as mock_sleep,
         ):
             mock_opener.return_value.open.side_effect = [http_429, mock_cm]
             body, _ = _post_mcp_message(
@@ -1658,8 +1668,8 @@ env_http_headers = { Authorization = "TEST_AUTH" }
         http_401 = HTTPError("https://example.com/mcp", 401, "Unauthorized", {}, err_fp)
 
         with (
-            patch("aikito.mcp.build_opener") as mock_opener,
-            patch("aikito.mcp.time.sleep") as mock_sleep,
+            patch("aikito.mcp.probe.build_opener") as mock_opener,
+            patch("aikito.mcp.probe.time.sleep") as mock_sleep,
         ):
             mock_opener.return_value.open.side_effect = http_401
             with self.assertRaises(_MCPProbeError):
@@ -1711,15 +1721,15 @@ class AgentDetectionTest(unittest.TestCase):
     def test_marker_directory_counts_as_installed(self) -> None:
         (self.home / ".grok").mkdir()
 
-        with patch("aikito.mcp.shutil.which", return_value=None):
+        with patch("aikito.agents.shutil.which", return_value=None):
             self.assertIs(is_agent_installed("grok", self.home), True)
 
     def test_binary_counts_as_installed(self) -> None:
-        with patch("aikito.mcp.shutil.which", return_value="/usr/local/bin/grok"):
+        with patch("aikito.agents.shutil.which", return_value="/usr/local/bin/grok"):
             self.assertIs(is_agent_installed("grok", self.home), True)
 
     def test_absent_agent_is_not_installed(self) -> None:
-        with patch("aikito.mcp.shutil.which", return_value=None):
+        with patch("aikito.agents.shutil.which", return_value=None):
             self.assertIs(is_agent_installed("grok", self.home), False)
 
     def test_unknown_agent_returns_none(self) -> None:
@@ -1729,13 +1739,13 @@ class AgentDetectionTest(unittest.TestCase):
         (self.home / ".grok").mkdir()
         spec = self._spec("grok", self.home / ".grok" / "rules" / "config.toml")
 
-        with patch("aikito.mcp.shutil.which", return_value=None):
+        with patch("aikito.agents.shutil.which", return_value=None):
             self.assertTrue(_agent_detected(spec))
 
     def test_agent_detected_false_when_not_installed(self) -> None:
         spec = self._spec("grok", self.home / ".grok" / "rules" / "config.toml")
 
-        with patch("aikito.mcp.shutil.which", return_value=None):
+        with patch("aikito.agents.shutil.which", return_value=None):
             self.assertFalse(_agent_detected(spec))
 
     def test_agent_detected_falls_back_for_unknown_agent(self) -> None:
@@ -1814,7 +1824,7 @@ class AgentDetectionTest(unittest.TestCase):
             time.sleep(0.08)
             return MCPToolProbeResult("codex", "OK", "env", ("tool1",))
 
-        with patch("aikito.mcp.probe_mcp_tools", side_effect=_slow_probe):
+        with patch("aikito.mcp.probe.probe_mcp_tools", side_effect=_slow_probe):
             results = probe_mcp_tools_for_specs(
                 [spec], animate=True, stream=stream, use_color=True
             )

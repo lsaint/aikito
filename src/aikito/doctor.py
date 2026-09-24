@@ -51,10 +51,9 @@ from .instructions import (
 from .diagnostics import Finding, FindingAction
 from .global_skills import build_global_skill_batch, plan_global_skills
 from .link import classify_symlink  # noqa: F401
+from .mcp.adapters.jsonc import _load_document, _parse_jsonc
 from .mcp import (
     MCPConfigError,
-    _load_document,
-    _parse_jsonc,
     build_mcp_plan,
     evaluate_spec_status,
     load_agent_specs,

@@ -2148,18 +2148,7 @@ def add_mcp(
         )
         try:
             # Preflight dry-run check: ensure no agent runtime has a conflict before modifying any agent files
-            mcp_plan = None
-            try:
-                mcp_plan = mcp.build_mcp_plan(
-                    aikito_dir=aikito_dir, home=home, force=False
-                )
-            except Exception:
-                if hasattr(mcp.sync_mcp_configs, "assert_called") or hasattr(
-                    mcp.sync_mcp_configs, "return_value"
-                ):
-                    mcp_plan = None
-                else:
-                    raise
+            mcp_plan = mcp.build_mcp_plan(aikito_dir=aikito_dir, home=home, force=False)
             preflight_buf = io.StringIO()
             dry_ok = mcp.sync_mcp_configs(
                 aikito_dir=aikito_dir,

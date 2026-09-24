@@ -62,24 +62,10 @@ def _atomic_write(path: Path, content: str, secure_permissions: bool = False) ->
     os.replace(temp_path, path)
 
 
-def _get_atomic_write() -> Callable[..., None]:
-    mcp_mod = sys.modules.get("aikito.mcp")
-    if mcp_mod is not None and hasattr(mcp_mod, "_atomic_write"):
-        return mcp_mod._atomic_write
-    return _atomic_write
-
-
-def _get_backup_config() -> Callable[..., Path | None]:
-    mcp_mod = sys.modules.get("aikito.mcp")
-    if mcp_mod is not None and hasattr(mcp_mod, "_backup_config"):
-        return mcp_mod._backup_config
-    return _backup_config
-
-
 def _save_state(home: Path, state: dict[str, Any]) -> None:
     path = home / STATE_FILE
     content = json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    _get_atomic_write()(path, content)
+    _atomic_write(path, content)
 
 
 def _backup_config(home: Path, spec: AgentSpec) -> Path | None:
@@ -228,8 +214,8 @@ def execute_mcp_plan(
     backup_error: Exception | None = None
     failed_fp: MCPFilePlan | None = None
 
-    atomic_write_fn = _get_atomic_write()
-    backup_config_fn = _get_backup_config()
+    atomic_write_fn = _atomic_write
+    backup_config_fn = _backup_config
 
     for fp in mutating_files:
         if not fp.should_backup:

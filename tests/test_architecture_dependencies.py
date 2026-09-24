@@ -156,24 +156,37 @@ class ArchitectureDependencyTests(unittest.TestCase):
             "probe_mcp_tools",
             "probe_mcp_tools_for_specs",
             "run_live_mcp_commands",
-            "_LiveLoadingIndicator",
-            "_MCPProbeError",
-            "_RejectRedirects",
-            "_agent_detected",
-            "_backup_config",
-            "_atomic_write",
-            "_list_remote_mcp_tools",
-            "_load_basic_token_auth",
-            "_load_document",
-            "_load_state",
-            "_parse_jsonc",
-            "_post_mcp_message",
-            "_read_entry",
-            "_redact_probe_error",
-            "_response_message",
         }
         self.assertTrue(hasattr(aikito.mcp, "__all__"))
         self.assertEqual(set(aikito.mcp.__all__), expected_exports)
+
+    def test_mcp_submodules_do_not_resolve_through_package(self) -> None:
+        """Gate P1-A: MCP submodules must not look symbols up via sys.modules."""
+        violations = [
+            str(path.relative_to(SRC))
+            for path in sorted((SRC / "mcp").rglob("*.py"))
+            if "sys.modules" in path.read_text(encoding="utf-8")
+        ]
+        self.assertEqual(violations, [])
+
+    def test_no_production_import_of_private_mcp_symbols_from_package(self) -> None:
+        """Gate P1-A: private MCP helpers are imported from their owning submodule."""
+        violations: list[str] = []
+        for path in sorted(SRC.rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ImportFrom):
+                    continue
+                if node.level == 1 and path.parent == SRC and node.module == "mcp":
+                    pass
+                elif node.module != "aikito.mcp":
+                    continue
+                violations.extend(
+                    f"{path.relative_to(SRC)}:{node.lineno} {alias.name}"
+                    for alias in node.names
+                    if alias.name.startswith("_")
+                )
+        self.assertEqual(violations, [])
 
     def test_no_cross_module_private_project_imports(self) -> None:
         """Gate P1-B: No cross-module imports of private symbols from project modules."""

@@ -783,7 +783,8 @@ class TestAikitoRemoveMCPLifecycle(unittest.TestCase):
 
     def test_remove_mcp_with_sync_removes_from_agent_and_state(self) -> None:
         import json
-        from aikito.mcp import _load_state, sync_mcp_configs
+        from aikito.mcp import sync_mcp_configs
+        from aikito.mcp.executor import _load_state
 
         claude_dir = self.home / ".claude"
         claude_dir.mkdir(parents=True)

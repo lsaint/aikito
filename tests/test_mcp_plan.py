@@ -502,7 +502,9 @@ agents = ["claude"]
         )
         plan = build_mcp_plan(self.ws, self.home, specs=[spec])
 
-        with patch("aikito.mcp._backup_config", side_effect=OSError("Disk full")):
+        with patch(
+            "aikito.mcp.executor._backup_config", side_effect=OSError("Disk full")
+        ):
             result = execute_mcp_plan(plan, self.home)
 
         self.assertFalse(result.success)
@@ -540,7 +542,7 @@ agents = ["claude"]
         self.assertEqual(len(plan.file_plans), 2)
 
         original_atomic_write = __import__(
-            "aikito.mcp", fromlist=["_atomic_write"]
+            "aikito.mcp.executor", fromlist=["_atomic_write"]
         )._atomic_write
 
         call_count = [0]
@@ -553,7 +555,7 @@ agents = ["claude"]
                 raise OSError("Write error on file 2")
             original_atomic_write(path, content, secure_permissions=secure_permissions)
 
-        with patch("aikito.mcp._atomic_write", side_effect=failing_write):
+        with patch("aikito.mcp.executor._atomic_write", side_effect=failing_write):
             result = execute_mcp_plan(plan, self.home)
 
         self.assertFalse(result.success)
@@ -617,7 +619,7 @@ agents = ["claude"]
         plan = build_mcp_plan(self.ws, self.home, specs=[spec1, spec2])
 
         original_atomic_write = __import__(
-            "aikito.mcp", fromlist=["_atomic_write"]
+            "aikito.mcp.executor", fromlist=["_atomic_write"]
         )._atomic_write
 
         write_calls = [0]
@@ -635,7 +637,8 @@ agents = ["claude"]
             original_atomic_write(path, content, secure_permissions=secure_permissions)
 
         with patch(
-            "aikito.mcp._atomic_write", side_effect=simulate_write_and_rollback_failure
+            "aikito.mcp.executor._atomic_write",
+            side_effect=simulate_write_and_rollback_failure,
         ):
             result = execute_mcp_plan(plan, self.home)
 

@@ -56,7 +56,7 @@ class WorkspaceInitGuidanceTest(unittest.TestCase):
                 },
             ),
             patch("aikito.templating.shutil.which", return_value=None),
-            patch("aikito.mcp.shutil.which", return_value=None),
+            patch("aikito.agents.shutil.which", return_value=None),
             patch("sys.stdout", output),
         ):
             args.func(args)
@@ -2801,6 +2801,7 @@ url = "http://custom.example.com"
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
             patch.object(Path, "home", return_value=self.home),
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+            patch("aikito.mcp.build_mcp_plan", return_value=None),
             patch("aikito.mcp.sync_mcp_configs", return_value=True) as mock_sync,
         ):
             args = AIKITO_CLI.build_parser().parse_args(
