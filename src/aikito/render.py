@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .agents import AGENT_INSTALL_MARKERS
 from .diagnostics import Finding
+from .plan_observation import OperationEffect, safe_observe_plan
 from .project import (
     ProjectSummary,
     evaluate_project_health,
@@ -1239,3 +1240,74 @@ def render_finding_lines(
         command = _colorize(action.command, COLOR_DIM, use_color)
         lines.append(f"      {action.label}: {command}")
     return lines
+
+
+def render_workspace_sync_plan(plan: Any, *, verbose: bool = False) -> str:
+    """Render a concise or verbose textual summary of a WorkspaceSyncPlan.
+
+    Consumes observation, findings, and operation views without embedding presentation
+    formatting inside the plan domain model.
+    """
+    lines = [
+        "Sync plan",
+        "",
+        f"  Changes:   {plan.changes}",
+        f"  Unchanged: {plan.unchanged}",
+        f"  Offline:   {plan.offline}",
+        f"  Warnings:  {len(plan.warnings)}",
+        f"  Conflicts: {len(plan.conflicts)}",
+        f"  Errors:    {len(plan.errors)}",
+    ]
+    important = (*plan.warnings, *plan.conflicts, *plan.errors)
+    if important:
+        lines.extend(("", "Needs attention:"))
+        lines.extend(f"  {line}" for line in important)
+    lines.extend(
+        (
+            "",
+            "Safe to apply" if plan.can_apply else "Blocked; no changes were made",
+        )
+    )
+    if verbose:
+        details: list[str] = []
+        global_plan = plan.global_plan
+        detail_sources = (
+            (
+                global_plan.bundled_refresh_plan,
+                "  [{a}] bundled skill '{v.resource_name}'",
+            ),
+            (global_plan.skill_plan, "  [{a}] {v.source} -> {v.target}"),
+            (global_plan.instruction_plan, "  [{a}] {v.source} -> {v.target}"),
+            (plan.subagent_plan, "  [{a}] {v.agent}/{v.resource_name} -> {v.target}"),
+            (plan.mcp_plan, "  [{a}] {v.agent}/{v.resource_name} ({v.reason})"),
+        )
+        for child, template in detail_sources:
+            child_obs = safe_observe_plan(child) if child is not None else None
+            if child_obs is None:
+                continue
+            details.extend(
+                template.format(a=view.domain_action, v=view)
+                for view in child_obs.operations
+                if view.effect != OperationEffect.NOOP
+            )
+        for entry in plan.project_entries:
+            if entry.binding_status == "offline":
+                candidates_str = ", ".join(entry.offline_paths) or "-"
+                details.append(
+                    f"  Project '{entry.project_name}': offline on this host ({candidates_str}), skipping."
+                )
+            elif entry.binding_status == "unbound":
+                details.append(
+                    f"  Project '{entry.project_name}': no configured paths (unbound), skipping."
+                )
+            elif entry.binding_status == "active" and entry.batch:
+                p_skill_obs = safe_observe_plan(entry.batch.skill_plan)
+                if p_skill_obs is not None:
+                    for view in p_skill_obs.operations:
+                        if view.effect != OperationEffect.NOOP:
+                            details.append(
+                                f"  [{view.domain_action}] {view.project}/{view.resource_name} -> {view.target}"
+                            )
+        if details:
+            lines.extend(("", "Details", "", *details))
+    return "\n".join(lines)

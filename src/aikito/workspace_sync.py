@@ -938,89 +938,10 @@ class WorkspaceSyncPlan:
         return self.observe()
 
     def render(self, *, verbose: bool = False) -> str:
-        lines = [
-            "Sync plan",
-            "",
-            f"  Changes:   {self.changes}",
-            f"  Unchanged: {self.unchanged}",
-            f"  Offline:   {self.offline}",
-            f"  Warnings:  {len(self.warnings)}",
-            f"  Conflicts: {len(self.conflicts)}",
-            f"  Errors:    {len(self.errors)}",
-        ]
-        important = (*self.warnings, *self.conflicts, *self.errors)
-        if important:
-            lines.extend(("", "Needs attention:"))
-            lines.extend(f"  {line}" for line in important)
-        lines.extend(
-            (
-                "",
-                "Safe to apply" if self.can_apply else "Blocked; no changes were made",
-            )
-        )
-        if verbose:
-            details: list[str] = []
-            if self.global_plan.bundled_refresh_plan:
-                b_obs = safe_observe_plan(self.global_plan.bundled_refresh_plan)
-                if b_obs is not None:
-                    for view in b_obs.operations:
-                        if view.effect != OperationEffect.NOOP:
-                            details.append(
-                                f"  [{view.domain_action}] bundled skill '{view.resource_name}'"
-                            )
-            if self.global_plan.skill_plan:
-                s_obs = safe_observe_plan(self.global_plan.skill_plan)
-                if s_obs is not None:
-                    for view in s_obs.operations:
-                        if view.effect != OperationEffect.NOOP:
-                            details.append(
-                                f"  [{view.domain_action}] {view.source} -> {view.target}"
-                            )
-            if self.global_plan.instruction_plan:
-                i_obs = safe_observe_plan(self.global_plan.instruction_plan)
-                if i_obs is not None:
-                    for view in i_obs.operations:
-                        if view.effect != OperationEffect.NOOP:
-                            details.append(
-                                f"  [{view.domain_action}] {view.source} -> {view.target}"
-                            )
-            if self.subagent_plan:
-                sub_obs = safe_observe_plan(self.subagent_plan)
-                if sub_obs is not None:
-                    for view in sub_obs.operations:
-                        if view.effect != OperationEffect.NOOP:
-                            details.append(
-                                f"  [{view.domain_action}] {view.agent}/{view.resource_name} -> {view.target}"
-                            )
-            if self.mcp_plan:
-                mcp_obs = safe_observe_plan(self.mcp_plan)
-                if mcp_obs is not None:
-                    for view in mcp_obs.operations:
-                        if view.effect != OperationEffect.NOOP:
-                            details.append(
-                                f"  [{view.domain_action}] {view.agent}/{view.resource_name} ({view.reason})"
-                            )
-            for entry in self.project_entries:
-                if entry.binding_status == "offline":
-                    candidates_str = ", ".join(entry.offline_paths) or "-"
-                    details.append(
-                        f"  Project '{entry.project_name}': offline on this host ({candidates_str}), skipping."
-                    )
-                elif entry.binding_status == "unbound":
-                    details.append(
-                        f"  Project '{entry.project_name}': no configured paths (unbound), skipping."
-                    )
-                elif entry.binding_status == "active" and entry.batch:
-                    p_skill_obs = safe_observe_plan(entry.batch.skill_plan)
-                    if p_skill_obs is not None:
-                        for view in p_skill_obs.operations:
-                            if view.effect != OperationEffect.NOOP:
-                                details.append(
-                                    f"  [{view.domain_action}] {view.project}/{view.resource_name} -> {view.target}"
-                                )
-            if details:
-                lines.extend(("", "Details", "", *details))
-        return "\n".join(lines)
+        """Render presentation summary via aikito.render.render_workspace_sync_plan."""
+        from .render import render_workspace_sync_plan
+
+        return render_workspace_sync_plan(self, verbose=verbose)
 
 
 @dataclass(frozen=True)

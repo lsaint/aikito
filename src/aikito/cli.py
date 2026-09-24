@@ -103,6 +103,7 @@ from .render import (
     render_skills_table,
     render_status_report,
     render_subagents_status_table,
+    render_workspace_sync_plan,
 )
 from .status import (
     collect_mcp_details,
@@ -478,7 +479,7 @@ def cmd_sync_all(args: argparse.Namespace) -> None:
         build_subagent_plan_fn=build_subagent_plan,
         build_mcp_plan_fn=build_mcp_plan,
     )
-    print(plan.render(verbose=verbose))
+    print(render_workspace_sync_plan(plan, verbose=verbose))
     if not plan.can_apply:
         sys.exit(1)
     if dry_run:
