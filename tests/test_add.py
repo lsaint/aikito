@@ -1,3 +1,4 @@
+from layout_helpers import read_subagents, write_agents
 import io
 import json
 import os
@@ -21,7 +22,7 @@ from aikito.add import (
 )
 from aikito.compat import is_windows
 from aikito.init import init_project, init_workspace
-from aikito.skill_state import SkillWriterLock
+from aikito.skill_state import WorkspaceWriterLock
 from aikito.templating import load_agents_template
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -113,7 +114,7 @@ class TestAikitoAddSkill(unittest.TestCase):
         observed_depths: list[int] = []
 
         def sync_while_locked(*args, **kwargs) -> bool:
-            observed_depths.append(SkillWriterLock._lock_depth)
+            observed_depths.append(WorkspaceWriterLock._lock_depth)
             return True
 
         with patch("aikito.add.sync_global_resources", side_effect=sync_while_locked):
@@ -126,7 +127,7 @@ class TestAikitoAddSkill(unittest.TestCase):
 
         self.assertTrue(success)
         self.assertEqual(observed_depths, [1])
-        self.assertEqual(SkillWriterLock._lock_depth, 0)
+        self.assertEqual(WorkspaceWriterLock._lock_depth, 0)
 
     def test_add_skill_duplicate_rejected(self) -> None:
         add_skill(self.aikito_dir, self.home, name="test-skill")
@@ -1236,9 +1237,7 @@ class TestAikitoAddSubagent(unittest.TestCase):
         self.home = Path(self.tmp_dir.name)
         self.aikito_dir = self.home / "aikito"
         init_workspace(self.aikito_dir, self.home)
-        (self.aikito_dir / "agents.toml").write_text(
-            load_agents_template(), encoding="utf-8"
-        )
+        write_agents(self.aikito_dir, load_agents_template())
 
     def tearDown(self) -> None:
         self.tmp_dir.cleanup()
@@ -1259,9 +1258,7 @@ class TestAikitoAddSubagent(unittest.TestCase):
         content = subagent_file.read_text(encoding="utf-8")
         self.assertIn("# Code Reviewer", content)
 
-        subagents_toml = self.aikito_dir / "subagents.toml"
-        with subagents_toml.open("rb") as f:
-            data = tomllib.load(f)
+        data = tomllib.loads(read_subagents(self.aikito_dir))
         subs = data.get("subagents", {})
         self.assertIn("code-reviewer", subs)
         self.assertEqual(
@@ -1285,9 +1282,7 @@ class TestAikitoAddSubagent(unittest.TestCase):
             )
         self.assertTrue(success)
 
-        subagents_toml = self.aikito_dir / "subagents.toml"
-        with subagents_toml.open("rb") as f:
-            data = tomllib.load(f)
+        data = tomllib.loads(read_subagents(self.aikito_dir))
         subs = data.get("subagents", {})
         self.assertIn("tester", subs)
         self.assertEqual(subs["tester"]["agents"], ["claude-code", "codex"])
@@ -1330,8 +1325,7 @@ class TestAikitoAddSubagent(unittest.TestCase):
         self.assertIn("# Code Reviewer", content)
         self.assertIn("Please review diffs carefully.", content)
 
-        subagents_toml = self.aikito_dir / "subagents.toml"
-        data = tomllib.loads(subagents_toml.read_text(encoding="utf-8"))
+        data = tomllib.loads(read_subagents(self.aikito_dir))
         self.assertIn("code-reviewer", data["subagents"])
         self.assertEqual(
             data["subagents"]["code-reviewer"]["description"],
@@ -1360,9 +1354,7 @@ class TestAikitoAddSubagent(unittest.TestCase):
 
         subagent_file = self.aikito_dir / "subagents" / "security-guard.md"
         self.assertTrue(subagent_file.is_file())
-        data = tomllib.loads(
-            (self.aikito_dir / "subagents.toml").read_text(encoding="utf-8")
-        )
+        data = tomllib.loads(read_subagents(self.aikito_dir))
         self.assertIn("security-guard", data["subagents"])
         self.assertEqual(
             data["subagents"]["security-guard"]["description"],
@@ -1392,9 +1384,7 @@ class TestAikitoAddSubagent(unittest.TestCase):
             )
         self.assertTrue(success)
 
-        data = tomllib.loads(
-            (self.aikito_dir / "subagents.toml").read_text(encoding="utf-8")
-        )
+        data = tomllib.loads(read_subagents(self.aikito_dir))
         self.assertIn("auditor", data["subagents"])
         auditor_sec = data["subagents"]["auditor"]
         self.assertEqual(auditor_sec["agents"], ["github-copilot"])
@@ -1426,7 +1416,7 @@ class TestAikitoAddSubagent(unittest.TestCase):
         with redirect_stderr(stderr_buf):
             success = add_subagent(self.aikito_dir, self.home, name=None)
         self.assertFalse(success)
-        self.assertIn("Subagent name is required", stderr_buf.getvalue())
+        self.assertIn("Subagent name cannot be empty", stderr_buf.getvalue())
 
         # --force without --from
         stderr_buf = io.StringIO()
@@ -1495,9 +1485,7 @@ class TestAikitoAddSubagent(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("Refactorer V2", content)
-        data = tomllib.loads(
-            (self.aikito_dir / "subagents.toml").read_text(encoding="utf-8")
-        )
+        data = tomllib.loads(read_subagents(self.aikito_dir))
         self.assertEqual(
             data["subagents"]["refactorer"]["description"],
             "Upgraded refactorer persona",
@@ -1554,10 +1542,8 @@ class TestAikitoAddSubagent(unittest.TestCase):
             )
         self.assertTrue(success)
 
-        # Check subagents.toml: agents and description must NOT be reset to defaults
-        data = tomllib.loads(
-            (self.aikito_dir / "subagents.toml").read_text(encoding="utf-8")
-        )
+        # Check metadata: agents and description must retain their existing values.
+        data = tomllib.loads(read_subagents(self.aikito_dir))
         spec = data["subagents"]["specialist"]
         self.assertEqual(spec["agents"], ["claude-code"])
         self.assertEqual(spec["description"], "Specialized reviewer")
@@ -1619,8 +1605,7 @@ class TestAikitoAddSubagent(unittest.TestCase):
         self.assertFalse(success)
         err_msg = stderr_buf.getvalue()
         self.assertIn("[ERROR]", err_msg)
-        self.assertIn("multiple target agents are specified", err_msg)
-        self.assertIn("--agents", err_msg)
+        self.assertIn("Top-level platform options require one target Agent", err_msg)
 
     def test_add_subagent_top_level_model_passthrough_single_agent(self) -> None:
         src = self.home / "single-agent.md"
@@ -1637,9 +1622,7 @@ class TestAikitoAddSubagent(unittest.TestCase):
                 agents=["claude-code"],
             )
         self.assertTrue(success)
-        data = tomllib.loads(
-            (self.aikito_dir / "subagents.toml").read_text(encoding="utf-8")
-        )
+        data = tomllib.loads(read_subagents(self.aikito_dir))
         self.assertIn("claude-reviewer", data["subagents"])
         sec = data["subagents"]["claude-reviewer"]
         self.assertEqual(sec["agents"], ["claude-code"])
@@ -1689,9 +1672,7 @@ class TestAikitoAddSubagent(unittest.TestCase):
                 from_source=src,
             )
         self.assertTrue(success)
-        data = tomllib.loads(
-            (self.aikito_dir / "subagents.toml").read_text(encoding="utf-8")
-        )
+        data = tomllib.loads(read_subagents(self.aikito_dir))
         sec = data["subagents"]["multi-helper"]
         self.assertEqual(sec["agents"], ["codex", "claude-code"])
         self.assertEqual(sec["codex"]["model"], "gpt-4o")
@@ -1729,9 +1710,7 @@ class TestAikitoAddMCP(unittest.TestCase):
         self.home = Path(self.tmp_dir.name)
         self.aikito_dir = self.home / "aikito"
         init_workspace(self.aikito_dir, self.home)
-        (self.aikito_dir / "agents.toml").write_text(
-            load_agents_template(), encoding="utf-8"
-        )
+        write_agents(self.aikito_dir, load_agents_template())
 
     def tearDown(self) -> None:
         self.tmp_dir.cleanup()

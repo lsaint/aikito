@@ -454,9 +454,6 @@ class WorkspaceWriterLock:
         self.release()
 
 
-SkillWriterLock = WorkspaceWriterLock
-
-
 @dataclass
 class SkillTransactionJournal:
     """Persistent transaction record for rollback and recovery passes."""

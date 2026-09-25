@@ -14,12 +14,12 @@ from .add import (
     _atomic_write_text,
     _check_workspace_initialized,
     _display_path,
-    _remove_subagent_from_toml,
     _update_skills_in_toml,
     validate_resource_name,
 )
 from .compat import require_symlink_support
 from .project_sync import sync_project
+from .skill_state import WorkspaceWriterLock
 from .skill_runtime import execute_selection_transaction
 from .templating import BUNDLED_SKILL_NAMES
 from .workspace_sync import sync_global_resources
@@ -377,127 +377,55 @@ def remove_subagent(
     name: str,
     sync: bool = False,
 ) -> bool:
-    """
-    Remove a subagent instructions file and unregister it from workspace subagents.toml.
+    """Remove one canonical subagent file and optionally prune native configs."""
+    from .workspace_layout import (
+        WorkspaceLayoutError,
+        parse_subagent_file,
+        require_current_layout,
+    )
 
-    If sync=True, also prune the subagent from target agent configurations.
-    """
     aikito_dir = aikito_dir.expanduser().resolve()
     home = home.expanduser().resolve()
-
-    ws_error = _check_workspace_initialized(aikito_dir)
-    if ws_error:
-        print(f"[ERROR] {ws_error}", file=sys.stderr)
+    if not aikito_dir.is_dir():
+        print(
+            f"[ERROR] Aikito workspace directory not found: {aikito_dir}",
+            file=sys.stderr,
+        )
         return False
-
-    if not name or not isinstance(name, str) or not name.strip():
-        print("[ERROR] Subagent name cannot be empty.", file=sys.stderr)
+    try:
+        require_current_layout(aikito_dir)
+    except WorkspaceLayoutError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
         return False
-
-    name_clean = name.strip()
+    name_clean = name.strip() if isinstance(name, str) else ""
     name_error = validate_resource_name(name_clean, "subagent")
     if name_error:
         print(f"[ERROR] {name_error}", file=sys.stderr)
         return False
-
-    subagents_dir = aikito_dir / "subagents"
-    subagent_file = subagents_dir / f"{name_clean}.md"
-    subagents_toml = aikito_dir / "subagents.toml"
-
-    original_toml_text = ""
-    has_subagent_in_toml = False
-    new_toml_text = ""
-
-    if subagents_toml.is_file():
-        try:
-            original_toml_text = subagents_toml.read_text(encoding="utf-8")
-            data = tomllib.loads(original_toml_text)
-            subagents_table = data.get("subagents", {})
-            if isinstance(subagents_table, dict) and name_clean in subagents_table:
-                has_subagent_in_toml = True
-                new_toml_text = _remove_subagent_from_toml(
-                    original_toml_text, name_clean
-                )
-                chk = tomllib.loads(new_toml_text)
-                chk_sub = chk.get("subagents", {})
-                if isinstance(chk_sub, dict) and name_clean in chk_sub:
-                    raise ValueError(f"Failed to remove [subagents.{name_clean}] table")
-        except Exception as exc:
-            print(
-                f"[ERROR] Failed to read subagents configuration: {exc}",
-                file=sys.stderr,
-            )
-            return False
-
-    has_subagent_file = subagent_file.is_file()
-
-    if not has_subagent_in_toml and not has_subagent_file:
+    subagent_file = aikito_dir / "subagents" / f"{name_clean}.md"
+    if not subagent_file.exists():
         print(
-            f"[ERROR] Subagent '{name_clean}' does not exist in workspace ({_display_path(aikito_dir, home)}).",
+            f"[ERROR] Subagent '{name_clean}' does not exist in workspace.",
             file=sys.stderr,
         )
         return False
-
-    # Transactional execution
-    backup_dir: Optional[Path] = None
-    staged_backup: Optional[Path] = None
-    if has_subagent_file:
-        backup_dir = Path(
-            tempfile.mkdtemp(
-                prefix=f".{name_clean}.rm_backup.",
-                dir=subagent_file.parent,
-            )
-        )
-        staged_backup = backup_dir / subagent_file.name
-        try:
-            subagent_file.replace(staged_backup)
-        except Exception as exc:
-            shutil.rmtree(backup_dir, ignore_errors=True)
-            print(
-                f"[ERROR] Failed to move subagent instructions file for removal: {exc}",
-                file=sys.stderr,
-            )
-            return False
-
-    if has_subagent_in_toml:
-        try:
-            _atomic_write_text(subagents_toml, new_toml_text, encoding="utf-8")
-        except Exception as exc:
-            if backup_dir and staged_backup and staged_backup.exists():
-                staged_backup.replace(subagent_file)
-                shutil.rmtree(backup_dir, ignore_errors=True)
-            print(
-                f"[ERROR] Failed to update subagents configuration: {exc}",
-                file=sys.stderr,
-            )
-            return False
-
-    if backup_dir:
-        shutil.rmtree(backup_dir, ignore_errors=True)
-        print(f"[DELETE FILE] {_display_path(subagent_file, home)}")
-
-    if has_subagent_in_toml:
-        print(
-            f"[UPDATE FILE] {_display_path(subagents_toml, home)} (unregistered subagent '{name_clean}')"
-        )
-
-    print(f"\n[SUCCESS] Removed subagent '{name_clean}'.")
-
+    try:
+        parse_subagent_file(subagent_file)
+        with WorkspaceWriterLock(home):
+            subagent_file.unlink()
+    except (OSError, WorkspaceLayoutError) as exc:
+        print(f"[ERROR] Failed to remove subagent: {exc}", file=sys.stderr)
+        return False
+    print(f"[DELETE FILE] {_display_path(subagent_file, home)}")
+    print(f"[SUCCESS] Removed subagent '{name_clean}'.")
     if sync:
         from .subagent import SubagentConfigError, sync_subagent_configs
 
         try:
-            sync_ok = sync_subagent_configs(
-                aikito_dir=aikito_dir,
-                home=home,
-                prune=True,
-            )
-            if not sync_ok:
-                return False
+            return sync_subagent_configs(aikito_dir=aikito_dir, home=home, prune=True)
         except SubagentConfigError as exc:
             print(f"[ERROR] {exc}", file=sys.stderr)
             return False
-
     return True
 
 

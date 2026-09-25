@@ -19,7 +19,9 @@ source checkout separate from the workspace too:
 
 ```text
 <workspace>/
-├── agents.toml + skills.toml + subagents.toml
+├── layout.toml + skills.toml
+├── agents/*.toml
+├── subagents/*.md
 ├── global/AGENTS.md
 ├── skills/ + subagents/ + mcps/
 ├── memory/

@@ -260,7 +260,7 @@ class ConsoleData:
             return {
                 "name": row.display_name,
                 "kind": "properties",
-                "source": str(self.aikito_dir / "agents.toml"),
+                "source": str(self.aikito_dir / "agents"),
                 "scope": "Target",
                 "trust": "Canonical",
                 "content": _json_value(row),

@@ -57,7 +57,7 @@ from .project_sync import (
     apply_project_sync_batch,
     build_project_sync_batch,
 )
-from .skill_state import SkillWriterLock
+from .skill_state import WorkspaceWriterLock
 from .subagent import (
     SubagentConfigError,
     SubagentExecutionResult,
@@ -263,7 +263,7 @@ def execute_bundled_refresh_plan(
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     backup_root = home / ".aikito" / "backups" / f"bundled-skills_{timestamp}"
 
-    with SkillWriterLock(home):
+    with WorkspaceWriterLock(home):
         for op in refresh_ops:
             target = skills_root / op.skill_name
             source = bundled_skill_path(op.skill_name)
@@ -523,7 +523,7 @@ def execute_global_sync_plan(
     exec_skills = execute_global_skills_fn or execute_global_skills
 
     if not dry_run:
-        with SkillWriterLock(home):
+        with WorkspaceWriterLock(home):
             try:
                 refreshed = execute_bundled_refresh_plan(
                     plan.bundled_refresh_plan,

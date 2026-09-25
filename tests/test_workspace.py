@@ -1,3 +1,4 @@
+from layout_helpers import write_agents
 import os
 import tempfile
 import unittest
@@ -63,15 +64,15 @@ class AikitoWorkspaceTest(unittest.TestCase):
             '[workspace]\nversion = "1.0"\n', encoding="utf-8"
         )
         (ws_dir / "skills.toml").write_text('skills = ["my-skill"]\n', encoding="utf-8")
-        (ws_dir / "agents.toml").write_text(
+        write_agents(
+            ws_dir,
             "[agents.claude-code]\n"
             'display_name = "Claude Code"\n'
             'instruction_path = ".claude/CLAUDE.md"\n'
             'skills_path = ".claude/skills"\n',
-            encoding="utf-8",
         )
         (self.home / ".claude").mkdir(parents=True, exist_ok=True)
-        (ws_dir / "subagents.toml").write_text("[subagents]\n", encoding="utf-8")
+        (ws_dir / "subagents").mkdir(exist_ok=True)
         (ws_dir / "mcps").mkdir(parents=True, exist_ok=True)
 
         # Create global instructions source

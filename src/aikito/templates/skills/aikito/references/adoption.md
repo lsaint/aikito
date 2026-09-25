@@ -23,7 +23,7 @@ When a valid resource should intentionally remain external, repeat one-shot
 skip options such as `--skip instructions`, `--skip mcp/<name>`, or
 `--skip subagent/<name>`. Skips are shown in the result and apply to one
 invocation only. Never use them to bypass unreadable or malformed source data.
-Agent-builtin MCP servers configured under `builtin_mcps` in `agents.toml`
+Agent-builtin MCP servers configured under `builtin_mcps` in `agents/*.toml`
 are automatically omitted from adoption.
 
 After adoption succeeds, inspect the imported canonical resources and run

@@ -17,6 +17,7 @@ from aikito.instructions import (
     plan_instructions,
 )
 from aikito.project_sync import build_project_sync_batch
+from layout_helpers import write_agents
 
 
 class InstructionBatchAndPlanTests(TestCase):
@@ -34,7 +35,8 @@ class InstructionBatchAndPlanTests(TestCase):
         (self.home / ".claude").mkdir(parents=True)
         (self.home / ".agents" / "skills").mkdir(parents=True)
 
-        (self.ws / "agents.toml").write_text(
+        write_agents(
+            self.ws,
             "[agents.codex]\n"
             'display_name = "Codex"\n'
             'instruction_path = ".codex/AGENTS.md"\n'
@@ -45,7 +47,6 @@ class InstructionBatchAndPlanTests(TestCase):
             'instruction_path = ".claude/CLAUDE.md"\n'
             'project_instruction_path = ".claude/CLAUDE.md"\n'
             'skills_path = ".claude/skills"\n',
-            encoding="utf-8",
         )
 
         (self.ws / "global").mkdir()
@@ -541,11 +542,11 @@ class InstructionBatchAndPlanTests(TestCase):
         safe_symlink(self.proj_agents_md.resolve(), formal_target)
 
         # Configure agent with lowercase instruction target
-        (self.ws / "agents.toml").write_text(
+        write_agents(
+            self.ws,
             "[agents.codex]\n"
             'display_name = "Codex"\n'
             'project_instruction_path = ".agents/agents.md"\n',
-            encoding="utf-8",
         )
 
         with patch("aikito.compat.is_directory_case_sensitive", return_value=False):
@@ -565,11 +566,11 @@ class InstructionBatchAndPlanTests(TestCase):
     ) -> None:
         from unittest.mock import patch
 
-        (self.ws / "agents.toml").write_text(
+        write_agents(
+            self.ws,
             "[agents.grok]\n"
             'display_name = "Grok"\n'
             'instruction_path = ".grok/agents.md"\n',
-            encoding="utf-8",
         )
         with patch("aikito.compat.is_directory_case_sensitive", return_value=False):
             batch = build_global_instruction_batch(self.ws, self.home)

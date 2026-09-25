@@ -51,10 +51,9 @@ def test_rejects_non_workspace(tmp_path: Path) -> None:
 def test_logical_resources_span_files_tables_and_sets(workspace: Path) -> None:
     _write(workspace / "memory/notes/a-note.md", "# A\n")
     _write(workspace / "skills/demo/SKILL.md", "---\nname: demo\n---\n")
-    _write(workspace / "subagents/checker.md", "Check things.\n")
     _write(
-        workspace / "subagents.toml",
-        '[subagents.checker]\ndescription = "d"\nagents = ["codex"]\n',
+        workspace / "subagents/checker.md",
+        '---\ndescription: "d"\nagents: ["codex"]\n---\nCheck things.\n',
     )
     _write(workspace / "mcps/docs.toml", 'transport = "remote"\nagents = ["codex"]\n')
     _write(
@@ -65,10 +64,7 @@ def test_logical_resources_span_files_tables_and_sets(workspace: Path) -> None:
 
     resources = snapshot_workspace(workspace).resources
     subagent = resources["subagent:checker"]
-    assert [part.path for part in subagent.parts] == [
-        "subagents/checker.md",
-        "subagents.toml",
-    ]
+    assert [part.path for part in subagent.parts] == ["subagents/checker.md"]
     assert subagent.references == ("agent:codex",)
     assert resources["mcp:docs"].references == ("agent:codex",)
     assert {"project-path:app/~/a", "project-path:app//b"} <= resources.keys()
@@ -83,7 +79,10 @@ def test_logical_resources_span_files_tables_and_sets(workspace: Path) -> None:
 
 def test_toml_fingerprints_ignore_comments_and_formatting(workspace: Path) -> None:
     before = snapshot_workspace(workspace).resources
-    agents = workspace / "agents.toml"
+    agents = workspace / "agents" / "codex.toml"
+    if not agents.exists():
+        _write(agents, '[agents.codex]\ndisplay_name = "Codex"\n')
+        before = snapshot_workspace(workspace).resources
     agents.write_text(
         "# extra comment\n" + agents.read_text(encoding="utf-8") + "\n\n",
         encoding="utf-8",
@@ -93,13 +92,14 @@ def test_toml_fingerprints_ignore_comments_and_formatting(workspace: Path) -> No
 
 def test_agent_tables_are_independent_resources(workspace: Path) -> None:
     _write(
-        workspace / "agents.toml",
-        '[agents.one]\ndisplay_name = "One"\n[agents.two]\ndisplay_name = "Two"\n',
+        workspace / "agents/one.toml",
+        '[agents.one]\ndisplay_name = "One"\n',
     )
+    _write(workspace / "agents/two.toml", '[agents.two]\ndisplay_name = "Two"\n')
     before = snapshot_workspace(workspace).resources
     _write(
-        workspace / "agents.toml",
-        '[agents.one]\ndisplay_name = "One"\n[agents.two]\ndisplay_name = "2"\n',
+        workspace / "agents/two.toml",
+        '[agents.two]\ndisplay_name = "2"\n',
     )
     after = snapshot_workspace(workspace).resources
     assert after["agent:one"] == before["agent:one"]
@@ -142,7 +142,7 @@ def test_collects_all_findings_instead_of_stopping(workspace: Path) -> None:
     assert ("unsupported-entry", "memory/notes/other.txt") in codes
     assert ("invalid-skill", "skills/no-skill-md") in codes
     assert ("invalid-toml", "mcps/broken.toml") in codes
-    assert ("incomplete-subagent", "subagents/orphan.md") in codes
+    assert ("invalid-subagent", "subagents/orphan.md") in codes
 
 
 def test_credentials_are_warnings_reported_by_path_only(workspace: Path) -> None:

@@ -1,11 +1,8 @@
 """Workspace template loading and rendering for ``aikito init``.
 
 Template files live under ``templates/`` within the package so the source
-checkout root stays free of workspace-shaped files. The Agent registry is
-assembled in canonical registry order from ``agents/_header.toml`` and one
-``agents/<name>.toml`` fragment per Agent; initialization selects only detected
-Agent fragments, while doctor uses the same fragments to build the full
-registry. Other templates are loaded as individual files, and ``skills/`` holds
+checkout root stays free of workspace-shaped files. Agent definitions are installed as one ``agents/<name>.toml`` file per
+detected Agent. Doctor uses those bundled fragments to compare default fields. Other templates are loaded as individual files, and ``skills/`` holds
 the bundled skills. ``render_workspace_files`` drives every file that lands in
 a fresh workspace; ``render_project_files`` handles project-level templates.
 """
@@ -36,14 +33,13 @@ BUNDLED_SKILL_REFERENCE_FILES = (
 )
 
 # Workspace-level destinations and their source assets under templates/.
-# agents/_header.toml marks agents.toml for per-Agent assembly during rendering.
+# Agent fragments are rendered into separate files during initialization.
 TEMPLATE_FILES: list[tuple[str, str, str]] = [
     ("config.toml", "config.toml", "Workspace config template"),
-    ("agents.toml", "agents/_header.toml", "Detected agents config"),
     ("skills.toml", "skills.toml", "Global skills config"),
-    ("subagents.toml", "subagents.toml", "Subagents config template"),
     ("global/AGENTS.md", "global/AGENTS.md", "Global agent instructions"),
     (".gitignore", "gitignore", "Workspace .gitignore with leading slashes"),
+    ("layout.toml", "layout.toml", "Workspace resource layout version"),
 ]
 
 # Project-level template destinations under projects/<name>/. Destination keys
@@ -156,11 +152,18 @@ def render_workspace_files(
     target_dir = Path(target_dir)
     rendered = []
     for dest_rel, template_name, description in TEMPLATE_FILES:
-        if dest_rel == "agents.toml":
-            content = filter_agents_template(installed_agent_names)
-        else:
-            content = _load_template(template_name)
-        rendered.append((target_dir / dest_rel, content, description))
+        if dest_rel == "layout.toml":
+            for name in installed_agent_names:
+                rendered.append(
+                    (
+                        target_dir / "agents" / f"{name}.toml",
+                        _load_template(f"agents/{name}.toml"),
+                        f"{name} Agent definition",
+                    )
+                )
+        rendered.append(
+            (target_dir / dest_rel, _load_template(template_name), description)
+        )
     return rendered
 
 

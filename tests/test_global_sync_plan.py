@@ -1,6 +1,7 @@
 """Unit tests for GlobalSyncPlan and BundledSkillRefreshPlan in workspace_sync.py."""
 
 from __future__ import annotations
+from layout_helpers import write_agents
 
 import shutil
 import tempfile
@@ -45,8 +46,8 @@ display_name = "Claude Code"
 instruction_path = ".claude/CLAUDE.md"
 skills_path = ".claude/skills"
 """
-        (self.ws / "agents.toml").write_text(agents_toml, encoding="utf-8")
-        (self.ws / "subagents.toml").write_text("[subagents]\n", encoding="utf-8")
+        write_agents(self.ws, agents_toml)
+        (self.ws / "subagents").mkdir(exist_ok=True)
         (self.ws / "mcps").mkdir()
 
         # Copy bundled skills to make workspace clean initially

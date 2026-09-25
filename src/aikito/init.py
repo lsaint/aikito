@@ -17,7 +17,7 @@ from typing import Optional
 
 from .bundled_skills import BundledSkillRefreshError, refresh_bundled_skills
 from .compat import safe_relative_path
-from .skill_state import SkillWriterLock
+from .skill_state import WorkspaceWriterLock
 from .agents import (
     AgentRegistry,
     AgentRegistryError,
@@ -54,11 +54,7 @@ SOURCE_CHECKOUT_MARKERS = (
     Path("pyproject.toml"),
 )
 
-WORKSPACE_FILE_MARKERS = (
-    Path("agents.toml"),
-    Path("skills.toml"),
-    Path("subagents.toml"),
-)
+WORKSPACE_FILE_MARKERS = (Path("skills.toml"),)
 
 WORKSPACE_DIRECTORY_MARKERS = (
     Path("mcps"),
@@ -114,9 +110,19 @@ def _target_validation_error(target_dir: Path) -> Optional[str]:
 
 
 def is_recognized_workspace(target_dir: Path) -> bool:
-    return all(
-        (target_dir / marker).is_file() for marker in WORKSPACE_FILE_MARKERS
-    ) and all((target_dir / marker).is_dir() for marker in WORKSPACE_DIRECTORY_MARKERS)
+    return (
+        all((target_dir / marker).is_file() for marker in WORKSPACE_FILE_MARKERS)
+        and all(
+            (target_dir / marker).is_dir() for marker in WORKSPACE_DIRECTORY_MARKERS
+        )
+        and (
+            (target_dir / "layout.toml").is_file()
+            or (
+                (target_dir / "agents.toml").is_file()
+                and (target_dir / "subagents.toml").is_file()
+            )
+        )
+    )
 
 
 def _load_templates_error() -> Optional[str]:
@@ -132,6 +138,18 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
     """
     target_dir = target_dir.expanduser().resolve()
     existing_workspace = is_recognized_workspace(target_dir)
+
+    if existing_workspace or any(
+        (target_dir / name).exists()
+        for name in ("agents.toml", "subagents.toml", "layout.toml")
+    ):
+        from .workspace_layout import WorkspaceLayoutError, require_current_layout
+
+        try:
+            require_current_layout(target_dir)
+        except WorkspaceLayoutError as exc:
+            print(f"[ERROR] {exc}", file=sys.stderr)
+            return False
 
     validation_error = _target_validation_error(target_dir)
     if validation_error:
@@ -161,6 +179,7 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
         target_dir / "mcps",
         target_dir / "skills",
         target_dir / "subagents",
+        target_dir / "agents",
         target_dir / "memory" / "notes",
     ]
 
@@ -193,7 +212,7 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
 
     if existing_workspace:
         try:
-            with SkillWriterLock(home):
+            with WorkspaceWriterLock(home):
                 refresh_bundled_skills(target_dir, home)
         except BundledSkillRefreshError as exc:
             print(f"[ERROR] {exc}", file=sys.stderr)
@@ -327,7 +346,7 @@ def _project_validation_error(
     if not project_path.is_dir():
         return f"Project path is not a directory: {project_path}"
 
-    if not (aikito_dir / "agents.toml").is_file():
+    if not (aikito_dir / "layout.toml").is_file():
         return f"Aikito workspace is not initialized: {aikito_dir}"
 
     config_path = aikito_dir / "projects" / project_name / "agent.toml"

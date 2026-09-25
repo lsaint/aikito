@@ -71,7 +71,7 @@ In a stable configuration where all managed entries and consumer links point to 
 
 ### INV-GLB-10: Bundled Refresh and Runtime Apply Serialization `[current]` {: #inv-glb-10 }
 
-Bundled skill refresh and global skill runtime link application share the outermost `SkillWriterLock(home)`. Refresh outcomes must match plan expectations before runtime application proceeds; preflight failure halts execution without silent replanning.
+Bundled skill refresh and global skill runtime link application share the outermost `WorkspaceWriterLock(home)`. Refresh outcomes must match plan expectations before runtime application proceeds; preflight failure halts execution without silent replanning.
 
 ### INV-GLB-11: Global Result Segmentation `[current]` {: #inv-glb-11 }
  

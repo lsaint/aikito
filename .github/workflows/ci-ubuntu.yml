@@ -128,7 +128,7 @@ jobs:
           python3 -m aikito version --json
 
       # Simulate installed agents so sync/doctor exercise real logic instead of skipping.
-      # Paths mirror the instruction_path / skills_path parent dirs from agents.toml template.
+      # Paths mirror the instruction_path / skills_path parent dirs from Agent templates.
       - name: Create mock agent directories
         run: |
           mkdir -p \
@@ -148,6 +148,8 @@ jobs:
             python3 -m aikito init workspace ${{ runner.temp }}/aikito-ws \
             | tee ${{ runner.temp }}/init-workspace.out
           test -f ${{ runner.temp }}/aikito-ws/config.toml
+          test -f ${{ runner.temp }}/aikito-ws/layout.toml
+          test -f ${{ runner.temp }}/aikito-ws/agents/codex.toml
           grep -F "Run 'aikito sync'" ${{ runner.temp }}/init-workspace.out
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito git status \
@@ -165,6 +167,27 @@ jobs:
             | tee ${{ runner.temp }}/connect-workspace.out
           grep -F "[CONNECTED]" ${{ runner.temp }}/connect-workspace.out
           grep -F "aikito doctor" ${{ runner.temp }}/connect-workspace.out
+
+      - name: Workspace resource migration smoke
+        run: |
+          LEGACY=${{ runner.temp }}/legacy-layout-ws
+          mkdir -p "$LEGACY/subagents"
+          cp src/aikito/templates/agents/codex.toml "$LEGACY/agents.toml"
+          printf '# Review policy\n[subagents.review]\ndescription = "Review changes"\nagents = ["codex"]\n' > "$LEGACY/subagents.toml"
+          printf 'Review changes.\n' > "$LEGACY/subagents/review.md"
+          AIKITO_DIR="$LEGACY" python3 -m aikito completion candidates skills > ${{ runner.temp }}/migration-completion.out 2> ${{ runner.temp }}/migration-completion.err
+          test ! -s ${{ runner.temp }}/migration-completion.out
+          test ! -s ${{ runner.temp }}/migration-completion.err
+          AIKITO_DIR="$LEGACY" python3 -m aikito migrate workspace-resources --dry-run
+          test ! -f "$LEGACY/layout.toml"
+          AIKITO_DIR="$LEGACY" python3 -m aikito migrate workspace-resources
+          test -f "$LEGACY/layout.toml"
+          test -f "$LEGACY/agents/codex.toml"
+          test -f "$LEGACY/subagents/review.md"
+          grep -F '# Review policy' "$LEGACY/subagents/review.md"
+          test ! -f "$LEGACY/agents.toml"
+          test ! -f "$LEGACY/subagents.toml"
+          AIKITO_DIR="$LEGACY" python3 -m aikito migrate workspace-resources
 
       - name: Workspace reconcile smoke
         run: |
@@ -1419,4 +1442,3 @@ jobs:
 
           rm -rf "$CWD_PROJ" "$OTHER_PROJ" "$WS/projects/cwd-proj" "$WS/projects/other-proj" \
             "$WS/skills/cwd-skill" "$WS/skills/global-skill" "$WS/memory/notes/smoke-global-note.md"
-

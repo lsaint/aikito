@@ -1,3 +1,4 @@
+from layout_helpers import write_agents
 import errno
 import json
 import shutil
@@ -31,7 +32,8 @@ class WebConsoleTest(unittest.TestCase):
         (self.root / "skills.toml").write_text(
             'skills = ["sample"]\n', encoding="utf-8"
         )
-        (self.root / "agents.toml").write_text(
+        write_agents(
+            self.root,
             """[agents.test]
 display_name = "Test Agent"
 instruction_path = ".test/AGENTS.md"
@@ -42,9 +44,8 @@ config_path = ".test/mcp.toml"
 config_format = "toml"
 name_style = "verbatim"
 """,
-            encoding="utf-8",
         )
-        (self.root / "subagents.toml").write_text("", encoding="utf-8")
+        (self.root / "subagents").mkdir(exist_ok=True)
         (self.root / "mcps").mkdir()
         (self.root / "mcps" / "sample.toml").write_text(
             'transport = "remote"\nurl = "https://example.test/mcp"\n'
@@ -139,7 +140,7 @@ process.stdout.write(markdown(JSON.parse(process.argv[2]), JSON.parse(process.ar
     def test_overview_serializes_memory_update_dates(self) -> None:
         # ConsoleData reads workspace files lazily per request, so give
         # this test a valid empty subagent registry without touching setUp.
-        (self.root / "subagents.toml").write_text("[subagents]\n", encoding="utf-8")
+        (self.root / "subagents").mkdir(exist_ok=True)
         overview = self.get_json("/api/overview")
         self.assertEqual(overview["version"], "test")
         scopes = overview["memory_scopes"]

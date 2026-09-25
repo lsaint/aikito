@@ -25,6 +25,7 @@ version.
 | --- | --- |
 | `aikito init workspace [path]` | Initialize a new workspace or connect an existing one, detect installed Agents, and remember an explicit path |
 | `aikito path workspace` | Print the resolved active workspace path |
+| `aikito migrate workspace-resources [--dry-run]` | Preview or apply the required one-time migration to per-resource Agent and subagent files |
 | `aikito git [args...]` | Run git commands directly in the active Aikito workspace |
 | `aikito init project [name] [path] [--description <text>]` | Register a code project and synchronize its `.agents/` runtime |
 | `aikito add skill [name] [--from <path>] [--force] [--project <projects>] [--global] [--sync]` | Create or import a canonical skill; defaults to current project when inside one, or workspace global if outside or with `--global` |
@@ -40,7 +41,7 @@ version.
 | `aikito sync subagents` | Render and synchronize subagents |
 | `aikito auth mcp <agent> <server>` | Authenticate a configured MCP server |
 | `aikito show mcp [server] [--agent agent] [--live]` | Inspect MCP configuration or compare a server's live tool discovery across Agents |
-| `aikito show subagents [target] [--agent agent]` | Inspect the subagent matrix, drill into platform options per agent, or print instructions |
+| `aikito show subagents [target] [--agent agent]` | Inspect the subagent matrix, drill into platform options per agent, or print the canonical Markdown file |
 | `aikito show project [name|.]` | List registered projects, or inspect one project (detected from cwd if omitted or `.`) |
 | `aikito show instructions [global|project|.]` | List or print global and project instructions |
 | `aikito show inbox [target]` | Print raw markdown content of an inbox note, or list all inbox notes if target is omitted |
@@ -79,6 +80,7 @@ Commands differ in their effect:
 - `status`, `diff`, `show`, `completion`, and `adopt --dry-run` are read-only;
 - `git` forwards arbitrary Git commands and arguments directly to the active workspace;
 - `init workspace` creates or updates a recognized workspace;
+- `migrate workspace-resources --dry-run` previews all changes and blockers without writing; the command without `--dry-run` applies the migration transaction;
 - `init project` creates an idempotent canonical project skeleton and its runtime links;
 - `add` creates a canonical resource skeleton and performs required registration;
 - `adopt` preflights all detected resources, then writes imported resources into
@@ -98,7 +100,7 @@ Missing fields are warnings; `doctor --fix` adds bundled defaults without
 replacing existing values. Installed supported Agents missing from the registry
 are also reported and can be added by `doctor --fix`.
 Registered bundled Agents that are no longer detected are reported as offline
-and preserved safely in `agents.toml` for multi-host roaming.
+and preserved safely in `agents/<name>.toml` for multi-host roaming.
 It also reports each project's native instruction, skill, and memory runtime
 issues. Missing resources point to `sync project`; conflicts remain read-only
 and point to `show project` for review. Findings are aggregated per project;
@@ -132,7 +134,7 @@ registration (detected from cwd if omitted).
 
 `aikito maintain memory` defaults to the project whose locally present path
 contains the current directory and launches the `codex` runner configured in
-`agents.toml`. A named project uses the candidate that contains the current
+`agents/<name>.toml`. A named project uses the candidate that contains the current
 directory; if you are not inside one, a project with a single local path still
 uses that path, while multiple local paths require running the command from one
 of them. Use `global` or a registered project name to select another scope, and

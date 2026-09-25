@@ -24,7 +24,7 @@ from .redact import redact_mcp_entry
 
 STATE_VERSION = 1
 DEFAULT_MCPS_DIR = Path("mcps")
-DEFAULT_AGENTS_CONFIG = Path("agents.toml")
+DEFAULT_AGENTS_CONFIG = Path("agents")
 STATE_FILE = Path(".local/state/aikito/mcp-state.json")
 BACKUP_DIR = Path(".local/state/aikito/backups")
 LEGACY_PLACEHOLDER_TOKEN = "placeholder-token-set-environment-variable"

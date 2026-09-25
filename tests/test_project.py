@@ -1,3 +1,4 @@
+from layout_helpers import write_agents
 import aikito
 import os
 import tempfile
@@ -80,11 +81,11 @@ class ProjectApiTest(unittest.TestCase):
             'memory = ["shared"]\n',
             encoding="utf-8",
         )
-        (self.workspace / "agents.toml").write_text(
+        write_agents(
+            self.workspace,
             '[agents.pi]\ndisplay_name = "Pi"\n'
             'project_instruction_path = "AGENTS.md"\n'
             'skills_path = ".agents/skills"\n',
-            encoding="utf-8",
         )
 
     def tearDown(self) -> None:
@@ -186,14 +187,14 @@ class ProjectApiTest(unittest.TestCase):
             project.prepare(agent="codex")
 
     def test_prepare_supports_any_configured_agent(self) -> None:
-        (self.workspace / "agents.toml").write_text(
+        write_agents(
+            self.workspace,
             '[agents.pi]\ndisplay_name = "Pi"\n'
             'project_instruction_path = "AGENTS.md"\n'
             'skills_path = ".agents/skills"\n'
             '[agents.codex]\ndisplay_name = "Codex"\n'
             'project_instruction_path = "AGENTS.md"\n'
             'skills_path = ".agents/skills"\n',
-            encoding="utf-8",
         )
         project = self.load_project()
         prepared = project.prepare(agent="codex")
@@ -450,10 +451,10 @@ class ProjectSummaryTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            (workspace / "agents.toml").write_text(
+            write_agents(
+                workspace,
                 '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n'
                 '[agents.claude-code]\nproject_instruction_path = ".claude/CLAUDE.md"\n',
-                encoding="utf-8",
             )
             (definition / "AGENTS.md").write_text("Project rules\n", encoding="utf-8")
             (notes / "one.md").write_text("# One\n", encoding="utf-8")
@@ -538,9 +539,8 @@ class ProjectSummaryTest(unittest.TestCase):
             (definition / "agent.toml").write_text(
                 f'path = "{project.as_posix()}"\nskills = []\n', encoding="utf-8"
             )
-            (root / "agents.toml").write_text(
-                '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n',
-                encoding="utf-8",
+            write_agents(
+                root, '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n'
             )
             (definition / "AGENTS.md").write_text("", encoding="utf-8")
             (definition / "memory").mkdir()
@@ -566,7 +566,7 @@ class ProjectSummaryTest(unittest.TestCase):
             (definition / "agent.toml").write_text(
                 f'path = "{project.as_posix()}"\nskills = []\n', encoding="utf-8"
             )
-            (root / "agents.toml").write_text("[agents]\n", encoding="utf-8")
+            write_agents(root, "[agents]\n")
             (definition / "AGENTS.md").write_text("", encoding="utf-8")
             (definition / "memory").mkdir()
 
@@ -587,9 +587,8 @@ class ProjectSummaryTest(unittest.TestCase):
             (definition / "agent.toml").write_text(
                 f'path = "{project.as_posix()}"\nskills = []\n', encoding="utf-8"
             )
-            (root / "agents.toml").write_text(
-                '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n',
-                encoding="utf-8",
+            write_agents(
+                root, '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n'
             )
             (definition / "AGENTS.md").write_text("Rules\n", encoding="utf-8")
             (definition / "memory").mkdir()
@@ -673,7 +672,7 @@ class ProjectSummaryTest(unittest.TestCase):
             canonical_skill.mkdir(parents=True)
             runtime_skill.mkdir(parents=True)
             project_dir.mkdir(parents=True)
-            (workspace / "agents.toml").write_text("[agents]\n", encoding="utf-8")
+            write_agents(workspace, "[agents]\n")
             (project_dir / "agent.toml").write_text(
                 f'path = "{project_path.as_posix()}"\nsync_mode = "copy"\nskills = ["my-skill"]\n',
                 encoding="utf-8",
@@ -713,7 +712,7 @@ class ProjectSummaryTest(unittest.TestCase):
                 f'path = "{project.as_posix()}"\nskills = []\n', encoding="utf-8"
             )
 
-            (root / "agents.toml").write_text("[agents]\n", encoding="utf-8")
+            write_agents(root, "[agents]\n")
             (definition / "AGENTS.md").write_text("", encoding="utf-8")
             memory = definition / "memory"
             memory.mkdir()
@@ -739,7 +738,7 @@ class ProjectSummaryTest(unittest.TestCase):
             (definition / "agent.toml").write_text(
                 f'path = "{project.as_posix()}"\nskills = []\n', encoding="utf-8"
             )
-            (root / "agents.toml").write_text("[agents]\n", encoding="utf-8")
+            write_agents(root, "[agents]\n")
             (definition / "AGENTS.md").write_text("", encoding="utf-8")
             memory = definition / "memory"
             memory.mkdir()
@@ -800,9 +799,8 @@ class ProjectSummaryTest(unittest.TestCase):
                 f'paths = ["{p1.as_posix()}", "{p2.as_posix()}"]\nskills = []\n',
                 encoding="utf-8",
             )
-            (workspace / "agents.toml").write_text(
-                '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n',
-                encoding="utf-8",
+            write_agents(
+                workspace, '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n'
             )
             (definition / "AGENTS.md").write_text("Multi rules\n", encoding="utf-8")
             (definition / "memory").mkdir()
@@ -838,9 +836,8 @@ class ProjectSummaryTest(unittest.TestCase):
                 f'[paths]\nmac = "{p1.as_posix()}"\nwin = "D:/offline/win"\n',
                 encoding="utf-8",
             )
-            (workspace / "agents.toml").write_text(
-                '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n',
-                encoding="utf-8",
+            write_agents(
+                workspace, '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n'
             )
             (definition / "AGENTS.md").write_text("Roam rules\n", encoding="utf-8")
             (definition / "memory").mkdir()
@@ -1106,10 +1103,10 @@ class ProjectSummaryTest(unittest.TestCase):
             workspace.mkdir()
             project.mkdir()
             definition.mkdir(parents=True)
-            (workspace / "agents.toml").write_text(
+            write_agents(
+                workspace,
                 '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n'
                 '[agents.claude-code]\nproject_instruction_path = ".claude/CLAUDE.md"\n',
-                encoding="utf-8",
             )
             (definition / "agent.toml").write_text(
                 f'path = "{project.as_posix()}"\nskills = []\n', encoding="utf-8"

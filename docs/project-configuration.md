@@ -87,7 +87,7 @@ Aikito evaluates candidate paths dynamically on the local machine:
   Locally present directories use `✓` (`v` in ASCII mode); missing directories
   use `-`. There is no privileged primary path.
 
-Native project instruction paths come from the workspace root `agents.toml`; project
+Native project instruction paths come from the workspace root `agents/<name>.toml`; project
 configs do not duplicate that list. `sync_mode` controls only the selected project skills:
 
 An empty canonical project `AGENTS.md` disables instruction synchronization.

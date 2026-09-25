@@ -1,3 +1,4 @@
+from layout_helpers import write_agents
 import tempfile
 import unittest
 from pathlib import Path
@@ -29,7 +30,8 @@ class MemoryMaintenanceTest(unittest.TestCase):
             encoding="utf-8",
         )
 
-        (self.aikito_dir / "agents.toml").write_text(
+        write_agents(
+            self.aikito_dir,
             """[agents.codex.runner]
 command = ["fake-agent", "{workdir}", "{prompt}"]
 
@@ -49,7 +51,6 @@ command = ["opencode", "{workdir}", "--prompt", "{prompt}"]
 [agents.github-copilot.runner]
 command = ["copilot", "-C", "{workdir}", "-i", "{prompt}"]
 """,
-            encoding="utf-8",
         )
 
     def tearDown(self) -> None:
@@ -196,8 +197,8 @@ command = ["copilot", "-C", "{workdir}", "-i", "{prompt}"]
             load_agent_runner(self.aikito_dir, "unknown")
 
     def test_distinguishes_missing_runner_from_invalid_command(self) -> None:
-        config_path = self.aikito_dir / "agents.toml"
-        config_path.write_text(
+        write_agents(
+            self.aikito_dir,
             """[agents.no-runner]
 display_name = "No Runner"
 
@@ -210,7 +211,6 @@ command = ["agent"]
 [agents.bad-env.runner.env]
 INVALID = 1
 """,
-            encoding="utf-8",
         )
 
         with self.assertRaisesRegex(MemoryMaintenanceError, "no runner configuration"):
@@ -222,13 +222,11 @@ INVALID = 1
 
     @patch("aikito.maintain.subprocess.run")
     def test_reports_invalid_placeholder_syntax(self, run_mock) -> None:
-        config_path = self.aikito_dir / "agents.toml"
-
         for placeholder in ("{workdir", "{0}"):
             with self.subTest(placeholder=placeholder):
-                config_path.write_text(
+                write_agents(
+                    self.aikito_dir,
                     f'[agents.codex.runner]\ncommand = ["codex", "{placeholder}"]\n',
-                    encoding="utf-8",
                 )
                 with self.assertRaisesRegex(
                     MemoryMaintenanceError, "Invalid runner placeholder"

@@ -23,6 +23,7 @@ from aikito.agents import (
 )
 from aikito.subagent import SubagentConfigError, load_all_agents
 from aikito.templating import load_agents_template
+from layout_helpers import write_agents
 
 
 class AgentsModelTests(unittest.TestCase):
@@ -33,7 +34,7 @@ class AgentsModelTests(unittest.TestCase):
         self.ws = self.root / "workspace"
         self.home.mkdir()
         self.ws.mkdir()
-        (self.ws / "agents.toml").write_text(load_agents_template(), encoding="utf-8")
+        write_agents(self.ws, load_agents_template())
 
     def tearDown(self) -> None:
         self.td.cleanup()
@@ -132,7 +133,7 @@ class AgentsModelTests(unittest.TestCase):
 
         bad_dir = self.root / "bad"
         bad_dir.mkdir()
-        (bad_dir / "agents.toml").write_text("not toml = = =", encoding="utf-8")
+        write_agents(bad_dir, "not toml = = =")
         self.assertEqual(len(AgentRegistry.load(bad_dir, self.home)), 0)
 
 
@@ -144,7 +145,7 @@ class TargetResolutionTests(unittest.TestCase):
         self.ws = self.root / "workspace"
         self.home.mkdir()
         self.ws.mkdir()
-        (self.ws / "agents.toml").write_text(load_agents_template(), encoding="utf-8")
+        write_agents(self.ws, load_agents_template())
         (self.ws / "skills.toml").write_text(
             'skills = ["skill-1", "skill-2"]\n', encoding="utf-8"
         )
@@ -427,7 +428,7 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
         self.td.cleanup()
 
     def _write(self, body: str) -> None:
-        (self.ws / "agents.toml").write_text(body, encoding="utf-8")
+        write_agents(self.ws, body)
 
     def _load(self) -> dict[str, dict[str, object]]:
         return {
@@ -741,10 +742,10 @@ config_path = "x.toml"
                 "Agent 'a' subagents 'requires_path' must be a non-empty string"
             ),
             '[agents.a.runner]\ncommand = "bad"\n': (
-                f"Agent 'a' has invalid runner.command in {self.ws / 'agents.toml'}"
+                f"Agent 'a' has invalid runner.command in {self.ws / 'agents/a.toml'}"
             ),
             '[agents.a.runner]\ncommand = ["agent"]\n[agents.a.runner.env]\nBAD = 1\n': (
-                f"Agent 'a' has invalid runner.env in {self.ws / 'agents.toml'}"
+                f"Agent 'a' has invalid runner.env in {self.ws / 'agents/a.toml'}"
             ),
         }
         for body, message in cases.items():

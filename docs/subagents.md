@@ -1,7 +1,9 @@
 # Manage Subagents
 
-Aikito keeps canonical subagent definitions in `subagents.toml` and the
-`subagents/` directory, then renders them into formats supported by each Agent.
+Aikito keeps each canonical subagent definition in `subagents/<name>.md`.
+Its JSON-valued frontmatter contains the description, target Agents, and platform options.
+The Markdown body contains instructions. Aikito renders these definitions into
+formats supported by each Agent.
 
 ## Preview
 
@@ -53,7 +55,7 @@ not participate in subagent synchronization.
   `~/.gemini/config/agents/<name>/agent.md`, supporting `model` and `tools`.
 - **OpenCode**: Definitions are rendered to
   `~/.config/opencode/agents/<name>.md` with `mode: subagent`; set the native
-  model ID through `[subagents.<name>.opencode].model`.
+  model ID through the `opencode` frontmatter object’s `model` field.
 - **Pi**: Participates only when its optional extension entry point exists at
   `~/.pi/agent/extensions/subagent/index.ts`. Definitions are rendered to
   `~/.pi/agent/agents/<name>.md`. Pi-specific configuration supports `model` and
@@ -76,7 +78,7 @@ aikito add subagent --from .github/agents/reviewer.agent.md --force
 
 - `--from <path>`: Points to a local markdown prompt file (e.g. `.md`, `.agent.md`) or directory containing instructions. Name and description are inferred from frontmatter or file stem when omitted.
 - `--sync`: Immediately renders and synchronizes the subagent into configured agent runtimes.
-- `--force`: Atomically replaces an existing subagent definition in `subagents/<name>.md` and updates `subagents.toml` with the imported snapshot.
+- `--force`: Atomically replaces an existing subagent definition in `subagents/<name>.md` including its frontmatter.
 
 To unregister and remove a subagent from the workspace, run `aikito rm subagent <name>`.
 Add `--sync` to immediately prune the rendered subagent definition from all

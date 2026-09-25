@@ -79,6 +79,28 @@ jobs:
           python -m aikito completion candidates skills
           python -m aikito completion candidates memories
 
+      - name: Workspace resource migration smoke
+        shell: pwsh
+        run: |
+          $legacy = Join-Path $env:RUNNER_TEMP "legacy-layout-ws"
+          New-Item -ItemType Directory -Force -Path (Join-Path $legacy "subagents") | Out-Null
+          Copy-Item "src/aikito/templates/agents/codex.toml" (Join-Path $legacy "agents.toml")
+          @('# Review policy', '[subagents.review]', 'description = "Review changes"', 'agents = ["codex"]') | Set-Content (Join-Path $legacy "subagents.toml")
+          'Review changes.' | Set-Content (Join-Path $legacy "subagents/review.md")
+          $env:AIKITO_DIR = $legacy
+          $completion = python -m aikito completion candidates skills 2>&1
+          if ($LASTEXITCODE -ne 0 -or $completion) { throw "Legacy workspace completion produced output" }
+          python -m aikito migrate workspace-resources --dry-run
+          if (Test-Path (Join-Path $legacy "layout.toml")) { throw "Dry-run wrote layout marker" }
+          python -m aikito migrate workspace-resources
+          foreach ($name in @('layout.toml', 'agents/codex.toml', 'subagents/review.md')) {
+            if (-not (Test-Path (Join-Path $legacy $name))) { throw "Missing migrated file: $name" }
+          }
+          if (-not (Select-String -Path (Join-Path $legacy "subagents/review.md") -SimpleMatch '# Review policy')) { throw "Subagent comment missing" }
+          foreach ($name in @('agents.toml', 'subagents.toml')) {
+            if (Test-Path (Join-Path $legacy $name)) { throw "Legacy file remains: $name" }
+          }
+
       - name: Test Workspace Init, Global Sync and Doctor on Windows
         shell: pwsh
         run: |
@@ -101,6 +123,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path $opencodeDir | Out-Null
           $env:AIKITO_DIR = $wsDir
           $initOutput = python -m aikito init workspace "$wsDir"
+          if (-not (Test-Path (Join-Path $wsDir "layout.toml"))) { throw "Layout marker missing" }
+          if (-not (Test-Path (Join-Path $wsDir "agents/codex.toml"))) { throw "Codex Agent file missing" }
           $initOutput | Write-Output
           $initOutput | Select-String "Run 'aikito sync'"
           $gitStatus = python -m aikito git status
@@ -844,4 +868,3 @@ jobs:
           Remove-Item -Recurse -Force (Join-Path $ws "projects\cwd-proj"), (Join-Path $ws "projects\other-proj")
           Remove-Item -Recurse -Force (Join-Path $ws "skills\cwd-skill"), (Join-Path $ws "skills\global-skill")
           Remove-Item -Force (Join-Path $globalNotesDir "smoke-global-note.md")
-

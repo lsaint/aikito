@@ -3,9 +3,9 @@
 ### INV-APP-01: Read-Only Workspace Sync Planning `[current]` {: #inv-app-01 }
 
 - Building a `WorkspaceSyncPlan` via `build_workspace_sync_plan()` is strictly read-only.
-- Inspects workspace configuration, `agents.toml`, projects, and agent runtimes.
+- Inspects workspace configuration, `agents/<name>.toml`, projects, and agent runtimes.
 - Does not mutate workspace files, host agent configurations, project checkouts, symlinks, or state files.
-- Does not acquire or create persistent lock files (e.g. `SkillWriterLock`), temporary files, pending journals, or timestamped backups.
+- Does not acquire or create persistent lock files (e.g. `WorkspaceWriterLock`), temporary files, pending journals, or timestamped backups.
 - Does not trigger recovery mutations during planning.
 - `aikito sync --dry-run` must simply build and render `WorkspaceSyncPlan` without side effects.
 - Verified by: `tests/test_workspace_sync_plan.py`.

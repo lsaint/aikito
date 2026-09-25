@@ -12,6 +12,7 @@ from .skill_state import WorkspaceWriterLock
 from .workspace_core import (
     Change,
     Decision,
+    PathPolicy,
     StateUpdate,
     Version,
     WorkspaceCoreError,
@@ -33,6 +34,7 @@ class WorkspaceReconcileError(WorkspaceCoreError):
 ResourceVersion = Version
 ReconcileItem = Decision
 _BASELINE_RELATIVE = ".local/state/aikito/workspace-reconcile/baseline.json"
+_PATH_POLICY = PathPolicy(states=(_BASELINE_RELATIVE,))
 
 
 @dataclass(frozen=True)
@@ -59,19 +61,6 @@ def _roots(left: Path, right: Path) -> tuple[Path, Path]:
         return tuple(sorted(validate_roots(left, right), key=str))  # type: ignore[return-value]
     except WorkspaceCoreError as exc:
         raise WorkspaceReconcileError(str(exc)) from exc
-
-
-def _check_legacy_state(roots: tuple[Path, Path], *, new_baseline: bool) -> None:
-    for root in roots:
-        directory = root / ".local/state/aikito/workspace-reconcile"
-        if entry_type(directory / "pending.json") != "missing":
-            raise WorkspaceReconcileError(
-                f"Legacy pending transaction needs review: {directory / 'pending.json'}"
-            )
-        if new_baseline and entry_type(directory / "pair.json") != "missing":
-            raise WorkspaceReconcileError(
-                f"Legacy baseline state needs review: {directory / 'pair.json'}"
-            )
 
 
 def _baseline_path(root: Path, *, create: bool = False) -> Path:
@@ -167,8 +156,7 @@ def baseline_workspaces(left: Path, right: Path, home: Path) -> None:
     left, right = _roots(left, right)
     roots = (left, right)
     with WorkspaceWriterLock(home):
-        _check_legacy_state(roots, new_baseline=True)
-        if has_pending(roots):
+        if has_pending(roots, policy=_PATH_POLICY):
             raise WorkspaceReconcileError(
                 "Pending workspace transaction needs recovery"
             )
@@ -194,6 +182,7 @@ def baseline_workspaces(left: Path, right: Path, home: Path) -> None:
                     StateUpdate(index, _BASELINE_RELATIVE, None, encoded)
                     for index in range(2)
                 ),
+                policy=_PATH_POLICY,
             )
         except WorkspaceCoreError as exc:
             raise WorkspaceReconcileError(str(exc)) from exc
@@ -202,8 +191,7 @@ def baseline_workspaces(left: Path, right: Path, home: Path) -> None:
 def build_reconcile_plan(left: Path, right: Path) -> ReconcilePlan:
     """Compare two independent snapshots with their common baseline."""
     left, right = _roots(left, right)
-    _check_legacy_state((left, right), new_baseline=False)
-    if has_pending((left, right)):
+    if has_pending((left, right), policy=_PATH_POLICY):
         raise WorkspaceReconcileError("Pending round needs recovery before preview")
     state, base = _read_baseline(left, right)
     a, _ = supported_snapshot(left)
@@ -216,9 +204,8 @@ def build_reconcile_plan(left: Path, right: Path) -> ReconcilePlan:
 def recover_reconciliation(left: Path, right: Path) -> bool:
     """Recover an interrupted round while preserving external changes."""
     roots = _roots(left, right)
-    _check_legacy_state(roots, new_baseline=False)
     try:
-        return recover(roots)
+        return recover(roots, policy=_PATH_POLICY)
     except WorkspaceCoreError as exc:
         raise WorkspaceReconcileError(str(exc)) from exc
 
@@ -293,7 +280,13 @@ def apply_reconcile_plan(plan: ReconcilePlan, home: Path) -> None:
             for index, root in enumerate(roots)
         )
         try:
-            apply(roots, tuple(changes), states=states, verify=verify)
+            apply(
+                roots,
+                tuple(changes),
+                states=states,
+                verify=verify,
+                policy=_PATH_POLICY,
+            )
         except WorkspaceCoreError as exc:
             raise WorkspaceReconcileError(str(exc)) from exc
 
@@ -303,8 +296,7 @@ def run_reconciliation(
 ) -> ReconcilePlan:
     """Preview or apply one reconciliation round."""
     left, right = _roots(left, right)
-    _check_legacy_state((left, right), new_baseline=False)
-    if has_pending((left, right)):
+    if has_pending((left, right), policy=_PATH_POLICY):
         if dry_run:
             raise WorkspaceReconcileError("Pending round needs recovery before preview")
         with WorkspaceWriterLock(home):

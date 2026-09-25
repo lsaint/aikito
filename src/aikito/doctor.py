@@ -158,7 +158,7 @@ def check_symlinks(
     try:
         inspection.agents
     except AgentRegistryError as exc:
-        findings.append(_fail(f"Cannot load agents.toml: {exc}"))
+        findings.append(_fail(f"Cannot load Agent definitions: {exc}"))
         return DoctorSection(name="Symlinks", findings=findings)
 
     # 1a. Per-target instruction symlinks
@@ -778,51 +778,64 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
         except tomllib.TOMLDecodeError as exc:
             findings.append(_fail(f"{cfg_path.name}: TOML parse error — {exc}"))
 
-    # 3a. Canonical TOML files and mcps directory
-    for filename in ("agents.toml", "skills.toml", "subagents.toml"):
+    # 3a. Canonical workspace configuration and Agent files
+    for filename in ("layout.toml", "skills.toml"):
         path = aikito_dir / filename
-        if not path.exists():
+        if not path.is_file():
             findings.append(_fail(f"{filename}: file not found"))
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
         if _has_conflict_markers(text):
-            continue  # already reported by check_conflict_markers
+            continue
         try:
             tomllib.loads(text)
             findings.append(_ok(f"{filename}: valid TOML"))
-            if filename == "agents.toml":
-                registered_agents = set(tomllib.loads(text).get("agents", {}))
-                installed_agents = detected_agent_names(detect_existing_agents(home))
-                for agent_name in installed_agents:
-                    if agent_name not in registered_agents:
-                        findings.append(
-                            _warn(
-                                f"agents.toml: installed Agent '{agent_name}' is not registered",
-                                "aikito doctor --fix",
-                            )
-                        )
-                for agent_name in sorted(
-                    registered_agents & AGENT_INSTALL_MARKERS.keys()
-                ):
-                    if not is_agent_installed(agent_name, home):
-                        findings.append(
-                            _ok(
-                                f"agents.toml: registered Agent '{agent_name}' is offline on this host"
-                            )
-                        )
-                for agent_name, fields in missing_agent_fields(
-                    path, load_agents_template()
-                ).items():
-                    field_names = ", ".join(".".join(field) for field in fields)
+        except tomllib.TOMLDecodeError as exc:
+            findings.append(_fail(f"{filename}: TOML parse error — {exc}"))
+
+    agents_dir = aikito_dir / "agents"
+    if not agents_dir.is_dir():
+        findings.append(_fail("agents: directory not found"))
+    else:
+        from .workspace_layout import WorkspaceLayoutError, load_agent_document
+
+        try:
+            registered_agents = set(load_agent_document(aikito_dir)["agents"])
+            for path in sorted(agents_dir.glob("*.toml")):
+                findings.append(_ok(f"agents/{path.name}: valid TOML"))
+            installed_agents = detected_agent_names(detect_existing_agents(home))
+            for agent_name in installed_agents:
+                if agent_name not in registered_agents:
                     findings.append(
                         _warn(
-                            f"agents.toml [{agent_name}]: missing bundled fields: "
-                            f"{field_names}",
+                            f"agents/{agent_name}.toml: installed Agent is not registered",
                             "aikito doctor --fix",
                         )
                     )
-        except tomllib.TOMLDecodeError as exc:
-            findings.append(_fail(f"{filename}: TOML parse error — {exc}"))
+            for agent_name in sorted(registered_agents & AGENT_INSTALL_MARKERS.keys()):
+                if not is_agent_installed(agent_name, home):
+                    findings.append(
+                        _ok(
+                            f"agents/{agent_name}.toml: registered Agent is offline on this host"
+                        )
+                    )
+            for agent_name, fields in missing_agent_fields(
+                agents_dir, load_agents_template()
+            ).items():
+                field_names = ", ".join(".".join(field) for field in fields)
+                findings.append(
+                    _warn(
+                        f"agents/{agent_name}.toml: missing bundled fields: {field_names}",
+                        "aikito doctor --fix",
+                    )
+                )
+        except (
+            WorkspaceLayoutError,
+            ValueError,
+            OSError,
+            tomllib.TOMLDecodeError,
+        ) as exc:
+            findings.append(_fail(f"agents: {exc}"))
 
     mcps_dir = aikito_dir / "mcps"
     if not mcps_dir.exists():
@@ -969,12 +982,12 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
                 try:
                     validate_platform_opts(agent_name, sub_name, opts)
                 except SubagentConfigError as exc:
-                    findings.append(_fail(f"subagents.toml [{sub_name}]: {exc}"))
+                    findings.append(_fail(f"subagents/{sub_name}.md: {exc}"))
                     subagent_schema_ok = False
         if subagent_schema_ok and defs:
             findings.append(_ok("Subagent platform options: all valid"))
     except SubagentConfigError as exc:
-        findings.append(_fail(f"subagents.toml: {exc}"))
+        findings.append(_fail(f"subagents: {exc}"))
 
     return DoctorSection(name="Configuration", findings=findings)
 
@@ -1402,12 +1415,18 @@ def check_conflict_markers(aikito_dir: Path, home: Path) -> DoctorSection:
     cfg_path = get_workspace_config_path(aikito_dir)
     if cfg_path:
         toml_files.append(cfg_path)
-    for name in ("skills.toml", "agents.toml", "subagents.toml"):
+    for name in ("skills.toml", "layout.toml"):
         p = aikito_dir / name
         if p.is_file():
             toml_files.append(p)
 
     # 3. mcps/*.toml
+    agents_dir = aikito_dir / "agents"
+    if agents_dir.is_dir():
+        toml_files.extend(sorted(agents_dir.glob("*.toml")))
+    subagents_dir = aikito_dir / "subagents"
+    if subagents_dir.is_dir():
+        md_files.extend(sorted(subagents_dir.glob("*.md")))
     mcps_dir = aikito_dir / "mcps"
     if mcps_dir.is_dir():
         toml_files.extend(sorted(mcps_dir.glob("*.toml")))
@@ -1468,8 +1487,8 @@ def run_doctor_fixes(aikito_dir: Path, home: Path | None = None) -> list[str]:
     """Apply safe Agent registry fixes."""
     fixes: list[str] = []
     resolved_home = home or Path.home()
-    agents_path = aikito_dir / "agents.toml"
-    if agents_path.is_file():
+    agents_path = aikito_dir / "agents"
+    if agents_path.is_dir():
         try:
             installed_agents = detected_agent_names(
                 detect_existing_agents(resolved_home)
@@ -1486,20 +1505,17 @@ def run_doctor_fixes(aikito_dir: Path, home: Path | None = None) -> list[str]:
 
 def _find_agent_references(aikito_dir: Path, agent_name: str) -> list[str]:
     references: list[str] = []
-    subagents_path = aikito_dir / "subagents.toml"
-    if subagents_path.is_file():
-        try:
-            subagents = tomllib.loads(subagents_path.read_text(encoding="utf-8")).get(
-                "subagents", {}
-            )
-            if isinstance(subagents, dict):
-                for name, definition in subagents.items():
-                    if isinstance(definition, dict) and agent_name in definition.get(
-                        "agents", []
-                    ):
-                        references.append(f"subagents.toml:[subagents.{name}].agents")
-        except (OSError, tomllib.TOMLDecodeError):
-            references.append("subagents.toml (cannot verify references)")
+    subagents_dir = aikito_dir / "subagents"
+    if subagents_dir.is_dir():
+        from .workspace_layout import WorkspaceLayoutError, parse_subagent_file
+
+        for path in sorted(subagents_dir.glob("*.md")):
+            try:
+                metadata, _ = parse_subagent_file(path)
+                if agent_name in metadata["agents"]:
+                    references.append(f"subagents/{path.name}:agents")
+            except (OSError, WorkspaceLayoutError):
+                references.append(f"subagents/{path.name} (cannot verify references)")
 
     mcps_dir = aikito_dir / "mcps"
     if mcps_dir.is_dir():

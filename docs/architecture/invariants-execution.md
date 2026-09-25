@@ -53,7 +53,7 @@ The `--force` flag is scoped per command; boolean parameters do not constitute e
 | --- | --- | --- | --- |
 | `aikito init workspace --force` | `--force` (flag) | Overwrites template files if they already exist in recognized workspace. | Refuses non-workspace directories, CLI source checkout (`~/aikito-src`), or unrecognized paths. |
 | `aikito add skill <name> --from <path> --force` | `--force` (flag) | Overwrites existing canonical skill in workspace `skills/<name>/`. | Requires `--from <path>`; refuses if `--from` is omitted. |
-| `aikito add subagent <name> --from <path> --force` | `--force` (flag) | Overwrites existing canonical subagent instructions in workspace `subagents/<name>.md` and updates `subagents.toml`. | Requires `--from <path>`; refuses if `--from` is omitted. |
+| `aikito add subagent <name> --from <path> --force` | `--force` (flag) | Overwrites existing canonical subagent instructions in workspace `subagents/<name>.md` and updates `subagents/<name>.md`. | Requires `--from <path>`; refuses if `--from` is omitted. |
 | `aikito add mcp <name> --force` | `--force` (flag) | Overwrites existing canonical MCP config in workspace `mcps/<name>.toml`. | Requires `--from` or server definition parameters. |
 | `aikito rm skill <name> --force` | `--force` (flag) | Forces global deletion of canonical skill by automatically unregistering it from all referencing projects. | Without `--force`, refuses deletion if any project references the skill. `rm skill --project <P>` unregisters without `--force`. |
 | `aikito rm mcp <name> [--sync] --force` | `--force` (flag) | When used with `--sync`, forces removal from target agent configuration files even if config was modified outside Aikito. Without `--sync`, `--force` has no effect on agent runtimes (only deletes canonical `mcps/<name>.toml`). | Requires `--sync` to affect agent configs; purges server blocks despite external modification. |
@@ -132,12 +132,12 @@ Verified by: `tests/test_skill_state.py::test_recovery_aborts_and_retains_journa
 ## Writer Lock
 ### INV-LOCK-01: Canonical Skill Mutator Lock Coverage `[current]` {: #inv-lock-01 }
 
-All commands and API functions that mutate canonical skills, bundled skills, project skills runtime, or their persistent state documents MUST hold `SkillWriterLock(home)` across their entire operation. This includes: `aikito add skill --from` (`add.py`), `aikito rm skill` (`skill_runtime.py`), `SkillPlan` execution (`skill_runtime.py`), bundled skill refresh (`cli.py`), and init template refresh (`init.py`).
+All commands and API functions that mutate canonical skills, bundled skills, project skills runtime, or their persistent state documents MUST hold `WorkspaceWriterLock(home)` across their entire operation. This includes: `aikito add skill --from` (`add.py`), `aikito rm skill` (`skill_runtime.py`), `SkillPlan` execution (`skill_runtime.py`), bundled skill refresh (`cli.py`), and init template refresh (`init.py`).
 Verified by: `tests/test_skill_state.py::test_writer_lock_reentrancy`, `tests/test_bundled_skills.py::test_cli_sync_global_holds_writer_lock_when_applying`, `tests/test_bundled_skills.py::test_writer_lock_serializes_threads`.
 
 ### INV-LOCK-02: Lock Re-Entrancy and Outermost Hold `[current]` {: #inv-lock-02 }
 
-`SkillWriterLock` is reentrant for the owning thread and serializes other threads and processes. Composite workflows (e.g. `aikito add skill <name> --from <path> --sync`) acquire the lock at the outermost command entrypoint and hold it continuously across canonical import, template refresh, and project sync without releasing or deadlocking.
+`WorkspaceWriterLock` is reentrant for the owning thread and serializes other threads and processes. Composite workflows (e.g. `aikito add skill <name> --from <path> --sync`) acquire the lock at the outermost command entrypoint and hold it continuously across canonical import, template refresh, and project sync without releasing or deadlocking.
 Verified by: `tests/test_skill_state.py::test_writer_lock_reentrancy`, `tests/test_bundled_skills.py::test_writer_lock_serializes_threads`, `tests/test_add.py::test_add_skill_with_sync_holds_outer_writer_lock`.
 
 ### INV-LOCK-03: Dry-Run Exclusion `[current]` {: #inv-lock-03 }

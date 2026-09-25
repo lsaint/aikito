@@ -29,6 +29,11 @@ from .init import _validate_project_name, is_recognized_workspace
 from .memory import validate_memory_name
 from .subagent import SUBAGENT_NAME_PATTERN
 from .templating import BUNDLED_SKILL_NAMES
+from .workspace_layout import (
+    WorkspaceLayoutError,
+    parse_subagent_file,
+    require_current_layout,
+)
 
 # Operating-system and interpreter artifacts that never carry resource content.
 IGNORED_NAMES = frozenset({".DS_Store", "Thumbs.db", "desktop.ini", "__pycache__"})
@@ -39,8 +44,16 @@ _SECRET_PATTERN = re.compile(
     rb"(?i)(?:api[_-]?key|access[_-]?token|password|client[_-]?secret)"
     rb"\s*[:=]\s*['\"]?[A-Za-z0-9_./+\-=]{16,}"
 )
-_TOP_LEVEL_FILES = ("agents.toml", "skills.toml", "subagents.toml", "config.toml")
-_TOP_LEVEL_DIRS = ("global", "memory", "projects", "skills", "subagents", "mcps")
+_TOP_LEVEL_FILES = ("layout.toml", "skills.toml", "config.toml")
+_TOP_LEVEL_DIRS = (
+    "agents",
+    "global",
+    "memory",
+    "projects",
+    "skills",
+    "subagents",
+    "mcps",
+)
 _PROJECT_SET_FIELDS = ("path", "paths", "skills")
 
 
@@ -90,7 +103,7 @@ def value_fingerprint(value: Any) -> str:
 def fingerprint_resource(path: Path, kind: str) -> str:
     """Fingerprint a standalone file or skill with snapshot semantics."""
     scanner = _Scanner(path.parent)
-    if kind in ("memory", "project-memory"):
+    if kind in ("memory", "project-memory", "agent", "subagent", "legacy", "layout"):
         result = scanner.file_digest(path)
     elif kind == "skill" and _entry_type(path) == "directory":
         result = scanner.tree_digest(path)
@@ -321,39 +334,31 @@ def _agent_references(table: dict[str, Any]) -> tuple[str, ...]:
     return tuple(resource_id("agent", name) for name in agents if isinstance(name, str))
 
 
-def _scan_subagents(scanner: _Scanner, directory: Path, config: dict | None) -> None:
-    instructions: dict[str, Path] = {}
-    if scanner.directory(directory, optional=True):
-        for entry in scanner.children(directory):
-            if entry.suffix == ".md" and SUBAGENT_NAME_PATTERN.fullmatch(entry.stem):
-                instructions[entry.stem] = entry
-            else:
-                scanner.unsupported(entry)
-    tables = (config or {}).get("subagents", {})
-    if not isinstance(tables, dict):
-        scanner.error(
-            "invalid-toml",
-            "'subagents' must be a table",
-            scanner.root / "subagents.toml",
-        )
-        tables = {}
-    for name in sorted(instructions.keys() | tables.keys()):
-        path, table = instructions.get(name), tables.get(name)
-        if path is None or not isinstance(table, dict):
-            target = path or scanner.root / "subagents.toml"
-            scanner.error(
-                "incomplete-subagent", f"Subagent '{name}' needs both parts", target
-            )
+def _scan_subagents(scanner: _Scanner, directory: Path) -> None:
+    if not scanner.directory(directory):
+        return
+    for path in scanner.children(directory):
+        if path.suffix != ".md" or not SUBAGENT_NAME_PATTERN.fullmatch(path.stem):
+            scanner.unsupported(path)
             continue
-        digest = scanner.file_digest(path)
-        if digest is None:
+        try:
+            metadata, body = parse_subagent_file(path)
+        except WorkspaceLayoutError as exc:
+            scanner.error("invalid-subagent", str(exc), path)
             continue
-        parts = (
-            ResourcePart(scanner.rel(path)),
-            ResourcePart("subagents.toml", f"subagents.{name}"),
+        fingerprint = value_fingerprint(
+            {
+                "instructions": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+                "table": metadata,
+            }
         )
-        fingerprint = value_fingerprint({"instructions": digest, "table": table})
-        scanner.add("subagent", name, fingerprint, parts, _agent_references(table))
+        scanner.add(
+            "subagent",
+            path.stem,
+            fingerprint,
+            (ResourcePart(scanner.rel(path)),),
+            _agent_references(metadata),
+        )
 
 
 def _scan_mcps(scanner: _Scanner, directory: Path) -> None:
@@ -394,15 +399,36 @@ def _flatten(prefix: str, value: Any) -> list[tuple[str, Any]]:
     return [(prefix, value)]
 
 
-def _scan_top_level_toml(scanner: _Scanner) -> dict[str, Any] | None:
+def _scan_top_level_toml(scanner: _Scanner) -> None:
     root = scanner.root
-    agents = scanner.toml(root / "agents.toml")
-    _scan_tables(scanner, "agents.toml", agents, {"agents"})
-    agent_tables = (agents or {}).get("agents", {})
-    if isinstance(agent_tables, dict):
-        for name in sorted(agent_tables):
-            part = (ResourcePart("agents.toml", f"agents.{name}"),)
-            scanner.add("agent", name, value_fingerprint(agent_tables[name]), part)
+    agent_dir = root / "agents"
+    if scanner.directory(agent_dir):
+        for path in scanner.children(agent_dir):
+            if path.suffix != ".toml" or validate_resource_name(path.stem, "agent"):
+                scanner.unsupported(path)
+                continue
+            document = scanner.toml(path)
+            table = (document or {}).get("agents")
+            if document is None:
+                continue
+            if (
+                set(document) != {"agents"}
+                or not isinstance(table, dict)
+                or set(table) != {path.stem}
+                or not isinstance(table[path.stem], dict)
+            ):
+                scanner.error(
+                    "invalid-agent",
+                    "Agent file must define its matching table only",
+                    path,
+                )
+                continue
+            scanner.add(
+                "agent",
+                path.stem,
+                value_fingerprint(table[path.stem]),
+                (ResourcePart(scanner.rel(path)),),
+            )
 
     skills = scanner.toml(root / "skills.toml")
     _scan_tables(scanner, "skills.toml", skills, {"skills"})
@@ -415,9 +441,6 @@ def _scan_top_level_toml(scanner: _Scanner) -> dict[str, Any] | None:
             "skill-selection", name, "", (ResourcePart("skills.toml"),), references
         )
 
-    subagents = scanner.toml(root / "subagents.toml")
-    _scan_tables(scanner, "subagents.toml", subagents, {"subagents"})
-
     if _entry_type(root / "config.toml") != "missing":
         config = scanner.toml(root / "config.toml")
         for key, value in _flatten("", config or {}):
@@ -427,7 +450,6 @@ def _scan_top_level_toml(scanner: _Scanner) -> dict[str, Any] | None:
                 ),
             )
             scanner.add("config", key, value_fingerprint(value), part)
-    return subagents
 
 
 def _inbox_directory(root: Path) -> Path | None:
@@ -461,8 +483,12 @@ def snapshot_workspace(root: Path) -> WorkspaceSnapshot:
     root = root.expanduser().resolve()
     if not is_recognized_workspace(root):
         raise WorkspaceResourceError(f"Not an Aikito workspace: {root}")
+    try:
+        require_current_layout(root)
+    except WorkspaceLayoutError as exc:
+        raise WorkspaceResourceError(str(exc)) from exc
     scanner = _Scanner(root)
-    subagents = _scan_top_level_toml(scanner)
+    _scan_top_level_toml(scanner)
 
     managed = set(_TOP_LEVEL_FILES) | set(_TOP_LEVEL_DIRS)
     inbox = _inbox_directory(root)
@@ -491,7 +517,7 @@ def snapshot_workspace(root: Path) -> WorkspaceSnapshot:
                 _scan_project(scanner, project)
     if scanner.directory(root / "skills"):
         _scan_skills(scanner, root / "skills")
-    _scan_subagents(scanner, root / "subagents", subagents)
+    _scan_subagents(scanner, root / "subagents")
     _scan_mcps(scanner, root / "mcps")
 
     return WorkspaceSnapshot(

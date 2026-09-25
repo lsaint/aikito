@@ -1,3 +1,4 @@
+from layout_helpers import write_agents
 import json
 import tempfile
 import tomllib
@@ -233,9 +234,8 @@ class CheckProjectsTest(unittest.TestCase):
             definition = workspace / "projects" / "demo"
             project.mkdir()
             definition.mkdir(parents=True)
-            (workspace / "agents.toml").write_text(
-                '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n',
-                encoding="utf-8",
+            write_agents(
+                workspace, '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n'
             )
             (definition / "agent.toml").write_text(
                 f'path = "{project.as_posix()}"\nskills = []\n', encoding="utf-8"
@@ -259,11 +259,11 @@ class CheckProjectsTest(unittest.TestCase):
             project.mkdir()
             (root / ".claude").mkdir()
             definition.mkdir(parents=True)
-            (workspace / "agents.toml").write_text(
+            write_agents(
+                workspace,
                 '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n'
                 "[agents.claude-code]\n"
                 'project_instruction_path = ".claude/CLAUDE.md"\n',
-                encoding="utf-8",
             )
             (definition / "agent.toml").write_text(
                 f'path = "{project.as_posix()}"\nskills = []\n', encoding="utf-8"
@@ -294,9 +294,8 @@ class CheckProjectsTest(unittest.TestCase):
             project2_dir = workspace / "projects" / "p2"
             project1_dir.mkdir(parents=True)
             project2_dir.mkdir(parents=True)
-            (workspace / "agents.toml").write_text(
-                '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n',
-                encoding="utf-8",
+            write_agents(
+                workspace, '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n'
             )
             (project1_dir / "agent.toml").write_text(
                 f'path = "{project1_path.as_posix()}"\nskills = []\n',
@@ -331,7 +330,7 @@ class CheckProjectsTest(unittest.TestCase):
             canonical_skill.mkdir(parents=True)
             runtime_skill.mkdir(parents=True)
             project_dir.mkdir(parents=True)
-            (workspace / "agents.toml").write_text("[agents]\n", encoding="utf-8")
+            write_agents(workspace, "[agents]\n")
             (project_dir / "agent.toml").write_text(
                 f'path = "{project_path.as_posix()}"\nsync_mode = "copy"\nskills = ["my-skill"]\n',
                 encoding="utf-8",
@@ -365,10 +364,10 @@ class CheckConfigSyntaxTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def _write_minimal_toml_files(self) -> None:
-        (self.aikito_dir / "agents.toml").write_text("[agents]\n")
+        write_agents(self.aikito_dir, "[agents]\n")
         (self.aikito_dir / "skills.toml").write_text("skills = []\n")
         (self.aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
-        (self.aikito_dir / "subagents.toml").write_text("[subagents]\n")
+        (self.aikito_dir / "subagents").mkdir(exist_ok=True)
 
     def test_valid_toml_files_produce_ok_findings(self) -> None:
         self._write_minimal_toml_files()
@@ -412,15 +411,13 @@ class CheckConfigSyntaxTest(unittest.TestCase):
         section = check_config_syntax(self.aikito_dir, self.home)
         fails = [f for f in section.findings if f.status == "FAIL"]
         self.assertTrue(
-            any("agents.toml" in f.message for f in fails),
-            msg="Expected agents.toml missing failure",
+            any("agents: directory not found" in f.message for f in fails),
+            msg="Expected missing Agent directory failure",
         )
 
     def test_missing_bundled_agent_fields_produce_fixable_warning(self) -> None:
         self._write_minimal_toml_files()
-        (self.aikito_dir / "agents.toml").write_text(
-            '[agents.codex]\ndisplay_name = "Custom Codex"\n', encoding="utf-8"
-        )
+        write_agents(self.aikito_dir, '[agents.codex]\ndisplay_name = "Custom Codex"\n')
 
         section = check_config_syntax(self.aikito_dir, self.home)
 
@@ -435,13 +432,13 @@ class CheckConfigSyntaxTest(unittest.TestCase):
 
     def test_installed_unregistered_agent_produces_fixable_warning(self) -> None:
         self._write_minimal_toml_files()
-        (self.aikito_dir / "agents.toml").write_text(
+        write_agents(
+            self.aikito_dir,
             '[agents.codex]\ndisplay_name = "Codex"\n'
             'project_instruction_path = "AGENTS.md"\n'
             'instruction_path = ".codex/AGENTS.md"\n'
             'skills_path = ".agents/skills"\n'
             '\n[agents.codex.runner]\ncommand = ["codex", "{prompt}"]\n',
-            encoding="utf-8",
         )
 
         with patch(
@@ -454,16 +451,14 @@ class CheckConfigSyntaxTest(unittest.TestCase):
             finding
             for finding in section.findings
             if finding.status == "WARN"
-            and "'grok' is not registered" in finding.message
+            and "agents/grok.toml: installed Agent is not registered" in finding.message
         ]
         self.assertTrue(warnings)
         self.assertTrue(all(f.fix_hint == "aikito doctor --fix" for f in warnings))
 
     def test_registered_undetected_agent_reported_as_offline(self) -> None:
         self._write_minimal_toml_files()
-        (self.aikito_dir / "agents.toml").write_text(
-            '[agents.grok]\ndisplay_name = "Grok Build"\n', encoding="utf-8"
-        )
+        write_agents(self.aikito_dir, '[agents.grok]\ndisplay_name = "Grok Build"\n')
 
         with patch("aikito.doctor.is_agent_installed", return_value=False):
             section = check_config_syntax(self.aikito_dir, self.home)
@@ -475,14 +470,15 @@ class CheckConfigSyntaxTest(unittest.TestCase):
         )
         self.assertEqual(finding.status, "OK")
         self.assertIn(
-            "registered Agent 'grok' is offline on this host", finding.message
+            "agents/grok.toml: registered Agent is offline on this host",
+            finding.message,
         )
 
     def test_empty_native_config_reports_warn(self) -> None:
         self._write_minimal_toml_files()
-        (self.aikito_dir / "agents.toml").write_text(
+        write_agents(
+            self.aikito_dir,
             '[agents.agy]\ndisplay_name = "Antigravity CLI"\n[agents.agy.mcp]\nconfig_path = ".gemini/config/mcp_config.json"\nconfig_format = "agy_json"\n',
-            encoding="utf-8",
         )
         agy_cfg = self.home / ".gemini" / "config" / "mcp_config.json"
         agy_cfg.parent.mkdir(parents=True, exist_ok=True)
@@ -524,12 +520,13 @@ class CheckSymlinksTest(unittest.TestCase):
         self.home = self.root / "home"
         self.home.mkdir()
 
-        (self.aikito_dir / "agents.toml").write_text(
+        write_agents(
+            self.aikito_dir,
             """
 [agents.claude-code]
 display_name = "Claude Code"
 skills_path = ".claude/skills"
-""".strip()
+""".strip(),
         )
         (self.aikito_dir / "skills.toml").write_text('skills = ["my-skill"]\n')
         skill_dir = self.aikito_dir / "skills" / "my-skill"
@@ -631,7 +628,8 @@ skills_path = ".claude/skills"
         global_source.parent.mkdir()
         global_source.write_text("# Global\n", encoding="utf-8")
         shared.symlink_to(global_source)
-        (self.aikito_dir / "agents.toml").write_text(
+        write_agents(
+            self.aikito_dir,
             """
 [agents.custom-a]
 display_name = "Custom A"
@@ -641,7 +639,6 @@ instruction_path = ".shared/AGENTS.md"
 display_name = "Custom B"
 instruction_path = ".shared/AGENTS.md"
 """.strip(),
-            encoding="utf-8",
         )
 
         with patch(
@@ -673,7 +670,8 @@ class CheckOrphansTest(unittest.TestCase):
         self.home = self.root / "home"
         self.home.mkdir()
 
-        (self.aikito_dir / "agents.toml").write_text(
+        write_agents(
+            self.aikito_dir,
             """
 [agents.claude-code]
 display_name = "Claude Code"
@@ -681,9 +679,9 @@ display_name = "Claude Code"
 config_path = ".claude.json"
 config_format = "claude_json"
 name_style = "verbatim"
-""".strip()
+""".strip(),
         )
-        (self.aikito_dir / "subagents.toml").write_text("[subagents]\n")
+        (self.aikito_dir / "subagents").mkdir(exist_ok=True)
         (self.aikito_dir / "skills.toml").write_text("skills = []\n")
 
     def tearDown(self) -> None:
@@ -937,14 +935,15 @@ class CheckDriftAndSecurityTest(unittest.TestCase):
         # detection passes without depending on the host PATH.
         (self.home / ".claude").mkdir()
 
-        (self.aikito_dir / "agents.toml").write_text(
+        write_agents(
+            self.aikito_dir,
             """
 [agents.claude-code]
 display_name = "Claude Code"
 [agents.claude-code.mcp]
 config_path = ".claude.json"
 config_format = "claude_json"
-""".strip()
+""".strip(),
         )
         (self.aikito_dir / "skills.toml").write_text("skills = []\n")
         (self.aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
@@ -955,7 +954,7 @@ url = "https://example.com"
 agents = ["claude-code"]
 """.strip()
         )
-        (self.aikito_dir / "subagents.toml").write_text("[subagents]\n")
+        (self.aikito_dir / "subagents").mkdir(exist_ok=True)
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -1572,7 +1571,8 @@ class DoctorFixesTest(unittest.TestCase):
         from aikito.doctor import run_doctor_fixes
 
         self.aikito_dir.mkdir(exist_ok=True)
-        agents_path = self.aikito_dir / "agents.toml"
+        agents_path = self.aikito_dir / "agents" / "codex.toml"
+        agents_path.parent.mkdir(exist_ok=True)
         agents_path.write_text(
             '[agents.codex]\ndisplay_name = "Custom Codex"\n', encoding="utf-8"
         )
@@ -1590,8 +1590,8 @@ class DoctorFixesTest(unittest.TestCase):
         from aikito.doctor import run_doctor_fixes
 
         self.aikito_dir.mkdir(exist_ok=True)
-        agents_path = self.aikito_dir / "agents.toml"
-        agents_path.write_text("[agents]\n", encoding="utf-8")
+        agents_path = self.aikito_dir / "agents" / "grok.toml"
+        agents_path.parent.mkdir(exist_ok=True)
         (self.home / ".grok").mkdir()
 
         with patch("aikito.init.shutil.which", return_value=None):
@@ -1601,7 +1601,7 @@ class DoctorFixesTest(unittest.TestCase):
             grok = tomllib.load(config_file)["agents"]["grok"]
         self.assertEqual(grok["project_instruction_path"], "AGENTS.md")
         self.assertEqual(grok["runner"]["command"][0], "grok")
-        self.assertTrue(any("agents.grok" in fix for fix in result))
+        self.assertTrue(any("agents/grok.toml" in fix for fix in result))
 
     def test_check_projects_reports_offline_project_as_ok(self) -> None:
         workspace = self.aikito_dir
@@ -1666,8 +1666,10 @@ class ConflictMarkersTest(unittest.TestCase):
         self.home = Path(self.tmp.name) / "home"
         self.home.mkdir()
         # Minimal workspace structure
-        for name in ("agents.toml", "skills.toml", "subagents.toml"):
+        for name in ("layout.toml", "skills.toml"):
             (self.aikito_dir / name).write_text("", encoding="utf-8")
+        (self.aikito_dir / "agents").mkdir(exist_ok=True)
+        (self.aikito_dir / "subagents").mkdir(exist_ok=True)
         (self.aikito_dir / "mcps").mkdir()
         (self.aikito_dir / "projects").mkdir()
         self.notes_dir = self.aikito_dir / "memory" / "notes"
@@ -1845,8 +1847,8 @@ class ConflictMarkersTest(unittest.TestCase):
         self._make_note("b", "# B\n")
         section = check_conflict_markers(self.aikito_dir, self.home)
         ok_msgs = [f.message for f in section.findings if f.status == "OK"]
-        # 2 notes + 3 top-level toml files = 5
-        self.assertTrue(any("5 files checked" in m for m in ok_msgs))
+        # Two notes and two top-level configuration files.
+        self.assertTrue(any("4 files checked" in m for m in ok_msgs))
 
 
 if __name__ == "__main__":

@@ -56,7 +56,7 @@ Internal modules (`aikito.project`, `aikito.adopt`, etc.) are private and must n
   - Does **not** modify workspace pointer or update project configuration.
   - When explicit `path` is passed, it is used directly without writing it into `agent.toml`.
 - **Exception Contract**:
-  - `UnsupportedProjectAgentError`: `agent` is not registered in workspace `agents.toml`.
+  - `UnsupportedProjectAgentError`: `agent` is not registered in workspace `agents/<name>.toml`.
   - `ProjectPrepareConflictError`: Managed resources cannot be safely synchronized, symlink capability is missing, or conflict markers are detected.
   - `NoAvailableProjectPathError`: Raised when `path` is omitted and no configured path exists on this host, **or** when explicit `path` does not exist.
   - `InvalidProjectConfigError`: Raised when explicit `path` is empty, of invalid type, or exists but is not a directory.

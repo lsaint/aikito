@@ -13,7 +13,7 @@ from aikito.skill_state import (
     ProjectSkillStateDocument,
     SkillStateRecord,
     SkillTransactionJournal,
-    SkillWriterLock,
+    WorkspaceWriterLock,
     calculate_directory_fingerprint,
     delete_transaction_journal,
     get_binding_hash,
@@ -175,19 +175,19 @@ class SkillStateStoreTests(TestCase):
             self.assertFalse(state_file.exists())
 
 
-class SkillWriterLockTests(TestCase):
+class WorkspaceWriterLockTests(TestCase):
     def test_writer_lock_reentrancy(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             home = Path(td)
-            lock = SkillWriterLock(home)
+            lock = WorkspaceWriterLock(home)
             with lock:
-                self.assertEqual(SkillWriterLock._lock_depth, 1)
+                self.assertEqual(WorkspaceWriterLock._lock_depth, 1)
                 # Re-entrant acquire
-                with SkillWriterLock(home):
-                    self.assertEqual(SkillWriterLock._lock_depth, 2)
-                self.assertEqual(SkillWriterLock._lock_depth, 1)
-            self.assertEqual(SkillWriterLock._lock_depth, 0)
-            self.assertIsNone(SkillWriterLock._lock_file_obj)
+                with WorkspaceWriterLock(home):
+                    self.assertEqual(WorkspaceWriterLock._lock_depth, 2)
+                self.assertEqual(WorkspaceWriterLock._lock_depth, 1)
+            self.assertEqual(WorkspaceWriterLock._lock_depth, 0)
+            self.assertIsNone(WorkspaceWriterLock._lock_file_obj)
 
 
 class SkillTransactionRecoveryTests(TestCase):

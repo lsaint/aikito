@@ -1,3 +1,4 @@
+from layout_helpers import write_agents
 import tempfile
 import unittest
 from pathlib import Path
@@ -150,10 +151,10 @@ class ProjectPrepareConflictCheckTest(unittest.TestCase):
             'sync_mode = "link"\nskills = ["demo-skill"]\n',
             encoding="utf-8",
         )
-        (self.workspace / "agents.toml").write_text(
+        write_agents(
+            self.workspace,
             '[agents.pi]\ndisplay_name = "Pi"\n'
             'project_instruction_path = "AGENTS.md"\n',
-            encoding="utf-8",
         )
 
     def tearDown(self) -> None:
@@ -307,10 +308,10 @@ class SyncCliConflictCheckTest(unittest.TestCase):
         (self.workspace / "global" / "AGENTS.md").write_text(
             "# Global instructions\n", encoding="utf-8"
         )
-        (self.workspace / "agents.toml").write_text(
+        write_agents(
+            self.workspace,
             '[agents.pi]\ndisplay_name = "Pi"\n'
             'project_instruction_path = "AGENTS.md"\n',
-            encoding="utf-8",
         )
 
     def tearDown(self) -> None:

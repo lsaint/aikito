@@ -70,6 +70,14 @@ class StateUpdate:
     after: str
 
 
+@dataclass(frozen=True)
+class PathPolicy:
+    """Caller-owned resource and state paths admitted to a transaction."""
+
+    resources: tuple[tuple[str, str], ...] = ()
+    states: tuple[str, ...] = ()
+
+
 def validate_roots(left: Path, right: Path) -> tuple[Path, Path]:
     left, right = left.expanduser().resolve(), right.expanduser().resolve()
     if not is_recognized_workspace(left) or not is_recognized_workspace(right):
@@ -79,7 +87,9 @@ def validate_roots(left: Path, right: Path) -> tuple[Path, Path]:
     return left, right
 
 
-def validate_resource_path(path: str, kind: str) -> Path:
+def validate_resource_path(
+    path: str, kind: str, policy: PathPolicy = PathPolicy()
+) -> Path:
     relative = Path(path)
     parts = relative.parts
     if (
@@ -89,6 +99,8 @@ def validate_resource_path(path: str, kind: str) -> Path:
         or any(part in (".", "..") for part in parts)
     ):
         raise WorkspaceCoreError(f"Unsafe resource path: {path}")
+    if (kind, path) in policy.resources:
+        return relative
     if kind == "memory" and len(parts) == 3 and parts[:2] == ("memory", "notes"):
         name = parts[2]
     elif (
@@ -105,6 +117,22 @@ def validate_resource_path(path: str, kind: str) -> Path:
         and parts[0] == "skills"
         and not validate_resource_name(parts[1], "skill")
         and parts[1] not in BUNDLED_SKILL_NAMES
+    ):
+        return relative
+    elif (
+        kind == "agent"
+        and len(parts) == 2
+        and parts[0] == "agents"
+        and relative.suffix == ".toml"
+        and not validate_resource_name(relative.stem, "agent")
+    ):
+        return relative
+    elif (
+        kind == "subagent"
+        and len(parts) == 2
+        and parts[0] == "subagents"
+        and relative.suffix == ".md"
+        and not validate_resource_name(relative.stem, "subagent")
     ):
         return relative
     else:
@@ -138,8 +166,10 @@ def require_ancestors(root: Path, relative: Path) -> None:
             raise WorkspaceCoreError(f"Unsafe resource parent: {current}")
 
 
-def version_at(root: Path, path: str, kind: str) -> Version | None:
-    relative = validate_resource_path(path, kind)
+def version_at(
+    root: Path, path: str, kind: str, policy: PathPolicy = PathPolicy()
+) -> Version | None:
+    relative = validate_resource_path(path, kind, policy)
     require_ancestors(root, relative)
     target = root / relative
     actual = entry_type(target)
@@ -342,8 +372,8 @@ def _journal_path(root: Path, create: bool = False) -> Path | None:
     return state / "pending.json" if state is not None else None
 
 
-def _state_path(root: Path, relative: str) -> Path:
-    if relative != ".local/state/aikito/workspace-reconcile/baseline.json":
+def _state_path(root: Path, relative: str, policy: PathPolicy) -> Path:
+    if relative not in policy.states:
         raise WorkspaceCoreError(f"Unsafe state path: {relative}")
     path = root / relative
     if entry_type(path.parent) != "directory":
@@ -351,7 +381,9 @@ def _state_path(root: Path, relative: str) -> Path:
     return path
 
 
-def _validate_journal(data: object, roots: tuple[Path, ...]) -> dict:
+def _validate_journal(
+    data: object, roots: tuple[Path, ...], policy: PathPolicy
+) -> dict:
     if (
         not isinstance(data, dict)
         or data.get("version") != 1
@@ -381,9 +413,12 @@ def _validate_journal(data: object, roots: tuple[Path, ...]) -> dict:
         if not isinstance(item.get("path"), str) or item.get("kind") not in (
             "memory",
             "skill",
+            "agent",
+            "subagent",
+            *(kind for kind, _ in policy.resources),
         ):
             raise WorkspaceCoreError("Invalid journal resource")
-        validate_resource_path(item["path"], item["kind"])
+        validate_resource_path(item["path"], item["kind"], policy)
         for key in ("before", "after"):
             if item.get(key) is not None and (
                 not isinstance(item[key], str)
@@ -406,11 +441,11 @@ def _validate_journal(data: object, roots: tuple[Path, ...]) -> dict:
             or (item.get("before") is not None and not isinstance(item["before"], str))
         ):
             raise WorkspaceCoreError("Invalid journal state")
-        _state_path(roots[item["target"]], item["path"])
+        _state_path(roots[item["target"]], item["path"], policy)
     return data
 
 
-def _read_journal(roots: tuple[Path, ...]) -> dict | None:
+def _read_journal(roots: tuple[Path, ...], policy: PathPolicy) -> dict | None:
     found = []
     for root in roots:
         path = _journal_path(root)
@@ -425,7 +460,7 @@ def _read_journal(roots: tuple[Path, ...]) -> dict | None:
     if not found:
         return None
     for item in found:
-        _validate_journal(item, roots)
+        _validate_journal(item, roots, policy)
     if any(item != found[0] for item in found):
         # A crash may interrupt the final phase update on one root.
         if any(
@@ -435,12 +470,32 @@ def _read_journal(roots: tuple[Path, ...]) -> dict | None:
         ):
             raise WorkspaceCoreError("Workspace journals differ")
         found[0]["phase"] = "pending"
-    return _validate_journal(found[0], roots)
+    return _validate_journal(found[0], roots, policy)
 
 
-def has_pending(roots: tuple[Path, ...]) -> bool:
+def has_pending(roots: tuple[Path, ...], *, policy: PathPolicy = PathPolicy()) -> bool:
     """Report an unfinished or not yet cleaned transaction without writing."""
-    return _read_journal(roots) is not None
+    return _read_journal(roots, policy) is not None
+
+
+def pending_kinds(roots: tuple[Path, ...]) -> frozenset[str]:
+    """Return resource kinds in an unfinished transaction without writing."""
+    kinds: set[str] = set()
+    for root in roots:
+        path = _journal_path(root)
+        if path is None or entry_type(path) == "missing":
+            continue
+        if entry_type(path) != "file":
+            raise WorkspaceCoreError(f"Unsafe journal: {path}")
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            changes = data["changes"]
+            if not isinstance(changes, list):
+                raise ValueError("Invalid journal changes")
+            kinds.update(item["kind"] for item in changes)
+        except (OSError, KeyError, TypeError, ValueError) as exc:
+            raise WorkspaceCoreError(f"Invalid workspace journal: {path}") from exc
+    return frozenset(kinds)
 
 
 def _fingerprint_private(path: Path, kind: str) -> str | None:
@@ -466,9 +521,9 @@ def _cleanup(roots: tuple[Path, ...], txid: str) -> None:
             path.unlink(missing_ok=True)
 
 
-def recover(roots: tuple[Path, ...]) -> bool:
+def recover(roots: tuple[Path, ...], *, policy: PathPolicy = PathPolicy()) -> bool:
     """Rollback an interrupted transaction; keep externally changed data."""
-    data = _read_journal(roots)
+    data = _read_journal(roots, policy)
     if data is None:
         return False
     txid = data["txid"]
@@ -478,7 +533,7 @@ def recover(roots: tuple[Path, ...]) -> bool:
     restore = []
     for item in reversed(data["changes"]):
         root, path, kind = roots[item["target"]], item["path"], item["kind"]
-        current = version_at(root, path, kind)
+        current = version_at(root, path, kind, policy)
         current_fp = current.fingerprint if current else None
         tx = _tx_dir(root, txid, False)
         moved = tx / "moved" / path
@@ -502,7 +557,7 @@ def recover(roots: tuple[Path, ...]) -> bool:
             raise WorkspaceCoreError(f"Missing recovery copy: {root / path}")
         restore.append((root, path, kind, current_fp, before, source))
     for item in data["states"]:
-        path = _state_path(roots[item["target"]], item["path"])
+        path = _state_path(roots[item["target"]], item["path"], policy)
         if entry_type(path) not in ("file", "missing"):
             raise WorkspaceCoreError(f"Unsafe transaction state: {path}")
         current = (
@@ -523,7 +578,7 @@ def recover(roots: tuple[Path, ...]) -> bool:
             else:
                 _copy_resource(source, dest, kind)
     for item in data["states"]:
-        path = _state_path(roots[item["target"]], item["path"])
+        path = _state_path(roots[item["target"]], item["path"], policy)
         if item["before"] is None:
             path.unlink(missing_ok=True)
         else:
@@ -543,17 +598,18 @@ def apply(
     *,
     states: tuple[StateUpdate, ...] = (),
     verify: Callable[[], None] | None = None,
+    policy: PathPolicy = PathPolicy(),
 ) -> None:
     """Apply validated changes with one journal and rollback protocol."""
-    if _read_journal(roots) is not None:
+    if _read_journal(roots, policy) is not None:
         raise WorkspaceCoreError("Pending transaction needs recovery")
     txid = uuid.uuid4().hex
     entries = []
     try:
         for change in changes:
-            validate_resource_path(change.path, change.kind)
+            validate_resource_path(change.path, change.kind, policy)
             root = roots[change.target]
-            current = version_at(root, change.path, change.kind)
+            current = version_at(root, change.path, change.kind, policy)
             if (current.fingerprint if current else None) != change.before:
                 raise WorkspaceCoreError(
                     f"Target changed before staging: {root / change.path}"
@@ -602,7 +658,7 @@ def apply(
             atomic_text(journal, json.dumps(data, sort_keys=True))
         for item in entries:
             root, path, kind = roots[item["target"]], item["path"], item["kind"]
-            current = version_at(root, path, kind)
+            current = version_at(root, path, kind, policy)
             if (current.fingerprint if current else None) != item["before"]:
                 raise WorkspaceCoreError(f"Target changed during apply: {root / path}")
             tx = _tx_dir(root, txid, False)
@@ -621,7 +677,7 @@ def apply(
         if verify is not None:
             verify()
         for item in states:
-            path = _state_path(roots[item.target], item.path)
+            path = _state_path(roots[item.target], item.path, policy)
             if entry_type(path) not in ("file", "missing"):
                 raise WorkspaceCoreError(f"Unsafe transaction state: {path}")
             current = (
@@ -636,6 +692,6 @@ def apply(
             assert journal is not None
             atomic_text(journal, json.dumps(data, sort_keys=True))
     except Exception:
-        recover(roots)
+        recover(roots, policy=policy)
         raise
     _cleanup(roots, txid)

@@ -91,6 +91,7 @@ def _get_handlers(handlers: dict[str, Any] | None = None) -> dict[str, Any]:
             "cmd_init",
             "cmd_init_project",
             "cmd_maintain_memory",
+            "cmd_migrate_workspace_resources",
             "cmd_mcp_auth",
             "cmd_mcp_sync",
             "cmd_path_workspace",
@@ -137,6 +138,7 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     cmd_init = h["cmd_init"]
     cmd_init_project = h["cmd_init_project"]
     cmd_maintain_memory = h["cmd_maintain_memory"]
+    cmd_migrate_workspace_resources = h["cmd_migrate_workspace_resources"]
     cmd_mcp_auth = h["cmd_mcp_auth"]
     cmd_mcp_sync = h["cmd_mcp_sync"]
     cmd_path_workspace = h["cmd_path_workspace"]
@@ -223,6 +225,17 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         help="Arguments forwarded directly to git",
     )
     p_git.set_defaults(func=cmd_git)
+
+    p_migrate = subparsers.add_parser("migrate", help="Migrate workspace resources")
+    migrate_subparsers = p_migrate.add_subparsers(dest="migrate_target", required=True)
+    p_migrate_resources = migrate_subparsers.add_parser(
+        "workspace-resources",
+        help="Move Agent and subagent definitions to per-resource files",
+    )
+    p_migrate_resources.add_argument(
+        "--dry-run", action="store_true", help="Preview migration without writing"
+    )
+    p_migrate_resources.set_defaults(func=cmd_migrate_workspace_resources)
 
     # init
     p_init = subparsers.add_parser("init", help="Initialize a workspace or project")

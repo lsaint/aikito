@@ -198,8 +198,8 @@ class Workspace:
     def inspect(self) -> WorkspaceInspection:
         """Return a strictly read-only structured inspection of the workspace."""
         # 1. Configured agents
-        agents_file = self.path / "agents.toml"
-        if agents_file.is_file():
+        agents_dir = self.path / "agents"
+        if agents_dir.is_dir():
             try:
                 agents_def = load_agent_definitions(self.path, self.home)
                 configured_agents = tuple(sorted(agents_def.keys()))
@@ -244,14 +244,13 @@ class Workspace:
 
         # 5. Subagents
         subagents_set: set[str] = set()
-        subagents_toml = self.path / "subagents.toml"
-        if subagents_toml.is_file():
+        subagents_dir = self.path / "subagents"
+        if subagents_dir.is_dir():
             try:
                 subs = load_subagent_definitions(self.path)
                 subagents_set.update(subs.keys())
             except Exception:
                 pass
-        subagents_dir = self.path / "subagents"
         if subagents_dir.is_dir():
             for p in subagents_dir.glob("*.md"):
                 if p.is_file():

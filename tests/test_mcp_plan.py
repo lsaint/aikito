@@ -7,6 +7,7 @@ Validates Step 7.6 implementation of:
 - INV-MCP-05: Structured and Plaintext Display Redaction of Sensitive Environment Secrets
 """
 
+from layout_helpers import write_agents
 import dataclasses
 import json
 import os
@@ -61,7 +62,7 @@ config_path = ".gemini/config/mcp_config.json"
 config_format = "agy_json"
 name_style = "verbatim"
 """
-        (self.ws / "agents.toml").write_text(agents_toml, encoding="utf-8")
+        write_agents(self.ws, agents_toml)
 
         # Fake agent presence in home
         (self.home / ".claude.json").parent.mkdir(parents=True, exist_ok=True)
@@ -72,12 +73,14 @@ name_style = "verbatim"
 
     def test_unsupported_agents_skip_without_reading_or_colliding(self) -> None:
         """Unsupported agents must not read '.' or collide with shared config files."""
-        with (self.ws / "agents.toml").open("a", encoding="utf-8") as fh:
-            fh.write(
-                """
+        (self.ws / "agents" / "bare.toml").write_text(
+            """
 [agents.bare]
 display_name = "Bare"
-
+"""
+        )
+        (self.ws / "agents" / "legacy.toml").write_text(
+            """
 [agents.legacy]
 display_name = "Legacy"
 
@@ -86,7 +89,7 @@ config_path = ".claude.json"
 config_format = "unsupported"
 reason = "Legacy has no MCP"
 """
-            )
+        )
         (self.mcps_dir / "docs.toml").write_text(
             'transport = "remote"\n'
             'url = "https://example.com/mcp"\n'

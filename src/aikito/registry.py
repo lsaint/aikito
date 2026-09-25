@@ -24,8 +24,13 @@ def missing_agent_fields(
     include_agents: tuple[str, ...] = (),
 ) -> dict[str, dict[tuple[str, ...], Any]]:
     """Return bundled fields missing from agents already present in a registry."""
-    with registry_path.open("rb") as registry_file:
-        current = tomllib.load(registry_file).get("agents", {})
+    current = {}
+    for path in sorted(registry_path.glob("*.toml")):
+        document = tomllib.loads(path.read_text(encoding="utf-8"))
+        table = document.get("agents", {})
+        if set(document) != {"agents"} or set(table) != {path.stem}:
+            raise ValueError(f"Invalid Agent definition: {path}")
+        current[path.stem] = table[path.stem]
     bundled = tomllib.loads(template).get("agents", {})
     missing = {}
     agent_names = tuple(dict.fromkeys((*current, *include_agents)))
@@ -67,56 +72,56 @@ def add_missing_agent_fields(
     if not missing:
         return []
 
-    content = registry_path.read_text(encoding="utf-8")
     fixes = []
-    grouped: dict[tuple[str, ...], list[tuple[str, Any]]] = {}
+    bundled = tomllib.loads(template).get("agents", {})
     for agent_name, fields in missing.items():
-        for path, value in fields.items():
-            table = ("agents", agent_name, *path[:-1])
-            grouped.setdefault(table, []).append((path[-1], value))
-
-    for table, fields in grouped.items():
-        header = "[" + ".".join(table) + "]"
-        additions = "".join(f"{key} = {_toml_value(value)}\n" for key, value in fields)
-        match = re.search(rf"(?m)^{re.escape(header)}\s*$", content)
-        if match:
-            next_header = re.search(r"(?m)^\[", content[match.end() :])
-            insertion = (
-                match.end() + next_header.start() if next_header else len(content)
+        path = registry_path / f"{agent_name}.toml"
+        if not path.is_file():
+            if agent_name not in bundled:
+                continue
+            content = _agent_template_fragment(template, agent_name)
+            path.write_text(content, encoding="utf-8")
+            fixes.append(f"Added agents/{agent_name}.toml")
+            continue
+        content = path.read_text(encoding="utf-8")
+        grouped: dict[tuple[str, ...], list[tuple[str, Any]]] = {}
+        for field, value in fields.items():
+            table = ("agents", agent_name, *field[:-1])
+            grouped.setdefault(table, []).append((field[-1], value))
+        for table, values in grouped.items():
+            header = "[" + ".".join(table) + "]"
+            additions = "".join(
+                f"{key} = {_toml_value(value)}\n" for key, value in values
             )
-            prefix = "" if content[:insertion].endswith("\n") else "\n"
-            content = content[:insertion] + prefix + additions + content[insertion:]
-        else:
-            separator = "\n" if content.endswith("\n") else "\n\n"
-            content += separator + header + "\n" + additions
-        for key, _value in fields:
-            fixes.append(f"Added {'.'.join((*table, key))} to agents.toml")
-
-    registry_path.write_text(content, encoding="utf-8")
+            match = re.search(rf"(?m)^{re.escape(header)}\s*$", content)
+            if match:
+                next_header = re.search(r"(?m)^\[", content[match.end() :])
+                insertion = (
+                    match.end() + next_header.start() if next_header else len(content)
+                )
+                prefix = "" if content[:insertion].endswith("\n") else "\n"
+                content = content[:insertion] + prefix + additions + content[insertion:]
+            else:
+                content += "\n" + header + "\n" + additions
+            for key, _value in values:
+                fixes.append(
+                    f"Added {'.'.join((*table, key))} to agents/{agent_name}.toml"
+                )
+        tomllib.loads(content)
+        path.write_text(content, encoding="utf-8")
     return fixes
 
 
+def _agent_template_fragment(template: str, agent_name: str) -> str:
+    header = f"[agents.{agent_name}]"
+    start = re.search(rf"(?m)^{re.escape(header)}\s*$", template)
+    if start is None:
+        raise ValueError(f"Missing bundled Agent: {agent_name}")
+    next_agent = re.search(r"(?m)^\[agents\.[^.\]]+\]\s*$", template[start.end() :])
+    end = start.end() + next_agent.start() if next_agent else len(template)
+    return template[start.start() : end].strip() + "\n"
+
+
 def remove_agent_section(registry_path: Path, agent_name: str) -> None:
-    """Remove one complete Agent table tree while preserving all other text."""
-    content = registry_path.read_text(encoding="utf-8")
-    header = re.search(rf"(?m)^\[agents\.{re.escape(agent_name)}\]\s*$", content)
-    if header is None:
-        return
-
-    next_agent = re.search(r"(?m)^\[agents\.[^.\]]+\]\s*$", content[header.end() :])
-    next_start = header.end() + next_agent.start() if next_agent else len(content)
-    boundary = content.rfind("\n\n", header.end(), next_start)
-    end = boundary if boundary >= 0 else next_start
-
-    start = header.start()
-    boundary = content.rfind("\n\n", 0, header.start())
-    comment_start = boundary + 2 if boundary >= 0 else 0
-    preceding = content[comment_start : header.start()]
-    if preceding.lstrip().startswith("#"):
-        start = comment_start
-
-    updated = (
-        content[:start].rstrip() + "\n\n" + content[end:].lstrip()
-    ).rstrip() + "\n"
-    tomllib.loads(updated)
-    registry_path.write_text(updated, encoding="utf-8")
+    """Remove one Agent file from the canonical registry directory."""
+    (registry_path / f"{agent_name}.toml").unlink(missing_ok=True)

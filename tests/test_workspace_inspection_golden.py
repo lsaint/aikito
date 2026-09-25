@@ -11,6 +11,7 @@ Covers PR 1 requirements of aikito-workspace-inspection-plan:
 """
 
 from __future__ import annotations
+from layout_helpers import replace_subagent_body, write_agents, write_subagents
 
 import io
 import json
@@ -65,7 +66,8 @@ class AikitoWorkspaceInspectionGoldenTests(unittest.TestCase):
         init_workspace(self.aikito_dir, self.home)
 
         # Baseline agents.toml matching official claude-code template
-        (self.aikito_dir / "agents.toml").write_text(
+        write_agents(
+            self.aikito_dir,
             """
 [agents.claude-code]
 display_name = "Claude Code"
@@ -83,7 +85,6 @@ config_format = "claude_json"
 name_style = "verbatim"
 """.strip()
             + "\n",
-            encoding="utf-8",
         )
 
         # Baseline skills.toml
@@ -96,17 +97,12 @@ name_style = "verbatim"
         (skill_dir / "SKILL.md").write_text("# My Skill\n", encoding="utf-8")
 
         # Baseline subagents.toml
-        (self.aikito_dir / "subagents.toml").write_text(
-            """
-[subagents.verifier]
-description = "Verification agent"
-agents = ["claude-code"]
-""".strip()
-            + "\n",
-            encoding="utf-8",
-        )
         (self.aikito_dir / "subagents" / "verifier.md").write_text(
             "# Verifier Subagent\nPrompt\n", encoding="utf-8"
+        )
+        write_subagents(
+            self.aikito_dir,
+            '[subagents.verifier]\ndescription = "Verification agent"\nagents = ["claude-code"]\n',
         )
 
         # Baseline mcps/github.toml
@@ -366,10 +362,10 @@ agents = ["claude-code"]
 
     def test_golden_offline_agent_and_offline_project(self) -> None:
         # Add an offline agent (no binary, no home marker)
-        with open(self.aikito_dir / "agents.toml", "a", encoding="utf-8") as f:
-            f.write(
-                "\n[agents.ghost-agent]\ndisplay_name = 'Ghost Agent'\nskills_path = '.ghost/skills'\n"
-            )
+        (self.aikito_dir / "agents" / "ghost-agent.toml").write_text(
+            "[agents.ghost-agent]\ndisplay_name = 'Ghost Agent'\nskills_path = '.ghost/skills'\n",
+            encoding="utf-8",
+        )
 
         # Add an offline project pointing to non-existent directory
         proj_dir = self.aikito_dir / "projects" / "offline_proj"
@@ -440,8 +436,8 @@ agents = ["claude-code"]
         self._sync_clean()
 
         # Update canonical subagent definition without syncing
-        (self.aikito_dir / "subagents" / "verifier.md").write_text(
-            "# Verifier Subagent Updated Content\n", encoding="utf-8"
+        replace_subagent_body(
+            self.aikito_dir, "verifier", "# Verifier Subagent Updated Content\n"
         )
 
         # 1. Check status overview via collect_agent_status_rows
@@ -495,8 +491,8 @@ agents = ["claude-code"]
         self._sync_clean()
 
         # Introduce an update to verifier subagent
-        (self.aikito_dir / "subagents" / "verifier.md").write_text(
-            "# Verifier Subagent Homology Test Content\n", encoding="utf-8"
+        replace_subagent_body(
+            self.aikito_dir, "verifier", "# Verifier Subagent Homology Test Content\n"
         )
 
         # 1. Sync dry-run reports update / change
@@ -523,16 +519,9 @@ agents = ["claude-code"]
         """Verify doctor isolates a config/planner failure in one resource without suppressing other sections."""
         self._sync_clean()
 
-        # Corrupt subagents.toml with invalid schema
-        (self.aikito_dir / "subagents.toml").write_text(
-            """
-[subagents.broken]
-description = "Broken agent"
-agents = ["claude-code"]
-[subagents.broken.claude-code]
-unknown_field = "invalid"
-""".strip()
-            + "\n",
+        (self.aikito_dir / "subagents" / "broken.md").write_text(
+            '---\ndescription: "Broken agent"\nagents: ["claude-code"]\n'
+            'claude-code: {"unknown_field": "invalid"}\n---\n# Broken\n',
             encoding="utf-8",
         )
 

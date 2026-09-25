@@ -41,7 +41,7 @@ from .skill_state import (
     ProjectSkillStateDocument,
     SkillStateRecord,
     SkillTransactionJournal,
-    SkillWriterLock,
+    WorkspaceWriterLock,
     calculate_directory_fingerprint,
     delete_transaction_journal,
     get_binding_hash,
@@ -254,7 +254,7 @@ def execute_skill_plan(
     *,
     dry_run: bool = False,
 ) -> SkillExecutionResult:
-    """Apply a SkillPlan under the global SkillWriterLock."""
+    """Apply a SkillPlan under the global WorkspaceWriterLock."""
     if not plan.can_apply:
         return SkillExecutionResult(
             applied_ops=(),
@@ -287,8 +287,8 @@ def execute_skill_plan(
             state_only_changes=state_only_changes,
         )
 
-    # Mutating execution under SkillWriterLock
-    with SkillWriterLock(home):
+    # Mutating execution under WorkspaceWriterLock
+    with WorkspaceWriterLock(home):
         # 1. Recovery pass
         rec_needed, rec_msg = run_recovery_pass(
             home,
@@ -1153,7 +1153,7 @@ def execute_selection_transaction(
 
         write_fn = default_write
 
-    with SkillWriterLock(home):
+    with WorkspaceWriterLock(home):
         # 1. Recovery pass — abort on unrecoverable corrupted journal
         rec_ok, rec_msg = run_recovery_pass(
             home,

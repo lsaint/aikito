@@ -7,6 +7,7 @@ and sensitive configuration redaction.
 """
 
 from __future__ import annotations
+from layout_helpers import write_agents, write_subagents
 
 import json
 import tempfile
@@ -79,7 +80,7 @@ config_path = ".dsh/cordis.patch.yml"
 config_format = "dsh_cordis_patch"
 name_style = "verbatim"
 """
-        (self.ws / "agents.toml").write_text(self.agents_toml.strip(), encoding="utf-8")
+        write_agents(self.ws, self.agents_toml.strip())
 
         # Create home agent directories
         (self.home / ".claude").mkdir(parents=True)
@@ -87,15 +88,13 @@ name_style = "verbatim"
         (self.home / ".dsh").mkdir(parents=True)
 
         # Canonical subagents
-        (self.ws / "subagents").mkdir()
-        (self.ws / "subagents.toml").write_text(
-            "[subagents.verifier]\n"
-            'description = "Verifier agent"\n'
-            'agents = ["claude-code", "opencode", "dsh"]\n',
-            encoding="utf-8",
-        )
+        (self.ws / "subagents").mkdir(exist_ok=True)
         (self.ws / "subagents" / "verifier.md").write_text(
             "You are a verifier subagent.\n", encoding="utf-8"
+        )
+        write_subagents(
+            self.ws,
+            '[subagents.verifier]\ndescription = "Verifier agent"\nagents = ["claude-code", "opencode", "dsh"]\n',
         )
 
         # Canonical MCPs

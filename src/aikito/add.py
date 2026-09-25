@@ -18,7 +18,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from . import mcp
 from .compat import _atomic_write_text, require_symlink_support, safe_relative_path
 from .project_sync import sync_project
-from .skill_state import SkillWriterLock
+from .skill_state import WorkspaceWriterLock
 from .subagent import KNOWN_PLATFORM_FIELDS
 from .templating import BUNDLED_SKILL_NAMES
 from .workspace_sync import sync_global_resources
@@ -57,11 +57,7 @@ def _check_workspace_initialized(aikito_dir: Path) -> Optional[str]:
     if not aikito_dir.exists() or not aikito_dir.is_dir():
         return f"Aikito workspace directory not found: {aikito_dir}"
 
-    # Check for basic workspace marker configs
-    if (
-        not (aikito_dir / "agents.toml").exists()
-        and not (aikito_dir / "skills.toml").exists()
-    ):
+    if not (aikito_dir / "layout.toml").is_file():
         return f"Aikito workspace is not initialized at: {aikito_dir}"
     return None
 
@@ -526,7 +522,7 @@ def add_skill(
     Create canonical Skill skeleton or import from external source, and register it in skills.toml or project agent.toml files.
     """
     if sync:
-        with SkillWriterLock(home.expanduser().resolve()):
+        with WorkspaceWriterLock(home.expanduser().resolve()):
             return _add_skill_impl(
                 aikito_dir,
                 home,
@@ -803,7 +799,7 @@ def _add_skill_impl(
         # Execute writes with transactional rollback
         created_skill_dir = not is_existing_canonical
 
-        with SkillWriterLock(home):
+        with WorkspaceWriterLock(home):
             try:
                 if import_transaction is not None:
                     import_transaction.apply()
@@ -982,7 +978,7 @@ Describe what this skill does and when agents should use it.
             print(f"[ERROR] Failed to prepare skill import: {exc}", file=sys.stderr)
             return False
 
-    with SkillWriterLock(home):
+    with WorkspaceWriterLock(home):
         try:
             if import_transaction is not None:
                 import_transaction.apply()
@@ -1299,279 +1295,123 @@ def add_subagent(
     sync: bool = False,
     force: bool = False,
 ) -> bool:
-    """
-    Create canonical Subagent instructions (subagents/<name>.md) or import from external source,
-    and register it in subagents.toml.
-    """
+    """Create or replace one canonical subagent Markdown file."""
     from .subagent import (
         SubagentConfigError,
         sync_subagent_configs,
         validate_platform_opts,
     )
+    from .workspace_layout import (
+        WorkspaceLayoutError,
+        parse_subagent_file,
+        render_subagent_text,
+        require_current_layout,
+    )
 
     aikito_dir = aikito_dir.expanduser().resolve()
     home = home.expanduser().resolve()
-
-    ws_error = _check_workspace_initialized(aikito_dir)
-    if ws_error:
-        print(f"[ERROR] {ws_error}", file=sys.stderr)
+    try:
+        require_current_layout(aikito_dir)
+    except WorkspaceLayoutError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
         return False
-
     if force and from_source is None:
         print(
-            "[ERROR] --force requires --from when adding a subagent.",
-            file=sys.stderr,
+            "[ERROR] --force requires --from when adding a subagent.", file=sys.stderr
         )
         return False
 
-    imported: Optional[ImportedSubagent] = None
+    imported = None
     if from_source is not None:
         try:
-            imported = _resolve_subagent_source(
-                from_source=from_source,
-                name=name,
-                description=description,
-                home=home,
-            )
+            imported = _resolve_subagent_source(from_source, name, description, home)
         except (ValueError, SubagentConfigError) as exc:
             print(f"[ERROR] {exc}", file=sys.stderr)
             return False
-
-        name_to_use = imported.name
-        subagent_instructions = imported.instructions
-    else:
-        name_to_use = name
-        subagent_instructions = ""
-
-    if not name_to_use or not name_to_use.strip():
+    name_clean = (imported.name if imported else name or "").strip()
+    error = validate_resource_name(name_clean, "subagent")
+    if error:
+        print(f"[ERROR] {error}", file=sys.stderr)
+        return False
+    path = aikito_dir / "subagents" / f"{name_clean}.md"
+    if path.exists() and (path.is_symlink() or not path.is_file()):
+        print(f"[ERROR] Unsafe subagent file: {path}", file=sys.stderr)
+        return False
+    if path.exists() and not force:
         print(
-            "[ERROR] Subagent name is required. Please specify a name or provide a source via --from.",
-            file=sys.stderr,
+            f"[ERROR] Subagent '{name_clean}' is already registered.", file=sys.stderr
         )
         return False
-
-    name_clean = name_to_use.strip()
-    name_error = validate_resource_name(name_clean, "subagent")
-    if name_error:
-        print(f"[ERROR] {name_error}", file=sys.stderr)
-        return False
-
-    if from_source is None:
-        title_val = _titleize(name_clean)
-        subagent_instructions = f"""# {title_val}
-
-Add developer instructions for the {name_clean} subagent here.
-"""
-
-    subagents_dir = aikito_dir / "subagents"
-    subagent_file = subagents_dir / f"{name_clean}.md"
-    subagents_toml = aikito_dir / "subagents.toml"
-
-    if not subagents_toml.is_file():
-        print(
-            f"[ERROR] Subagents configuration not found at {_display_path(subagents_toml, home)}",
-            file=sys.stderr,
-        )
-        return False
-
-    try:
-        existing_toml_content = subagents_toml.read_text(encoding="utf-8")
-        toml_data = tomllib.loads(existing_toml_content)
-    except Exception as exc:
-        print(
-            f"[ERROR] Failed to read subagents configuration: {exc}",
-            file=sys.stderr,
-        )
-        return False
-
-    existing_subagents = toml_data.get("subagents", {})
-    is_already_registered = (
-        isinstance(existing_subagents, dict) and name_clean in existing_subagents
+    old_metadata: dict[str, Any] = {}
+    if path.exists():
+        try:
+            old_metadata, _old_body = parse_subagent_file(path)
+        except WorkspaceLayoutError as exc:
+            print(f"[ERROR] {exc}", file=sys.stderr)
+            return False
+    target_agents = (
+        agents
+        or (imported.target_agents if imported else None)
+        or old_metadata.get("agents")
+        or DEFAULT_SUBAGENT_AGENTS
     )
-    file_already_exists = subagent_file.exists()
-
-    if (is_already_registered or file_already_exists) and not force:
-        if is_already_registered:
-            print(
-                f"[ERROR] Subagent '{name_clean}' is already registered.",
-                file=sys.stderr,
-            )
-        else:
-            print(
-                f"[ERROR] Subagent instructions file already exists at {_display_path(subagent_file, home)}",
-                file=sys.stderr,
-            )
-        return False
-
-    old_info: Dict[str, Any] = {}
-    if is_already_registered and isinstance(existing_subagents.get(name_clean), dict):
-        old_info = existing_subagents[name_clean]
-
-    # Resolve target_agents
-    if agents is not None and len(agents) > 0:
-        target_agents = agents
-    elif imported and imported.target_agents:
-        target_agents = imported.target_agents
-    elif (
-        is_already_registered
-        and isinstance(old_info.get("agents"), list)
-        and old_info.get("agents")
-    ):
-        target_agents = list(old_info["agents"])
-    else:
-        target_agents = DEFAULT_SUBAGENT_AGENTS
-
-    # Resolve description
-    if description is not None and description.strip():
-        desc_val = description.strip()
-    elif imported and imported.description:
-        desc_val = imported.description
-    elif is_already_registered and old_info.get("description"):
-        desc_val = str(old_info["description"]).strip()
-    else:
-        desc_val = f"Subagent {name_clean}."
-
-    # Seed platform configurations with existing registered ones if present
-    platform_configs: Dict[str, Dict[str, Any]] = {}
-    if is_already_registered:
-        for k, v in old_info.items():
-            if k not in ("description", "agents") and isinstance(v, dict):
-                platform_configs[k] = dict(v)
-
+    desc = (
+        (description or "").strip()
+        or (imported.description if imported else None)
+        or old_metadata.get("description")
+        or f"Subagent {name_clean}."
+    )
+    platform_configs = {
+        key: dict(value)
+        for key, value in old_metadata.items()
+        if key not in ("description", "agents") and isinstance(value, dict)
+    }
     if imported is not None:
-        for plat, opts in imported.explicit_platform_configs.items():
-            if plat not in platform_configs:
-                platform_configs[plat] = {}
-            platform_configs[plat].update(opts)
-
+        for platform, options in imported.explicit_platform_configs.items():
+            platform_configs.setdefault(platform, {}).update(options)
         if imported.top_level_options:
-            if len(target_agents) == 1:
-                single_plat = target_agents[0]
-                try:
-                    validated = validate_platform_opts(
-                        single_plat, name_clean, imported.top_level_options
-                    )
-                    if single_plat not in platform_configs:
-                        platform_configs[single_plat] = {}
-                    platform_configs[single_plat].update(validated)
-                except SubagentConfigError as exc:
-                    print(f"[ERROR] {exc}", file=sys.stderr)
-                    return False
-            else:
-                ambiguous_keys = ", ".join(
-                    f"'{k}'" for k in sorted(imported.top_level_options.keys())
-                )
+            if len(target_agents) != 1:
                 print(
-                    f"[ERROR] Source frontmatter specifies top-level {ambiguous_keys} but multiple target agents are specified ({', '.join(target_agents)}). Use explicit platform tables in frontmatter or specify a single agent with --agents.",
+                    "[ERROR] Top-level platform options require one target Agent.",
                     file=sys.stderr,
                 )
                 return False
-
-    if is_already_registered:
-        base_toml = _remove_subagent_from_toml(existing_toml_content, name_clean)
-    else:
-        base_toml = existing_toml_content
-
-    subagent_block = _render_subagent_block(
-        name=name_clean,
-        description=desc_val,
-        agents=target_agents,
-        platform_configs=platform_configs,
-    )
-    new_toml_content = base_toml.rstrip() + "\n" + subagent_block
-
-    # Validate resulting TOML syntax
+            platform_configs.setdefault(target_agents[0], {}).update(
+                imported.top_level_options
+            )
     try:
-        tomllib.loads(new_toml_content)
-    except Exception as exc:
-        print(
-            f"[ERROR] Failed to update subagents configuration: {exc}",
-            file=sys.stderr,
+        for platform, options in platform_configs.items():
+            validate_platform_opts(platform, name_clean, options)
+        body = (
+            imported.instructions
+            if imported
+            else f"# {_titleize(name_clean)}\n\nAdd developer instructions for the {name_clean} subagent here.\n"
         )
+        content = render_subagent_text(
+            {"description": desc, "agents": target_agents, **platform_configs}, body
+        )
+    except (SubagentConfigError, TypeError, ValueError) as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
         return False
-
-    backup_dir = None
-    staged_backup = None
-    if file_already_exists:
-        try:
-            backup_dir = Path(
-                tempfile.mkdtemp(
-                    prefix=f".{name_clean}.add_backup.",
-                    dir=subagents_dir,
-                )
-            )
-            staged_backup = backup_dir / subagent_file.name
-            shutil.copy2(subagent_file, staged_backup)
-        except Exception as exc:
-            if backup_dir:
-                shutil.rmtree(backup_dir, ignore_errors=True)
-            print(
-                f"[ERROR] Failed to backup existing subagent file: {exc}",
-                file=sys.stderr,
-            )
-            return False
-
     try:
-        subagents_dir.mkdir(parents=True, exist_ok=True)
-        _atomic_write_text(subagent_file, subagent_instructions, encoding="utf-8")
-        _atomic_write_text(subagents_toml, new_toml_content, encoding="utf-8")
-    except Exception as exc:
-        if staged_backup and staged_backup.exists():
-            staged_backup.replace(subagent_file)
-        elif subagent_file.exists() and not file_already_exists:
-            subagent_file.unlink(missing_ok=True)
-        if backup_dir:
-            shutil.rmtree(backup_dir, ignore_errors=True)
-        if existing_toml_content:
-            try:
-                _atomic_write_text(
-                    subagents_toml, existing_toml_content, encoding="utf-8"
-                )
-            except Exception:
-                pass
+        with WorkspaceWriterLock(home):
+            _atomic_write_text(path, content, encoding="utf-8")
+    except OSError as exc:
         print(f"[ERROR] Failed to write subagent: {exc}", file=sys.stderr)
         return False
-
-    if backup_dir:
-        shutil.rmtree(backup_dir, ignore_errors=True)
-
-    if is_already_registered or file_already_exists:
-        print(f"[UPDATE FILE] {_display_path(subagent_file, home)}")
-        print(
-            f"[UPDATE FILE] {_display_path(subagents_toml, home)} (updated subagent '{name_clean}')"
-        )
-        print(f"\n[SUCCESS] Updated subagent '{name_clean}'.")
-    else:
-        print(f"[CREATE FILE] {_display_path(subagent_file, home)}")
-        print(
-            f"[UPDATE FILE] {_display_path(subagents_toml, home)} (registered subagent '{name_clean}')"
-        )
-        print(f"\n[SUCCESS] Added subagent '{name_clean}'.")
-
+    print(
+        f"[{'UPDATE' if old_metadata else 'CREATE'} FILE] {_display_path(path, home)}"
+    )
+    print(
+        f"[SUCCESS] {'Updated' if old_metadata else 'Added'} subagent '{name_clean}'."
+    )
     if sync:
-        print(
-            f"\n[SYNC] Synchronizing subagent '{name_clean}' to target agent platforms..."
-        )
         try:
-            sync_ok = sync_subagent_configs(
-                aikito_dir=aikito_dir,
-                home=home,
-            )
-            if not sync_ok:
-                return False
+            return sync_subagent_configs(aikito_dir=aikito_dir, home=home)
         except SubagentConfigError as exc:
             print(f"[ERROR] {exc}", file=sys.stderr)
             return False
-    else:
-        print("💡 Next steps:")
-        if from_source is None:
-            print(
-                f"  1. Update instructions in {_display_path(subagent_file, home)} (or run 'aikito edit subagent {name_clean}')"
-            )
-            print("  2. Synchronize to agents: aikito sync subagents")
-        else:
-            print("  1. Synchronize to agents: aikito sync subagents")
-
+    print("Next step: aikito sync subagents")
     return True
 
 

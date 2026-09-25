@@ -1,3 +1,4 @@
+from layout_helpers import write_agents
 import base64
 import dataclasses
 import io
@@ -406,7 +407,7 @@ class SynchronizationTest(unittest.TestCase):
         (self.home / ".claude").mkdir(parents=True)
         (self.home / ".config/opencode").mkdir(parents=True)
         (self.home / ".gemini/config").mkdir(parents=True)
-        (self.aikito_dir / "agents.toml").write_text(AGENTS_TOML)
+        write_agents(self.aikito_dir, AGENTS_TOML)
         (self.aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
         (self.aikito_dir / "mcps/managed.toml").write_text(
             """
@@ -1012,7 +1013,7 @@ class AgentRegistryTest(unittest.TestCase):
         self.aikito_dir = self.root / "aikito"
         self.home = self.root / "home"
         self.aikito_dir.mkdir(parents=True)
-        (self.aikito_dir / "agents.toml").write_text(AGENTS_TOML)
+        write_agents(self.aikito_dir, AGENTS_TOML)
 
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
@@ -1022,9 +1023,7 @@ class AgentRegistryTest(unittest.TestCase):
         (self.aikito_dir / "mcps/managed.toml").write_text(body.lstrip())
 
     def test_load_agent_specs_translates_agent_registry_errors(self) -> None:
-        (self.aikito_dir / "agents.toml").write_text(
-            "[agents.codex]\nmcp = 1\n", encoding="utf-8"
-        )
+        write_agents(self.aikito_dir, "[agents.codex]\nmcp = 1\n")
         self.write_servers(
             """
 transport = "remote"
@@ -1039,7 +1038,8 @@ agents = ["codex"]
         )
 
     def test_load_agent_specs_translates_missing_agents_config(self) -> None:
-        (self.aikito_dir / "agents.toml").unlink()
+        for path in (self.aikito_dir / "agents").glob("*.toml"):
+            path.unlink()
         self.write_servers(
             """
 transport = "remote"
@@ -1844,7 +1844,7 @@ class AgentSpecGoldenTest(unittest.TestCase):
             ws = Path(tmp) / "ws"
             (ws / "mcps").mkdir(parents=True)
             home = Path("/HOME")
-            (ws / "agents.toml").write_text(load_agents_template(), encoding="utf-8")
+            write_agents(ws, load_agents_template())
             (ws / "mcps/docs.toml").write_text(
                 """
 transport = "remote"
@@ -1948,7 +1948,8 @@ reason = "off"
             ws = Path(tmp) / "ws"
             (ws / "mcps").mkdir(parents=True)
             home = Path("/HOME")
-            (ws / "agents.toml").write_text(
+            write_agents(
+                ws,
                 """
 [agents.legacy]
 display_name = "Legacy"
@@ -1961,7 +1962,6 @@ live_command = ["legacy", "mcp"]
 [agents.plain.mcp]
 config_path = ".plain/mcp.json"
 """,
-                encoding="utf-8",
             )
             (ws / "mcps/docs.toml").write_text(
                 'transport = "remote"\n'

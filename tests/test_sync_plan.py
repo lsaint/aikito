@@ -23,8 +23,9 @@ class SyncPlanIndependenceTest(unittest.TestCase):
 
         # Minimal valid workspace
         (self.ws / "skills.toml").write_text("skills = []\n", encoding="utf-8")
-        (self.ws / "agents.toml").write_text("[agents]\n", encoding="utf-8")
-        (self.ws / "subagents.toml").write_text("[subagents]\n", encoding="utf-8")
+        (self.ws / "layout.toml").write_text("version = 2\n", encoding="utf-8")
+        (self.ws / "agents").mkdir()
+        (self.ws / "subagents").mkdir()
         (self.ws / "mcps").mkdir()
         (self.ws / "skills").mkdir()
         (self.ws / "global").mkdir()

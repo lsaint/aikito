@@ -24,10 +24,18 @@ def test_partial_import_is_not_a_public_command() -> None:
 
 
 def _workspace(root: Path) -> Path:
-    for directory in ("mcps", "memory/notes", "projects", "skills", "global"):
+    for directory in (
+        "agents",
+        "subagents",
+        "mcps",
+        "memory/notes",
+        "projects",
+        "skills",
+        "global",
+    ):
         (root / directory).mkdir(parents=True, exist_ok=True)
-    for marker in ("agents.toml", "skills.toml", "subagents.toml"):
-        (root / marker).write_text("", encoding="utf-8")
+    (root / "layout.toml").write_text("version = 2\n", encoding="utf-8")
+    (root / "skills.toml").write_text("skills = []\n", encoding="utf-8")
     return root
 
 
@@ -144,15 +152,23 @@ def test_source_symlink_is_rejected(tmp_path: Path) -> None:
     assert any("regular file" in finding for finding in plan.findings)
 
 
-def test_dry_run_rejects_plaintext_credential(tmp_path: Path) -> None:
+def test_plaintext_credential_warns_without_blocking_import(tmp_path: Path) -> None:
     source = _workspace(tmp_path / "source")
     target = _workspace(tmp_path / "target")
     (source / "memory/notes/private.md").write_text(
         "api_key = abcdefghijklmnop123456\n", encoding="utf-8"
     )
-    with pytest.raises(WorkspaceImportError, match="Possible plaintext credential"):
-        run_workspace_import(source, target, tmp_path / "home", dry_run=True)
+    preview = run_workspace_import(source, target, tmp_path / "home", dry_run=True)
+    assert not preview.blocked
+    assert [
+        (finding.status, finding.code, finding.resource) for finding in preview.warnings
+    ] == [("warning", "possible-credential", "memory/notes/private.md")]
     assert not (target / "memory/notes/private.md").exists()
+    applied = run_workspace_import(source, target, tmp_path / "home", dry_run=False)
+    assert applied.warnings == preview.warnings
+    assert (target / "memory/notes/private.md").read_text(encoding="utf-8") == (
+        "api_key = abcdefghijklmnop123456\n"
+    )
 
 
 def test_plan_is_invalidated_by_target_change(tmp_path: Path) -> None:
@@ -222,16 +238,3 @@ def test_recovers_pending_journal_before_next_write(tmp_path: Path) -> None:
     assert not (
         target / ".local/state/aikito/workspace-transactions/pending.json"
     ).exists()
-
-
-def test_legacy_pending_import_blocks_new_write(tmp_path: Path) -> None:
-    source = _workspace(tmp_path / "source")
-    target = _workspace(tmp_path / "target")
-    note = Path("memory/notes/example.md")
-    (source / note).write_text("new", encoding="utf-8")
-    legacy = target / ".local/state/aikito/imports" / ("a" * 32)
-    legacy.mkdir(parents=True)
-
-    with pytest.raises(WorkspaceImportError, match="Legacy import transaction"):
-        run_workspace_import(source, target, tmp_path / "home", dry_run=False)
-    assert not (target / note).exists()

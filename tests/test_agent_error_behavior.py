@@ -1,6 +1,7 @@
 """CLI-level regressions: invalid agents.toml keeps v1.50.0 user-visible behavior."""
 
 from __future__ import annotations
+from layout_helpers import write_agents
 
 import io
 import os
@@ -25,9 +26,7 @@ class InvalidAgentsConfigBehaviorTest(unittest.TestCase):
         self.home.mkdir()
         self.ws = root / "ws"
         init_workspace(self.ws, self.home)
-        (self.ws / "agents.toml").write_text(
-            '[agents.a]\ndisplay_name = "A"\nmcp = 1\n', encoding="utf-8"
-        )
+        write_agents(self.ws, '[agents.a]\ndisplay_name = "A"\nmcp = 1\n')
 
     def tearDown(self) -> None:
         self.td.cleanup()
@@ -52,7 +51,7 @@ class InvalidAgentsConfigBehaviorTest(unittest.TestCase):
             section.name: [finding.message for finding in section.findings]
             for section in report.sections
         }
-        self.assertIn(f"Cannot load agents.toml: {MESSAGE}", messages["Symlinks"])
+        self.assertIn(f"Cannot load Agent definitions: {MESSAGE}", messages["Symlinks"])
         self.assertIn(f"Cannot check subagent orphans: {MESSAGE}", messages["Orphans"])
         self.assertIn(f"Cannot load MCP specs: {MESSAGE}", messages["Drift"])
         self.assertIn(

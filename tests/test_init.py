@@ -46,8 +46,11 @@ class AikitoInitTest(unittest.TestCase):
 
         # Check files
         self.assertTrue((self.target_path / "config.toml").is_file())
-        self.assertTrue((self.target_path / "agents.toml").is_file())
-        self.assertTrue((self.target_path / "subagents.toml").is_file())
+        self.assertTrue((self.target_path / "layout.toml").is_file())
+        self.assertTrue((self.target_path / "agents").is_dir())
+        self.assertTrue((self.target_path / "subagents").is_dir())
+        self.assertFalse((self.target_path / "agents.toml").exists())
+        self.assertFalse((self.target_path / "subagents.toml").exists())
         self.assertFalse((self.target_path / "memory" / "index.md").exists())
         self.assertTrue((self.target_path / "skills.toml").is_file())
         self.assertTrue((self.target_path / "global" / "AGENTS.md").is_file())
@@ -144,8 +147,12 @@ class AikitoInitTest(unittest.TestCase):
         report = get_status_report_data(self.target_path, self.fake_home)
         self.assertTrue(report.agents)
 
-        with (self.target_path / "agents.toml").open("rb") as config_file:
-            agent_config = tomllib.load(config_file)["agents"]
+        agent_config = {
+            path.stem: tomllib.loads(path.read_text(encoding="utf-8"))["agents"][
+                path.stem
+            ]
+            for path in (self.target_path / "agents").glob("*.toml")
+        }
         self.assertEqual(
             set(agent_config),
             {
@@ -177,8 +184,12 @@ class AikitoInitTest(unittest.TestCase):
         with patch("aikito.templating.shutil.which", return_value=None):
             init_workspace(self.target_path, self.fake_home)
 
-        with (self.target_path / "agents.toml").open("rb") as config_file:
-            agents = tomllib.load(config_file)["agents"]
+        agents = {
+            path.stem: tomllib.loads(path.read_text(encoding="utf-8"))["agents"][
+                path.stem
+            ]
+            for path in (self.target_path / "agents").glob("*.toml")
+        }
         self.assertEqual(set(agents), {"claude-code"})
 
     def test_init_workspace_describes_installed_agents_without_claiming_config(
@@ -232,7 +243,7 @@ class AikitoInitTest(unittest.TestCase):
         (self.fake_home / ".codex").mkdir()
         # Initial run
         init_workspace(self.target_path, self.fake_home)
-        agents_toml = self.target_path / "agents.toml"
+        agents_toml = self.target_path / "agents" / "codex.toml"
         agents_toml.write_text("# Custom User Edit\n", encoding="utf-8")
 
         # Second run without force -> should skip
@@ -398,7 +409,7 @@ class AikitoInitTest(unittest.TestCase):
         init_workspace(self.target_path, self.fake_home)
         project_path = Path(self.tmp_dir.name) / "example"
         project_path.mkdir()
-        (self.target_path / "agents.toml").write_text(
+        (self.target_path / "agents" / "broken.toml").write_text(
             "[agents]\nbroken = 1\n", encoding="utf-8"
         )
 

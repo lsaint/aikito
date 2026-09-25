@@ -1,3 +1,4 @@
+from layout_helpers import write_agents, write_subagents
 import tempfile
 import unittest
 from datetime import date, timedelta
@@ -683,10 +684,9 @@ class AikitoStatusCollectorTest(unittest.TestCase):
             (aikito_dir / "global" / "AGENTS.md").write_text("", encoding="utf-8")
             (aikito_dir / "skills.toml").write_text("skills = []\n", encoding="utf-8")
             (aikito_dir / "mcps").mkdir()
-            (aikito_dir / "subagents.toml").write_text(
-                "[subagents]\n", encoding="utf-8"
-            )
-            (aikito_dir / "agents.toml").write_text(
+            (aikito_dir / "subagents").mkdir(exist_ok=True)
+            write_agents(
+                aikito_dir,
                 '[agents.codex]\ndisplay_name = "Codex"\n'
                 'instruction_path = ".codex/AGENTS.md"\n'
                 'skills_path = ".agents/skills"\n'
@@ -700,7 +700,6 @@ class AikitoStatusCollectorTest(unittest.TestCase):
                 '[agents.pi]\ndisplay_name = "Pi"\n'
                 'instruction_path = ".pi/agent/AGENTS.md"\n'
                 'skills_path = ".agents/skills"\n',
-                encoding="utf-8",
             )
 
             rows, _issues, _subagents, _mcp = collect_agent_status_rows(
@@ -726,7 +725,8 @@ class AikitoStatusCollectorTest(unittest.TestCase):
             (home / ".codex").mkdir(parents=True)
             (home / ".gemini/config").mkdir(parents=True)
             (aikito_dir / "mcps").mkdir(parents=True)
-            (aikito_dir / "agents.toml").write_text(
+            write_agents(
+                aikito_dir,
                 """
 [agents.codex]
 display_name = "Codex"
@@ -741,7 +741,7 @@ display_name = "Antigravity CLI"
 config_path = ".gemini/config/mcp_config.json"
 config_format = "agy_json"
 name_style = "verbatim"
-""".lstrip()
+""".lstrip(),
             )
             (aikito_dir / "mcps/managed.toml").write_text(
                 'transport = "remote"\nurl = "https://example.com/mcp"\n'
@@ -781,7 +781,8 @@ name_style = "verbatim"
             config_dir = home / ".gemini/config"
             config_dir.mkdir(parents=True)
             aikito_dir.mkdir()
-            (aikito_dir / "agents.toml").write_text(
+            write_agents(
+                aikito_dir,
                 """
 [agents.agy]
 display_name = "Antigravity CLI"
@@ -790,7 +791,7 @@ display_name = "Antigravity CLI"
 config_path = ".gemini/config/mcp_config.json"
 config_format = "agy_json"
 name_style = "verbatim"
-""".lstrip()
+""".lstrip(),
             )
             (aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
             (aikito_dir / "mcps/managed.toml").write_text(
@@ -827,7 +828,8 @@ agents = ["agy"]
             aikito_dir = root / "aikito"
             (home / ".codex").mkdir(parents=True)
             aikito_dir.mkdir()
-            (aikito_dir / "agents.toml").write_text(
+            write_agents(
+                aikito_dir,
                 """
 [agents.codex]
 display_name = "Codex"
@@ -837,7 +839,7 @@ config_path = ".codex/config.toml"
 config_format = "toml"
 name_style = "underscore"
 live_command = ["codex", "mcp", "list"]
-""".lstrip()
+""".lstrip(),
             )
             (aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
             (aikito_dir / "mcps/managed.toml").write_text(
@@ -888,16 +890,17 @@ agents = ["codex"]
             # Expected source does NOT exist
             expected_global_agents = aikito_dir / "global" / "AGENTS.md"
 
-            (aikito_dir / "agents.toml").write_text(
+            write_agents(
+                aikito_dir,
                 """
 [agents.codex]
 display_name = "Codex"
 instruction_path = ".codex/AGENTS.md"
-""".strip()
+""".strip(),
             )
             (aikito_dir / "skills.toml").write_text("skills = []\n")
             (aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
-            (aikito_dir / "subagents.toml").write_text("[subagents]\n")
+            (aikito_dir / "subagents").mkdir(exist_ok=True)
 
             # Create dangling symlink pointing to expected_global_agents (which does not exist!)
             target_link = home / ".codex" / "AGENTS.md"
@@ -1085,9 +1088,9 @@ instruction_path = ".codex/AGENTS.md"
                 "Prompt body",
                 encoding="utf-8",
             )
-            (aikito_dir / "subagents.toml").write_text(
+            write_subagents(
+                aikito_dir,
                 '[subagents.bad-agent]\ndescription = "Test"\nagents = ["nonexistent-agent"]\n',
-                encoding="utf-8",
             )
 
             # Must not raise SubagentConfigError; must count as an agent issue

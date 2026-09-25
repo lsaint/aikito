@@ -47,10 +47,32 @@ jobs:
             "$HOME/.gemini/config" \
             "$HOME/.config/opencode" \
             "$HOME/.pi/agent"
+      - name: Workspace resource migration smoke
+        run: |
+          LEGACY=${{ runner.temp }}/legacy-layout-ws
+          mkdir -p "$LEGACY/subagents"
+          cp src/aikito/templates/agents/codex.toml "$LEGACY/agents.toml"
+          printf '# Review policy\n[subagents.review]\ndescription = "Review changes"\nagents = ["codex"]\n' > "$LEGACY/subagents.toml"
+          printf 'Review changes.\n' > "$LEGACY/subagents/review.md"
+          AIKITO_DIR="$LEGACY" python3 -m aikito completion candidates skills > ${{ runner.temp }}/migration-completion.out 2> ${{ runner.temp }}/migration-completion.err
+          test ! -s ${{ runner.temp }}/migration-completion.out
+          test ! -s ${{ runner.temp }}/migration-completion.err
+          AIKITO_DIR="$LEGACY" python3 -m aikito migrate workspace-resources --dry-run
+          test ! -f "$LEGACY/layout.toml"
+          AIKITO_DIR="$LEGACY" python3 -m aikito migrate workspace-resources
+          test -f "$LEGACY/layout.toml"
+          test -f "$LEGACY/agents/codex.toml"
+          test -f "$LEGACY/subagents/review.md"
+          grep -F '# Review policy' "$LEGACY/subagents/review.md"
+          test ! -f "$LEGACY/agents.toml"
+          test ! -f "$LEGACY/subagents.toml"
+
       - name: macOS CLI smoke - Global Sync and Deduplication
         run: |
           WS=${{ runner.temp }}/macos-ws
           AIKITO_DIR=$WS python3 -m aikito init workspace "$WS"
+          test -f "$WS/layout.toml"
+          test -f "$WS/agents/codex.toml"
           AIKITO_DIR=$WS python3 -m aikito sync global | tee ${{ runner.temp }}/macos-sync-global.out
           grep -F "3 Agent skill entries across 8 consumers" \
             ${{ runner.temp }}/macos-sync-global.out
@@ -747,4 +769,3 @@ jobs:
 
           rm -rf "$CWD_PROJ" "$OTHER_PROJ" "$WS/projects/cwd-proj" "$WS/projects/other-proj" \
             "$WS/skills/cwd-skill" "$WS/skills/global-skill" "$WS/memory/notes/smoke-global-note.md"
-

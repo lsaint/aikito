@@ -35,7 +35,7 @@ When project canonical `AGENTS.md` is empty, instructions are disabled. Aikito p
 
 ### INV-INST-09: Legacy Instruction Stale Entry Cleanup `[current]` {: #inv-inst-09 }
 
-Legacy paths (such as `~/.grok/AGENTS.md` or `<checkout>/.agents/AGENTS.md`) are planned for `UNLINK` if and only if they are symlinks pointing specifically to current canonical instructions. If currently configured by an Agent in `agents.toml`, they are treated as formal targets and not stale cleanup.
+Legacy paths (such as `~/.grok/AGENTS.md` or `<checkout>/.agents/AGENTS.md`) are planned for `UNLINK` if and only if they are symlinks pointing specifically to current canonical instructions. If currently configured by an Agent in `agents/<name>.toml`, they are treated as formal targets and not stale cleanup.
 
 ### INV-INST-10: Project-Owned File Preservation Under Empty Canonical `[current]` {: #inv-inst-10 }
 

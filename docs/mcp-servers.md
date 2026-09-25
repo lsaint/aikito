@@ -144,7 +144,7 @@ collisions instead of silently overwriting them.
 
 ## Built-in Agent Servers
 
-Certain Agent runtimes bundle or recommend proprietary MCP servers (such as `openaiDeveloperDocs` in Codex). To prevent `aikito adopt` from adopting these Agent-native defaults into workspace-managed configurations, list them under the Agent's MCP table in `agents.toml`:
+Certain Agent runtimes bundle or recommend proprietary MCP servers (such as `openaiDeveloperDocs` in Codex). To prevent `aikito adopt` from adopting these Agent-native defaults into workspace-managed configurations, list them under the Agent's MCP table in `agents/<name>.toml`:
 
 ```toml
 [agents.codex.mcp]

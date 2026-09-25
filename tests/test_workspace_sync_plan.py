@@ -26,8 +26,9 @@ def _setup_minimal_workspace(root: Path) -> None:
     skills_dir = root / "skills"
     skills_dir.mkdir(parents=True, exist_ok=True)
     (root / "skills.toml").write_text("skills = []\n", encoding="utf-8")
-    (root / "agents.toml").write_text("[agents]\n", encoding="utf-8")
-    (root / "subagents.toml").write_text("[subagents]\n", encoding="utf-8")
+    (root / "layout.toml").write_text("version = 2\n", encoding="utf-8")
+    (root / "agents").mkdir()
+    (root / "subagents").mkdir()
     (root / "mcps").mkdir(parents=True, exist_ok=True)
     global_dir = root / "global"
     global_dir.mkdir(parents=True, exist_ok=True)

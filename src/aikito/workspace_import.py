@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from .diagnostics import Finding
 from .skill_state import WorkspaceWriterLock
 from .workspace_core import (
     Change,
@@ -17,7 +17,7 @@ from .workspace_core import (
     read_supported_snapshot,
     validate_roots,
 )
-from .workspace_resources import is_ignored_name
+from .workspace_resources import scan_credentials, snapshot_workspace
 
 
 class WorkspaceImportError(WorkspaceCoreError):
@@ -45,6 +45,7 @@ class ImportPlan:
     items: tuple[ImportItem, ...]
     excluded: tuple[str, ...]
     findings: tuple[str, ...] = ()
+    warnings: tuple[Finding, ...] = ()
 
     @property
     def conflicts(self) -> tuple[ImportItem, ...]:
@@ -57,27 +58,6 @@ class ImportPlan:
     @property
     def blocked(self) -> bool:
         return bool(self.conflicts or self.findings)
-
-
-_SECRET_PATTERN = re.compile(
-    rb"(?i)(?:api[_-]?key|access[_-]?token|password|client[_-]?secret)"
-    rb"\s*[:=]\s*['\"]?[A-Za-z0-9_./+\-=]{16,}"
-)
-
-
-def _check_credentials(source: Path, resources: tuple[ImportItem, ...]) -> None:
-    for item in resources:
-        path = source / item.resource.relative_path
-        files = [path] if item.resource.kind == "memory" else path.rglob("*")
-        for file in files:
-            if (
-                not any(is_ignored_name(part) for part in file.relative_to(path).parts)
-                and entry_type(file) == "file"
-                and _SECRET_PATTERN.search(file.read_bytes())
-            ):
-                raise WorkspaceImportError(
-                    f"Possible plaintext credential in source file: {file}"
-                )
 
 
 def build_import_plan(source: Path, target: Path) -> ImportPlan:
@@ -114,27 +94,28 @@ def build_import_plan(source: Path, target: Path) -> ImportPlan:
             f"Target project must exist before importing its memory: {project}. "
             f"Run aikito init project {project} first"
         )
-    result = ImportPlan(
+    imported_paths = tuple(item.resource.relative_path.as_posix() for item in items)
+    warnings = tuple(
+        finding
+        for finding in scan_credentials(snapshot_workspace(source))
+        if any(
+            finding.resource == path or finding.resource.startswith(f"{path}/")
+            for path in imported_paths
+        )
+    )
+    return ImportPlan(
         source,
         target,
         tuple(items),
         ("Workspace configuration and unsupported resource kinds are excluded",),
         tuple(findings),
+        warnings,
     )
-    _check_credentials(source, result.items)
-    return result
 
 
 def recover_imports(target: Path) -> bool:
     """Recover a pending workspace import after a writer lock is acquired."""
     target = target.expanduser().resolve()
-    legacy = target / ".local/state/aikito/imports"
-    if entry_type(legacy) == "directory" and any(legacy.iterdir()):
-        raise WorkspaceImportError(
-            f"Legacy import transaction needs review before another write: {legacy}"
-        )
-    if entry_type(legacy) not in ("directory", "missing"):
-        raise WorkspaceImportError(f"Unsafe legacy import state: {legacy}")
     try:
         return recover((target,))
     except WorkspaceCoreError as exc:

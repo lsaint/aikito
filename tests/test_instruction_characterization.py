@@ -5,6 +5,7 @@ and preservation of unmanaged regular files and external symlinks.
 """
 
 from __future__ import annotations
+from layout_helpers import write_agents
 
 import tempfile
 from pathlib import Path
@@ -42,14 +43,14 @@ class GlobalInstructionCharacterizationTests(TestCase):
 
         # Workspace configuration
         (self.ws / "skills.toml").write_text("", encoding="utf-8")
-        (self.ws / "agents.toml").write_text(
+        write_agents(
+            self.ws,
             "[agents.codex]\n"
             'instruction_path = ".codex/AGENTS.md"\n'
             'skills_path = ".agents/skills"\n'
             "[agents.claude-code]\n"
             'instruction_path = ".claude/CLAUDE.md"\n'
             'skills_path = ".claude/skills"\n',
-            encoding="utf-8",
         )
         (self.ws / "global").mkdir()
         self.global_agents_md = self.ws / "global" / "AGENTS.md"
@@ -111,10 +112,10 @@ class GlobalInstructionCharacterizationTests(TestCase):
 
     def test_same_object_disposition(self) -> None:
         # If target path points to the same object as canonical source
-        (self.ws / "agents.toml").write_text(
-            "[agents.self_agent]\n"
+        write_agents(
+            self.ws,
+            "[agents.self-agent]\n"
             f'instruction_path = "{self.global_agents_md.relative_to(self.home) if self.global_agents_md.is_relative_to(self.home) else self.global_agents_md.name}"\n',
-            encoding="utf-8",
         )
         res = sync_global_resources(self.ws, self.home)
         self.assertTrue(res.success)
@@ -126,10 +127,7 @@ class GlobalInstructionCharacterizationTests(TestCase):
         safe_symlink(self.global_agents_md.resolve(), legacy_grok)
         self.assertTrue(legacy_grok.is_symlink())
 
-        (self.ws / "agents.toml").write_text(
-            "[agents.grok]\n",
-            encoding="utf-8",
-        )
+        write_agents(self.ws, "[agents.grok]\n")
         res = sync_global_resources(self.ws, self.home)
         self.assertTrue(res.success)
         self.assertFalse(legacy_grok.exists())
@@ -150,14 +148,14 @@ class ProjectInstructionCharacterizationTests(TestCase):
         (self.home / ".codex").mkdir(parents=True)
         (self.home / ".claude").mkdir(parents=True)
 
-        (self.ws / "agents.toml").write_text(
+        write_agents(
+            self.ws,
             "[agents.codex]\n"
             'project_instruction_path = "AGENTS.md"\n'
             'skills_path = ".agents/skills"\n'
             "[agents.claude-code]\n"
             'project_instruction_path = ".claude/CLAUDE.md"\n'
             'skills_path = ".claude/skills"\n',
-            encoding="utf-8",
         )
         proj_dir = self.ws / "projects" / "demo"
         proj_dir.mkdir(parents=True)

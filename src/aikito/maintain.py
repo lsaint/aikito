@@ -135,7 +135,7 @@ def resolve_memory_maintenance_scope(
 
 
 def load_agent_runner(aikito_dir: Path, agent_name: str) -> RunnerCapability:
-    config_path = aikito_dir / "agents.toml"
+    config_path = aikito_dir / "agents" / f"{agent_name}.toml"
     try:
         agent = load_agent_definition(aikito_dir, Path.home(), agent_name)
     except AgentRegistryError as exc:

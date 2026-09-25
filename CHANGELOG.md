@@ -2,10 +2,24 @@
 
 All notable changes to Aikito will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
+
+## [1.53.0] - Unreleased
+
+### Changed
+
+- **Breaking workspace migration:** Agent definitions now live in `agents/<name>.toml`, and subagent metadata and instructions live together in `subagents/<name>.md`. Existing workspaces require `aikito migrate workspace-resources`. Until migration succeeds, normal commands stop and show the required command. Installing 1.53.0 does not change workspace files automatically.
+- **Shared workspace upgrade order:** Upgrade Aikito to 1.53.0 or newer on every machine first. On one machine, run `aikito migrate workspace-resources --dry-run`, resolve any reported blockers, then run `aikito migrate workspace-resources`. Commit and push the workspace changes; pull them on the other upgraded machines. A migrated workspace cannot be used with 1.52.1: its commands report `Agents config not found`, and `init` cannot restore the old layout.
+
+### Added
+
+- `aikito migrate workspace-resources` provides an explicit migration with a read-only `--dry-run` preview. It preserves Agent table comments and subagent instructions and comments where possible, reports collisions before writing, and recovers interrupted transactions.
+
+### Fixed
+
+- Dynamic shell completion returns no candidates or diagnostic output while a workspace still requires migration.
 
 ## [1.52.1] - 2026-09-25
 
@@ -954,6 +968,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
 [Unreleased]: https://github.com/lsaint/aikito/compare/v1.52.1...HEAD
+[1.53.0]: https://github.com/lsaint/aikito/compare/v1.52.1...v1.53.0
 [1.52.1]: https://github.com/lsaint/aikito/compare/v1.52.0...v1.52.1
 [1.52.0]: https://github.com/lsaint/aikito/compare/v1.51.0...v1.52.0
 [1.51.0]: https://github.com/lsaint/aikito/compare/v1.50.0...v1.51.0

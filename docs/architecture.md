@@ -28,9 +28,9 @@ The workspace is the source of truth:
 ├── memory/
 ├── projects/
 ├── mcps/
-├── agents.toml
+├── agents/
 ├── skills.toml
-└── subagents.toml
+└── subagents/
         |
         | aikito sync ...
         v
@@ -56,8 +56,8 @@ review requirements to match your environment.
 | Skills | `skills/<name>/` | Reusable Agent workflows |
 | Instructions | `global/AGENTS.md`, `projects/<name>/AGENTS.md` | Global and project behavior |
 | MCP servers | `mcps/*.toml` | Cross-Agent server definitions |
-| Subagents | `subagents.toml`, `subagents/` | Cross-Agent specialist definitions |
-| Agent registry | `agents.toml` | Integration paths and supported capabilities |
+| Subagents | `subagents/<name>.md` | Cross-Agent specialist definitions |
+| Agent registry | `agents/<name>.toml` | Integration paths and supported capabilities |
 
 The bundled `skills/aikito/` and `skills/durable-memory/` directories are
 system-managed snapshots whose source is the installed Aikito package. Read-only

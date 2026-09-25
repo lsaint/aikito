@@ -9,6 +9,7 @@ Verifies:
 """
 
 from __future__ import annotations
+from layout_helpers import write_agents, write_subagents
 
 import tempfile
 import unittest
@@ -61,23 +62,19 @@ instruction_path = ".dsh/INSTRUCTIONS.md"
 config_path = ".dsh/cordis.patch.yml"
 config_format = "dsh_cordis_subagent"
 """
-        (self.ws / "agents.toml").write_text(self.agents_toml.strip(), encoding="utf-8")
+        write_agents(self.ws, self.agents_toml.strip())
 
-        (self.ws / "subagents").mkdir()
-        (self.ws / "subagents.toml").write_text(
-            "[subagents.verifier]\n"
-            'description = "Verifier agent"\n'
-            'agents = ["claude-code", "opencode", "dsh"]\n'
-            "[subagents.reviewer]\n"
-            'description = "Reviewer agent"\n'
-            'agents = ["dsh"]\n',
-            encoding="utf-8",
-        )
+        (self.ws / "subagents").mkdir(exist_ok=True)
         (self.ws / "subagents" / "verifier.md").write_text(
             "Verify all changes.\n", encoding="utf-8"
         )
         (self.ws / "subagents" / "reviewer.md").write_text(
             "Review all changes.\n", encoding="utf-8"
+        )
+        write_subagents(
+            self.ws,
+            '[subagents.verifier]\ndescription = "Verifier agent"\nagents = ["claude-code", "opencode", "dsh"]\n'
+            '[subagents.reviewer]\ndescription = "Reviewer agent"\nagents = ["dsh"]\n',
         )
 
     def tearDown(self) -> None:

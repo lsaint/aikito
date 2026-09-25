@@ -30,7 +30,7 @@ from .plan_observation import (
 )
 
 
-DEFAULT_SUBAGENTS_CONFIG = Path("subagents.toml")
+DEFAULT_SUBAGENTS_CONFIG = Path("subagents")
 SUBAGENTS_DIR = Path("subagents")
 BACKUP_DIR = Path(".local/state/aikito/backups")
 
@@ -334,81 +334,48 @@ def load_all_agents(
 def load_subagent_definitions(
     aikito_dir: Path, allow_empty: bool = False
 ) -> dict[str, SubagentDefinition]:
-    subagents_toml_path = aikito_dir / DEFAULT_SUBAGENTS_CONFIG
-    if not subagents_toml_path.is_file():
-        raise SubagentConfigError(f"subagents.toml not found at {subagents_toml_path}")
+    from .workspace_layout import (
+        WorkspaceLayoutError,
+        parse_subagent_file,
+        require_current_layout,
+    )
 
-    with subagents_toml_path.open("rb") as f:
-        data = tomllib.load(f)
-
-    subagents_table = data.get("subagents")
-    if subagents_table is None or not isinstance(subagents_table, dict):
-        raise SubagentConfigError(
-            "'subagents' table in subagents.toml is missing or empty"
-        )
-    if not subagents_table:
-        if allow_empty:
-            return {}
-        raise SubagentConfigError(
-            "'subagents' table in subagents.toml is missing or empty"
-        )
-
+    try:
+        require_current_layout(aikito_dir)
+    except WorkspaceLayoutError as exc:
+        raise SubagentConfigError(str(exc)) from exc
+    directory = aikito_dir / SUBAGENTS_DIR
+    if not directory.is_dir() or directory.is_symlink():
+        raise SubagentConfigError(f"Subagents directory missing or unsafe: {directory}")
     definitions: dict[str, SubagentDefinition] = {}
-
-    for name, subagent_info in subagents_table.items():
-        if not SUBAGENT_NAME_PATTERN.match(name) or ":" in name:
-            raise SubagentConfigError(
-                f"Invalid subagent name '{name}'. Must match ^[a-z][a-z0-9-]*$ and contain no colons."
-            )
-
+    for instr_path in sorted(directory.iterdir()):
+        if instr_path.name in (".DS_Store", "Thumbs.db", "desktop.ini"):
+            continue
+        name = instr_path.stem
+        if instr_path.suffix != ".md" or not SUBAGENT_NAME_PATTERN.fullmatch(name):
+            raise SubagentConfigError(f"Unsupported subagent entry: {instr_path}")
+        try:
+            subagent_info, body = parse_subagent_file(instr_path)
+        except WorkspaceLayoutError as exc:
+            raise SubagentConfigError(str(exc)) from exc
         description = subagent_info.get("description")
-        if not description or not isinstance(description, str):
-            raise SubagentConfigError(
-                f"Subagent '{name}' missing valid 'description' string"
-            )
-
         target_agents = subagent_info.get("agents")
-        if not isinstance(target_agents, list) or not target_agents:
-            raise SubagentConfigError(
-                f"Subagent '{name}' 'agents' must be a non-empty list"
-            )
-
-        for ag in target_agents:
-            if not isinstance(ag, str):
-                raise SubagentConfigError(
-                    f"Subagent '{name}' 'agents' list must contain strings"
-                )
-
-        # Load instructions file
-        instr_path = aikito_dir / SUBAGENTS_DIR / f"{name}.md"
-        if not instr_path.is_file():
-            raise SubagentConfigError(
-                f"Instructions file for subagent '{name}' not found at {instr_path}"
-            )
-
-        instructions = instr_path.read_text(encoding="utf-8").strip()
-        if not instructions:
-            raise SubagentConfigError(
-                f"Instructions file for subagent '{name}' is empty"
-            )
-
-        # Load platform specific configs
         platform_configs: dict[str, dict[str, Any]] = {}
         for key, val in subagent_info.items():
             if key in ("description", "agents"):
                 continue
-            if isinstance(val, dict):
-                validate_platform_opts(key, name, val)
-                platform_configs[key] = val
+            validate_platform_opts(key, name, val)
+            platform_configs[key] = val
 
         definitions[name] = SubagentDefinition(
             name=name,
             description=description,
             agents=target_agents,
             platform_configs=platform_configs,
-            instructions=instructions,
+            instructions=body.strip(),
         )
-
+    if not definitions and not allow_empty:
+        raise SubagentConfigError("No subagents are defined")
     return definitions
 
 
@@ -910,12 +877,12 @@ def build_subagent_plan(
                 )
             authorized_force.add(ft.strip())
 
-    # Check that referenced agents exist in agents.toml with subagents config
+    # Check that referenced agents exist in agents/<name>.toml with subagents config
     for sub_name, definition in subagent_defs.items():
         for ag_name in definition.agents:
             if ag_name not in subagent_configs:
                 raise SubagentConfigError(
-                    f"Subagent '{sub_name}' targets agent '{ag_name}', but '{ag_name}' has no [agents.{ag_name}.subagents] configuration in agents.toml"
+                    f"Subagent '{sub_name}' targets agent '{ag_name}', but '{ag_name}' has no [agents.{ag_name}.subagents] configuration in agents/<name>.toml"
                 )
 
     operations: list[ConfigOperation] = []
@@ -932,7 +899,7 @@ def build_subagent_plan(
                 ConfigOperation(
                     target=target,
                     action="SKIP",
-                    reason="Agent has no subagents section in agents.toml",
+                    reason="Agent has no subagents section in agents/<name>.toml",
                 )
             )
 
@@ -1109,7 +1076,7 @@ def build_subagent_plan(
                         ConfigOperation(
                             target=target,
                             action="REMOVE" if prune else "ORPHAN",
-                            reason="Managed subagent in cordis.patch.yml is no longer defined in subagents.toml",
+                            reason="Managed subagent in cordis.patch.yml is no longer defined in subagents/<name>.toml",
                             requires_prune=True,
                             is_authorized=prune,
                         )
@@ -1214,7 +1181,7 @@ def build_subagent_plan(
                                 ConfigOperation(
                                     target=target,
                                     action="REMOVE" if prune else "ORPHAN",
-                                    reason="Managed subagent directory is no longer defined in subagents.toml",
+                                    reason="Managed subagent directory is no longer defined in subagents/<name>.toml",
                                     requires_prune=True,
                                     is_authorized=prune,
                                 )
@@ -1238,7 +1205,7 @@ def build_subagent_plan(
                                 ConfigOperation(
                                     target=target,
                                     action="REMOVE" if prune else "ORPHAN",
-                                    reason="Managed subagent file is no longer defined in subagents.toml",
+                                    reason="Managed subagent file is no longer defined in subagents/<name>.toml",
                                     requires_prune=True,
                                     is_authorized=prune,
                                 )

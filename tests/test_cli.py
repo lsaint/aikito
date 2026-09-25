@@ -1,3 +1,4 @@
+from layout_helpers import write_agents, write_subagents
 import io
 import json
 import os
@@ -224,11 +225,9 @@ class SyncAllExecutionTest(unittest.TestCase):
         self.aikito_dir.mkdir()
         self.home.mkdir()
 
-        (self.aikito_dir / "agents.toml").write_text("[agents]\n", encoding="utf-8")
+        write_agents(self.aikito_dir, "[agents]\n")
         (self.aikito_dir / "skills.toml").write_text("skills = []\n", encoding="utf-8")
-        (self.aikito_dir / "subagents.toml").write_text(
-            "[subagents]\n", encoding="utf-8"
-        )
+        (self.aikito_dir / "subagents").mkdir(exist_ok=True)
         (self.aikito_dir / "global").mkdir()
         (self.aikito_dir / "global" / "AGENTS.md").write_text(
             "# Global\n", encoding="utf-8"
@@ -352,7 +351,8 @@ class SyncAllExecutionTest(unittest.TestCase):
             encoding="utf-8",
         )
         (self.home / ".codex").mkdir()
-        (self.aikito_dir / "agents.toml").write_text(
+        write_agents(
+            self.aikito_dir,
             """
 [agents.codex]
 display_name = "Codex"
@@ -360,7 +360,6 @@ instruction_path = ".codex/AGENTS.md"
 project_instruction_path = "AGENTS.md"
 skills_path = ".agents/skills"
 """.lstrip(),
-            encoding="utf-8",
         )
 
         with (
@@ -2042,7 +2041,8 @@ class ShowSubcommandsTest(unittest.TestCase):
         self.aikito_dir = Path(self.temporary_directory.name)
         self.home = self.aikito_dir / "home"
         (self.home / ".codex").mkdir(parents=True)
-        (self.aikito_dir / "agents.toml").write_text(
+        write_agents(
+            self.aikito_dir,
             """
 [agents.codex]
 display_name = "Codex"
@@ -2056,18 +2056,19 @@ config_format = "codex_toml"
 config_path = ".codex/config.toml"
 config_format = "toml"
 name_style = "verbatim"
-""".lstrip()
+""".lstrip(),
         )
         (self.aikito_dir / "mcps").mkdir(parents=True, exist_ok=True)
         (self.aikito_dir / "mcps/managed.toml").write_text(
             'transport = "remote"\nurl = "http://ex.com"\nagents = ["codex"]\n'
         )
-        (self.aikito_dir / "subagents.toml").write_text(
-            '[subagents.formatter]\ndescription = "Format"\nagents = ["codex"]\n'
-        )
-        (self.aikito_dir / "subagents").mkdir()
+        (self.aikito_dir / "subagents").mkdir(exist_ok=True)
         (self.aikito_dir / "subagents" / "formatter.md").write_text(
             "# Formatter Instructions"
+        )
+        write_subagents(
+            self.aikito_dir,
+            '[subagents.formatter]\ndescription = "Format"\nagents = ["codex"]\n',
         )
         (self.aikito_dir / "memory" / "notes").mkdir(parents=True)
         (self.aikito_dir / "memory" / "index.md").write_text("# Global Memory Index")
@@ -2238,7 +2239,8 @@ url = "http://custom.example.com"
             )
             args.func(args)
             output = mock_stdout.getvalue()
-            self.assertEqual(output, "# Formatter Instructions")
+            self.assertIn('description: "Format"', output)
+            self.assertTrue(output.endswith("# Formatter Instructions"))
 
         # Show target with prefix
         with (
@@ -2248,7 +2250,8 @@ url = "http://custom.example.com"
             args = AIKITO_CLI.build_parser().parse_args(["show", "subagent", "form"])
             args.func(args)
             output = mock_stdout.getvalue()
-            self.assertEqual(output, "# Formatter Instructions")
+            self.assertIn('description: "Format"', output)
+            self.assertTrue(output.endswith("# Formatter Instructions"))
 
         # Show nonexistent target
         with (
@@ -2263,9 +2266,10 @@ url = "http://custom.example.com"
 
     def test_show_subagents_with_agent_flag(self) -> None:
         # Update subagents.toml with platform config override
-        (self.aikito_dir / "subagents.toml").write_text(
+        write_subagents(
+            self.aikito_dir,
             '[subagents.formatter]\ndescription = "Format code"\nagents = ["codex"]\n\n'
-            '[subagents.formatter.codex]\nmodel = "gpt-5"\n'
+            '[subagents.formatter.codex]\nmodel = "gpt-5"\n',
         )
 
         # 1. show subagents --agent codex (Agent table view)
@@ -2346,13 +2350,10 @@ url = "http://custom.example.com"
         self.assertIn("[ERROR] Unknown subagent 'nosuchsub'", mock_stderr.getvalue())
 
         # 6. Non-targeted agent for subagent
-        # Add another agent to agents.toml
-        agents_toml = self.aikito_dir / "agents.toml"
-        content = (
-            agents_toml.read_text()
-            + "\n[agents.other]\ndisplay_name = 'Other Agent'\n[agents.other.subagents]\nconfig_path = '.other/agents'\nconfig_format = 'claude_markdown'\n"
+        # Add another per-Agent definition.
+        (self.aikito_dir / "agents" / "other.toml").write_text(
+            "[agents.other]\ndisplay_name = 'Other Agent'\n[agents.other.subagents]\nconfig_path = '.other/agents'\nconfig_format = 'claude_markdown'\n"
         )
-        agents_toml.write_text(content)
 
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
@@ -3221,6 +3222,15 @@ class TestDoctorFixCli(unittest.TestCase):
 
 
 class TestCliGlobalExceptionHandler(unittest.TestCase):
+    def setUp(self) -> None:
+        self.workspace_patch = patch.object(
+            AIKITO_CLI, "get_aikito_dir", return_value=Path("/test/workspace")
+        )
+        self.workspace_patch.start()
+
+    def tearDown(self) -> None:
+        self.workspace_patch.stop()
+
     def test_successful_command_passes_workspace_to_update_notifier(self) -> None:
         workspace = Path("/test/workspace")
         fake_parser = MagicMock()
@@ -3350,9 +3360,8 @@ class ProjectSyncCliTest(unittest.TestCase):
         (self.aikito_dir / "skills" / "demo-skill" / "SKILL.md").write_text(
             "demo", encoding="utf-8"
         )
-        (self.aikito_dir / "agents.toml").write_text(
-            '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n',
-            encoding="utf-8",
+        write_agents(
+            self.aikito_dir, '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n'
         )
         self.proj_dir = self.aikito_dir / "projects" / "myproj"
         self.proj_dir.mkdir(parents=True)

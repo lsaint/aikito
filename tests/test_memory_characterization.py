@@ -5,6 +5,7 @@ deselection cleanup, legacy sync_resource overwrite gaps, multi-checkout, and Pr
 """
 
 from __future__ import annotations
+from layout_helpers import write_agents
 
 import tempfile
 from pathlib import Path
@@ -29,11 +30,11 @@ class ProjectMemoryCharacterizationTests(TestCase):
         (self.home / ".codex").mkdir(parents=True)
         (self.home / ".agents" / "skills").mkdir(parents=True)
 
-        (self.ws / "agents.toml").write_text(
+        write_agents(
+            self.ws,
             "[agents.codex]\n"
             'project_instruction_path = "AGENTS.md"\n'
             'skills_path = ".agents/skills"\n',
-            encoding="utf-8",
         )
         self.proj_dir = self.ws / "projects" / "demo"
         self.proj_dir.mkdir(parents=True)

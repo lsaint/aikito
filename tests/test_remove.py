@@ -1,3 +1,4 @@
+from layout_helpers import read_subagents, write_agents
 import io
 import tempfile
 import tomllib
@@ -543,7 +544,7 @@ class TestAikitoRemoveSubagentLifecycle(unittest.TestCase):
         self.home.mkdir()
         self.ws = self.root / "workspace"
         init_workspace(self.ws, self.home)
-        (self.ws / "agents.toml").write_text(load_agents_template(), encoding="utf-8")
+        write_agents(self.ws, load_agents_template())
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -569,8 +570,7 @@ class TestAikitoRemoveSubagentLifecycle(unittest.TestCase):
         sub_file = self.ws / "subagents" / "reviewer.md"
         self.assertTrue(sub_file.is_file())
 
-        subagents_toml = self.ws / "subagents.toml"
-        data = tomllib.loads(subagents_toml.read_text(encoding="utf-8"))
+        data = tomllib.loads(read_subagents(self.ws))
         self.assertIn("reviewer", data.get("subagents", {}))
 
         out = io.StringIO()
@@ -583,10 +583,9 @@ class TestAikitoRemoveSubagentLifecycle(unittest.TestCase):
         self.assertTrue(success)
         self.assertFalse(sub_file.exists())
 
-        new_data = tomllib.loads(subagents_toml.read_text(encoding="utf-8"))
+        new_data = tomllib.loads(read_subagents(self.ws))
         self.assertNotIn("reviewer", new_data.get("subagents", {}))
         self.assertIn("[DELETE FILE]", out.getvalue())
-        self.assertIn("[UPDATE FILE]", out.getvalue())
         self.assertIn("[SUCCESS] Removed subagent 'reviewer'.", out.getvalue())
 
     def test_remove_subagent_preserves_other_subagents(self) -> None:
@@ -613,13 +612,12 @@ class TestAikitoRemoveSubagentLifecycle(unittest.TestCase):
         self.assertFalse((self.ws / "subagents" / "sub-alpha.md").exists())
         self.assertTrue((self.ws / "subagents" / "sub-beta.md").exists())
 
-        subagents_toml = self.ws / "subagents.toml"
-        data = tomllib.loads(subagents_toml.read_text(encoding="utf-8"))
+        data = tomllib.loads(read_subagents(self.ws))
         self.assertNotIn("sub-alpha", data.get("subagents", {}))
         self.assertIn("sub-beta", data.get("subagents", {}))
         self.assertEqual(data["subagents"]["sub-beta"]["description"], "Beta")
 
-    def test_remove_subagent_rollback_on_write_failure(self) -> None:
+    def test_remove_subagent_preserves_file_on_unlink_failure(self) -> None:
         add_subagent(
             aikito_dir=self.ws,
             home=self.home,
@@ -629,16 +627,15 @@ class TestAikitoRemoveSubagentLifecycle(unittest.TestCase):
         sub_file = self.ws / "subagents" / "rollback-sub.md"
         self.assertTrue(sub_file.is_file())
 
-        subagents_toml = self.ws / "subagents.toml"
-        orig_toml = subagents_toml.read_text(encoding="utf-8")
+        original_unlink = Path.unlink
 
-        def failing_write(target, content, encoding="utf-8"):
-            if target.resolve() == subagents_toml.resolve():
-                raise OSError("Simulated subagents.toml write error")
-            target.write_text(content, encoding=encoding)
+        def failing_unlink(target, *args, **kwargs):
+            if target.resolve() == sub_file.resolve():
+                raise OSError("Simulated subagent unlink error")
+            return original_unlink(target, *args, **kwargs)
 
         err = io.StringIO()
-        with patch("aikito.remove._atomic_write_text", side_effect=failing_write):
+        with patch.object(Path, "unlink", autospec=True, side_effect=failing_unlink):
             with redirect_stderr(err):
                 success = remove_subagent(
                     aikito_dir=self.ws,
@@ -647,7 +644,7 @@ class TestAikitoRemoveSubagentLifecycle(unittest.TestCase):
                 )
         self.assertFalse(success)
         self.assertTrue(sub_file.is_file())
-        self.assertEqual(subagents_toml.read_text(encoding="utf-8"), orig_toml)
+        self.assertIn("Simulated subagent unlink error", err.getvalue())
 
     def test_remove_subagent_with_sync_prunes_agent_runtime(self) -> None:
         from aikito.subagent import sync_subagent_configs
@@ -742,7 +739,7 @@ class TestAikitoRemoveMCPLifecycle(unittest.TestCase):
         self.home.mkdir()
         self.ws = self.root / "workspace"
         init_workspace(self.ws, self.home)
-        (self.ws / "agents.toml").write_text(load_agents_template(), encoding="utf-8")
+        write_agents(self.ws, load_agents_template())
 
     def tearDown(self) -> None:
         self.tmp.cleanup()

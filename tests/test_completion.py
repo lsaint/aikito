@@ -1,3 +1,6 @@
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,6 +27,29 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class AikitoCompletionReflectionTest(unittest.TestCase):
+    def test_unmigrated_workspace_completion_is_silent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "legacy"
+            root.mkdir()
+            (root / "agents.toml").write_text("[agents]\n", encoding="utf-8")
+            env = os.environ.copy()
+            env.update(
+                AIKITO_DIR=str(root),
+                HOME=str(Path(directory) / "home"),
+                PYTHONPATH=str(ROOT / "src"),
+            )
+            result = subprocess.run(
+                [sys.executable, "-m", "aikito", "completion", "candidates", "skills"],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, "")
+            self.assertEqual(result.stderr, "")
+
     def test_extract_cli_schema_includes_aliases_and_flags(self) -> None:
         parser = AIKITO_CLI.build_parser()
         schema = extract_cli_schema(parser)

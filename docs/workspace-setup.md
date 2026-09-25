@@ -39,7 +39,7 @@ but leaves the original Agent configuration unchanged. If sources disagree or a
 resource is invalid, the entire operation stops and reports the source, reason,
 and available action. Repair resources you want to keep; use the displayed
 resource-level `--skip` only when you intentionally do not want to adopt one.
-Agent-native default servers configured in `agents.toml` under `builtin_mcps`
+Agent-native default servers configured in `agents/<name>.toml` under `builtin_mcps`
 (such as `openaiDeveloperDocs` for Codex) are automatically excluded from adoption.
 
 Existing skill directories are not imported automatically. After this onboarding
@@ -49,11 +49,35 @@ destination, and move in the content you want Aikito to govern.
 | Workspace path | What it holds |
 | --- | --- |
 | `global/AGENTS.md` | Instructions shared across projects |
-| `agents.toml` | Agent integration paths and capabilities |
+| `agents/<name>.toml` | Agent integration paths and capabilities |
 | `skills/` and `skills.toml` | Reusable skills and global selections |
-| `subagents.toml` | Subagent personas configured across agents |
+| `subagents/<name>.md` | Subagent personas configured across agents |
 | `mcps/` | Model Context Protocol configurations |
 | `projects/` | Each registered project's configuration and memory |
+
+## Upgrade an existing workspace
+
+Workspaces created before the per-resource layout require an explicit migration.
+Installing the new Aikito version does not edit the workspace. Normal commands
+show the migration command until the layout is upgraded:
+
+For a workspace shared through Git, upgrade Aikito to version 1.53.0 or newer
+on every machine **before** migrating it. After every machine is upgraded,
+preview and migrate on one machine, commit and push the workspace changes,
+then pull them on the others. An older CLI such as 1.52.1 cannot use the
+migrated workspace: its commands report `Agents config not found`, and `init`
+cannot restore the old layout.
+
+```bash
+aikito migrate workspace-resources --dry-run
+aikito migrate workspace-resources
+```
+
+Review any collisions or unsupported entries reported by the preview before
+applying. The migration writes `agents/<name>.toml` and frontmatter in
+`subagents/<name>.md`, removes the two legacy registry files, and records
+`version = 2` in `layout.toml` after the resource changes succeed. Repeating
+the command on a migrated workspace is safe.
 
 Inspect what became canonical:
 

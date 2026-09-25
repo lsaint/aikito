@@ -9,10 +9,18 @@ from aikito.workspace_reconcile import baseline_workspaces, run_reconciliation
 
 
 def _workspace(root: Path) -> Path:
-    for directory in ("mcps", "memory/notes", "projects", "skills", "global"):
+    for directory in (
+        "agents",
+        "subagents",
+        "mcps",
+        "memory/notes",
+        "projects",
+        "skills",
+        "global",
+    ):
         (root / directory).mkdir(parents=True, exist_ok=True)
-    for marker in ("agents.toml", "skills.toml", "subagents.toml"):
-        (root / marker).write_text("", encoding="utf-8")
+    (root / "layout.toml").write_text("version = 2\n", encoding="utf-8")
+    (root / "skills.toml").write_text("skills = []\n", encoding="utf-8")
     return root
 
 

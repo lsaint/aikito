@@ -11,6 +11,7 @@ Freezes baseline behavior in Aikito 1.48.0 prior to Phase 8 convergence:
 """
 
 from __future__ import annotations
+from layout_helpers import replace_subagent_body, write_agents, write_subagents
 
 import tempfile
 import unittest
@@ -46,13 +47,9 @@ class Phase8CharacterizationTests(unittest.TestCase):
             '[workspace]\nversion = "1.0"\n', encoding="utf-8"
         )
         (self.ws / "skills.toml").write_text("skills = []\n", encoding="utf-8")
-        (self.ws / "subagents.toml").write_text(
-            '[subagents.reviewer]\ndescription = "Code reviewer"\nagents = ["claude-code"]\n',
-            encoding="utf-8",
-        )
         (self.ws / "skills").mkdir()
         (self.ws / "mcps").mkdir()
-        (self.ws / "subagents").mkdir()
+        (self.ws / "subagents").mkdir(exist_ok=True)
         (self.ws / "projects").mkdir()
         (self.ws / "global").mkdir()
         (self.ws / "global" / "AGENTS.md").write_text(
@@ -74,7 +71,11 @@ config_path = ".claude.json"
 config_format = "claude_json"
 name_style = "verbatim"
 """
-        (self.ws / "agents.toml").write_text(agents_toml, encoding="utf-8")
+        write_agents(self.ws, agents_toml)
+        write_subagents(
+            self.ws,
+            '[subagents.reviewer]\ndescription = "Code reviewer"\nagents = ["claude-code"]\n',
+        )
 
     def tearDown(self) -> None:
         self.td.cleanup()
@@ -94,10 +95,7 @@ name_style = "verbatim"
 
     def test_subagent_legacy_plan_compatibility_characterization(self) -> None:
         """Verify subagent build_subagent_plan returns SubagentPlan and legacy view is retired."""
-        subagent_md = "---\ndescription: Code reviewer\n---\nReview prompt\n"
-        (self.ws / "subagents" / "reviewer.md").write_text(
-            subagent_md, encoding="utf-8"
-        )
+        replace_subagent_body(self.ws, "reviewer", "Review prompt\n")
 
         # Formal structured plan
         formal_plan = build_subagent_plan(self.ws, home=self.home, gate_installed=False)

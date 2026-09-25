@@ -22,10 +22,18 @@ from aikito.workspace_reconcile import (
 
 
 def _workspace(root: Path) -> Path:
-    for directory in ("mcps", "memory/notes", "projects", "skills", "global"):
+    for directory in (
+        "agents",
+        "subagents",
+        "mcps",
+        "memory/notes",
+        "projects",
+        "skills",
+        "global",
+    ):
         (root / directory).mkdir(parents=True, exist_ok=True)
-    for marker in ("agents.toml", "skills.toml", "subagents.toml"):
-        (root / marker).write_text("", encoding="utf-8")
+    (root / "layout.toml").write_text("version = 2\n", encoding="utf-8")
+    (root / "skills.toml").write_text("skills = []\n", encoding="utf-8")
     return root
 
 
@@ -72,17 +80,6 @@ def test_baseline_requires_identical_snapshots(tmp_path: Path) -> None:
     with pytest.raises(WorkspaceReconcileError, match="differ"):
         baseline_workspaces(left, right, tmp_path / "home")
     assert not (left / ".local/state/aikito/workspace-reconcile/baseline.json").exists()
-
-
-def test_legacy_baseline_requires_review(tmp_path: Path) -> None:
-    left = _workspace(tmp_path / "left")
-    right = _workspace(tmp_path / "right")
-    legacy = left / ".local/state/aikito/workspace-reconcile/pair.json"
-    legacy.parent.mkdir(parents=True)
-    legacy.write_text("{}", encoding="utf-8")
-
-    with pytest.raises(WorkspaceReconcileError, match="Legacy baseline state"):
-        baseline_workspaces(left, right, tmp_path / "home")
 
 
 def test_add_update_delete_and_repeat(tmp_path: Path) -> None:

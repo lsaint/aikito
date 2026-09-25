@@ -48,17 +48,8 @@ def list_skills(aikito_dir: Path) -> List[str]:
 
 
 def list_subagents(aikito_dir: Path) -> List[str]:
-    """Return sorted list of subagent names defined in subagents.toml or subagents/."""
-    subagents_toml = aikito_dir / "subagents.toml"
+    """Return sorted names of canonical subagent Markdown files."""
     names: set[str] = set()
-    if subagents_toml.is_file():
-        try:
-            data = tomllib.loads(subagents_toml.read_text(encoding="utf-8"))
-            sub_table = data.get("subagents", {})
-            if isinstance(sub_table, dict):
-                names.update(sub_table.keys())
-        except (OSError, tomllib.TOMLDecodeError):
-            pass
     subagents_dir = aikito_dir / "subagents"
     if subagents_dir.is_dir():
         for p in subagents_dir.glob("*.md"):

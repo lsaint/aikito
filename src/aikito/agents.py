@@ -3,18 +3,11 @@
 from __future__ import annotations
 
 import shutil
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
 from .compat import get_physical_path, is_directory_case_sensitive
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
-
 
 # Canonical "is this Agent installed on this machine" registry.
 # Shared by init detection, doctor diagnostics, and synchronization gating.
@@ -64,29 +57,28 @@ class Agent:
 
 
 class AgentRegistryError(ValueError):
-    """Raised when agents.toml cannot be loaded or validated."""
+    """Raised when agents/*.toml cannot be loaded or validated."""
 
 
 def load_agent_document(aikito_dir: Path) -> Mapping[str, Any]:
-    """Load and validate the top-level agents.toml document."""
+    """Load and validate per-Agent files in a migrated workspace."""
     if not aikito_dir.exists() or not aikito_dir.is_dir():
         raise AgentRegistryError(
             f"Aikito workspace directory not found: {aikito_dir}. "
             "Run 'aikito init workspace' to initialize."
         )
-    config_path = aikito_dir / "agents.toml"
-    if not config_path.exists():
-        raise AgentRegistryError(
-            f"Agents config not found: {config_path}. "
-            "Run 'aikito init workspace' to initialize."
-        )
+    from .workspace_layout import (
+        WorkspaceLayoutError,
+        load_agent_document as load_layout_agents,
+    )
+
     try:
-        document = tomllib.loads(config_path.read_text(encoding="utf-8"))
-    except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError) as exc:
-        raise AgentRegistryError(f"Invalid agents config {config_path}: {exc}") from exc
+        document = load_layout_agents(aikito_dir)
+    except WorkspaceLayoutError as exc:
+        raise AgentRegistryError(str(exc)) from exc
     agents = document.get("agents")
     if not isinstance(agents, dict):
-        raise AgentRegistryError(f"'agents' must be a table in {config_path}")
+        raise AgentRegistryError("Agent definitions are invalid")
     return document
 
 
@@ -151,13 +143,13 @@ def is_agent_installed(
 
 @dataclass(frozen=True)
 class AgentRegistry:
-    """Registry of configured Agents loaded from agents.toml."""
+    """Registry of configured Agents loaded from agents/*.toml."""
 
     agents: dict[str, Agent]
 
     @classmethod
     def from_document(cls, document: Mapping[str, Any], home: Path) -> AgentRegistry:
-        """Build the base Agent registry from one parsed agents.toml document."""
+        """Build the base Agent registry from one parsed agents/*.toml document."""
         agents_data = document.get("agents")
         if not isinstance(agents_data, dict):
             raise AgentRegistryError("'agents' must be a table")
@@ -197,12 +189,12 @@ class AgentRegistry:
 
     @classmethod
     def load_strict(cls, aikito_dir: Path, home: Path) -> AgentRegistry:
-        """Load agents.toml and raise AgentRegistryError on invalid input."""
+        """Load agents/*.toml and raise AgentRegistryError on invalid input."""
         return cls.from_document(load_agent_document(aikito_dir), home)
 
     @classmethod
     def load(cls, aikito_dir: Path, home: Path) -> AgentRegistry:
-        """Load agents.toml, returning an empty registry for invalid input."""
+        """Load agents/*.toml, returning an empty registry for invalid input."""
         try:
             return cls.load_strict(aikito_dir, home)
         except AgentRegistryError:
@@ -267,7 +259,7 @@ class RunnerCapability:
 
 @dataclass(frozen=True)
 class AgentDefinition(Agent):
-    """Static identity, paths, and capabilities for one agent from agents.toml."""
+    """Static identity, paths, and capabilities for one agent from agents/*.toml."""
 
     # None means the agent declares no [agents.<name>.mcp] section.
     mcp: MCPCapability | None = None
@@ -387,7 +379,7 @@ def _build_agent_definition(
 def load_agent_definition(aikito_dir: Path, home: Path, name: str) -> AgentDefinition:
     """Load one agent without validating unrelated agent declarations."""
     document = load_agent_document(aikito_dir)
-    config_path = aikito_dir / "agents.toml"
+    config_path = aikito_dir / "agents" / f"{name}.toml"
     agents = document["agents"]
     if name not in agents:
         raise AgentRegistryError(f"Agent '{name}' not found in {config_path}")
@@ -397,12 +389,13 @@ def load_agent_definition(aikito_dir: Path, home: Path, name: str) -> AgentDefin
 
 
 def load_agent_definitions(aikito_dir: Path, home: Path) -> dict[str, AgentDefinition]:
-    """Strictly load agents.toml; raise AgentRegistryError on invalid input."""
+    """Strictly load agents/*.toml; raise AgentRegistryError on invalid input."""
     document = load_agent_document(aikito_dir)
     registry = AgentRegistry.from_document(document, home)
-    config_path = aikito_dir / "agents.toml"
     return {
-        name: _build_agent_definition(registry[name], spec, home, config_path)
+        name: _build_agent_definition(
+            registry[name], spec, home, aikito_dir / "agents" / f"{name}.toml"
+        )
         for name, spec in document["agents"].items()
     }
 

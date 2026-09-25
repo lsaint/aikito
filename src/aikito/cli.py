@@ -146,6 +146,13 @@ from .workspace import (
     resolve_workspace,
     resolve_workspace_with_source,
 )
+from .workspace_layout import (
+    WorkspaceLayoutError,
+    apply_migration,
+    build_migration_plan,
+    migration_path_policy,
+    require_current_layout,
+)
 
 
 def get_aikito_dir() -> Path:
@@ -154,6 +161,35 @@ def get_aikito_dir() -> Path:
 
 def get_agents_dir() -> Path:
     return Path.home() / ".agents"
+
+
+def cmd_migrate_workspace_resources(args: argparse.Namespace) -> None:
+    """Preview or apply the required workspace resource layout migration."""
+    if not args.dry_run:
+        from .skill_state import WorkspaceWriterLock
+        from .workspace_core import recover
+
+        with WorkspaceWriterLock(Path.home()):
+            if recover((get_aikito_dir(),), policy=migration_path_policy()):
+                print("[RECOVER] Interrupted workspace migration recovered")
+    plan = build_migration_plan(get_aikito_dir())
+    for path, _content in plan.creates:
+        print(f"[CREATE] {path}")
+    for path, _content in plan.updates:
+        print(f"[UPDATE] {path}")
+    for path in plan.removes:
+        print(f"[REMOVE] {path}")
+    for finding in plan.findings:
+        print(f"[BLOCKED] {finding}", file=sys.stderr)
+    for note in plan.notes:
+        print(f"[NOTE] {note}")
+    if plan.blocked:
+        sys.exit(1)
+    if args.dry_run:
+        print("[DRY RUN] No files changed")
+    else:
+        apply_migration(plan, Path.home())
+        print("[SUCCESS] Workspace resource layout migrated")
 
 
 def sync_global_resources(
@@ -1459,10 +1495,17 @@ def cmd_completion(args: argparse.Namespace) -> None:
     """Handle 'aikito completion <shell>' and 'aikito completion candidates <category>'."""
     target = args.shell_or_sub
     if target == "candidates":
+        root = get_aikito_dir()
+        if is_recognized_workspace(root) or any(
+            (root / name).exists()
+            for name in ("agents.toml", "subagents.toml", "layout.toml")
+        ):
+            try:
+                require_current_layout(root)
+            except WorkspaceLayoutError:
+                return
         try:
-            items = get_candidates(
-                args.category, get_aikito_dir(), getattr(args, "query", None)
-            )
+            items = get_candidates(args.category, root, getattr(args, "query", None))
             for item in items:
                 print(item)
         except ValueError as exc:
@@ -1499,6 +1542,15 @@ def main() -> None:
     debug_mode = getattr(args, "debug", False) or os.environ.get("AIKITO_DEBUG") == "1"
 
     try:
+        if args.command not in ("version", "path", "migrate", "completion") and not (
+            args.command == "init" and getattr(args, "init_target", None) == "workspace"
+        ):
+            root = get_aikito_dir()
+            if is_recognized_workspace(root) or any(
+                (root / name).exists()
+                for name in ("agents.toml", "subagents.toml", "layout.toml")
+            ):
+                require_current_layout(root)
         args.func(args)
     except (
         AgentRegistryError,
@@ -1509,6 +1561,7 @@ def main() -> None:
         SkillTargetConflictError,
         InboxTargetConflictError,
         MemoryTargetConflictError,
+        WorkspaceLayoutError,
     ) as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
         sys.exit(1)

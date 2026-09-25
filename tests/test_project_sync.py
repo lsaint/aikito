@@ -1,6 +1,7 @@
 """Unit tests for project_sync orchestration, preflight, and batch execution."""
 
 from __future__ import annotations
+from layout_helpers import write_agents
 
 import tempfile
 from pathlib import Path
@@ -26,10 +27,7 @@ class ProjectSyncBatchTests(TestCase):
             ws.mkdir()
             co.mkdir()
 
-            (ws / "agents.toml").write_text(
-                '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n',
-                encoding="utf-8",
-            )
+            write_agents(ws, '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n')
 
             # Missing canonical skill and memory
             data = {
@@ -56,10 +54,7 @@ class ProjectSyncBatchTests(TestCase):
             ws.mkdir()
             co.mkdir()
 
-            (ws / "agents.toml").write_text(
-                '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n',
-                encoding="utf-8",
-            )
+            write_agents(ws, '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n')
 
             skill_canon = ws / "skills" / "my-skill"
             skill_canon.mkdir(parents=True)
@@ -103,10 +98,7 @@ class ProjectSyncBatchTests(TestCase):
             ws.mkdir()
             co_active.mkdir()
 
-            (ws / "agents.toml").write_text(
-                '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n',
-                encoding="utf-8",
-            )
+            write_agents(ws, '[agents.codex]\nproject_instruction_path = "AGENTS.md"\n')
             skill_canon = ws / "skills" / "my-skill"
             skill_canon.mkdir(parents=True)
             (skill_canon / "SKILL.md").write_text("# S\n", encoding="utf-8")
@@ -142,10 +134,7 @@ class ProjectSyncBatchTests(TestCase):
             ws.mkdir()
             co.mkdir()
 
-            (ws / "agents.toml").write_text(
-                '[agents.codex]\nskills_path = ".agents/skills"\n',
-                encoding="utf-8",
-            )
+            write_agents(ws, '[agents.codex]\nskills_path = ".agents/skills"\n')
             skill_canon = ws / "skills" / "my-skill"
             skill_canon.mkdir(parents=True)
             (skill_canon / "SKILL.md").write_text("# S\n", encoding="utf-8")
@@ -201,9 +190,9 @@ class ProjectSyncBatchTests(TestCase):
             ws.mkdir()
             co.mkdir()
 
-            (ws / "agents.toml").write_text(
+            write_agents(
+                ws,
                 '[agents.codex]\nproject_instruction_path = "AGENTS.md"\nskills_path = ".agents/skills"\n',
-                encoding="utf-8",
             )
             skill_canon = ws / "skills" / "my-skill"
             skill_canon.mkdir(parents=True)

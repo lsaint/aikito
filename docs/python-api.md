@@ -71,7 +71,7 @@ global skills, MCP servers, or subagents.
 
 **Parameters**
 
-- **`agent`** `str` — Agent name as configured in the workspace's `agents.toml`.
+- **`agent`** `str` — Agent name as configured in the workspace's `agents/<name>.toml`.
 - **`path`** `Path | str | None` — Optional explicit target directory. When omitted, the project
   must have exactly one active path on the current host. When provided, that directory is prepared
   directly without modifying `agent.toml`; intended for ephemeral CI and deployment checkouts.
@@ -80,7 +80,7 @@ global skills, MCP servers, or subagents.
 
 **Raises**
 
-- [`UnsupportedProjectAgentError`](#unsupportedprojectagenterror) – `agent` is not configured in `agents.toml`.
+- [`UnsupportedProjectAgentError`](#unsupportedprojectagenterror) – `agent` is not configured in `agents/<name>.toml`.
 - [`ProjectPrepareConflictError`](#projectprepareconflicterror) – managed resources cannot be synchronised safely, or symlink support is unavailable.
 - [`NoAvailableProjectPathError`](#noavailableprojectpatherror) – no configured path exists on this host (when `path` is omitted), or the explicit `path` does not exist.
 - [`AmbiguousProjectPathError`](#ambiguousprojectpatherror) – multiple paths are active and no explicit `path` was supplied.
@@ -189,7 +189,7 @@ Attributes:
 
 ### `UnsupportedProjectAgentError`
 
-Raised when the requested agent is not configured in `agents.toml`.
+Raised when the requested agent is not configured in `agents/<name>.toml`.
 
 ### `ProjectPrepareConflictError`
 
