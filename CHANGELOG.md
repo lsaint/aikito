@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.52.1] - 2026-09-25
+
+### Added
+
+- Centralized resource inspection: Introduced unified workspace resource inspection subsystem (`aikito.inspection`, `aikito.workspace_inspection`, and `aikito.global_skills`) providing cohesive inspection pipelines across skills, MCP servers, instructions, subagents, and memory runtimes for `doctor` and `status` reporting.
+- Subagent and runner capabilities: Added structured `SubagentCapability` and `RunnerCapability` to `aikito.agents` for declarative capability detection and validation across maintainer and subagent runtime operations.
+
+### Changed
+
+- Internal: Unified diagnostic ownership in workspace and project sync planning, delegating observation diagnostics directly to their owning runtimes.
+- Internal: Cleaned up obsolete internal compatibility aliases across adopt, doctor, link, project, sync, and workspace runtimes.
+- Documentation: Streamlined architecture comparison documentation with focused alignment on Ruler.
+
 ## [1.52.0] - 2026-09-24
 
 ### Added
@@ -940,7 +953,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.52.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.52.1...HEAD
+[1.52.1]: https://github.com/lsaint/aikito/compare/v1.52.0...v1.52.1
 [1.52.0]: https://github.com/lsaint/aikito/compare/v1.51.0...v1.52.0
 [1.51.0]: https://github.com/lsaint/aikito/compare/v1.50.0...v1.51.0
 [1.50.0]: https://github.com/lsaint/aikito/compare/v1.49.1...v1.50.0
