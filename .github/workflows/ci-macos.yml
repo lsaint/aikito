@@ -77,6 +77,12 @@ jobs:
           test -L "$HOME/.claude/CLAUDE.md"
           test -L "$HOME/.codex/AGENTS.md"
 
+      - name: macOS workspace reconcile smoke
+        run: |
+          BASE=${{ runner.temp }}/macos-reconcile-smoke
+          python3 tests/workspace_reconcile_smoke.py "$BASE"
+          test -f "$BASE/right/memory/notes/reconcile-smoke.md"
+
       - name: macOS CLI smoke - Global Skills Safety and Migration (Phase 4 Invariants)
         run: |
           WS=${{ runner.temp }}/macos-ws

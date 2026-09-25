@@ -166,6 +166,12 @@ jobs:
           grep -F "[CONNECTED]" ${{ runner.temp }}/connect-workspace.out
           grep -F "aikito doctor" ${{ runner.temp }}/connect-workspace.out
 
+      - name: Workspace reconcile smoke
+        run: |
+          BASE=${{ runner.temp }}/reconcile-smoke
+          python3 tests/workspace_reconcile_smoke.py "$BASE"
+          test -f "$BASE/right/memory/notes/reconcile-smoke.md"
+
       - name: Pip install source and verify workspace init
         env:
           PYTHONPATH: ""  # override job-level PYTHONPATH so installed package is tested, not src/

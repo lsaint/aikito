@@ -363,8 +363,8 @@ def save_project_skill_state(
     return True, None
 
 
-class SkillWriterLock:
-    """Re-entrant cross-platform exclusive writer lock for skill mutations."""
+class WorkspaceWriterLock:
+    """Re-entrant cross-platform exclusive lock for workspace mutations."""
 
     _process_lock = threading.RLock()
     _lock_depth: int = 0
@@ -378,14 +378,14 @@ class SkillWriterLock:
         self._instance_depth = 0
 
     def acquire(self) -> None:
-        SkillWriterLock._process_lock.acquire()
+        WorkspaceWriterLock._process_lock.acquire()
         try:
-            if SkillWriterLock._lock_depth > 0:
-                if SkillWriterLock._active_lock_path != self.lock_path:
+            if WorkspaceWriterLock._lock_depth > 0:
+                if WorkspaceWriterLock._active_lock_path != self.lock_path:
                     raise RuntimeError(
-                        "Cannot nest skill writer locks for different state stores"
+                        "Cannot nest workspace writer locks for different state stores"
                     )
-                SkillWriterLock._lock_depth += 1
+                WorkspaceWriterLock._lock_depth += 1
                 self._instance_depth += 1
                 return
 
@@ -413,12 +413,12 @@ class SkillWriterLock:
                 f.close()
                 raise
 
-            SkillWriterLock._lock_file_obj = f
-            SkillWriterLock._active_lock_path = self.lock_path
-            SkillWriterLock._lock_depth = 1
+            WorkspaceWriterLock._lock_file_obj = f
+            WorkspaceWriterLock._active_lock_path = self.lock_path
+            WorkspaceWriterLock._lock_depth = 1
             self._instance_depth = 1
         except Exception:
-            SkillWriterLock._process_lock.release()
+            WorkspaceWriterLock._process_lock.release()
             raise
 
     def release(self) -> None:
@@ -426,11 +426,11 @@ class SkillWriterLock:
             return
         try:
             self._instance_depth -= 1
-            SkillWriterLock._lock_depth -= 1
-            if SkillWriterLock._lock_depth == 0:
-                f = SkillWriterLock._lock_file_obj
-                SkillWriterLock._lock_file_obj = None
-                SkillWriterLock._active_lock_path = None
+            WorkspaceWriterLock._lock_depth -= 1
+            if WorkspaceWriterLock._lock_depth == 0:
+                f = WorkspaceWriterLock._lock_file_obj
+                WorkspaceWriterLock._lock_file_obj = None
+                WorkspaceWriterLock._active_lock_path = None
                 if f:
                     try:
                         if not is_windows():
@@ -444,14 +444,17 @@ class SkillWriterLock:
                     finally:
                         f.close()
         finally:
-            SkillWriterLock._process_lock.release()
+            WorkspaceWriterLock._process_lock.release()
 
-    def __enter__(self) -> SkillWriterLock:
+    def __enter__(self) -> WorkspaceWriterLock:
         self.acquire()
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self.release()
+
+
+SkillWriterLock = WorkspaceWriterLock
 
 
 @dataclass

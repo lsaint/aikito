@@ -115,6 +115,11 @@ jobs:
           $connectOutput | Write-Output
           $connectOutput | Select-String "\[CONNECTED\]"
           $connectOutput | Select-String "aikito doctor"
+          $reconcileBase = Join-Path $env:RUNNER_TEMP "reconcile-smoke"
+          python tests/workspace_reconcile_smoke.py "$reconcileBase"
+          if (-not (Test-Path (Join-Path $reconcileBase "right\memory\notes\reconcile-smoke.md"))) {
+            throw "Workspace reconcile did not create the note"
+          }
           $claudeAgents = Join-Path $claudeDir "agents"
           New-Item -ItemType Directory -Force -Path $claudeAgents | Out-Null
           $adoptSource = Join-Path $claudeAgents "ci-adopt.md"
