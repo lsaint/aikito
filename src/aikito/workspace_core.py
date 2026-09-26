@@ -16,19 +16,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from .add import validate_resource_name
 from .compat import (
     is_reparse_point,
     secure_directory_permissions,
     secure_file_permissions,
 )
-from .init import _validate_project_name, is_recognized_workspace
-from .memory import validate_memory_name
-from .templating import BUNDLED_SKILL_NAMES
+from .init import is_recognized_workspace
 from .workspace_resources import (
     WorkspaceResourceError,
     fingerprint_resource,
     is_ignored_name,
+    resource_kind_for_path,
     snapshot_workspace,
 )
 
@@ -76,6 +74,8 @@ class PathPolicy:
 
     resources: tuple[tuple[str, str], ...] = ()
     states: tuple[str, ...] = ()
+    create_parents: bool = False
+    inbox_prefix: str = ""
 
 
 def validate_roots(left: Path, right: Path) -> tuple[Path, Path]:
@@ -91,54 +91,18 @@ def validate_resource_path(
     path: str, kind: str, policy: PathPolicy = PathPolicy()
 ) -> Path:
     relative = Path(path)
-    parts = relative.parts
+    parts = path.split("/")
     if (
         not path
         or relative.is_absolute()
         or "\\" in path
-        or any(part in (".", "..") for part in parts)
+        or any(part in ("", ".", "..", ".git", ".local") for part in parts)
     ):
         raise WorkspaceCoreError(f"Unsafe resource path: {path}")
     if (kind, path) in policy.resources:
         return relative
-    if kind == "memory" and len(parts) == 3 and parts[:2] == ("memory", "notes"):
-        name = parts[2]
-    elif (
-        kind == "memory"
-        and len(parts) == 5
-        and parts[0] == "projects"
-        and parts[2:4] == ("memory", "notes")
-        and not _validate_project_name(parts[1])
-    ):
-        name = parts[4]
-    elif (
-        kind == "skill"
-        and len(parts) == 2
-        and parts[0] == "skills"
-        and not validate_resource_name(parts[1], "skill")
-        and parts[1] not in BUNDLED_SKILL_NAMES
-    ):
-        return relative
-    elif (
-        kind == "agent"
-        and len(parts) == 2
-        and parts[0] == "agents"
-        and relative.suffix == ".toml"
-        and not validate_resource_name(relative.stem, "agent")
-    ):
-        return relative
-    elif (
-        kind == "subagent"
-        and len(parts) == 2
-        and parts[0] == "subagents"
-        and relative.suffix == ".md"
-        and not validate_resource_name(relative.stem, "subagent")
-    ):
-        return relative
-    else:
+    if resource_kind_for_path(path, inbox_prefix=policy.inbox_prefix) != kind:
         raise WorkspaceCoreError(f"Unsupported resource path: {path}")
-    if not name.endswith(".md") or validate_memory_name(Path(name).stem):
-        raise WorkspaceCoreError(f"Unsafe memory path: {path}")
     return relative
 
 
@@ -158,11 +122,14 @@ def entry_type(path: Path) -> str:
     return "unsafe"
 
 
-def require_ancestors(root: Path, relative: Path) -> None:
+def require_ancestors(
+    root: Path, relative: Path, *, allow_missing: bool = False
+) -> None:
     current = root
     for part in relative.parts[:-1]:
         current /= part
-        if entry_type(current) != "directory":
+        actual = entry_type(current)
+        if actual != "directory" and not (allow_missing and actual == "missing"):
             raise WorkspaceCoreError(f"Unsafe resource parent: {current}")
 
 
@@ -170,7 +137,7 @@ def version_at(
     root: Path, path: str, kind: str, policy: PathPolicy = PathPolicy()
 ) -> Version | None:
     relative = validate_resource_path(path, kind, policy)
-    require_ancestors(root, relative)
+    require_ancestors(root, relative, allow_missing=policy.create_parents)
     target = root / relative
     actual = entry_type(target)
     if actual == "missing":
@@ -415,6 +382,11 @@ def _validate_journal(
             "skill",
             "agent",
             "subagent",
+            "mcp",
+            "project-config",
+            "project-instructions",
+            "skills-config",
+            "inbox",
             *(kind for kind, _ in policy.resources),
         ):
             raise WorkspaceCoreError("Invalid journal resource")
@@ -673,6 +645,11 @@ def apply(
                 moved.parent.mkdir(parents=True, exist_ok=True)
                 os.replace(root / path, moved)
             if item["after"] is not None:
+                if policy.create_parents:
+                    parent = root
+                    for component in Path(path).parts[:-1]:
+                        parent /= component
+                        _secure_dir(parent)
                 os.replace(stage, root / path)
         if verify is not None:
             verify()

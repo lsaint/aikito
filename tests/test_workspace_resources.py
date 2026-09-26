@@ -13,6 +13,7 @@ from aikito.init import init_workspace
 from aikito.workspace_resources import (
     WorkspaceResourceError,
     resource_id,
+    resource_kind_for_path,
     scan_credentials,
     snapshot_workspace,
 )
@@ -41,6 +42,13 @@ def test_fresh_workspace_has_no_findings(workspace: Path) -> None:
     assert "skills/aikito" in snapshot.skipped
     assert resource_id("global-instructions", "AGENTS.md") in snapshot.resources
     assert resource_id("skill-selection", "aikito") in snapshot.resources
+
+
+def test_memory_root_documents_share_the_transaction_path_model() -> None:
+    assert resource_kind_for_path("memory/index.md") == "memory"
+    assert resource_kind_for_path("projects/demo/memory/index.md") == "memory"
+    assert resource_kind_for_path("projects/demo/memory/README.md") == "memory"
+    assert resource_kind_for_path("memory/notes/decision.md") == "memory"
 
 
 def test_rejects_non_workspace(tmp_path: Path) -> None:
@@ -143,6 +151,14 @@ def test_collects_all_findings_instead_of_stopping(workspace: Path) -> None:
     assert ("invalid-skill", "skills/no-skill-md") in codes
     assert ("invalid-toml", "mcps/broken.toml") in codes
     assert ("invalid-subagent", "subagents/orphan.md") in codes
+
+
+def test_invalid_collections_are_findings(workspace: Path) -> None:
+    _write(workspace / "skills.toml", 'skills = "demo"\n')
+    _write(workspace / "projects/demo/agent.toml", "paths = 42\nskills = [1]\n")
+    codes = _codes(workspace)
+    assert ("invalid-skill-selection", "skills.toml") in codes
+    assert ("invalid-project-field", "projects/demo/agent.toml") in codes
 
 
 def test_credentials_are_warnings_reported_by_path_only(workspace: Path) -> None:

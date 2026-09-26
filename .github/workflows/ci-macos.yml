@@ -105,6 +105,18 @@ jobs:
           python3 tests/workspace_reconcile_smoke.py "$BASE"
           test -f "$BASE/right/memory/notes/reconcile-smoke.md"
 
+      - name: macOS workspace import smoke
+        run: |
+          BASE=${{ runner.temp }}/macos-import-smoke
+          python3 tests/workspace_import_smoke.py "$BASE"
+          test -f "$BASE/target/inbox/deep/import-smoke.md"
+          test -f "$BASE/target/skills/import-smoke/SKILL.md"
+          test -f "$BASE/target/subagents/import-smoke.md"
+          test -f "$BASE/target/mcps/import-smoke.toml"
+          test -f "$BASE/target/memory/index.md"
+          test -f "$BASE/target/projects/new-project/agent.toml"
+          test -f "$BASE/target/projects/new-project/memory/index.md"
+
       - name: macOS CLI smoke - Global Skills Safety and Migration (Phase 4 Invariants)
         run: |
           WS=${{ runner.temp }}/macos-ws

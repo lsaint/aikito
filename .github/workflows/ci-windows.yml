@@ -144,6 +144,21 @@ jobs:
           if (-not (Test-Path (Join-Path $reconcileBase "right\memory\notes\reconcile-smoke.md"))) {
             throw "Workspace reconcile did not create the note"
           }
+          $importBase = Join-Path $env:RUNNER_TEMP "import-smoke"
+          python tests/workspace_import_smoke.py "$importBase"
+          foreach ($resource in @(
+            "target\inbox\deep\import-smoke.md",
+            "target\skills\import-smoke\SKILL.md",
+            "target\subagents\import-smoke.md",
+            "target\mcps\import-smoke.toml",
+            "target\memory\index.md",
+            "target\projects\new-project\agent.toml",
+            "target\projects\new-project\memory\index.md"
+          )) {
+            if (-not (Test-Path (Join-Path $importBase $resource))) {
+              throw "Workspace import did not create $resource"
+            }
+          }
           $claudeAgents = Join-Path $claudeDir "agents"
           New-Item -ItemType Directory -Force -Path $claudeAgents | Out-Null
           $adoptSource = Join-Path $claudeAgents "ci-adopt.md"

@@ -98,12 +98,13 @@ def resolve_project_binding(config: Mapping[str, Any], home: Path) -> ProjectBin
 
 
 def add_candidate_path_to_content(
-    content: str, new_raw_path: str, home: Path
+    content: str, new_raw_path: str, home: Path, *, match_resolved: bool = True
 ) -> str | None:
     """Pure transformation of TOML content to add a new candidate path.
 
     Returns the updated TOML string, or None if the candidate path is already present.
     Raises ValueError if TOML is invalid or rewritten TOML fails verification.
+    ``match_resolved=False`` keeps distinct raw collection members during import.
     """
     try:
         data = tomllib.loads(content)
@@ -114,7 +115,9 @@ def add_candidate_path_to_content(
     new_resolved = resolve_project_path(new_raw_path, home)
     for _, raw in candidates:
         if raw == new_raw_path or (
-            new_resolved and resolve_project_path(raw, home) == new_resolved
+            match_resolved
+            and new_resolved
+            and resolve_project_path(raw, home) == new_resolved
         ):
             return None
 

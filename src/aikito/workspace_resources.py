@@ -23,10 +23,11 @@ from typing import Any
 
 from .add import validate_resource_name
 from .compat import is_reparse_point, is_windows
-from .config import get_inbox_path
+from .config import LEGACY_DEFAULT_INBOX_PATH, get_inbox_path, load_workspace_config
 from .diagnostics import Finding
 from .init import _validate_project_name, is_recognized_workspace
 from .memory import validate_memory_name
+from .project_config import get_project_candidate_paths
 from .subagent import SUBAGENT_NAME_PATTERN
 from .templating import BUNDLED_SKILL_NAMES
 from .workspace_layout import (
@@ -94,6 +95,78 @@ def resource_id(kind: str, name: str) -> str:
     return f"{kind}:{name}"
 
 
+def resource_kind_for_path(path: str, *, inbox_prefix: str = "") -> str | None:
+    """Classify a canonical resource path for scanners and transactions."""
+    parts = Path(path).parts
+    if len(parts) == 1 and parts[0] == "skills.toml":
+        return "skills-config"
+    if len(parts) == 2:
+        area, filename = parts
+        stem = Path(filename).stem
+        if area == "memory" and filename.endswith(".md"):
+            return "memory"
+        if area == "skills" and not validate_resource_name(filename, "skill"):
+            return "skill" if filename not in BUNDLED_SKILL_NAMES else None
+        if (
+            area == "agents"
+            and filename.endswith(".toml")
+            and not validate_resource_name(stem, "agent")
+        ):
+            return "agent"
+        if (
+            area == "subagents"
+            and filename.endswith(".md")
+            and SUBAGENT_NAME_PATTERN.fullmatch(stem)
+        ):
+            return "subagent"
+        if (
+            area == "mcps"
+            and filename.endswith(".toml")
+            and not validate_resource_name(stem, "mcp")
+        ):
+            return "mcp"
+    if len(parts) == 3 and parts[:2] == ("memory", "notes"):
+        return (
+            "memory"
+            if parts[2].endswith(".md")
+            and not validate_memory_name(Path(parts[2]).stem)
+            else None
+        )
+    if (
+        len(parts) == 3
+        and parts[0] == "projects"
+        and not _validate_project_name(parts[1])
+    ):
+        if parts[2] == "agent.toml":
+            return "project-config"
+        if parts[2] == "AGENTS.md":
+            return "project-instructions"
+    if (
+        len(parts) in (4, 5)
+        and parts[0] == "projects"
+        and not _validate_project_name(parts[1])
+        and parts[2] == "memory"
+    ):
+        if len(parts) == 4 and parts[3].endswith(".md"):
+            return "memory"
+        if (
+            len(parts) == 5
+            and parts[3] == "notes"
+            and parts[4].endswith(".md")
+            and not validate_memory_name(Path(parts[4]).stem)
+        ):
+            return "memory"
+    if inbox_prefix:
+        prefix = Path(inbox_prefix).parts
+        if (
+            len(parts) > len(prefix)
+            and parts[: len(prefix)] == prefix
+            and parts[-1].endswith(".md")
+        ):
+            return "inbox"
+    return None
+
+
 def value_fingerprint(value: Any) -> str:
     """Fingerprint a parsed TOML value independently of its formatting."""
     encoded = json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
@@ -103,7 +176,19 @@ def value_fingerprint(value: Any) -> str:
 def fingerprint_resource(path: Path, kind: str) -> str:
     """Fingerprint a standalone file or skill with snapshot semantics."""
     scanner = _Scanner(path.parent)
-    if kind in ("memory", "project-memory", "agent", "subagent", "legacy", "layout"):
+    if kind in (
+        "memory",
+        "project-memory",
+        "inbox",
+        "project-instructions",
+        "agent",
+        "subagent",
+        "mcp",
+        "project-config",
+        "skills-config",
+        "legacy",
+        "layout",
+    ):
         result = scanner.file_digest(path)
     elif kind == "skill" and _entry_type(path) == "directory":
         result = scanner.tree_digest(path)
@@ -158,6 +243,31 @@ class _Scanner:
         parts: tuple[ResourcePart, ...],
         references: tuple[str, ...] = (),
     ) -> None:
+        physical = {
+            "memory": "memory",
+            "project-memory": "memory",
+            "skill": "skill",
+            "inbox": "inbox",
+            "agent": "agent",
+            "subagent": "subagent",
+            "mcp": "mcp",
+            "project": "project-config",
+            "project-instructions": "project-instructions",
+        }.get(kind)
+        if (
+            physical is not None
+            and resource_kind_for_path(
+                parts[0].path,
+                inbox_prefix=self.inbox_rel.as_posix() if self.inbox_rel.parts else "",
+            )
+            != physical
+        ):
+            self.error(
+                "unsupported-entry",
+                "Unsupported resource path",
+                self.root / parts[0].path,
+            )
+            return
         resource = Resource(kind, name, fingerprint, parts, references)
         self.resources[resource.id] = resource
 
@@ -270,7 +380,7 @@ def _string_members(raw: object) -> list[str]:
 
 
 def _project_members(config: dict[str, Any]) -> tuple[list[str], list[str]]:
-    paths = _string_members(config.get("paths")) + _string_members(config.get("path"))
+    paths = [path for _, path in get_project_candidate_paths(config)]
     return sorted(set(paths)), sorted(set(_string_members(config.get("skills"))))
 
 
@@ -282,6 +392,44 @@ def _scan_project(scanner: _Scanner, project: Path) -> None:
     config_path = project / "agent.toml"
     config = scanner.toml(config_path)
     if config is not None:
+        if (
+            (
+                "path" in config
+                and not (
+                    isinstance(config["path"], str)
+                    or (
+                        isinstance(config["path"], list)
+                        and all(isinstance(value, str) for value in config["path"])
+                    )
+                )
+            )
+            or (
+                "paths" in config
+                and (
+                    not isinstance(config["paths"], (list, dict))
+                    or any(
+                        not isinstance(value, str)
+                        for value in (
+                            config["paths"].values()
+                            if isinstance(config["paths"], dict)
+                            else config["paths"]
+                        )
+                    )
+                )
+            )
+            or (
+                "skills" in config
+                and (
+                    not isinstance(config["skills"], list)
+                    or any(not isinstance(value, str) for value in config["skills"])
+                )
+            )
+        ):
+            scanner.error(
+                "invalid-project-field",
+                "Invalid project path or skills collection",
+                config_path,
+            )
         part = (ResourcePart(scanner.rel(config_path)),)
         fields = {
             key: val for key, val in config.items() if key not in _PROJECT_SET_FIELDS
@@ -433,6 +581,15 @@ def _scan_top_level_toml(scanner: _Scanner) -> None:
     skills = scanner.toml(root / "skills.toml")
     _scan_tables(scanner, "skills.toml", skills, {"skills"})
     selected = (skills or {}).get("skills", [])
+    if not isinstance(selected, list) or any(
+        not isinstance(item, str) for item in selected
+    ):
+        scanner.error(
+            "invalid-skill-selection",
+            "Skills must be a list of names",
+            root / "skills.toml",
+        )
+        selected = []
     for name in sorted({item for item in selected if isinstance(item, str)}):
         references = (
             () if name in BUNDLED_SKILL_NAMES else (resource_id("skill", name),)
@@ -452,7 +609,26 @@ def _scan_top_level_toml(scanner: _Scanner) -> None:
             scanner.add("config", key, value_fingerprint(value), part)
 
 
-def _inbox_directory(root: Path) -> Path | None:
+def _inbox_directory(scanner: _Scanner) -> Path | None:
+    root = scanner.root
+    raw = load_workspace_config(root).inbox.path.strip() or "inbox"
+    configured = Path(raw).expanduser()
+    if configured == Path(LEGACY_DEFAULT_INBOX_PATH).expanduser():
+        configured = root / "inbox"
+    elif not configured.is_absolute():
+        configured = root / configured
+    try:
+        configured_parts = configured.relative_to(root).parts
+    except ValueError:
+        return None
+    if ".." in configured_parts:
+        return None
+    current = root
+    for part in configured_parts:
+        current /= part
+        if _entry_type(current) == "link":
+            scanner.error("unsafe-entry", "Inbox path crosses a symbolic link", current)
+            return None
     inbox = get_inbox_path(root)
     try:
         inbox.relative_to(root.resolve())
@@ -491,7 +667,7 @@ def snapshot_workspace(root: Path) -> WorkspaceSnapshot:
     _scan_top_level_toml(scanner)
 
     managed = set(_TOP_LEVEL_FILES) | set(_TOP_LEVEL_DIRS)
-    inbox = _inbox_directory(root)
+    inbox = _inbox_directory(scanner)
     if inbox is None:
         scanner.skipped.append("inbox (outside the workspace)")
     elif inbox != root:
