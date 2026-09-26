@@ -118,11 +118,13 @@ Aikito 将源文件保存在个人的 Git 工作区，按需连接到各个 Agen
 Aikito 遵循 Local-first 原则与透明设计：
 
 - **写入前预检**：`adopt` 与 `sync` 永远在模拟检查后再执行写入。
+- **尊重已有改动**：项目中已修改的复制版 Skill 会阻止该项目同步，等待你检查差异；
+  未受管理的目标不会被静默当作 Aikito 的资源。
 - **纯文本与 Git**：无后台守护进程，无私有数据库，不在 prompt 中隐式注入上下文。
 - **自主掌控 Secrets**：工作区是本地 Git 仓库，推送到远端前请审查敏感信息。
 
 深入了解安全与边界设计：
-- [安全模型与备份机制（英文）](docs/safety.md#adoption)
+- [冲突处理与备份机制（英文）](docs/safety.md#conflict-and-drift-protection)
 - [设计边界与方案对比（英文）](docs/comparison.md)
 
 ## 文档导航

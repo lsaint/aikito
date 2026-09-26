@@ -128,11 +128,14 @@ See [memory usage and opt-out](docs/durable-memory.md) and
 Aikito is local-first and predictable by design:
 
 - **Preflight before write**: `adopt` and `sync` simulate and check operations before modifying files.
+- **Respect existing work**: a locally edited copied project skill blocks its
+  sync until you review the difference; an unmanaged target is not silently
+  claimed as Aikito's own.
 - **Plain files & Git**: no background service, no proprietary database, no implicit prompt injection.
 - **You govern secrets**: workspace is a local Git repository; review secrets before pushing.
 
 Detailed safety and boundary references:
-- [Safety model & backups](docs/safety.md#adoption)
+- [Conflict handling & backups](docs/safety.md#conflict-and-drift-protection)
 - [Design boundaries & comparisons](docs/comparison.md)
 
 ## Documentation
