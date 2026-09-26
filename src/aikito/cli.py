@@ -227,7 +227,7 @@ def cmd_import_workspace(args: argparse.Namespace) -> None:
                 else [f"{item.resource.kind}:{item.resource.name}"]
             )
             detail = f" ({', '.join(names)})"
-        print(f"[{item.action}] {path}{detail}")
+        print(f"[{item.action}] {path.as_posix()}{detail}")
     if args.verbose:
         for excluded in plan.excluded:
             print(f"[{excluded}]")

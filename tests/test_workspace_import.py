@@ -532,7 +532,7 @@ def test_external_inbox_is_reported_and_blocks_import(tmp_path: Path) -> None:
     source = _workspace(tmp_path / "source")
     target = _workspace(tmp_path / "target")
     (source / "config.toml").write_text(
-        f'[inbox]\npath = "{tmp_path / "external"}"\n', encoding="utf-8"
+        f'[inbox]\npath = "{(tmp_path / "external").as_posix()}"\n', encoding="utf-8"
     )
     plan = build_import_plan(source, target)
     assert plan.blocked
