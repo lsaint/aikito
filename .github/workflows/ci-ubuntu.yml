@@ -1278,7 +1278,7 @@ jobs:
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito adopt
           test -f ${{ runner.temp }}/aikito-ws/subagents/ci-adopt.md
-          grep -F "ci-adopt" \
+          grep -F "CI adoption smoke test" \
             ${{ runner.temp }}/aikito-ws/subagents/ci-adopt.md
           mkdir -p ~/.codex
           cat << 'EOF' > ~/.codex/config.toml
