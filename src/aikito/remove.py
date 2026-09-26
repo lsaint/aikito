@@ -14,7 +14,7 @@ from .add import (
     _atomic_write_text,
     _check_workspace_initialized,
     _display_path,
-    _update_skills_in_toml,
+    update_skills_in_toml,
     validate_resource_name,
 )
 from .compat import require_symlink_support
@@ -57,7 +57,7 @@ def _remove_skill_from_projects(
             if skill_name in existing_str_skills:
                 registered_projects.append(proj)
                 new_skills = [s for s in existing_str_skills if s != skill_name]
-                new_content = _update_skills_in_toml(original_text, new_skills)
+                new_content = update_skills_in_toml(original_text, new_skills)
 
                 # Preflight semantic verification
                 new_data = tomllib.loads(new_content)
@@ -154,7 +154,7 @@ def _remove_skill_globally(
             if isinstance(g_skills, list) and skill_name in g_skills:
                 skills_toml_has_skill = True
                 new_g_skills = [str(s) for s in g_skills if str(s) != skill_name]
-                new_skills_toml_content = _update_skills_in_toml(
+                new_skills_toml_content = update_skills_in_toml(
                     original_skills_toml_text, new_g_skills
                 )
                 # Preflight check
@@ -194,7 +194,7 @@ def _remove_skill_globally(
                             new_skills = [
                                 str(s) for s in p_skills if str(s) != skill_name
                             ]
-                            new_content = _update_skills_in_toml(orig_text, new_skills)
+                            new_content = update_skills_in_toml(orig_text, new_skills)
                             # Preflight
                             chk = tomllib.loads(new_content)
                             if chk.get("skills") != new_skills:

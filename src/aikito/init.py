@@ -25,6 +25,7 @@ from .agents import (
     resolve_targets,
 )
 from .project import resolve_project_binding
+from .project_config import DEFAULT_PROJECT_SYNC_MODE
 from .templating import (
     BUNDLED_SKILL_NAMES,
     bundled_skill_path,
@@ -308,7 +309,7 @@ def init_project(
         config_lines.extend(
             [
                 f'path = "{display_path}"',
-                'sync_mode = "link"',
+                f'sync_mode = "{DEFAULT_PROJECT_SYNC_MODE}"',
                 "skills = []",
             ]
         )

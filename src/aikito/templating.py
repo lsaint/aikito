@@ -65,12 +65,12 @@ def _template_path(name: str) -> Path:
     return path
 
 
-def _load_template(name: str) -> str:
+def load_template(name: str) -> str:
     return _template_path(name).read_text(encoding="utf-8")
 
 
 def load_global_agents_template() -> str:
-    return _load_template("global/AGENTS.md")
+    return load_template("global/AGENTS.md")
 
 
 def load_default_memory_instruction() -> str:
@@ -89,8 +89,8 @@ def filter_agents_template(agent_names: tuple[str, ...]) -> str:
 
 
 def _join_agent_templates(agent_names: tuple[str, ...]) -> str:
-    parts = [_load_template("agents/_header.toml").rstrip()]
-    parts.extend(_load_template(f"agents/{name}.toml").strip() for name in agent_names)
+    parts = [load_template("agents/_header.toml").rstrip()]
+    parts.extend(load_template(f"agents/{name}.toml").strip() for name in agent_names)
     if not agent_names:
         parts.append("[agents]")
     return "\n\n".join(parts) + "\n"
@@ -157,12 +157,12 @@ def render_workspace_files(
                 rendered.append(
                     (
                         target_dir / "agents" / f"{name}.toml",
-                        _load_template(f"agents/{name}.toml"),
+                        load_template(f"agents/{name}.toml"),
                         f"{name} Agent definition",
                     )
                 )
         rendered.append(
-            (target_dir / dest_rel, _load_template(template_name), description)
+            (target_dir / dest_rel, load_template(template_name), description)
         )
     return rendered
 
@@ -171,7 +171,7 @@ def render_project_files(project_dir: Path | str) -> list[tuple[Path, str]]:
     """Return (destination, content) for project-level template files."""
     project_dir = Path(project_dir)
     return [
-        (project_dir / dest_rel, _load_template(template_name))
+        (project_dir / dest_rel, load_template(template_name))
         for dest_rel, template_name in PROJECT_TEMPLATE_FILES
     ]
 

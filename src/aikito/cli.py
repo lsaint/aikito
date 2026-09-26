@@ -12,6 +12,8 @@ import os
 import shutil
 import subprocess
 import sys
+import tomllib
+from collections import Counter
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -81,6 +83,7 @@ from .mcp import (
 )
 from .templating import TemplateError, detect_existing_agents
 from .project import collect_project_summaries
+from .project_config import resolve_project_binding
 
 from .config import get_inbox_path
 from .inbox import (
@@ -153,6 +156,7 @@ from .workspace_layout import (
     migration_path_policy,
     require_current_layout,
 )
+from .workspace_import import WorkspaceImportError, run_workspace_import
 
 
 def get_aikito_dir() -> Path:
@@ -190,6 +194,80 @@ def cmd_migrate_workspace_resources(args: argparse.Namespace) -> None:
     else:
         apply_migration(plan, Path.home())
         print("[SUCCESS] Workspace resource layout migrated")
+
+
+def cmd_import_workspace(args: argparse.Namespace) -> None:
+    """Preview or import canonical resources into the active workspace."""
+    plan = run_workspace_import(
+        args.source, get_aikito_dir(), Path.home(), dry_run=args.dry_run
+    )
+    merged: dict[Path, list[str]] = {}
+    for item in plan.items:
+        if item.action == "MERGE":
+            merged.setdefault(item.resource.relative_path, []).append(
+                f"{item.resource.kind}:{item.resource.name}"
+            )
+    shown_merges: set[Path] = set()
+    for item in plan.items:
+        if item.action in ("NOOP", "INCLUDED") and not args.verbose:
+            continue
+        path = item.resource.relative_path
+        if item.action == "MERGE":
+            if path in shown_merges:
+                continue
+            shown_merges.add(path)
+        detail = ""
+        if item.action in ("CONFLICT", "BLOCKED"):
+            identity = f"{item.resource.kind}:{item.resource.name}"
+            detail = f" ({identity}): {item.reason}"
+        elif args.verbose:
+            names = (
+                merged[path]
+                if item.action == "MERGE"
+                else [f"{item.resource.kind}:{item.resource.name}"]
+            )
+            detail = f" ({', '.join(names)})"
+        print(f"[{item.action}] {path}{detail}")
+    if args.verbose:
+        for excluded in plan.excluded:
+            print(f"[{excluded}]")
+    for warning in plan.warnings:
+        print(f"[WARNING] {warning.resource}: {warning.message}", file=sys.stderr)
+    blocked_reasons = {item.reason for item in plan.items if item.action == "BLOCKED"}
+    for finding in plan.findings:
+        if finding not in blocked_reasons:
+            print(f"[BLOCKED] {finding}", file=sys.stderr)
+    counts = Counter(item.action for item in plan.items)
+    summary = ", ".join(
+        f"{action} {counts[action]}"
+        for action in ("CREATE", "MERGE", "UPDATE", "CONFLICT", "BLOCKED", "INCLUDED")
+    )
+    print(f"[SUMMARY] {summary}, SKIPPED {len(plan.excluded)}")
+    if plan.blocked:
+        if plan.conflicts:
+            print(
+                "[NEXT] Make the conflicting source or target resources agree, then rerun the import command.",
+                file=sys.stderr,
+            )
+        sys.exit(1)
+    if args.dry_run:
+        print("[DRY RUN] No files changed")
+    else:
+        print("[SUCCESS] Workspace resources imported")
+        print("[NEXT] Run aikito sync --dry-run")
+        for item in plan.creates:
+            if item.resource.kind != "project":
+                continue
+            with (plan.target / item.resource.relative_path).open("rb") as stream:
+                config = tomllib.load(stream)
+            if not resolve_project_binding(config, Path.home()).active_entries:
+                name = item.resource.name
+                print(
+                    f"[NEXT] Project {name} has no local code directory; after cloning, run aikito sync project {name} <path>"
+                )
+        print(
+            "[NEXT] Review with aikito git status and aikito git diff, then commit with aikito git"
+        )
 
 
 def sync_global_resources(
@@ -1562,6 +1640,7 @@ def main() -> None:
         InboxTargetConflictError,
         MemoryTargetConflictError,
         WorkspaceLayoutError,
+        WorkspaceImportError,
     ) as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
         sys.exit(1)

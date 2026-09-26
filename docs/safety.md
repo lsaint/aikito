@@ -80,6 +80,19 @@ It checks the complete workspace plan before writing and stops if any scope has
 a conflict. Use `aikito sync --dry-run --verbose` when a detailed read-only
 review is useful.
 
+## Workspace Import
+
+`aikito import workspace <source> --dry-run` reads the source and target without
+writing. The import never changes the source and does not delete content that
+exists only in the target. Any conflict or blocking finding stops the entire
+import before changes are applied. An interrupted import can be recovered on
+the next run through its transaction journal.
+
+Possible plaintext credentials in imported files produce path-only warnings;
+they do not block the import. Review those files before committing or sharing
+the workspace. Use `--verbose` to inspect unchanged, included, and skipped
+source items as well as planned changes.
+
 ## Conflict and Drift Protection
 
 - Unmanaged targets are reported as conflicts rather than silently replaced.

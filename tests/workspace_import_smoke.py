@@ -1,4 +1,4 @@
-"""Exercise the private workspace import API with isolated workspaces."""
+"""Prepare and exercise workspace import with isolated workspaces."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from aikito.init import init_workspace
+from aikito.templating import load_template
 from aikito.workspace_import import run_workspace_import
 
 
@@ -16,7 +17,7 @@ def _workspace(root: Path) -> Path:
         assert init_workspace(root, root.parent / "home")
     (root / "skills.toml").write_text("skills = []\n", encoding="utf-8")
     (root / "agents/codex.toml").write_text(
-        '[agents.codex]\ndisplay_name = "Codex"\n', encoding="utf-8"
+        load_template("agents/codex.toml"), encoding="utf-8"
     )
     return root
 
@@ -24,6 +25,21 @@ def _workspace(root: Path) -> Path:
 def main() -> None:
     base = Path(sys.argv[1]).resolve()
     source, target = _workspace(base / "source"), _workspace(base / "target")
+    (source / "agents/codex.toml").write_text(
+        load_template("agents/codex.toml").replace(
+            'display_name = "Codex"', 'display_name = "Imported Codex"'
+        ),
+        encoding="utf-8",
+    )
+    (source / "config.toml").write_text(
+        (source / "config.toml")
+        .read_text(encoding="utf-8")
+        .replace("stale_days = 30", "stale_days = 90"),
+        encoding="utf-8",
+    )
+    (source / "global/AGENTS.md").write_text(
+        "# Imported global instructions\n", encoding="utf-8"
+    )
     skill = source / "skills/import-smoke"
     skill.mkdir()
     (skill / "SKILL.md").write_text("# Imported skill\n", encoding="utf-8")
@@ -54,6 +70,9 @@ def main() -> None:
             encoding="utf-8",
         )
 
+    if "--prepare-only" in sys.argv[2:]:
+        return
+
     preview = run_workspace_import(source, target, base / "home", dry_run=True)
     assert not preview.blocked
     assert not (target / "inbox/deep/import-smoke.md").exists()
@@ -65,6 +84,13 @@ def main() -> None:
     assert (target / "memory/index.md").is_file()
     assert (target / "projects/new-project/agent.toml").is_file()
     assert (target / "projects/new-project/memory/index.md").is_file()
+    assert 'display_name = "Imported Codex"' in (
+        target / "agents/codex.toml"
+    ).read_text(encoding="utf-8")
+    assert "stale_days = 90" in (target / "config.toml").read_text(encoding="utf-8")
+    assert (target / "global/AGENTS.md").read_text(
+        encoding="utf-8"
+    ) == "# Imported global instructions\n"
     assert '"~/source"' in (target / "projects/demo/agent.toml").read_text(
         encoding="utf-8"
     )

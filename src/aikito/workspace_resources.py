@@ -37,7 +37,16 @@ from .workspace_layout import (
 )
 
 # Operating-system and interpreter artifacts that never carry resource content.
-IGNORED_NAMES = frozenset({".DS_Store", "Thumbs.db", "desktop.ini", "__pycache__"})
+IGNORED_NAMES = frozenset(
+    {
+        ".DS_Store",
+        "Thumbs.db",
+        "desktop.ini",
+        "__pycache__",
+        ".pytest_cache",
+        ".ruff_cache",
+    }
+)
 # Host-local workspace entries that are neither resources nor worth reporting.
 LOCAL_ONLY_NAMES = frozenset({".git", ".local"})
 
@@ -100,6 +109,8 @@ def resource_kind_for_path(path: str, *, inbox_prefix: str = "") -> str | None:
     parts = Path(path).parts
     if len(parts) == 1 and parts[0] == "skills.toml":
         return "skills-config"
+    if len(parts) == 1 and parts[0] == "config.toml":
+        return "workspace-config"
     if len(parts) == 2:
         area, filename = parts
         stem = Path(filename).stem
@@ -125,6 +136,8 @@ def resource_kind_for_path(path: str, *, inbox_prefix: str = "") -> str | None:
             and not validate_resource_name(stem, "mcp")
         ):
             return "mcp"
+        if parts == ("global", "AGENTS.md"):
+            return "global-instructions"
     if len(parts) == 3 and parts[:2] == ("memory", "notes"):
         return (
             "memory"
@@ -186,6 +199,8 @@ def fingerprint_resource(path: Path, kind: str) -> str:
         "mcp",
         "project-config",
         "skills-config",
+        "workspace-config",
+        "global-instructions",
         "legacy",
         "layout",
     ):
@@ -253,6 +268,8 @@ class _Scanner:
             "mcp": "mcp",
             "project": "project-config",
             "project-instructions": "project-instructions",
+            "config": "workspace-config",
+            "global-instructions": "global-instructions",
         }.get(kind)
         if (
             physical is not None

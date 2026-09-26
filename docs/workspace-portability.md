@@ -50,6 +50,24 @@ remain offline. Preserve those entries for the machines that use them.
 Use [multiple project paths](project-configuration.md#path-resolution-and-offline-semantics)
 for different checkouts, worktrees, or operating systems.
 
+## Merge another workspace
+
+If this machine already has an active workspace, you can import resources from
+another workspace instead of replacing the active one with a Git clone. Preview
+the complete merge before applying it:
+
+```bash
+aikito import workspace /path/to/other-workspace --dry-run
+aikito import workspace /path/to/other-workspace
+```
+
+The import preserves resources that exist only in the active workspace and
+creates missing projects even when their code directories are not on this host.
+Resolve reported conflicts before retrying. After importing, run
+`aikito sync --dry-run`; once a project has been cloned locally, bind it with
+`aikito sync project <name> <path>`. Review the resulting workspace changes with
+`aikito git` before committing them.
+
 ## Custom workspace paths
 
 An explicit `aikito init workspace <path>` remembers that path for later commands.

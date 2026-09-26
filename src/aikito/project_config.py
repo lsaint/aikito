@@ -12,6 +12,8 @@ from typing import Any
 
 from .compat import _atomic_write_text, safe_relative_path
 
+DEFAULT_PROJECT_SYNC_MODE = "link"
+
 
 @dataclass(frozen=True)
 class ProjectPathEntry:

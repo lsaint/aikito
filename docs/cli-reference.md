@@ -26,6 +26,7 @@ version.
 | `aikito init workspace [path]` | Initialize a new workspace or connect an existing one, detect installed Agents, and remember an explicit path |
 | `aikito path workspace` | Print the resolved active workspace path |
 | `aikito migrate workspace-resources [--dry-run]` | Preview or apply the required one-time migration to per-resource Agent and subagent files |
+| `aikito import workspace <source> [--dry-run] [--verbose]` | Preview or import canonical resources from another workspace into the active workspace |
 | `aikito git [args...]` | Run git commands directly in the active Aikito workspace |
 | `aikito init project [name] [path] [--description <text>]` | Register a code project and synchronize its `.agents/` runtime |
 | `aikito add skill [name] [--from <path>] [--force] [--project <projects>] [--global] [--sync]` | Create or import a canonical skill; defaults to current project when inside one, or workspace global if outside or with `--global` |
@@ -36,7 +37,7 @@ version.
 | `aikito diff [--all]` | Show unified diffs for drifted MCP, subagent, and copied project skill resources (defaults to current project if inside one) |
 | `aikito sync [--dry-run] [--verbose]` | Preflight all host-compatible resources together, then synchronize only when the complete plan is safe |
 | `aikito sync global [--dry-run]` | Synchronize or preview global instructions and skills |
-| `aikito sync project [name] [--dry-run] [--force]` | Synchronize or preview a project's `.agents/` directory (detected from cwd if omitted) |
+| `aikito sync project [name] [path] [--dry-run] [--force]` | Synchronize or preview a project's `.agents/` directory (detected from cwd if omitted) |
 | `aikito sync mcp` | Synchronize MCP entries |
 | `aikito sync subagents` | Render and synchronize subagents |
 | `aikito auth mcp <agent> <server>` | Authenticate a configured MCP server |
@@ -64,6 +65,24 @@ version.
 | `aikito completion candidates projects\|skills\|subagents\|mcps\|memories\|memory-completions\|inbox\|inbox-completions\|paths [prefix]` | List dynamic completion candidates |
 | `aikito version [-c\|--check] [--force] [--json]` | Print the CLI version and check for available updates |
 
+## Workspace Import
+
+To move resources from an existing workspace to the active workspace, first
+review the plan, then run the same command without `--dry-run`:
+
+```bash
+aikito import workspace /path/to/source-workspace --dry-run
+aikito import workspace /path/to/source-workspace
+```
+
+The importer creates missing projects from their canonical workspace files;
+their code directories may be cloned and synchronized later. A conflict blocks
+the whole import. The source workspace is read only. The default output lists
+changes and blockers with a summary; `--verbose` also lists unchanged, included,
+and skipped source items. After importing, preview runtime synchronization with
+`aikito sync --dry-run`, bind any offline project with
+`aikito sync project <name> <path>`, and review the workspace with `aikito git`.
+
 ## Discovery
 
 ```bash
@@ -81,6 +100,7 @@ Commands differ in their effect:
 - `git` forwards arbitrary Git commands and arguments directly to the active workspace;
 - `init workspace` creates or updates a recognized workspace;
 - `migrate workspace-resources --dry-run` previews all changes and blockers without writing; the command without `--dry-run` applies the migration transaction;
+- `import workspace <source> --dry-run` previews each resource action without writing; the command without `--dry-run` applies the complete import only when the plan has no conflicts or findings;
 - `init project` creates an idempotent canonical project skeleton and its runtime links;
 - `add` creates a canonical resource skeleton and performs required registration;
 - `adopt` preflights all detected resources, then writes imported resources into

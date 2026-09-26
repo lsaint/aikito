@@ -3,6 +3,7 @@
 import argparse
 import os
 import sys
+from pathlib import Path
 from typing import Any
 
 from . import __version__
@@ -88,6 +89,7 @@ def _get_handlers(handlers: dict[str, Any] | None = None) -> dict[str, Any]:
             "cmd_edit_subagent",
             "cmd_git",
             "cmd_global_sync",
+            "cmd_import_workspace",
             "cmd_init",
             "cmd_init_project",
             "cmd_maintain_memory",
@@ -135,6 +137,7 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     cmd_edit_subagent = h["cmd_edit_subagent"]
     cmd_git = h["cmd_git"]
     cmd_global_sync = h["cmd_global_sync"]
+    cmd_import_workspace = h["cmd_import_workspace"]
     cmd_init = h["cmd_init"]
     cmd_init_project = h["cmd_init_project"]
     cmd_maintain_memory = h["cmd_maintain_memory"]
@@ -236,6 +239,20 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         "--dry-run", action="store_true", help="Preview migration without writing"
     )
     p_migrate_resources.set_defaults(func=cmd_migrate_workspace_resources)
+
+    p_import = subparsers.add_parser("import", help="Import workspace resources")
+    import_subparsers = p_import.add_subparsers(dest="import_target", required=True)
+    p_import_workspace = import_subparsers.add_parser(
+        "workspace", help="Import resources from another Aikito workspace"
+    )
+    p_import_workspace.add_argument("source", type=Path, help="Source workspace path")
+    p_import_workspace.add_argument(
+        "--dry-run", action="store_true", help="Preview actions without writing"
+    )
+    p_import_workspace.add_argument(
+        "--verbose", action="store_true", help="Show no-op, included, and skipped items"
+    )
+    p_import_workspace.set_defaults(func=cmd_import_workspace)
 
     # init
     p_init = subparsers.add_parser("init", help="Initialize a workspace or project")

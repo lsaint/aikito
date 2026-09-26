@@ -121,9 +121,10 @@ actionable prompt before migration and work afterward.
 Because migration adds a CLI command and changes initialized files, Ubuntu,
 macOS, and Windows CI each execute the real command and assert the new
 files exist, the legacy files are absent, and the completion marker is present.
-Workspace import remains an internal API until all planned resource kinds are
-supported. Its first expansion imports inbox notes, global skill selections,
-subagents, MCP definitions, projects, memory, and skills. Missing projects are
+`aikito import workspace <source> [--dry-run]` exposes workspace import. It
+imports inbox notes, global skill selections, subagents, MCP definitions,
+projects, memory, skills, Agent definitions, workspace configuration fields,
+and global instructions. Missing projects are
 created in the target workspace without requiring a local code checkout. Skill
 selections and project paths/skills merge by member. Project configuration
 adopts source fields when the target field is absent or still at its init
@@ -131,3 +132,8 @@ default; an unmodified project instructions template is replaced by the source.
 Other differing resources conflict. Preview validates references against the
 whole result, reports managed-area findings together, and treats possible
 plaintext credentials as warnings. The source workspace is never modified.
+Agent definitions, workspace configuration, and global instructions use their
+bundled templates as the comparison baseline. A target still at the template
+adopts a changed source; a customized target is retained when the source still
+matches the template. Independently changed values conflict. TOML field merges
+retain unrelated target fields and comments.

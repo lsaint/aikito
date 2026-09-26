@@ -145,7 +145,17 @@ jobs:
             throw "Workspace reconcile did not create the note"
           }
           $importBase = Join-Path $env:RUNNER_TEMP "import-smoke"
-          python tests/workspace_import_smoke.py "$importBase"
+          python tests/workspace_import_smoke.py "$importBase" --prepare-only
+          $env:AIKITO_DIR = Join-Path $importBase "target"
+          python -m aikito import workspace (Join-Path $importBase "source") --dry-run
+          if ($LASTEXITCODE -ne 0) { throw "Workspace import dry run failed" }
+          $importVerbose = python -m aikito import workspace (Join-Path $importBase "source") --dry-run --verbose
+          if ($LASTEXITCODE -ne 0) { throw "Verbose workspace import dry run failed" }
+          $importVerbose | Select-String "\[SUMMARY\]"
+          if (Test-Path (Join-Path $importBase "target\inbox\deep\import-smoke.md")) { throw "Dry run wrote inbox note" }
+          python -m aikito import workspace (Join-Path $importBase "source")
+          if ($LASTEXITCODE -ne 0) { throw "Workspace import failed" }
+          $env:AIKITO_DIR = $wsDir
           foreach ($resource in @(
             "target\inbox\deep\import-smoke.md",
             "target\skills\import-smoke\SKILL.md",
@@ -159,6 +169,9 @@ jobs:
               throw "Workspace import did not create $resource"
             }
           }
+          if (-not (Select-String -Path (Join-Path $importBase "target\agents\codex.toml") -Pattern "Imported Codex" -Quiet)) { throw "Agent import failed" }
+          if (-not (Select-String -Path (Join-Path $importBase "target\config.toml") -Pattern "stale_days = 90" -Quiet)) { throw "Config import failed" }
+          if (-not (Select-String -Path (Join-Path $importBase "target\global\AGENTS.md") -Pattern "Imported global instructions" -Quiet)) { throw "Global instructions import failed" }
           $claudeAgents = Join-Path $claudeDir "agents"
           New-Item -ItemType Directory -Force -Path $claudeAgents | Out-Null
           $adoptSource = Join-Path $claudeAgents "ci-adopt.md"

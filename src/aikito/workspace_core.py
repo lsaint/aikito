@@ -76,6 +76,7 @@ class PathPolicy:
     states: tuple[str, ...] = ()
     create_parents: bool = False
     inbox_prefix: str = ""
+    extra_inbox_prefixes: tuple[str, ...] = ()
 
 
 def validate_roots(left: Path, right: Path) -> tuple[Path, Path]:
@@ -101,7 +102,17 @@ def validate_resource_path(
         raise WorkspaceCoreError(f"Unsafe resource path: {path}")
     if (kind, path) in policy.resources:
         return relative
-    if resource_kind_for_path(path, inbox_prefix=policy.inbox_prefix) != kind:
+    classified = resource_kind_for_path(path, inbox_prefix=policy.inbox_prefix)
+    if kind == "inbox" and classified != kind:
+        classified = next(
+            (
+                kind
+                for prefix in policy.extra_inbox_prefixes
+                if resource_kind_for_path(path, inbox_prefix=prefix) == kind
+            ),
+            classified,
+        )
+    if classified != kind:
         raise WorkspaceCoreError(f"Unsupported resource path: {path}")
     return relative
 
@@ -386,6 +397,8 @@ def _validate_journal(
             "project-config",
             "project-instructions",
             "skills-config",
+            "workspace-config",
+            "global-instructions",
             "inbox",
             *(kind for kind, _ in policy.resources),
         ):

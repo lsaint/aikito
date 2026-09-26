@@ -198,7 +198,12 @@ jobs:
       - name: Workspace import smoke
         run: |
           BASE=${{ runner.temp }}/import-smoke
-          python3 tests/workspace_import_smoke.py "$BASE"
+          python3 tests/workspace_import_smoke.py "$BASE" --prepare-only
+          AIKITO_DIR="$BASE/target" python3 -m aikito import workspace "$BASE/source" --dry-run
+          AIKITO_DIR="$BASE/target" python3 -m aikito import workspace "$BASE/source" --dry-run --verbose > "$BASE/import-verbose.out"
+          grep -F "[SUMMARY]" "$BASE/import-verbose.out"
+          test ! -f "$BASE/target/inbox/deep/import-smoke.md"
+          AIKITO_DIR="$BASE/target" python3 -m aikito import workspace "$BASE/source"
           test -f "$BASE/target/inbox/deep/import-smoke.md"
           test -f "$BASE/target/skills/import-smoke/SKILL.md"
           test -f "$BASE/target/subagents/import-smoke.md"
@@ -206,6 +211,12 @@ jobs:
           test -f "$BASE/target/memory/index.md"
           test -f "$BASE/target/projects/new-project/agent.toml"
           test -f "$BASE/target/projects/new-project/memory/index.md"
+          test -f "$BASE/target/agents/codex.toml"
+          test -f "$BASE/target/config.toml"
+          test -f "$BASE/target/global/AGENTS.md"
+          grep -F 'Imported Codex' "$BASE/target/agents/codex.toml"
+          grep -F 'stale_days = 90' "$BASE/target/config.toml"
+          grep -F 'Imported global instructions' "$BASE/target/global/AGENTS.md"
 
       - name: Pip install source and verify workspace init
         env:

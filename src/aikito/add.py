@@ -119,7 +119,7 @@ def _format_skills_array(skills: List[str]) -> str:
     return f"skills = [\n{items_str}\n]"
 
 
-def _update_skills_in_toml(original_text: str, new_skills: List[str]) -> str:
+def update_skills_in_toml(original_text: str, new_skills: List[str]) -> str:
     """
     Update the top-level 'skills' array in TOML content while preserving all other keys,
     nested tables ([table]), comments, whitespace, and formatting intact.
@@ -758,7 +758,7 @@ def _add_skill_impl(
                 if not isinstance(existing_skills, list):
                     existing_skills = []
                 new_skills = list(dict.fromkeys(list(existing_skills) + [name_clean]))
-                new_agent_toml_content = _update_skills_in_toml(
+                new_agent_toml_content = update_skills_in_toml(
                     original_text, new_skills
                 )
                 # Pre-validate TOML syntax before touching disk
@@ -941,7 +941,7 @@ Describe what this skill does and when agents should use it.
         if already_registered_global
         else existing_global_skills + [name_clean]
     )
-    skills_toml_content = _update_skills_in_toml(
+    skills_toml_content = update_skills_in_toml(
         original_skills_toml_text, new_global_skills
     )
 
@@ -1044,14 +1044,14 @@ Describe what this skill does and when agents should use it.
     return True
 
 
-def _format_toml_key(key: str) -> str:
+def format_toml_key(key: str) -> str:
     is_bare = all(c.isalnum() or c in ("_", "-") for c in key) if key else False
     if is_bare:
         return key
     return json.dumps(key, ensure_ascii=False)
 
 
-def _format_toml_value(val: Any) -> str:
+def format_toml_value(val: Any) -> str:
     if isinstance(val, str):
         return json.dumps(val, ensure_ascii=False)
     elif isinstance(val, bool):
@@ -1059,13 +1059,13 @@ def _format_toml_value(val: Any) -> str:
     elif isinstance(val, (int, float)):
         return str(val)
     elif isinstance(val, list):
-        items = [_format_toml_value(x) for x in val]
+        items = [format_toml_value(x) for x in val]
         return f"[{', '.join(items)}]"
     elif isinstance(val, dict):
         pairs = []
         for k in sorted(val.keys()):
-            k_repr = _format_toml_key(str(k))
-            v_repr = _format_toml_value(val[k])
+            k_repr = format_toml_key(str(k))
+            v_repr = format_toml_value(val[k])
             pairs.append(f"{k_repr} = {v_repr}")
         return f"{{ {', '.join(pairs)} }}"
     else:
@@ -1267,20 +1267,18 @@ def _render_subagent_block(
     platform_configs: Dict[str, Dict[str, Any]],
 ) -> str:
     """Render a clean TOML subagents block including platform sub-tables."""
-    safe_key = _format_toml_key(name)
+    safe_key = format_toml_key(name)
     header = f"[subagents.{safe_key}]"
     sub_lines = [
         f"\n{header}",
-        f"description = {_format_toml_value(description)}",
-        f"agents = {_format_toml_value(agents)}",
+        f"description = {format_toml_value(description)}",
+        f"agents = {format_toml_value(agents)}",
     ]
     for agent_name, options in sorted(platform_configs.items()):
         if options:
-            sub_lines.append(f"\n[{header[1:-1]}.{_format_toml_key(agent_name)}]")
+            sub_lines.append(f"\n[{header[1:-1]}.{format_toml_key(agent_name)}]")
             for key, value in sorted(options.items()):
-                sub_lines.append(
-                    f"{_format_toml_key(key)} = {_format_toml_value(value)}"
-                )
+                sub_lines.append(f"{format_toml_key(key)} = {format_toml_value(value)}")
 
     return "\n".join(sub_lines) + "\n"
 
@@ -1894,7 +1892,7 @@ def add_mcp(
         )
         if headers:
             headers_parts = [
-                f"{_format_toml_key(k)} = {_format_toml_value(v)}"
+                f"{format_toml_key(k)} = {format_toml_value(v)}"
                 for k, v in sorted(headers.items())
             ]
             lines.append(f"headers = {{ {', '.join(headers_parts)} }}")
@@ -1907,7 +1905,7 @@ def add_mcp(
         lines.append(f"agents = {agents_json}")
         if "env" in existing_data and isinstance(existing_data["env"], dict):
             env_parts = [
-                f"{_format_toml_key(k)} = {_format_toml_value(str(v))}"
+                f"{format_toml_key(k)} = {format_toml_value(str(v))}"
                 for k, v in sorted(existing_data["env"].items())
             ]
             lines.append(f"env = {{ {', '.join(env_parts)} }}")
@@ -1918,15 +1916,15 @@ def add_mcp(
     ):
         lines.append("\n[authentication]")
         for k, v in sorted(existing_data["authentication"].items()):
-            lines.append(f"{_format_toml_key(k)} = {_format_toml_value(v)}")
+            lines.append(f"{format_toml_key(k)} = {format_toml_value(v)}")
 
     # Preserve overrides table if present (common to remote and stdio)
     if "overrides" in existing_data and isinstance(existing_data["overrides"], dict):
         for agent_key, override_vals in sorted(existing_data["overrides"].items()):
             if isinstance(override_vals, dict):
-                lines.append(f"\n[overrides.{_format_toml_key(agent_key)}]")
+                lines.append(f"\n[overrides.{format_toml_key(agent_key)}]")
                 for k, v in sorted(override_vals.items()):
-                    lines.append(f"{_format_toml_key(k)} = {_format_toml_value(v)}")
+                    lines.append(f"{format_toml_key(k)} = {format_toml_value(v)}")
 
     mcp_content = "\n".join(lines) + "\n"
 
