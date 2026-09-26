@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [1.53.0] - Unreleased
+## [1.53.0] - 2026-09-26
 
 ### Changed
 
@@ -967,7 +967,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.52.1...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.53.0...HEAD
 [1.53.0]: https://github.com/lsaint/aikito/compare/v1.52.1...v1.53.0
 [1.52.1]: https://github.com/lsaint/aikito/compare/v1.52.0...v1.52.1
 [1.52.0]: https://github.com/lsaint/aikito/compare/v1.51.0...v1.52.0
