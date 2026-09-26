@@ -764,61 +764,63 @@ def render_subagent(
         agent_config.agent_name, definition.name, platform_raw
     )
 
+    instructions = definition.instructions.replace("\r\n", "\n").replace("\r", "\n")
+
     if agent_config.config_format == "claude_markdown":
         return render_claude_markdown(
             definition.name,
             definition.description,
             platform_opts,
-            definition.instructions,
+            instructions,
         )
     elif agent_config.config_format == "agy_markdown":
         return render_agy_markdown(
             definition.name,
             definition.description,
             platform_opts,
-            definition.instructions,
+            instructions,
         )
     elif agent_config.config_format == "codex_toml":
         return render_codex_toml(
             definition.name,
             definition.description,
             platform_opts,
-            definition.instructions,
+            instructions,
         )
     elif agent_config.config_format == "copilot_markdown":
         return render_copilot_markdown(
             definition.name,
             definition.description,
             platform_opts,
-            definition.instructions,
+            instructions,
         )
     elif agent_config.config_format == "opencode_markdown":
         return render_opencode_markdown(
             definition.name,
             definition.description,
             platform_opts,
-            definition.instructions,
+            instructions,
         )
     elif agent_config.config_format == "dsh_cordis_subagent":
         return render_dsh_cordis_subagent(
             definition.name,
             definition.description,
             platform_opts,
-            definition.instructions,
+            instructions,
         )
     elif agent_config.config_format == "grok_markdown":
         return render_grok_markdown(
             definition.name,
             definition.description,
             platform_opts,
-            definition.instructions,
+            instructions,
         )
     elif agent_config.config_format == "pi_markdown":
         return render_pi_markdown(
             definition.name,
             definition.description,
             platform_opts,
-            definition.instructions,
+            instructions,
         )
     else:
         raise SubagentConfigError(f"Unsupported format '{agent_config.config_format}'")
@@ -1128,7 +1130,9 @@ def build_subagent_plan(
                     current_content = target_path.read_text(
                         encoding="utf-8", errors="replace"
                     )
-                    if current_content == rendered:
+                    if current_content.replace("\r\n", "\n") == rendered.replace(
+                        "\r\n", "\n"
+                    ):
                         operations.append(
                             ConfigOperation(
                                 target=target,
@@ -1286,7 +1290,7 @@ def _backup_file(home: Path, agent_name: str, target_path: Path) -> Path | None:
 def _write_file_atomic(target_path: Path, content: str) -> None:
     target_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = target_path.with_suffix(f"{target_path.suffix}.tmp.{os.getpid()}")
-    tmp_path.write_text(content, encoding="utf-8")
+    tmp_path.write_text(content, encoding="utf-8", newline="")
     tmp_path.replace(target_path)
 
 

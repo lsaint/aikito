@@ -270,7 +270,9 @@ jobs:
           ${{ runner.temp }}/isolated-venv/bin/python -c \
             "from aikito import PreparedProject, Project, Workspace, WorkspaceInspection, WorkspaceSyncPreview, WorkspaceError, WorkspaceNotFoundError, InvalidWorkspaceError; assert Project and PreparedProject and Workspace"
           ${{ runner.temp }}/isolated-venv/bin/aikito init workspace ${{ runner.temp }}/wheel-ws
-          test -f ${{ runner.temp }}/wheel-ws/agents.toml
+          test -f ${{ runner.temp }}/wheel-ws/config.toml
+          test -f ${{ runner.temp }}/wheel-ws/layout.toml
+          test -f ${{ runner.temp }}/wheel-ws/agents/codex.toml
           test -f ${{ runner.temp }}/wheel-ws/skills/aikito/SKILL.md
           test -f \
             ${{ runner.temp }}/wheel-ws/skills/aikito/references/adoption.md
@@ -1276,8 +1278,8 @@ jobs:
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito adopt
           test -f ${{ runner.temp }}/aikito-ws/subagents/ci-adopt.md
-          grep -F "[subagents.ci-adopt]" \
-            ${{ runner.temp }}/aikito-ws/subagents.toml
+          grep -F "ci-adopt" \
+            ${{ runner.temp }}/aikito-ws/subagents/ci-adopt.md
           mkdir -p ~/.codex
           cat << 'EOF' > ~/.codex/config.toml
           [mcp_servers.openaiDeveloperDocs]

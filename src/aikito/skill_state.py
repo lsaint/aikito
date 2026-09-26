@@ -241,6 +241,9 @@ def validate_state_store_root(
                 f"State directory component is a symbolic link or reparse point: {curr}",
             )
         is_sec, desc = check_directory_permissions(curr)
+        if not is_sec and create_if_missing:
+            secure_directory_permissions(curr)
+            is_sec, desc = check_directory_permissions(curr)
         if not is_sec:
             return (
                 state_dir,
