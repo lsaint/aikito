@@ -6,9 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.54.0] - 2026-09-26
+
 ### Added
 
-- `aikito import workspace <source> [--dry-run]` previews and imports canonical resources into the active workspace. It creates missing projects without requiring local code checkouts, merges collection fields, adopts unmodified templates, and applies an unblocked plan as one recoverable transaction.
+- `aikito import workspace <source> [--dry-run] [--verbose]` merges canonical resources from another workspace into the active one. The preview reports changes, conflicts, and possible plaintext credentials; conflicts block the entire import. The source is never changed, and target-only resources are preserved.
+- Missing projects are imported without local code checkouts. Project paths and skill selections merge by member, unmodified templates adopt source changes, and the import uses a recoverable transaction. After applying, the CLI identifies projects that need a local code path and suggests the next sync and Git review commands.
 
 ## [1.53.0] - 2026-09-26
 
@@ -971,7 +974,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.53.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.54.0...HEAD
+[1.54.0]: https://github.com/lsaint/aikito/compare/v1.53.0...v1.54.0
 [1.53.0]: https://github.com/lsaint/aikito/compare/v1.52.1...v1.53.0
 [1.52.1]: https://github.com/lsaint/aikito/compare/v1.52.0...v1.52.1
 [1.52.0]: https://github.com/lsaint/aikito/compare/v1.51.0...v1.52.0
