@@ -34,6 +34,7 @@ class WorkspaceReconcileError(WorkspaceCoreError):
 ResourceVersion = Version
 ReconcileItem = Decision
 _BASELINE_RELATIVE = ".local/state/aikito/workspace-reconcile/baseline.json"
+_BASELINE_VERSION = 1
 _PATH_POLICY = PathPolicy(states=(_BASELINE_RELATIVE,))
 
 
@@ -115,7 +116,7 @@ def _baseline_state(
     snapshot: dict[str, Version],
 ) -> dict[str, object]:
     return {
-        "version": 1,
+        "version": _BASELINE_VERSION,
         "roots": [str(left), str(right)],
         "baseline_id": baseline_id,
         "generation": generation,
@@ -138,9 +139,13 @@ def _read_baseline(
     if states[0] != states[1]:
         raise WorkspaceReconcileError("Baseline versions differ")
     state = states[0]
+    if isinstance(state, dict) and state.get("version") != _BASELINE_VERSION:
+        raise WorkspaceReconcileError(
+            f"Unsupported baseline format version {state.get('version')!r}; "
+            "remove the baseline in both workspaces and create a new one"
+        )
     if (
         not isinstance(state, dict)
-        or state.get("version") != 1
         or state.get("roots") != [str(left), str(right)]
         or type(state.get("generation")) is not int
         or state["generation"] < 0
