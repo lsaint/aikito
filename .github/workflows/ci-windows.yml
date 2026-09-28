@@ -205,6 +205,36 @@ jobs:
             if (Test-Path (Join-Path $blockedBase $resource)) { throw "Blocked import wrote $resource" }
           }
           if (-not (Select-String -Path (Join-Path $blockedBase "target\config.toml") -SimpleMatch 'path = "inbox"' -Quiet)) { throw "Blocked import changed the inbox path" }
+          $partialBase = "$importBase-partial"
+          python tests/workspace_import_smoke.py "$partialBase" --prepare-only --conflict-case
+          if ($LASTEXITCODE -ne 0) { throw "Partial import fixture preparation failed" }
+          $env:AIKITO_DIR = Join-Path $partialBase "target"
+          python -m aikito import workspace (Join-Path $partialBase "source") --dry-run
+          if ($LASTEXITCODE -ne 2) { throw "Partial preview did not report conflicts" }
+          if (Test-Path (Join-Path $partialBase "target\memory\notes\independent.md")) { throw "Partial preview wrote resources" }
+          python -m aikito import workspace (Join-Path $partialBase "source") --keep-target memory:notes/independent.md
+          if ($LASTEXITCODE -ne 2) { throw "Skip import did not report unresolved conflicts" }
+          if (Test-Path (Join-Path $partialBase "target\memory\notes\independent.md")) { throw "Skip import created a skipped resource" }
+          $partialOutput = python -m aikito import workspace (Join-Path $partialBase "source")
+          if ($LASTEXITCODE -ne 2) { throw "Partial import did not report unresolved conflicts" }
+          if (-not ($partialOutput | Select-String -SimpleMatch "[PARTIAL]")) { throw "Partial import did not report applied resources" }
+          foreach ($resource in @("target\memory\notes\independent.md", "target\memory\notes\keep.md")) {
+            if (-not (Test-Path (Join-Path $partialBase $resource))) { throw "Partial import did not preserve or create $resource" }
+          }
+          $choices = @("--keep-target", "memory:notes/keep.md", "--keep-target", "memory:notes/keep-again.md", "--take-source", "memory:notes/take.md", "--take-source", "memory:notes/take-again.md")
+          python -m aikito import workspace (Join-Path $partialBase "source") --dry-run @choices
+          if ($LASTEXITCODE -ne 0) { throw "Conflict resolution preview failed" }
+          if (-not (Select-String -Path (Join-Path $partialBase "target\memory\notes\take.md") -SimpleMatch "Target take" -Quiet)) { throw "Resolution preview wrote resources" }
+          python -m aikito import workspace (Join-Path $partialBase "source") @choices
+          if ($LASTEXITCODE -ne 0) { throw "Conflict resolution failed" }
+          foreach ($name in @("keep", "keep-again", "take", "take-again")) {
+            $side = if ($name.StartsWith("keep")) { "Target" } else { "Source" }
+            if (-not (Select-String -Path (Join-Path $partialBase "target\memory\notes\$name.md") -SimpleMatch "$side $name" -Quiet)) { throw "Incorrect conflict resolution for $name" }
+          }
+          $repeatOutput = python -m aikito import workspace (Join-Path $partialBase "source") @choices
+          if ($LASTEXITCODE -ne 0) { throw "Repeated conflict resolution failed" }
+          if (-not ($repeatOutput | Select-String -SimpleMatch "[SUMMARY] CREATE 0, UPDATE 0, CONFLICT 0, BLOCKED 0")) { throw "Repeated conflict resolution was not a no-op" }
+          if (Test-Path (Join-Path $partialBase "target\.local\state\aikito\workspace-transactions\pending.json")) { throw "Partial import left a transaction journal" }
           $env:AIKITO_DIR = $wsDir
           $claudeAgents = Join-Path $claudeDir "agents"
           New-Item -ItemType Directory -Force -Path $claudeAgents | Out-Null

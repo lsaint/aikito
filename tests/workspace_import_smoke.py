@@ -26,7 +26,17 @@ def main() -> None:
     base = Path(sys.argv[1]).resolve()
     source, target = _workspace(base / "source"), _workspace(base / "target")
     blocked = "--blocked-inbox-case" in sys.argv[2:]
+    partial = "--conflict-case" in sys.argv[2:]
     inbox = "notes/inbox" if blocked or "--execution-case" in sys.argv[2:] else "inbox"
+    if partial:
+        for name in ("keep", "keep-again", "take", "take-again"):
+            for root, side in ((source, "Source"), (target, "Target")):
+                (root / "memory/notes" / f"{name}.md").write_text(
+                    f"# {side} {name}\n", encoding="utf-8"
+                )
+        (source / "memory/notes/independent.md").write_text(
+            "# Independent\n", encoding="utf-8"
+        )
     if blocked:
         existing = target / "inbox/existing.md"
         existing.parent.mkdir(parents=True, exist_ok=True)
@@ -112,7 +122,33 @@ def main() -> None:
         encoding="utf-8"
     )
     assert "check = false" in (target / "config.toml").read_text(encoding="utf-8")
-    assert not run_workspace_import(source, target, base / "home", dry_run=True).changes
+    if partial:
+        assert len(preview.conflicts) == 4
+        assert (target / "memory/notes/independent.md").is_file()
+        assert "Target keep" in (target / "memory/notes/keep.md").read_text(
+            encoding="utf-8"
+        )
+        choices = {
+            f"memory:notes/{name}.md": "target" if name.startswith("keep") else "source"
+            for name in ("keep", "keep-again", "take", "take-again")
+        }
+        resolved = run_workspace_import(
+            source, target, base / "home", dry_run=False, resolutions=choices
+        )
+        assert not resolved.conflicts and not resolved.blocked
+        assert "Target keep" in (target / "memory/notes/keep.md").read_text(
+            encoding="utf-8"
+        )
+        assert "Source take" in (target / "memory/notes/take.md").read_text(
+            encoding="utf-8"
+        )
+        assert not run_workspace_import(
+            source, target, base / "home", dry_run=True, resolutions=choices
+        ).changes
+    else:
+        assert not run_workspace_import(
+            source, target, base / "home", dry_run=True
+        ).changes
 
 
 if __name__ == "__main__":

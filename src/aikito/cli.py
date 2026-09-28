@@ -202,8 +202,20 @@ def cmd_migrate_workspace_resources(args: argparse.Namespace) -> None:
 
 def cmd_import_workspace(args: argparse.Namespace) -> None:
     """Preview or import canonical resources into the active workspace."""
+    keep = set(getattr(args, "keep_target", ()))
+    take = set(getattr(args, "take_source", ()))
+    if keep & take:
+        raise WorkspaceImportError(
+            "Conflicting resolutions for: " + ", ".join(sorted(keep & take))
+        )
+    resolutions = {key: "target" for key in keep}
+    resolutions.update((key, "source") for key in take)
     plan = run_workspace_import(
-        args.source, get_aikito_dir(), Path.home(), dry_run=args.dry_run
+        args.source,
+        get_aikito_dir(),
+        Path.home(),
+        dry_run=args.dry_run,
+        resolutions=resolutions,
     )
     # Changes to one shared TOML file are shown as a single file-level line.
     grouped: dict[Path, list[str]] = {}
@@ -230,7 +242,7 @@ def cmd_import_workspace(args: argparse.Namespace) -> None:
             if path in shown:
                 continue
             shown.add(path)
-            action = "UPDATE" if (plan.target / path).exists() else "CREATE"
+            action = "CREATE" if path in plan.new_files else "UPDATE"
             names = grouped[path]
         detail = ""
         if action in ("CONFLICT", "BLOCKED"):
@@ -254,16 +266,23 @@ def cmd_import_workspace(args: argparse.Namespace) -> None:
     )
     print(f"[SUMMARY] {summary}, SKIPPED {len(plan.excluded)}")
     if plan.blocked:
-        if plan.conflicts:
-            print(
-                "[NEXT] Make the conflicting source or target resources agree, then rerun the import command.",
-                file=sys.stderr,
-            )
+        print(
+            "[NEXT] Fix the blocking findings, then rerun the import command.",
+            file=sys.stderr,
+        )
         sys.exit(1)
     if args.dry_run:
         print("[DRY RUN] No files changed")
     else:
-        print("[SUCCESS] Workspace resources imported")
+        if plan.conflicts:
+            message = (
+                "Non-conflicting resources imported"
+                if plan.changes
+                else "No resources changed"
+            )
+            print(f"[PARTIAL] {message}; conflicts kept unchanged")
+        else:
+            print("[SUCCESS] Workspace resources imported")
         print("[NEXT] Run aikito sync --dry-run")
         for item in plan.creates:
             if item.resource.kind != "project":
@@ -278,6 +297,13 @@ def cmd_import_workspace(args: argparse.Namespace) -> None:
         print(
             "[NEXT] Review with aikito git status and aikito git diff, then commit with aikito git"
         )
+    if plan.conflicts:
+        print(
+            "[NEXT] Resolve conflicts with --keep-target RESOURCE_ID or --take-source RESOURCE_ID, "
+            "or edit the resources and retry. Source choices must pass reference and safety checks.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
 
 def sync_global_resources(

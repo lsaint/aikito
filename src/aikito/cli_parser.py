@@ -254,6 +254,20 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         action="store_true",
         help="Show resource IDs, no-op, and skipped items",
     )
+    p_import_workspace.add_argument(
+        "--keep-target",
+        action="append",
+        default=[],
+        metavar="RESOURCE_ID",
+        help="Skip importing this resource and keep the target unchanged; repeat for multiple IDs",
+    )
+    p_import_workspace.add_argument(
+        "--take-source",
+        action="append",
+        default=[],
+        metavar="RESOURCE_ID",
+        help="Resolve a conflict by importing the source resource; repeat for multiple IDs",
+    )
     p_import_workspace.set_defaults(func=cmd_import_workspace)
 
     # init

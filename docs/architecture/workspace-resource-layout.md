@@ -130,7 +130,13 @@ selections and project paths/skills merge by member. Project configuration
 adopts source fields when the target field is absent or still at its init
 default; an unmodified project instructions template is replaced by the source.
 A customized target is kept when the source is still at a template. Other
-differing resources conflict. Preview validates references against the
+differing resources conflict and remain unchanged while the reference-safe
+subset applies. Missing references prune the offending logical changes and
+their dependents to a fixed point; unresolved preexisting reference errors are
+global findings. `--keep-target` maps a conflict to NOOP and `--take-source`
+maps it to UPDATE, both by resource ID and through the same plan and writer.
+Reference checks run again after choices. Shared TOML rendering includes only
+selected members, including when creating a previously absent project file. Preview validates references against the
 whole result, reports managed-area findings together, and treats possible
 plaintext credentials as warnings. Changing the effective inbox path is blocked
 when the target inbox contains notes; the preview reports their count and

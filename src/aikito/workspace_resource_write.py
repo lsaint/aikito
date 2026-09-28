@@ -40,29 +40,64 @@ class ResourceWrite:
 
 
 def partition_writes(
-    target: Path, writes: tuple[ResourceWrite, ...]
+    writes: tuple[ResourceWrite, ...],
 ) -> tuple[tuple[Path, ...], tuple[ResourceWrite, ...]]:
     """Group whole-file replacements and changes to existing shared files."""
     copies = set()
     merges = []
     for write in writes:
-        if is_shared_resource(write.kind) and (target / write.relative_path).exists():
+        if is_shared_resource(write.kind):
             merges.append(write)
         else:
             copies.add(write.relative_path)
     return tuple(sorted(copies)), tuple(merges)
 
 
+def _missing_ids(resource: Resource, resources: dict[str, Resource]) -> tuple[str, ...]:
+    return tuple(
+        reference
+        for reference in resource.references
+        if reference not in resources
+        and not (
+            reference.startswith("skill:")
+            and reference.removeprefix("skill:") in BUNDLED_SKILL_NAMES
+        )
+    )
+
+
 def missing_references(resources: dict[str, Resource]) -> tuple[str, ...]:
-    findings = set()
-    for resource in resources.values():
-        for reference in resource.references:
-            if reference not in resources and not (
-                reference.startswith("skill:")
-                and reference.removeprefix("skill:") in BUNDLED_SKILL_NAMES
-            ):
-                findings.add(f"{resource.id} references missing {reference}")
-    return tuple(sorted(findings))
+    return tuple(
+        sorted(
+            {
+                f"{resource.id} references missing {reference}"
+                for resource in resources.values()
+                for reference in _missing_ids(resource, resources)
+            }
+        )
+    )
+
+
+def reference_conflicts(
+    source: dict[str, Resource], target: dict[str, Resource], changes: set[str]
+) -> tuple[dict[str, str], tuple[str, ...]]:
+    """Skip invalid changes and their dependents until the result is valid."""
+    changes = set(changes)
+    rejected = {}
+    while True:
+        result = dict(target)
+        result.update((key, source[key]) for key in changes)
+        invalid = {}
+        for key in changes:
+            own = tuple(
+                f"{key} references missing {reference}"
+                for reference in _missing_ids(source[key], result)
+            )
+            if own:
+                invalid[key] = "; ".join(own)
+        if not invalid:
+            return rejected, missing_references(result)
+        rejected.update(invalid)
+        changes.difference_update(invalid)
 
 
 def _require_valid(snapshot: WorkspaceSnapshot, *, references: bool = False) -> None:
@@ -89,7 +124,7 @@ def apply_resource_writes(
     source, target = left.root, right.root
     _require_valid(left)
     _require_valid(right)
-    copies, merges = partition_writes(target, writes)
+    _, merges = partition_writes(writes)
     expected = dict(right.resources)
     by_path: dict[Path, list[ResourceWrite]] = {}
     for write in writes:
@@ -105,14 +140,6 @@ def apply_resource_writes(
             raise WorkspaceCoreError(f"Target changed before writing: {write.id}")
         expected[write.id] = remote
         by_path.setdefault(write.relative_path, []).append(write)
-    # A newly created shared file also carries unchanged fields and members.
-    for relative in copies:
-        source_paths = {w.source_path or w.relative_path for w in by_path[relative]}
-        expected.update(
-            (r.id, r)
-            for r in left.resources.values()
-            if any(Path(part.path) in source_paths for part in r.parts)
-        )
     findings = missing_references(expected)
     if findings:
         raise WorkspaceCoreError("Invalid resulting references: " + "; ".join(findings))

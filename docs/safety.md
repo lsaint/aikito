@@ -84,13 +84,19 @@ review is useful.
 
 `aikito import workspace <source> --dry-run` reads the source and target without
 writing. The import never changes the source and does not delete content that
-exists only in the target. Any conflict or blocking finding stops the entire
-import before changes are applied. An interrupted import can be recovered on
-the next run through its transaction journal.
+exists only in the target. Content conflicts preserve their target resources while other changes apply
+in one recoverable transaction. Changes with invalid references and their
+dependents are skipped as conflicts. Global path safety or snapshot findings
+still stop the entire import before any writes. Use `--keep-target RESOURCE_ID`
+to skip any source resource while preserving its target state,
+or `--take-source RESOURCE_ID` to resolve a conflict using source content; choosing source never
+bypasses reference or safety checks. An interrupted import can be recovered on
+the next run through its transaction journal. Unresolved conflicts exit with
+status 2; global blockers exit with status 1 before resource writes.
 
 Possible plaintext credentials in imported files produce path-only warnings;
 they do not block the import. Review those files before committing or sharing
-the workspace. Use `--verbose` to inspect unchanged, included, and skipped
+the workspace. Use `--verbose` to inspect unchanged and skipped
 source items as well as planned changes.
 
 ## Conflict and Drift Protection

@@ -6,7 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `aikito import workspace` accepts repeatable `--keep-target RESOURCE_ID` and `--take-source RESOURCE_ID` options to skip resources or resolve individual conflicts, with dry-run support and reference/path safety checks.
+
 ### Changed
+
+- Workspace imports now apply the reference-safe subset while leaving unresolved conflicts unchanged. The CLI reports partial application and exits with status 2 when conflicts remain; global safety or snapshot findings still block the entire import with status 1.
 
 - Workspace imports compose logical resource changes through a shared writer and verify the resulting snapshot before committing. Transaction journals retain destination paths and path policies for recovery without staged configuration inference.
 

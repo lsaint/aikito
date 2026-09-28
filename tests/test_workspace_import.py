@@ -71,14 +71,14 @@ def test_public_import_dry_run_reports_conflict_without_writing(
     with patch("aikito.cli.get_aikito_dir", return_value=target):
         with pytest.raises(SystemExit) as result:
             args.func(args)
-    assert result.value.code == 1
+    assert result.value.code == 2
     output = capsys.readouterr()
     assert (
         "[CONFLICT] memory/notes/example.md (memory:notes/example.md): Contents differ"
         in output.out
     )
     assert "[SUMMARY]" in output.out
-    assert "Make the conflicting source or target resources agree" in output.err
+    assert "--keep-target RESOURCE_ID or --take-source RESOURCE_ID" in output.err
     assert (target / relative).read_text(encoding="utf-8") == "target\n"
 
 
@@ -193,7 +193,7 @@ def test_import_creates_memory_then_becomes_noop(tmp_path: Path) -> None:
     ]
 
 
-def test_conflict_blocks_all_creates(tmp_path: Path) -> None:
+def test_conflict_keeps_target_and_applies_unrelated_creates(tmp_path: Path) -> None:
     source = _workspace(tmp_path / "source")
     target = _workspace(tmp_path / "target")
     for name in ("a", "b"):
@@ -205,7 +205,7 @@ def test_conflict_blocks_all_creates(tmp_path: Path) -> None:
         "CONFLICT",
         "CREATE",
     ]
-    assert not (target / "memory/notes/b.md").exists()
+    assert (target / "memory/notes/b.md").read_text(encoding="utf-8") == "b"
     assert (target / "memory/notes/a.md").read_text(encoding="utf-8") == "other"
 
 
@@ -337,7 +337,7 @@ def test_changed_project_values_still_conflict(tmp_path: Path) -> None:
         )
         (project / "AGENTS.md").write_text(instructions, encoding="utf-8")
     plan = build_import_plan(source, target)
-    assert plan.blocked
+    assert not plan.blocked
     assert sum(item.action == "CONFLICT" for item in plan.items) == 2
 
 
@@ -509,7 +509,7 @@ def test_merge_selection_and_project_sets_preserves_other_fields(
     assert not build_import_plan(source, target).blocked
 
 
-def test_missing_references_block_all_changes(tmp_path: Path) -> None:
+def test_missing_references_skip_only_invalid_resources(tmp_path: Path) -> None:
     source = _workspace(tmp_path / "source")
     target = _workspace(tmp_path / "target")
     (source / "subagents/checker.md").write_text(
@@ -518,14 +518,14 @@ def test_missing_references_block_all_changes(tmp_path: Path) -> None:
     )
     (source / "skills.toml").write_text('skills = ["missing"]\n', encoding="utf-8")
     plan = run_workspace_import(source, target, tmp_path / "home", dry_run=False)
-    assert plan.blocked
+    assert not plan.blocked
     assert any(
         "subagent:checker references missing agent:nonexistent" in f
-        for f in plan.findings
+        for f in (item.reason for item in plan.conflicts)
     )
     assert any(
         "skill-selection:missing references missing skill:missing" in f
-        for f in plan.findings
+        for f in (item.reason for item in plan.conflicts)
     )
     assert not (target / "subagents/checker.md").exists()
 
@@ -958,7 +958,7 @@ def test_second_batch_preserves_custom_target_and_conflicts_when_both_edit(
         encoding="utf-8",
     )
     plan = build_import_plan(source, target)
-    assert plan.blocked
+    assert not plan.blocked
     assert any(
         item.resource.kind == "agent" and item.action == "CONFLICT"
         for item in plan.items
@@ -996,7 +996,7 @@ def test_workspace_config_and_global_instructions_use_template_baseline(
         "# Source instructions\n", encoding="utf-8"
     )
     plan = build_import_plan(source, target)
-    assert plan.blocked
+    assert not plan.blocked
     assert {item.resource.kind for item in plan.conflicts} >= {
         "config",
         "global-instructions",

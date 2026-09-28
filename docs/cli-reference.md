@@ -76,11 +76,41 @@ aikito import workspace /path/to/source-workspace
 ```
 
 The importer creates missing projects from their canonical workspace files;
-their code directories may be cloned and synchronized later. A conflict blocks
-the whole import. The source workspace is read only. The default output lists
+their code directories may be cloned and synchronized later. Non-conflicting
+resources are applied in one transaction; unresolved conflicts keep the target
+unchanged and the command exits with status 2. Actual partial application is
+reported as `[PARTIAL]`. A dry run with unresolved conflicts also exits with
+status 2 but writes nothing. Path safety problems and snapshot findings still
+block the entire import with status 1 and no resource writes. Status 0 means
+there are no unresolved conflicts or blockers. Status 2 reports unresolved
+conflicts, including a dry run or an import with no accepted changes; it does
+not by itself guarantee that files were written. The source workspace is read only. The default output lists
 one `CREATE` or `UPDATE` line per changed file and blockers with a summary;
 `--verbose` adds the affected resource IDs and lists unchanged and skipped
-source items. After importing, preview runtime synchronization with
+source items. Resolve individual conflicts by resource ID, repeating the
+options for multiple resources:
+
+```bash
+aikito import workspace /path/to/source-workspace --dry-run \
+  --keep-target memory:notes/local-policy.md \
+  --take-source skill:reviewer
+aikito import workspace /path/to/source-workspace \
+  --keep-target memory:notes/local-policy.md \
+  --take-source skill:reviewer
+```
+
+`--keep-target` skips importing the resource, whether it would be created,
+updated, or conflicted. An existing target stays unchanged; an absent target
+stays absent. `--take-source` resolves conflicts only and does not override a
+customized target when the source is still at its template. IDs must belong to
+the source's supported resources, and an ID cannot have opposite choices. Choices are scoped to that
+invocation, so retaining a differing target requires the same choice on a later
+import or manually making the resources agree. Selecting the source cannot
+bypass reference or safety checks. Changes with missing references are reported
+as conflicts and skipped along with their dependent changes. Shared TOML writes
+include only accepted fields and collection members.
+
+After importing, preview runtime synchronization with
 `aikito sync --dry-run`, bind any offline project with
 `aikito sync project <name> <path>`, and review the workspace with `aikito git`.
 
@@ -101,7 +131,7 @@ Commands differ in their effect:
 - `git` forwards arbitrary Git commands and arguments directly to the active workspace;
 - `init workspace` creates or updates a recognized workspace;
 - `migrate workspace-resources --dry-run` previews all changes and blockers without writing; the command without `--dry-run` applies the migration transaction;
-- `import workspace <source> --dry-run` previews each resource action without writing; the command without `--dry-run` applies the complete import only when the plan has no conflicts or findings;
+- `import workspace <source> --dry-run` previews each resource action without writing; the command without `--dry-run` applies the reference-safe subset, preserving unresolved conflicts; global safety findings still prevent all writes;
 - `init project` creates an idempotent canonical project skeleton and its runtime links;
 - `add` creates a canonical resource skeleton and performs required registration;
 - `adopt` preflights all detected resources, then writes imported resources into
