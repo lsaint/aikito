@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.55.0] - 2026-09-28
+
 ### Added
 
 - `aikito import workspace` accepts repeatable `--keep-target RESOURCE_ID` and `--take-source RESOURCE_ID` options to skip resources or resolve individual conflicts, with dry-run support and reference/path safety checks.
@@ -993,7 +995,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.54.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.55.0...HEAD
+[1.55.0]: https://github.com/lsaint/aikito/compare/v1.54.0...v1.55.0
 [1.54.0]: https://github.com/lsaint/aikito/compare/v1.53.0...v1.54.0
 [1.53.0]: https://github.com/lsaint/aikito/compare/v1.52.1...v1.53.0
 [1.52.1]: https://github.com/lsaint/aikito/compare/v1.52.0...v1.52.1
