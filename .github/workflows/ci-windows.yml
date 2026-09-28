@@ -174,6 +174,38 @@ jobs:
           if (-not (Select-String -Path (Join-Path $importBase "target\agents\codex.toml") -Pattern "Imported Codex" -Quiet)) { throw "Agent import failed" }
           if (-not (Select-String -Path (Join-Path $importBase "target\config.toml") -Pattern "stale_days = 90" -Quiet)) { throw "Config import failed" }
           if (-not (Select-String -Path (Join-Path $importBase "target\global\AGENTS.md") -Pattern "Imported global instructions" -Quiet)) { throw "Global instructions import failed" }
+          $executionBase = "$importBase-execution"
+          python tests/workspace_import_smoke.py "$executionBase" --prepare-only --execution-case
+          if ($LASTEXITCODE -ne 0) { throw "Execution fixture preparation failed" }
+          $env:AIKITO_DIR = Join-Path $executionBase "target"
+          python -m aikito import workspace (Join-Path $executionBase "source")
+          if ($LASTEXITCODE -ne 0) { throw "Resource execution import failed" }
+          foreach ($resource in @("target\notes\inbox\deep\import-smoke.md", "target\config.toml")) {
+            if (-not (Test-Path (Join-Path $executionBase $resource))) { throw "Resource execution did not create $resource" }
+          }
+          if (-not (Select-String -Path (Join-Path $executionBase "target\config.toml") -Pattern "stale_days = 90" -Quiet)) { throw "Shared config field import failed" }
+          if (-not (Select-String -Path (Join-Path $executionBase "target\config.toml") -Pattern "check = false" -Quiet)) { throw "Shared config composition failed" }
+          python -m aikito import workspace (Join-Path $executionBase "source")
+          if ($LASTEXITCODE -ne 0) { throw "Repeated resource execution failed" }
+          if (Test-Path (Join-Path $executionBase "target\.local\state\aikito\workspace-transactions\pending.json")) { throw "Import left a transaction journal" }
+          $blockedBase = "$importBase-blocked-inbox"
+          python tests/workspace_import_smoke.py "$blockedBase" --prepare-only --blocked-inbox-case
+          if ($LASTEXITCODE -ne 0) { throw "Blocked inbox fixture preparation failed" }
+          $env:AIKITO_DIR = Join-Path $blockedBase "target"
+          $blockedPreview = python -m aikito import workspace (Join-Path $blockedBase "source") --dry-run 2>&1
+          if ($LASTEXITCODE -ne 1) { throw "Inbox relocation preview was not blocked" }
+          if (-not ($blockedPreview | Select-String -SimpleMatch "[BLOCKED] config.toml (config:inbox.path)")) { throw "Inbox relocation did not block the configuration field" }
+          if (-not ($blockedPreview | Select-String -SimpleMatch "1 note under inbox/")) { throw "Inbox relocation did not report existing notes" }
+          python -m aikito import workspace (Join-Path $blockedBase "source")
+          if ($LASTEXITCODE -ne 1) { throw "Inbox relocation application was not blocked" }
+          foreach ($resource in @("target\inbox\existing.md", "target\config.toml")) {
+            if (-not (Test-Path (Join-Path $blockedBase $resource))) { throw "Blocked import removed $resource" }
+          }
+          foreach ($resource in @("target\notes\inbox\deep\import-smoke.md", "target\skills\import-smoke\SKILL.md", "target\.local\state\aikito\workspace-transactions\pending.json")) {
+            if (Test-Path (Join-Path $blockedBase $resource)) { throw "Blocked import wrote $resource" }
+          }
+          if (-not (Select-String -Path (Join-Path $blockedBase "target\config.toml") -SimpleMatch 'path = "inbox"' -Quiet)) { throw "Blocked import changed the inbox path" }
+          $env:AIKITO_DIR = $wsDir
           $claudeAgents = Join-Path $claudeDir "agents"
           New-Item -ItemType Directory -Force -Path $claudeAgents | Out-Null
           $adoptSource = Join-Path $claudeAgents "ci-adopt.md"

@@ -157,10 +157,10 @@ from .workspace_layout import (
     require_current_layout,
 )
 from .workspace_import import (
-    IMPORT_SHARED_KINDS,
     WorkspaceImportError,
     run_workspace_import,
 )
+from .workspace_resources import is_shared_resource
 
 
 def get_aikito_dir() -> Path:
@@ -208,7 +208,7 @@ def cmd_import_workspace(args: argparse.Namespace) -> None:
     # Changes to one shared TOML file are shown as a single file-level line.
     grouped: dict[Path, list[str]] = {}
     for item in plan.changes:
-        if item.resource.kind in IMPORT_SHARED_KINDS:
+        if is_shared_resource(item.resource.kind):
             grouped.setdefault(item.resource.relative_path, []).append(
                 f"{item.resource.kind}:{item.resource.name}"
             )

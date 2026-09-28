@@ -8,10 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Workspace imports compose logical resource changes through a shared writer and verify the resulting snapshot before committing. Transaction journals retain destination paths and path policies for recovery without staged configuration inference.
+
 - `aikito import workspace` reports each changed file as `CREATE` or `UPDATE`; the `MERGE` and `INCLUDED` actions are gone, and `--verbose` lists the resource IDs behind each file.
 - A target project whose instructions or `sync_mode` were customized is now kept when the source still has the template, instead of reporting a conflict.
 
 ### Fixed
+
+- Import previews block changes to `inbox.path` when the target inbox contains notes, reporting the count and location before any resources are written.
 
 - Resources left at a template shipped by an earlier Aikito version are no longer treated as customized, so importing them no longer reports false conflicts.
 

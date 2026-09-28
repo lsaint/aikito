@@ -23,6 +23,8 @@ from aikito.workspace_import import (
     recover_imports,
     run_workspace_import,
 )
+from aikito.workspace_toml_render import render_merged_files
+from aikito.workspace_resources import snapshot_workspace
 
 
 def test_import_workspace_is_a_public_command() -> None:
@@ -589,6 +591,80 @@ def test_configured_inbox_change_imports_notes_to_resulting_location(
     assert not build_import_plan(source, target).blocked
 
 
+@pytest.mark.parametrize("nested", (False, True))
+def test_inbox_path_change_blocks_before_writing_existing_notes(
+    tmp_path: Path, nested: bool
+) -> None:
+    source = _workspace(tmp_path / "source")
+    target = _workspace(tmp_path / "target")
+    config = source / "config.toml"
+    config.write_text(
+        config.read_text(encoding="utf-8").replace(
+            'path = "inbox"', 'path = "notes/inbox"'
+        ),
+        encoding="utf-8",
+    )
+    existing = target / "inbox" / ("deep/existing.md" if nested else "existing.md")
+    existing.parent.mkdir(parents=True, exist_ok=True)
+    existing.write_text("# Existing note\n", encoding="utf-8")
+    (source / "memory/notes/new.md").write_text("# New note\n", encoding="utf-8")
+    imported = source / "notes/inbox/imported.md"
+    imported.parent.mkdir(parents=True)
+    imported.write_text("# Imported note\n", encoding="utf-8")
+    before = {
+        path.relative_to(target): path.read_bytes()
+        for path in target.rglob("*")
+        if path.is_file()
+    }
+    preview = build_import_plan(source, target)
+    field = next(
+        item for item in preview.items if item.resource.id == "config:inbox.path"
+    )
+    assert preview.blocked
+    assert field.action == "BLOCKED"
+    assert "1 note under inbox/" in field.reason
+    assert (
+        "changing inbox.path to notes/inbox/ would leave them unmanaged" in field.reason
+    )
+    assert (
+        run_workspace_import(source, target, tmp_path / "home", dry_run=True) == preview
+    )
+    assert (
+        run_workspace_import(source, target, tmp_path / "home", dry_run=False)
+        == preview
+    )
+    with pytest.raises(WorkspaceImportError, match="no files changed"):
+        apply_import_plan(preview, tmp_path / "home")
+    assert {
+        path.relative_to(target): path.read_bytes()
+        for path in target.rglob("*")
+        if path.is_file()
+    } == before
+    assert not (target / "notes").exists()
+    assert not (target / "memory/notes/new.md").exists()
+    assert not (target / ".local").exists()
+
+
+def test_equivalent_inbox_path_preserves_existing_notes(tmp_path: Path) -> None:
+    source = _workspace(tmp_path / "source")
+    target = _workspace(tmp_path / "target")
+    config = source / "config.toml"
+    config.write_text(
+        config.read_text(encoding="utf-8").replace(
+            'path = "inbox"', 'path = "./inbox"'
+        ),
+        encoding="utf-8",
+    )
+    existing = target / "inbox/existing.md"
+    existing.parent.mkdir(parents=True, exist_ok=True)
+    existing.write_text("# Existing note\n", encoding="utf-8")
+    preview = build_import_plan(source, target)
+    assert not preview.blocked
+    run_workspace_import(source, target, tmp_path / "home", dry_run=False)
+    assert existing.read_text(encoding="utf-8") == "# Existing note\n"
+    assert "inbox:existing.md" in snapshot_workspace(target).resources
+
+
 def test_recover_inbox_import_before_config_is_installed(tmp_path: Path) -> None:
     source = _workspace(tmp_path / "source")
     target = _workspace(tmp_path / "target")
@@ -605,18 +681,162 @@ def test_recover_inbox_import_before_config_is_installed(tmp_path: Path) -> None
     original_replace = os.replace
 
     def interrupt(src: Path, dst: Path) -> None:
-        if "stage" in Path(src).parts and Path(dst) == target / "notes/inbox/note.md":
+        if "stage" in Path(src).parts and Path(dst) == target / "config.toml":
             raise KeyboardInterrupt
         original_replace(src, dst)
 
     with patch("aikito.workspace_core.os.replace", side_effect=interrupt):
         with pytest.raises(KeyboardInterrupt):
             run_workspace_import(source, target, tmp_path / "home", dry_run=False)
+    state = target / ".local/state/aikito/workspace-transactions"
+    journal = json.loads((state / "pending.json").read_text(encoding="utf-8"))
+    assert journal["version"] == 2
+    assert journal["policy"]["inbox_prefix"] == "notes/inbox"
+    assert all(
+        item["destination"] == str(target / item["path"]) for item in journal["changes"]
+    )
+    # Recovery must not need the staged configuration to classify inbox paths.
+    (state / "tx" / journal["txid"] / "stage/config.toml").unlink()
     assert recover_imports(target)
     assert not (target / "notes/inbox/note.md").exists()
     assert "[inbox]\n# Staging directory" in (target / "config.toml").read_text(
         encoding="utf-8"
     )
+
+
+def test_shared_config_changes_install_once(tmp_path: Path) -> None:
+    source = _workspace(tmp_path / "source")
+    target = _workspace(tmp_path / "target")
+    config = source / "config.toml"
+    text = config.read_text(encoding="utf-8")
+    config.write_text(
+        text.replace("stale_days = 30", "stale_days = 90").replace(
+            'path = "inbox"', 'path = "notes/inbox"'
+        ),
+        encoding="utf-8",
+    )
+    installed = []
+    original_replace = os.replace
+
+    def record_install(src: Path, dst: Path) -> None:
+        if "stage" in Path(src).parts:
+            installed.append(Path(dst))
+        original_replace(src, dst)
+
+    with patch("aikito.workspace_core.os.replace", side_effect=record_install):
+        run_workspace_import(source, target, tmp_path / "home", dry_run=False)
+    assert installed.count(target / "config.toml") == 1
+    document = tomllib.loads((target / "config.toml").read_text(encoding="utf-8"))
+    assert document["memory"]["stale_days"] == 90
+    assert document["inbox"]["path"] == "notes/inbox"
+    assert not build_import_plan(source, target).changes
+
+
+def test_logical_verification_failure_rolls_back_every_file(tmp_path: Path) -> None:
+    source = _workspace(tmp_path / "source")
+    target = _workspace(tmp_path / "target")
+    config = source / "config.toml"
+    config.write_text(
+        config.read_text(encoding="utf-8").replace(
+            "stale_days = 30", "stale_days = 90"
+        ),
+        encoding="utf-8",
+    )
+    (source / "memory/notes/example.md").write_text("example", encoding="utf-8")
+    project = source / "projects/new-project"
+    (project / "memory/notes").mkdir(parents=True)
+    (project / "agent.toml").write_text('name = "new-project"\n', encoding="utf-8")
+    (project / "memory/notes/decision.md").write_text("decision", encoding="utf-8")
+    original = (target / "config.toml").read_bytes()
+    before = snapshot_workspace(target)
+
+    def incorrect_render(*args: object) -> dict[Path, str]:
+        rendered = render_merged_files(*args)
+        rendered[Path("config.toml")] = rendered[Path("config.toml")].replace(
+            "stale_days = 90", "stale_days = 91"
+        )
+        return rendered
+
+    with patch(
+        "aikito.workspace_resource_write.render_merged_files",
+        side_effect=incorrect_render,
+    ):
+        with pytest.raises(WorkspaceImportError, match="Resource verification failed"):
+            run_workspace_import(source, target, tmp_path / "home", dry_run=False)
+    assert (target / "config.toml").read_bytes() == original
+    assert snapshot_workspace(target).resources == before.resources
+    assert not (target / "memory/notes/example.md").exists()
+    assert not (target / "projects/new-project").exists()
+    assert not (
+        target / ".local/state/aikito/workspace-transactions/pending.json"
+    ).exists()
+
+
+def test_target_change_during_rendering_is_preserved(tmp_path: Path) -> None:
+    source = _workspace(tmp_path / "source")
+    target = _workspace(tmp_path / "target")
+    config = source / "config.toml"
+    config.write_text(
+        config.read_text(encoding="utf-8").replace(
+            "stale_days = 30", "stale_days = 90"
+        ),
+        encoding="utf-8",
+    )
+    target_config = target / "config.toml"
+    original = target_config.read_text(encoding="utf-8")
+    external = "# Concurrent edit\n" + original
+
+    def concurrent_render(*args: object) -> dict[Path, str]:
+        rendered = render_merged_files(*args)
+        target_config.write_text(external, encoding="utf-8")
+        return rendered
+
+    with patch(
+        "aikito.workspace_resource_write.render_merged_files",
+        side_effect=concurrent_render,
+    ):
+        with pytest.raises(WorkspaceImportError, match="Target changed before staging"):
+            run_workspace_import(source, target, tmp_path / "home", dry_run=False)
+    assert target_config.read_text(encoding="utf-8") == external
+    assert not (
+        target / ".local/state/aikito/workspace-transactions/pending.json"
+    ).exists()
+
+
+@pytest.mark.parametrize("tamper", ("prefix", "destination", "permissions", "parents"))
+def test_recovery_rejects_unsafe_saved_policy(tmp_path: Path, tamper: str) -> None:
+    source = _workspace(tmp_path / "source")
+    target = _workspace(tmp_path / "target")
+    note = Path("memory/notes/example.md")
+    (source / note).write_text("pending", encoding="utf-8")
+    original_replace = os.replace
+
+    def interrupt(src: Path, dst: Path) -> None:
+        if "stage" in Path(src).parts and Path(dst) == target / note:
+            raise KeyboardInterrupt
+        original_replace(src, dst)
+
+    with patch("aikito.workspace_core.os.replace", side_effect=interrupt):
+        with pytest.raises(KeyboardInterrupt):
+            run_workspace_import(source, target, tmp_path / "home", dry_run=False)
+    journal_path = target / ".local/state/aikito/workspace-transactions/pending.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    if tamper == "prefix":
+        journal["policy"]["inbox_prefix"] = "../outside"
+    elif tamper == "destination":
+        journal["changes"][0]["destination"] = str(tmp_path / "outside.md")
+    elif tamper == "permissions":
+        journal["policy"]["resources"] = [["memory", "outside.md"]]
+    else:
+        journal["changes"][0]["created_parents"] = ["../outside"]
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    with pytest.raises(
+        WorkspaceImportError, match="Unsafe resource path|Invalid journal"
+    ):
+        recover_imports(target)
+    assert journal_path.exists()
+    assert not (target / note).exists()
+    assert not (tmp_path / "outside.md").exists()
 
 
 def test_import_merges_named_project_paths(tmp_path: Path) -> None:

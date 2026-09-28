@@ -7,12 +7,13 @@ Every root is locked by the caller before applying or recovering a transaction.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import shutil
 import stat
 import uuid
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -359,15 +360,48 @@ def _state_path(root: Path, relative: str, policy: PathPolicy) -> Path:
     return path
 
 
+def _journal_policy(data: dict, caller: PathPolicy) -> PathPolicy:
+    """Restore path classification without widening caller-owned permissions."""
+    if data.get("version") == 1:
+        return caller
+    saved = data.get("policy")
+    if not isinstance(saved, dict) or set(saved) != set(asdict(caller)):
+        raise WorkspaceCoreError("Invalid journal path policy")
+    if (
+        saved["resources"] != [list(pair) for pair in caller.resources]
+        or saved["states"] != list(caller.states)
+        or type(saved["create_parents"]) is not bool
+        or saved["create_parents"] != caller.create_parents
+        or not isinstance(saved["inbox_prefix"], str)
+        or not isinstance(saved["extra_inbox_prefixes"], list)
+        or any(not isinstance(p, str) for p in saved["extra_inbox_prefixes"])
+    ):
+        raise WorkspaceCoreError("Invalid journal path policy")
+    for prefix in (saved["inbox_prefix"], *saved["extra_inbox_prefixes"]):
+        if prefix:
+            validate_resource_path(
+                f"{prefix}/recovery.md", "inbox", PathPolicy(inbox_prefix=prefix)
+            )
+    return PathPolicy(
+        resources=caller.resources,
+        states=caller.states,
+        create_parents=saved["create_parents"],
+        inbox_prefix=saved["inbox_prefix"],
+        extra_inbox_prefixes=tuple(saved["extra_inbox_prefixes"]),
+    )
+
+
 def _validate_journal(
     data: object, roots: tuple[Path, ...], policy: PathPolicy
 ) -> dict:
     if (
         not isinstance(data, dict)
-        or data.get("version") != 1
+        or type(data.get("version")) is not int
+        or data.get("version") not in (1, 2)
         or data.get("roots") != [str(root) for root in roots]
     ):
         raise WorkspaceCoreError("Invalid workspace journal")
+    policy = _journal_policy(data, policy)
     txid = data.get("txid")
     if (
         not isinstance(txid, str)
@@ -404,6 +438,23 @@ def _validate_journal(
         ):
             raise WorkspaceCoreError("Invalid journal resource")
         validate_resource_path(item["path"], item["kind"], policy)
+        if data["version"] == 2 and item.get("destination") != str(
+            roots[item["target"]] / item["path"]
+        ):
+            raise WorkspaceCoreError("Invalid journal destination")
+        if data["version"] == 2:
+            parents = item.get("created_parents")
+            ancestors = {
+                parent.as_posix()
+                for parent in Path(item["path"]).parents
+                if parent.parts
+            }
+            if (
+                not isinstance(parents, list)
+                or any(not isinstance(p, str) or p not in ancestors for p in parents)
+                or (parents and not policy.create_parents)
+            ):
+                raise WorkspaceCoreError("Invalid journal resource parents")
         for key in ("before", "after"):
             if item.get(key) is not None and (
                 not isinstance(item[key], str)
@@ -511,6 +562,7 @@ def recover(roots: tuple[Path, ...], *, policy: PathPolicy = PathPolicy()) -> bo
     data = _read_journal(roots, policy)
     if data is None:
         return False
+    policy = _journal_policy(data, policy)
     txid = data["txid"]
     if data["phase"] == "committed":
         _cleanup(roots, txid)
@@ -568,6 +620,26 @@ def recover(roots: tuple[Path, ...], *, policy: PathPolicy = PathPolicy()) -> bo
             path.unlink(missing_ok=True)
         else:
             atomic_text(path, item["before"])
+    parents = {
+        (item["target"], parent)
+        for item in data["changes"]
+        for parent in (item["created_parents"] if data["version"] == 2 else [])
+    }
+    for target, relative in sorted(
+        parents, key=lambda pair: len(Path(pair[1]).parts), reverse=True
+    ):
+        root = roots[target]
+        require_ancestors(root, Path(relative), allow_missing=True)
+        path = root / relative
+        if entry_type(path) == "missing":
+            continue
+        if entry_type(path) != "directory":
+            raise WorkspaceCoreError(f"Unsafe recovery parent: {path}")
+        try:
+            path.rmdir()
+        except OSError as exc:
+            if exc.errno not in (errno.ENOTEMPTY, errno.EEXIST):
+                raise
     data["phase"] = "committed"
     for root in roots:
         journal = _journal_path(root, True)
@@ -599,6 +671,15 @@ def apply(
                 raise WorkspaceCoreError(
                     f"Target changed before staging: {root / change.path}"
                 )
+            created_parents = (
+                [
+                    parent.as_posix()
+                    for parent in Path(change.path).parents
+                    if parent.parts and entry_type(root / parent) == "missing"
+                ]
+                if policy.create_parents
+                else []
+            )
             tx = _tx_dir(root, txid, True)
             if change.before is not None:
                 backup = tx / "backup" / change.path
@@ -620,6 +701,8 @@ def apply(
                 {
                     "target": change.target,
                     "path": change.path,
+                    "destination": str(root / change.path),
+                    "created_parents": created_parents,
                     "kind": change.kind,
                     "before": change.before,
                     "after": change.after,
@@ -629,12 +712,13 @@ def apply(
         _cleanup(roots, txid)
         raise
     data = {
-        "version": 1,
+        "version": 2,
         "roots": [str(root) for root in roots],
         "txid": txid,
         "phase": "pending",
         "changes": entries,
         "states": [vars(item) for item in states],
+        "policy": asdict(policy),
     }
     try:
         for root in roots:

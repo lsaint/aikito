@@ -25,6 +25,12 @@ def _workspace(root: Path) -> Path:
 def main() -> None:
     base = Path(sys.argv[1]).resolve()
     source, target = _workspace(base / "source"), _workspace(base / "target")
+    blocked = "--blocked-inbox-case" in sys.argv[2:]
+    inbox = "notes/inbox" if blocked or "--execution-case" in sys.argv[2:] else "inbox"
+    if blocked:
+        existing = target / "inbox/existing.md"
+        existing.parent.mkdir(parents=True, exist_ok=True)
+        existing.write_text("# Existing target note\n", encoding="utf-8")
     (source / "agents/codex.toml").write_text(
         load_template("agents/codex.toml").replace(
             'display_name = "Codex"', 'display_name = "Imported Codex"'
@@ -34,7 +40,9 @@ def main() -> None:
     (source / "config.toml").write_text(
         (source / "config.toml")
         .read_text(encoding="utf-8")
-        .replace("stale_days = 30", "stale_days = 90"),
+        .replace("stale_days = 30", "stale_days = 90")
+        .replace('path = "inbox"', f'path = "{inbox}"')
+        .replace("check = true", "check = false"),
         encoding="utf-8",
     )
     (source / "global/AGENTS.md").write_text(
@@ -44,7 +52,7 @@ def main() -> None:
     skill.mkdir()
     (skill / "SKILL.md").write_text("# Imported skill\n", encoding="utf-8")
     (source / "skills.toml").write_text('skills = ["import-smoke"]\n', encoding="utf-8")
-    note = source / "inbox/deep/import-smoke.md"
+    note = source / inbox / "deep/import-smoke.md"
     note.parent.mkdir(parents=True)
     note.write_text("# Imported note\n", encoding="utf-8")
     (source / "subagents/import-smoke.md").write_text(
@@ -74,10 +82,19 @@ def main() -> None:
         return
 
     preview = run_workspace_import(source, target, base / "home", dry_run=True)
+    if blocked:
+        assert preview.blocked
+        assert run_workspace_import(
+            source, target, base / "home", dry_run=False
+        ).blocked
+        assert (target / "inbox/existing.md").is_file()
+        assert not (target / "notes/inbox/deep/import-smoke.md").exists()
+        assert "stale_days = 30" in (target / "config.toml").read_text(encoding="utf-8")
+        return
     assert not preview.blocked
-    assert not (target / "inbox/deep/import-smoke.md").exists()
+    assert not (target / inbox / "deep/import-smoke.md").exists()
     run_workspace_import(source, target, base / "home", dry_run=False)
-    assert (target / "inbox/deep/import-smoke.md").is_file()
+    assert (target / inbox / "deep/import-smoke.md").is_file()
     assert (target / "skills/import-smoke/SKILL.md").is_file()
     assert (target / "subagents/import-smoke.md").is_file()
     assert (target / "mcps/import-smoke.toml").is_file()
@@ -94,6 +111,8 @@ def main() -> None:
     assert '"~/source"' in (target / "projects/demo/agent.toml").read_text(
         encoding="utf-8"
     )
+    assert "check = false" in (target / "config.toml").read_text(encoding="utf-8")
+    assert not run_workspace_import(source, target, base / "home", dry_run=True).changes
 
 
 if __name__ == "__main__":

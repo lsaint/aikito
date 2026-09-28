@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import os
-import re
 import shlex
-import tempfile
 import tomllib
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -15,23 +12,28 @@ from .config import LEGACY_DEFAULT_INBOX_PATH, get_inbox_path
 from .diagnostics import Finding
 from .init import is_recognized_workspace
 from .skill_state import WorkspaceWriterLock
-from .templating import BUNDLED_SKILL_NAMES
 from .workspace_import_decisions import decide_resource
-from .workspace_import_render import render_merged_files
+from .workspace_toml_render import render_merged_files
+from .workspace_resource_write import (
+    ResourceWrite,
+    apply_resource_writes,
+    missing_references,
+    partition_writes,
+)
 from .workspace_core import (
-    Change,
     PathPolicy,
     WorkspaceCoreError,
-    apply,
-    entry_type,
     recover,
     validate_resource_path,
     validate_roots,
 )
 from .workspace_resources import (
+    RESOURCE_STORAGE,
     Resource,
+    WorkspaceSnapshot,
+    is_shared_resource,
+    physical_kind,
     WorkspaceResourceError,
-    fingerprint_resource,
     scan_credentials,
     snapshot_workspace,
 )
@@ -48,47 +50,13 @@ def _source_migration_command(source: Path) -> str:
     return f"AIKITO_DIR={shlex.quote(str(source))} aikito migrate workspace-resources"
 
 
-# Resources stored as fields or members of a shared TOML file, by file kind.
-IMPORT_SHARED_KINDS = {
-    "config": "workspace-config",
-    "skill-selection": "skills-config",
-    "project": "project-config",
-    "project-field": "project-config",
-    "project-path": "project-config",
-    "project-skill": "project-config",
-}
-# Resources stored as one standalone file or directory, by file kind.
-_FILE_KINDS = {
-    "memory": "memory",
-    "project-memory": "memory",
-    "skill": "skill",
-    "inbox": "inbox",
-    "subagent": "subagent",
-    "mcp": "mcp",
-    "agent": "agent",
-    "global-instructions": "global-instructions",
-    "project-instructions": "project-instructions",
-}
-_SUPPORTED = frozenset(IMPORT_SHARED_KINDS) | frozenset(_FILE_KINDS)
+_SUPPORTED = frozenset(RESOURCE_STORAGE)
 _CHANGES = ("CREATE", "UPDATE")
-
-
-def _physical_kind(kind: str) -> str:
-    return IMPORT_SHARED_KINDS.get(kind) or _FILE_KINDS[kind]
-
-
-@dataclass(frozen=True)
-class ImportResource:
-    relative_path: Path
-    kind: str
-    fingerprint: str
-    name: str = ""
-    source_path: Path | None = None
 
 
 @dataclass(frozen=True)
 class ImportItem:
-    resource: ImportResource
+    resource: ResourceWrite
     action: str
     reason: str
 
@@ -118,13 +86,9 @@ class ImportPlan:
     @property
     def copies(self) -> tuple[Path, ...]:
         """Target paths replaced by a whole source file or skill directory."""
-        paths = {
-            item.resource.relative_path
-            for item in self.changes
-            if item.resource.kind in _FILE_KINDS
-            or not (self.target / item.resource.relative_path).exists()
-        }
-        return tuple(sorted(paths))
+        return partition_writes(
+            self.target, tuple(item.resource for item in self.changes)
+        )[0]
 
     @property
     def merges(self) -> tuple[ImportItem, ...]:
@@ -132,7 +96,7 @@ class ImportPlan:
         return tuple(
             item
             for item in self.changes
-            if item.resource.kind in IMPORT_SHARED_KINDS
+            if is_shared_resource(item.resource.kind)
             and (self.target / item.resource.relative_path).exists()
         )
 
@@ -152,14 +116,10 @@ def _inbox_prefix(root: Path) -> str | None:
     return relative.as_posix() if relative.parts else None
 
 
-def _policy(
-    root: Path, *, destination_prefix: str = "", recovery_prefix: str = ""
-) -> PathPolicy:
+def _policy(root: Path, *, destination_prefix: str = "") -> PathPolicy:
     current = _inbox_prefix(root) or ""
     primary = destination_prefix or current
-    extras = tuple(
-        prefix for prefix in (current, recovery_prefix) if prefix and prefix != primary
-    )
+    extras = tuple(prefix for prefix in (current,) if prefix and prefix != primary)
     return PathPolicy(
         create_parents=True, inbox_prefix=primary, extra_inbox_prefixes=extras
     )
@@ -212,21 +172,18 @@ def _missing_references(
         if item.action in _CHANGES:
             resource = source[f"{item.resource.kind}:{item.resource.name}"]
             result[resource.id] = resource
-    findings = set()
-    for resource in result.values():
-        if resource.kind not in ("mcp", "subagent", "skill-selection", "project-skill"):
-            continue
-        for reference in resource.references:
-            if reference not in result and not (
-                reference.startswith("skill:")
-                and reference.removeprefix("skill:") in BUNDLED_SKILL_NAMES
-            ):
-                findings.add(f"{resource.id} references missing {reference}")
-    return tuple(sorted(findings))
+    return missing_references(result)
 
 
 def build_import_plan(source: Path, target: Path) -> ImportPlan:
-    """Build a read-only plan for the first import resource batch."""
+    """Build a read-only plan for an additive workspace import."""
+    return _build_import_plan(source, target)[0]
+
+
+def _build_import_plan(
+    source: Path, target: Path
+) -> tuple[ImportPlan, WorkspaceSnapshot, WorkspaceSnapshot]:
+    """Retain the validated snapshots for execution under the writer lock."""
     source, target = source.expanduser().resolve(), target.expanduser().resolve()
     if not is_recognized_workspace(source):
         raise WorkspaceImportError(f"Source is not an Aikito workspace: {source}")
@@ -250,7 +207,8 @@ def build_import_plan(source: Path, target: Path) -> ImportPlan:
     findings.extend(f"Target {f.resource}: {f.message}" for f in right.findings)
     if _inbox_prefix(source) is None:
         findings.append("Source inbox is outside the workspace")
-    if _inbox_prefix(target) is None:
+    current_inbox = _inbox_prefix(target)
+    if current_inbox is None:
         findings.append("Target inbox is outside the workspace")
     planned_inbox = _planned_inbox_prefix(
         source, target, left.resources, right.resources
@@ -258,29 +216,48 @@ def build_import_plan(source: Path, target: Path) -> ImportPlan:
     if planned_inbox is None:
         findings.append("Imported inbox path would leave the target workspace")
     inbox_prefix = planned_inbox or ""
+    target_notes = sum(r.kind == "inbox" for r in right.resources.values())
     items = []
     for resource in left.resources.values():
         if resource.kind not in _SUPPORTED:
             continue
         action, reason = decide_resource(resource, right.resources)
         destination = _destination_path(resource, target, inbox_prefix)
+        if (
+            resource.id == "config:inbox.path"
+            and action in _CHANGES
+            and current_inbox is not None
+            and planned_inbox is not None
+            and planned_inbox != current_inbox
+            and target_notes
+        ):
+            action = "BLOCKED"
+            noun = "note" if target_notes == 1 else "notes"
+            reason = (
+                f"Target inbox contains {target_notes} {noun} under {current_inbox}/; "
+                f"changing inbox.path to {planned_inbox}/ would leave them unmanaged. "
+                "Move or remove the existing notes before changing the inbox path"
+            )
         if action in _CHANGES:
             try:
                 validate_resource_path(
                     destination.as_posix(),
-                    _physical_kind(resource.kind),
+                    physical_kind(resource.kind),
                     _policy(target, destination_prefix=inbox_prefix),
                 )
             except WorkspaceCoreError as exc:
                 action, reason = "BLOCKED", str(exc)
         items.append(
             ImportItem(
-                ImportResource(
+                ResourceWrite(
                     destination,
                     resource.kind,
                     resource.fingerprint,
                     resource.name,
                     Path(resource.parts[0].path),
+                    right.resources[resource.id].fingerprint
+                    if resource.id in right.resources
+                    else None,
                 ),
                 action,
                 reason,
@@ -324,7 +301,9 @@ def build_import_plan(source: Path, target: Path) -> ImportPlan:
     )
     if not plan.blocked:
         try:
-            render_merged_files(plan.source, plan.target, plan.merges)
+            render_merged_files(
+                plan.source, plan.target, tuple(item.resource for item in plan.merges)
+            )
         except (WorkspaceImportError, OSError, ValueError) as exc:
             message = (
                 str(exc)
@@ -332,7 +311,7 @@ def build_import_plan(source: Path, target: Path) -> ImportPlan:
                 else "Cannot render merged TOML; inspect source and target collection fields"
             )
             plan = replace(plan, findings=(message,))
-    return plan
+    return plan, left, right
 
 
 def recover_imports(target: Path) -> bool:
@@ -341,34 +320,10 @@ def recover_imports(target: Path) -> bool:
     try:
         return recover(
             (target,),
-            policy=_policy(target, recovery_prefix=_staged_inbox_prefix(target)),
+            policy=_policy(target),
         )
     except WorkspaceCoreError as exc:
         raise WorkspaceImportError(str(exc)) from exc
-
-
-def _staged_inbox_prefix(target: Path) -> str:
-    """Recover paths planned for a config update that was not installed yet."""
-    journal = target / ".local/state/aikito/workspace-transactions/pending.json"
-    if entry_type(journal) != "file":
-        return ""
-    try:
-        data = json.loads(journal.read_text(encoding="utf-8"))
-        txid = data.get("txid")
-        if not isinstance(txid, str) or not re.fullmatch(r"[0-9a-f]{32}", txid):
-            return ""
-        if not any(
-            item.get("kind") == "workspace-config" and item.get("path") == "config.toml"
-            for item in data.get("changes", [])
-            if isinstance(item, dict)
-        ):
-            return ""
-        staged = journal.parent / "tx" / txid / "stage/config.toml"
-        if entry_type(staged) == "file":
-            return _configured_inbox_prefix(staged, target) or ""
-    except (OSError, ValueError, TypeError, AttributeError):
-        return ""
-    return ""
 
 
 def apply_import_plan(plan: ImportPlan, home: Path) -> None:
@@ -376,59 +331,22 @@ def apply_import_plan(plan: ImportPlan, home: Path) -> None:
     with WorkspaceWriterLock(home):
         if recover_imports(plan.target):
             raise WorkspaceImportError("Recovered an interrupted import; run again")
-        fresh = build_import_plan(plan.source, plan.target)
+        fresh, left, right = _build_import_plan(plan.source, plan.target)
         if fresh != plan:
             raise WorkspaceImportError("Workspace changed after planning; run again")
         if plan.blocked:
             raise WorkspaceImportError(
                 "Import has conflicts or findings; no files changed"
             )
-        with tempfile.TemporaryDirectory(prefix="aikito-import-") as staging:
-            staging_root = Path(staging)
-            kinds = {
-                item.resource.relative_path: _physical_kind(item.resource.kind)
-                for item in plan.changes
-            }
-            sources = {
-                item.resource.relative_path: plan.source
-                / (item.resource.source_path or item.resource.relative_path)
-                for item in plan.changes
-            }
-            changes = [
-                _change(relative, kinds[relative], sources[relative], plan.target)
-                for relative in plan.copies
-            ]
-            merged = render_merged_files(plan.source, plan.target, plan.merges)
-            for relative, content in merged.items():
-                generated = staging_root / relative
-                generated.parent.mkdir(parents=True, exist_ok=True)
-                generated.write_text(content, encoding="utf-8")
-                changes.append(
-                    _change(relative, kinds[relative], generated, plan.target)
-                )
-            if changes:
-                try:
-                    apply(
-                        (plan.target,),
-                        tuple(changes),
-                        policy=_policy(
-                            plan.target, destination_prefix=plan.inbox_prefix
-                        ),
-                    )
-                except WorkspaceCoreError as exc:
-                    raise WorkspaceImportError(str(exc)) from exc
-
-
-def _change(relative: Path, kind: str, source: Path, target: Path) -> Change:
-    current = target / relative
-    return Change(
-        0,
-        relative.as_posix(),
-        kind,
-        source,
-        fingerprint_resource(current, kind) if current.exists() else None,
-        fingerprint_resource(source, kind),
-    )
+        try:
+            apply_resource_writes(
+                left,
+                right,
+                tuple(item.resource for item in plan.changes),
+                policy=_policy(plan.target, destination_prefix=plan.inbox_prefix),
+            )
+        except (WorkspaceCoreError, WorkspaceResourceError) as exc:
+            raise WorkspaceImportError(str(exc)) from exc
 
 
 def run_workspace_import(

@@ -129,6 +129,28 @@ jobs:
           grep -F 'Imported Codex' "$BASE/target/agents/codex.toml"
           grep -F 'stale_days = 90' "$BASE/target/config.toml"
           grep -F 'Imported global instructions' "$BASE/target/global/AGENTS.md"
+          EXECUTION_BASE="$BASE-execution"
+          python3 tests/workspace_import_smoke.py "$EXECUTION_BASE" --prepare-only --execution-case
+          AIKITO_DIR="$EXECUTION_BASE/target" python3 -m aikito import workspace "$EXECUTION_BASE/source"
+          test -f "$EXECUTION_BASE/target/notes/inbox/deep/import-smoke.md"
+          test -f "$EXECUTION_BASE/target/config.toml"
+          grep -F 'stale_days = 90' "$EXECUTION_BASE/target/config.toml"
+          grep -F 'check = false' "$EXECUTION_BASE/target/config.toml"
+          AIKITO_DIR="$EXECUTION_BASE/target" python3 -m aikito import workspace "$EXECUTION_BASE/source"
+          test ! -f "$EXECUTION_BASE/target/.local/state/aikito/workspace-transactions/pending.json"
+          BLOCKED_BASE="$BASE-blocked-inbox"
+          python3 tests/workspace_import_smoke.py "$BLOCKED_BASE" --prepare-only --blocked-inbox-case
+          if AIKITO_DIR="$BLOCKED_BASE/target" python3 -m aikito import workspace "$BLOCKED_BASE/source" --dry-run > "$BLOCKED_BASE/preview.out" 2>&1; then exit 1; fi
+          grep -F '[BLOCKED] config.toml (config:inbox.path)' "$BLOCKED_BASE/preview.out"
+          grep -F '1 note under inbox/' "$BLOCKED_BASE/preview.out"
+          grep -F 'would leave them unmanaged' "$BLOCKED_BASE/preview.out"
+          if AIKITO_DIR="$BLOCKED_BASE/target" python3 -m aikito import workspace "$BLOCKED_BASE/source" > "$BLOCKED_BASE/apply.out" 2>&1; then exit 1; fi
+          test -f "$BLOCKED_BASE/target/inbox/existing.md"
+          test -f "$BLOCKED_BASE/target/config.toml"
+          grep -F 'path = "inbox"' "$BLOCKED_BASE/target/config.toml"
+          test ! -f "$BLOCKED_BASE/target/notes/inbox/deep/import-smoke.md"
+          test ! -f "$BLOCKED_BASE/target/skills/import-smoke/SKILL.md"
+          test ! -f "$BLOCKED_BASE/target/.local/state/aikito/workspace-transactions/pending.json"
 
       - name: macOS CLI smoke - Global Skills Safety and Migration (Phase 4 Invariants)
         run: |

@@ -67,6 +67,34 @@ _TOP_LEVEL_DIRS = (
 _PROJECT_SET_FIELDS = ("path", "paths", "skills")
 
 
+# Logical kinds share this storage contract across scanning and writing.
+RESOURCE_STORAGE = {
+    "config": ("workspace-config", True),
+    "skill-selection": ("skills-config", True),
+    "project": ("project-config", True),
+    "project-field": ("project-config", True),
+    "project-path": ("project-config", True),
+    "project-skill": ("project-config", True),
+    "memory": ("memory", False),
+    "project-memory": ("memory", False),
+    "skill": ("skill", False),
+    "inbox": ("inbox", False),
+    "subagent": ("subagent", False),
+    "mcp": ("mcp", False),
+    "agent": ("agent", False),
+    "global-instructions": ("global-instructions", False),
+    "project-instructions": ("project-instructions", False),
+}
+
+
+def physical_kind(kind: str) -> str:
+    return RESOURCE_STORAGE[kind][0]
+
+
+def is_shared_resource(kind: str) -> bool:
+    return RESOURCE_STORAGE[kind][1]
+
+
 class WorkspaceResourceError(ValueError):
     """The path cannot be read as an Aikito workspace."""
 
@@ -258,20 +286,7 @@ class _Scanner:
         parts: tuple[ResourcePart, ...],
         references: tuple[str, ...] = (),
     ) -> None:
-        physical = {
-            "memory": "memory",
-            "project-memory": "memory",
-            "skill": "skill",
-            "inbox": "inbox",
-            "agent": "agent",
-            "subagent": "subagent",
-            "mcp": "mcp",
-            "project": "project-config",
-            "project-field": "project-config",
-            "project-instructions": "project-instructions",
-            "config": "workspace-config",
-            "global-instructions": "global-instructions",
-        }.get(kind)
+        physical = physical_kind(kind) if kind in RESOURCE_STORAGE else None
         if (
             physical is not None
             and resource_kind_for_path(

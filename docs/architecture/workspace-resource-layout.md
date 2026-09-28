@@ -132,10 +132,30 @@ default; an unmodified project instructions template is replaced by the source.
 A customized target is kept when the source is still at a template. Other
 differing resources conflict. Preview validates references against the
 whole result, reports managed-area findings together, and treats possible
-plaintext credentials as warnings. The source workspace is never modified.
+plaintext credentials as warnings. Changing the effective inbox path is blocked
+when the target inbox contains notes; the preview reports their count and
+location because relocating the path would leave those notes unmanaged. The source workspace is never modified.
 Agent definitions, workspace configuration, global instructions, project
 instructions, and the project `sync_mode` use their bundled templates as the
 comparison baseline, including every earlier shipped version of a template. A target still at the template
 adopts a changed source; a customized target is retained when the source still
 matches the template. Independently changed values conflict. TOML field merges
 retain unrelated target fields and comments.
+
+
+Import execution uses `workspace_resource_write`: each logical resource carries
+its source and expected target fingerprint. Execution reuses the snapshots from
+the locked plan recheck, captures physical file versions before rendering, and
+scans the target again for final verification. A single storage contract in
+`workspace_resources` classifies both snapshots and writes. Shared TOML changes
+are composed into one replacement per physical file, then `workspace_core`
+stages and installs the complete batch. A fresh snapshot must match the
+expected logical resources, preserve target-only resources, and have valid
+references before the transaction commits. Verification failures roll back the
+whole batch, just like write failures.
+
+Version 2 transaction journals record each final destination and the path
+policy used during staging, including the current and planned inbox prefixes.
+Recovery validates these paths and retains caller-owned resource/state
+permissions; it does not infer the inbox location from staged TOML. Version 1
+journals still use the caller's path policy.

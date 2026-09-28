@@ -11,7 +11,7 @@ from .add import format_toml_key, format_toml_value, update_skills_in_toml
 from .project_config import add_candidate_path_to_content, get_project_candidate_paths
 
 if TYPE_CHECKING:
-    from .workspace_import import ImportItem
+    from .workspace_resource_write import ResourceWrite
 
 
 def _list_field(root: Path, relative: Path, key: str) -> list[str]:
@@ -75,25 +75,25 @@ def _nested_value(document: dict, name: str) -> object:
 
 
 def render_merged_files(
-    source: Path, target: Path, changes: tuple[ImportItem, ...]
+    source: Path, target: Path, changes: tuple[ResourceWrite, ...]
 ) -> dict[Path, str]:
     """Render existing shared TOML files that receive field or member changes."""
-    groups: dict[Path, list[ImportItem]] = {}
+    groups: dict[Path, list[ResourceWrite]] = {}
     for item in changes:
-        groups.setdefault(item.resource.relative_path, []).append(item)
+        groups.setdefault(item.relative_path, []).append(item)
     result = {}
     for relative, items in groups.items():
         text = (target / relative).read_text(encoding="utf-8")
         with (source / relative).open("rb") as stream:
             source_document = tomllib.load(stream)
-        kinds = {item.resource.kind for item in items}
+        kinds = {item.kind for item in items}
         for item in items:
-            name = item.resource.name
-            if item.resource.kind == "config":
+            name = item.name
+            if item.kind == "config":
                 *sections, key = name.split(".")
                 value = _nested_value(source_document, name)
                 text = _adopt_field(text, sections, key, value)
-            elif item.resource.kind == "project-field":
+            elif item.kind == "project-field":
                 key = name.partition("/")[2]
                 text = _adopt_field(text, [], key, source_document[key])
         if kinds & {"skill-selection", "project-skill"}:
