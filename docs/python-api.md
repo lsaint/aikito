@@ -9,7 +9,7 @@ from aikito import (
     Project,
     PreparedProject,
     Workspace,
-    WorkspaceInspection,
+    WorkspaceInspectionResult,
     WorkspaceSyncPreview,
     WorkspaceFinding,
     WorkspaceProjectView,
@@ -303,12 +303,12 @@ Load an Aikito workspace strictly read-only without modifying the pointer file (
 ### `Workspace.inspect`
 
 ```python
-def inspect(self) -> WorkspaceInspection
+def inspect(self) -> WorkspaceInspectionResult
 ```
 
 Return a strictly read-only structured inspection of the workspace, including configured agents, projects, MCP servers, skills, subagents, and doctor findings.
 
-**Returns** a [`WorkspaceInspection`](#workspaceinspection).
+**Returns** a [`WorkspaceInspectionResult`](#workspaceinspectionresult).
 
 ---
 
@@ -345,7 +345,7 @@ Frozen dataclass exposing:
 - **`active_paths`** `tuple[str, ...]` — Active checkout paths on this host.
 - **`offline_paths`** `tuple[str, ...]` — Configured paths that do not exist on this host.
 
-### `WorkspaceInspection`
+### `WorkspaceInspectionResult`
 
 Frozen dataclass exposing:
 

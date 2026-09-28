@@ -69,7 +69,7 @@ from .subagent import (
     load_subagent_definitions,
     validate_platform_opts,
 )
-from .workspace_inspection import WorkspaceInspection, inspect_workspace
+from .workspace_inspection import WorkspaceInspectionContext, create_inspection_context
 from .templating import (
     detect_existing_agents,
     detected_agent_names,
@@ -149,12 +149,12 @@ def check_symlinks(
     aikito_dir: Path,
     home: Path,
     *,
-    inspection: WorkspaceInspection | None = None,
+    inspection: WorkspaceInspectionContext | None = None,
 ) -> DoctorSection:
     """Check all managed symlinks for dangling, wrong-target, or missing."""
     findings: list[Finding] = []
 
-    inspection = inspection or inspect_workspace(aikito_dir, home)
+    inspection = inspection or create_inspection_context(aikito_dir, home)
     try:
         inspection.agents
     except AgentRegistryError as exc:
@@ -393,10 +393,10 @@ def check_orphans(
     aikito_dir: Path,
     home: Path,
     *,
-    inspection: WorkspaceInspection | None = None,
+    inspection: WorkspaceInspectionContext | None = None,
 ) -> DoctorSection:
     """Check for orphan subagent config files and unused skill directories."""
-    inspection = inspection or inspect_workspace(aikito_dir, home)
+    inspection = inspection or create_inspection_context(aikito_dir, home)
     findings: list[Finding] = []
 
     # 2a. Subagent orphans — reuse collect_subagents_matrix output
@@ -1066,10 +1066,10 @@ def check_drift(
     aikito_dir: Path,
     home: Path,
     *,
-    inspection: WorkspaceInspection | None = None,
+    inspection: WorkspaceInspectionContext | None = None,
 ) -> DoctorSection:
     """Check MCP managed-section fingerprint drift via evaluate_spec_status."""
-    inspection = inspection or inspect_workspace(aikito_dir, home)
+    inspection = inspection or create_inspection_context(aikito_dir, home)
     findings: list[Finding] = []
 
     try:
@@ -1556,7 +1556,7 @@ def run_doctor(
     on_progress: Callable[[str | None], None] | None = None,
 ) -> DoctorReport:
     """Run all diagnostic checks and return a structured DoctorReport."""
-    inspection = inspect_workspace(aikito_dir, home)
+    inspection = create_inspection_context(aikito_dir, home)
     steps = [
         (
             "Symlinks",

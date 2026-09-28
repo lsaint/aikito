@@ -170,7 +170,7 @@ args = ["-y", "@modelcontextprotocol/server-everything"]
             "Workspace",
             "WorkspaceError",
             "WorkspaceFinding",
-            "WorkspaceInspection",
+            "WorkspaceInspectionResult",
             "WorkspaceNotFoundError",
             "WorkspaceOperationView",
             "WorkspaceProjectView",
@@ -185,7 +185,7 @@ args = ["-y", "@modelcontextprotocol/server-everything"]
             InvalidWorkspaceError,
             Workspace,
             WorkspaceFinding,
-            WorkspaceInspection,
+            WorkspaceInspectionResult,
             WorkspaceNotFoundError,
             WorkspaceProjectView,
             WorkspaceSyncPreview,
@@ -206,7 +206,7 @@ args = ["-y", "@modelcontextprotocol/server-everything"]
 
         # 4. Inspect
         inspection = ws.inspect()
-        self.assertIsInstance(inspection, WorkspaceInspection)
+        self.assertIsInstance(inspection, WorkspaceInspectionResult)
         self.assertEqual(inspection.workspace_dir, self.ws)
         self.assertIsInstance(inspection.configured_agents, tuple)
         self.assertIsInstance(inspection.projects, tuple)

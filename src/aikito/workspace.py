@@ -49,7 +49,7 @@ class WorkspaceProjectView:
 
 
 @dataclass(frozen=True)
-class WorkspaceInspection:
+class WorkspaceInspectionResult:
     """Read-only diagnostic and configuration snapshot of an Aikito workspace."""
 
     workspace_dir: Path
@@ -195,7 +195,7 @@ class Workspace:
 
         return cls(path=workspace_path, home=home_path)
 
-    def inspect(self) -> WorkspaceInspection:
+    def inspect(self) -> WorkspaceInspectionResult:
         """Return a strictly read-only structured inspection of the workspace."""
         # 1. Configured agents
         agents_dir = self.path / "agents"
@@ -273,7 +273,7 @@ class Workspace:
                         )
                     )
 
-        return WorkspaceInspection(
+        return WorkspaceInspectionResult(
             workspace_dir=self.path,
             configured_agents=configured_agents,
             projects=projects,

@@ -1064,7 +1064,7 @@ agents = ["claude-code"]
         with (
             patch("aikito.workspace_inspection.load_agent_specs", return_value=[spec]),
             patch(
-                "aikito.workspace_inspection.WorkspaceInspection.mcp_status",
+                "aikito.workspace_inspection.WorkspaceInspectionContext.mcp_status",
                 return_value="DRIFT",
             ),
             patch(
@@ -1114,7 +1114,7 @@ agents = ["claude-code"]
                 return_value=[spec_update, spec_drift],
             ),
             patch(
-                "aikito.workspace_inspection.WorkspaceInspection.mcp_status",
+                "aikito.workspace_inspection.WorkspaceInspectionContext.mcp_status",
                 side_effect=eval_status,
             ),
             patch(

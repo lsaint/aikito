@@ -52,7 +52,7 @@ class AikitoWorkspaceTest(unittest.TestCase):
         from aikito import (
             Workspace,
             WorkspaceFinding,
-            WorkspaceInspection,
+            WorkspaceInspectionResult,
             WorkspaceOperationView,
             WorkspaceProjectView,
             WorkspaceSyncPreview,
@@ -100,7 +100,7 @@ class AikitoWorkspaceTest(unittest.TestCase):
 
         # 1. Inspection returns sanitized public views without internal types
         inspection = ws.inspect()
-        self.assertIsInstance(inspection, WorkspaceInspection)
+        self.assertIsInstance(inspection, WorkspaceInspectionResult)
         self.assertEqual(len(inspection.projects), 1)
         self.assertIsInstance(inspection.projects[0], WorkspaceProjectView)
         self.assertEqual(inspection.projects[0].name, "test-proj")

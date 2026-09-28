@@ -370,7 +370,7 @@ class ProjectApiTest(unittest.TestCase):
             "Workspace",
             "WorkspaceError",
             "WorkspaceFinding",
-            "WorkspaceInspection",
+            "WorkspaceInspectionResult",
             "WorkspaceNotFoundError",
             "InvalidWorkspaceError",
             "WorkspaceOperationView",

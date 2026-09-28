@@ -229,7 +229,7 @@ class ArchitectureDependencyTests(unittest.TestCase):
             "Workspace",
             "WorkspaceError",
             "WorkspaceFinding",
-            "WorkspaceInspection",
+            "WorkspaceInspectionResult",
             "WorkspaceNotFoundError",
             "WorkspaceOperationView",
             "WorkspaceProjectView",

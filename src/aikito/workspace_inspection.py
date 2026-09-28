@@ -19,8 +19,8 @@ from .memory_runtime import build_project_memory_batch, plan_project_memory
 from .subagent import build_subagent_plan
 
 
-class WorkspaceInspection:
-    """Lazy, request-scoped source of resource inspection facts and plan metadata."""
+class WorkspaceInspectionContext:
+    """Shared context that lazily builds and caches resource plans for one request."""
 
     def __init__(self, workspace_root: Path, home: Path) -> None:
         self.workspace_root = workspace_root
@@ -142,6 +142,8 @@ class WorkspaceInspection:
         return self._memory_plans[key].inspect()
 
 
-def inspect_workspace(workspace_root: Path, home: Path) -> WorkspaceInspection:
-    """Start a shared read-only inspection snapshot for one command request."""
-    return WorkspaceInspection(workspace_root, home)
+def create_inspection_context(
+    workspace_root: Path, home: Path
+) -> WorkspaceInspectionContext:
+    """Start a shared read-only inspection context for one command request."""
+    return WorkspaceInspectionContext(workspace_root, home)

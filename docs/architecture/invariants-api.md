@@ -17,7 +17,7 @@ __all__ = [
     "UnsupportedProjectAgentError",
     "Workspace",
     "WorkspaceError",
-    "WorkspaceInspection",
+    "WorkspaceInspectionResult",
     "WorkspaceNotFoundError",
     "WorkspaceSyncPreview",
     "__version__",
@@ -84,7 +84,7 @@ All public exceptions inherit from `ProjectError -> RuntimeError`.
 
 ### INV-API-09: `Workspace.inspect` Contract `[current]` {: #inv-api-09 }
 
-- Signature: `Workspace.inspect() -> WorkspaceInspection`
+- Signature: `Workspace.inspect() -> WorkspaceInspectionResult`
 - Strictly read-only inspection returning frozen structured status of agents, projects, and managed resources.
 - Zero write operations, zero locks, zero backups, zero recovery mutations.
 
@@ -97,7 +97,7 @@ All public exceptions inherit from `ProjectError -> RuntimeError`.
 
 ### INV-API-11: Public View Immutability and Sanitization `[current]` {: #inv-api-11 }
 
-- Public models (`WorkspaceInspection`, `WorkspaceSyncPreview`) are immutable dataclasses exposing high-level metrics and sanitized summaries.
+- Public models (`WorkspaceInspectionResult`, `WorkspaceSyncPreview`) are immutable dataclasses exposing high-level metrics and sanitized summaries.
 - Must not expose private internal execution payloads, credentials, auth tokens, sensitive environment variables, lock files, or journal paths.
 - Does not expose internal resource plan types (`SkillPlan`, `MCPPlan`, `SubagentPlan`) directly.
 

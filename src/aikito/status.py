@@ -39,7 +39,7 @@ from .render import (
     get_consumer_display_name,
 )
 from .subagent import SubagentConfigError
-from .workspace_inspection import WorkspaceInspection, inspect_workspace
+from .workspace_inspection import WorkspaceInspectionContext, create_inspection_context
 
 
 @dataclass(frozen=True)
@@ -97,9 +97,9 @@ def collect_mcp_details(
     server_target: str | None = None,
     agent_target: str | None = None,
     *,
-    inspection: WorkspaceInspection | None = None,
+    inspection: WorkspaceInspectionContext | None = None,
 ) -> list[MCPDetailRow]:
-    inspection = inspection or inspect_workspace(aikito_dir, home)
+    inspection = inspection or create_inspection_context(aikito_dir, home)
     agents = inspection.agents
     try:
         specs = inspection.mcp_specs
@@ -215,7 +215,7 @@ def collect_subagent_details(
     subagent_target: str | None = None,
     agent_target: str | None = None,
     *,
-    inspection: WorkspaceInspection | None = None,
+    inspection: WorkspaceInspectionContext | None = None,
 ) -> list[SubagentDetailRow]:
     from .subagent import (
         FORMAT_EXTENSIONS,
@@ -223,7 +223,7 @@ def collect_subagent_details(
         load_subagent_definitions,
     )
 
-    inspection = inspection or inspect_workspace(aikito_dir, home)
+    inspection = inspection or create_inspection_context(aikito_dir, home)
     agent_configs, all_agent_names = load_all_agents(aikito_dir, home)
     subagent_defs = load_subagent_definitions(aikito_dir, allow_empty=True)
     try:
@@ -337,9 +337,9 @@ def collect_agent_status_rows(
     aikito_dir: Path,
     home: Path,
     *,
-    inspection: WorkspaceInspection | None = None,
+    inspection: WorkspaceInspectionContext | None = None,
 ) -> tuple[list[AgentStatusRow], int, int, int]:
-    inspection = inspection or inspect_workspace(aikito_dir, home)
+    inspection = inspection or create_inspection_context(aikito_dir, home)
     agents_dict = inspection.agents
 
     instruction_target_status: dict[Path, str] = {
@@ -547,9 +547,9 @@ def collect_memory_status_rows(
     aikito_dir: Path,
     home: Path,
     *,
-    inspection: WorkspaceInspection | None = None,
+    inspection: WorkspaceInspectionContext | None = None,
 ) -> tuple[list[MemoryStatusRow], int, int]:
-    inspection = inspection or inspect_workspace(aikito_dir, home)
+    inspection = inspection or create_inspection_context(aikito_dir, home)
     rows: list[MemoryStatusRow] = []
     total_notes = 0
     mem_issues = 0
@@ -659,7 +659,7 @@ def collect_memory_status_rows(
 
 
 def get_status_report_data(aikito_dir: Path, home: Path) -> StatusReportData:
-    inspection = inspect_workspace(aikito_dir, home)
+    inspection = create_inspection_context(aikito_dir, home)
     agent_rows, agent_issues, total_subagents, total_mcp = collect_agent_status_rows(
         aikito_dir, home, inspection=inspection
     )
@@ -729,9 +729,9 @@ def collect_mcp_matrix(
     home: Path,
     live: bool = False,
     *,
-    inspection: WorkspaceInspection | None = None,
+    inspection: WorkspaceInspectionContext | None = None,
 ) -> tuple[list[MCPServerRow], list[str]]:
-    inspection = inspection or inspect_workspace(aikito_dir, home)
+    inspection = inspection or create_inspection_context(aikito_dir, home)
     agents_dict = inspection.agents
     try:
         specs = inspection.mcp_specs
@@ -793,9 +793,9 @@ def collect_subagents_matrix(
     aikito_dir: Path,
     home: Path,
     *,
-    inspection: WorkspaceInspection | None = None,
+    inspection: WorkspaceInspectionContext | None = None,
 ) -> tuple[list[SubagentRow], list[OrphanSubagentFile], list[str]]:
-    inspection = inspection or inspect_workspace(aikito_dir, home)
+    inspection = inspection or create_inspection_context(aikito_dir, home)
     try:
         views = inspection.subagent_views
     except SubagentConfigError:

@@ -390,7 +390,7 @@ jobs:
           ${{ runner.temp }}/isolated-venv/bin/pip install dist/*.whl
           ${{ runner.temp }}/isolated-venv/bin/aikito --version
           ${{ runner.temp }}/isolated-venv/bin/python -c \
-            "from aikito import PreparedProject, Project, Workspace, WorkspaceInspection, WorkspaceSyncPreview, WorkspaceError, WorkspaceNotFoundError, InvalidWorkspaceError; assert Project and PreparedProject and Workspace"
+            "from aikito import PreparedProject, Project, Workspace, WorkspaceInspectionResult, WorkspaceSyncPreview, WorkspaceError, WorkspaceNotFoundError, InvalidWorkspaceError; assert Project and PreparedProject and Workspace"
           ${{ runner.temp }}/isolated-venv/bin/aikito init workspace ${{ runner.temp }}/wheel-ws
           test -f ${{ runner.temp }}/wheel-ws/config.toml
           test -f ${{ runner.temp }}/wheel-ws/layout.toml
