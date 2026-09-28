@@ -94,10 +94,9 @@ commands.
 
 ## Preserve a Durable Decision
 
-Use this after a task produces knowledge that may matter again:
+Use this to explicitly teach the Agent a preference, constraint, or decision for future tasks:
 
-> Decide whether this is worth keeping in Aikito Memory and put it in the right
-> scope if it is: `<conclusion>`.
+> Remember this in Aikito Memory for future tasks: `<preference, rule, or decision>`. Put it in the right scope.
 
 For context from the current task:
 
