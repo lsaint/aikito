@@ -407,14 +407,14 @@
               </div>
               <pre><span class="command">$ aikito status</span>
 
-┌──────────┬───────┬────────┬────────┬───────┬──────┬────────┐
-│ Project  │ Instr │ Skills │ Memory │ Paths │ Mode │ Status │
-├──────────┼───────┼────────┼────────┼───────┼──────┼────────┤
-│ aikito   │ 24L   │ 1      │ 12     │ 2/3   │ link │ <span class="ok">✓</span>      │
-│ payments │ 128L  │ 5      │ 14     │ 1/1   │ link │ <span class="ok">✓</span>      │
-│ infra    │ 210L  │ 6      │ 21     │ 1/1   │ copy │ <span class="ok">✓</span>      │
-│ blog     │ <span class="muted-term">–</span>     │ 2      │ 8      │ 0/1   │ link │ <span class="muted-term">–</span>      │
-└──────────┴───────┴────────┴────────┴───────┴──────┴────────┘
+┌─────────────────┬───────┬────────┬────────┬───────┬──────┬────────┐
+│ Project         │ Instr │ Skills │ Memory │ Paths │ Mode │ Status │
+├─────────────────┼───────┼────────┼────────┼───────┼──────┼────────┤
+│ aikito          │ 24L   │ 1      │ 12     │ 2/3   │ link │ <span class="ok">✓</span>      │
+│ blog            │ <span class="muted-term">–</span>     │ 2      │ 8      │ 0/1   │ link │ <span class="muted-term">–</span>      │
+│ chat-distiller  │ 128L  │ 5      │ 14     │ 1/1   │ link │ <span class="ok">✓</span>      │
+│ python-docx-oss │ 210L  │ 6      │ 21     │ 1/1   │ copy │ <span class="ok">✓</span>      │
+└─────────────────┴───────┴────────┴────────┴───────┴──────┴────────┘
 
 Global: <span class="ok">✓</span> · Instr 24L · Skills 12 · Memory 6 · MCP 1 · Sub 3
 Consumers (8): agy · claude · codex · copilot · dsh · grok · opencode · pi
@@ -428,18 +428,18 @@ All in one workspace: ~/aikito</pre>
               </div>
               <pre><span class="command">$ aikito show memory</span>
 
-┌─────────┬───────────────────┬────────────────────────────┬──────┬───────────┐
-│ Scope   │ Note File         │ Title                      │ Link │ Updated   │
-├─────────┼───────────────────┼────────────────────────────┼──────┼───────────┤
-│ Global  │ writing-style     │ Keep explanations concise  │ <span class="muted-term">–</span>    │ today     │
-│ Global  │ conventions       │ Workspace engineering rule │ <span class="muted-term">–</span>    │ yesterday │
-├─────────┼───────────────────┼────────────────────────────┼──────┼───────────┤
-│ backend │ api-retry-policy  │ Retry external APIs safely │ <span class="ok">✓</span>    │ Sep 18    │
-│ backend │ circuit-breaker   │ Fail fast on upstream down │ <span class="ok">✓</span>    │ Sep 5     │
-├─────────┼───────────────────┼────────────────────────────┼──────┼───────────┤
-│ portal  │ onboarding-flow   │ First-time activation step │ <span class="ok">✓</span>    │ Sep 17    │
-│ portal  │ release-checklist │ Pre-flight checks for ship │ <span class="ok">✓</span>    │ Aug 3     │
-└─────────┴───────────────────┴────────────────────────────┴──────┴───────────┘</pre>
+┌─────────────────┬────────────────┬───────────────────────────────┬──────┬───────────┐
+│ Scope           │ Note File      │ Title                         │ Link │ Updated   │
+├─────────────────┼────────────────┼───────────────────────────────┼──────┼───────────┤
+│ Global          │ writing-style  │ Keep explanations concise     │ <span class="muted-term">–</span>    │ today     │
+│ Global          │ conventions    │ Workspace engineering rule    │ <span class="muted-term">–</span>    │ yesterday │
+├─────────────────┼────────────────┼───────────────────────────────┼──────┼───────────┤
+│ chat-distiller  │ stream-chunks  │ Stream tokens without buffer  │ <span class="ok">✓</span>    │ Sep 18    │
+│ chat-distiller  │ redact-privacy │ Mask credentials in output    │ <span class="ok">✓</span>    │ Sep 5     │
+├─────────────────┼────────────────┼───────────────────────────────┼──────┼───────────┤
+│ python-docx-oss │ ooxml-tables   │ Cell margins and border rules │ <span class="ok">✓</span>    │ Sep 17    │
+│ python-docx-oss │ large-file-io  │ Stream parts to reduce memory │ <span class="ok">✓</span>    │ Aug 3     │
+└─────────────────┴────────────────┴───────────────────────────────┴──────┴───────────┘</pre>
             </div>
           </div>
         </div>

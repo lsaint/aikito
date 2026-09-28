@@ -77,14 +77,14 @@ aikito status
 运行 `aikito status`，一屏掌控所有 Agent 的上下文与多项目长期 Memory 同步状态：
 
 ```text
-┌──────────┬───────┬────────┬────────┬───────┬──────┬────────┐
-│ Project  │ Instr │ Skills │ Memory │ Paths │ Mode │ Status │
-├──────────┼───────┼────────┼────────┼───────┼──────┼────────┤
-│ aikito   │ 24L   │ 1      │ 12     │ 2/3   │ link │ ✓      │
-│ payments │ 128L  │ 5      │ 14     │ 1/1   │ link │ ✓      │
-│ infra    │ 210L  │ 6      │ 21     │ 1/1   │ copy │ ✓      │
-│ blog     │ –     │ 2      │ 8      │ 0/1   │ link │ –      │
-└──────────┴───────┴────────┴────────┴───────┴──────┴────────┘
+┌─────────────────┬───────┬────────┬────────┬───────┬──────┬────────┐
+│ Project         │ Instr │ Skills │ Memory │ Paths │ Mode │ Status │
+├─────────────────┼───────┼────────┼────────┼───────┼──────┼────────┤
+│ aikito          │ 24L   │ 1      │ 12     │ 2/3   │ link │ ✓      │
+│ blog            │ –     │ 2      │ 8      │ 0/1   │ link │ –      │
+│ chat-distiller  │ 128L  │ 5      │ 14     │ 1/1   │ link │ ✓      │
+│ python-docx-oss │ 210L  │ 6      │ 21     │ 1/1   │ copy │ ✓      │
+└─────────────────┴───────┴────────┴────────┴───────┴──────┴────────┘
 
 Global: ✓ · Instr 24L · Skills 12 · Memory 6 · MCP 1 · Sub 3
 Consumers (8): agy · claude · codex · copilot · dsh · grok · opencode · pi
