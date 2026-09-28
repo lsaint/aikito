@@ -13,6 +13,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from aikito import cli as AIKITO_CLI
+from aikito import cli_show as AIKITO_SHOW
 from aikito.cli_parser import AikitoArgumentParser
 from aikito.compat import resolve_symlink_target
 from aikito.init import init_project
@@ -1308,7 +1309,9 @@ class ShowMemoryTest(unittest.TestCase):
 
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
                 ["show", "memory", "unique-note"]
@@ -1332,7 +1335,7 @@ class ShowMemoryTest(unittest.TestCase):
                 self.subTest(target=target),
                 patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
                 patch.object(
-                    AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir
+                    AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
                 ),
             ):
                 args = AIKITO_CLI.build_parser().parse_args(["show", "memory", target])
@@ -1347,7 +1350,9 @@ class ShowMemoryTest(unittest.TestCase):
 
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["show", "memory", "release"])
             args.func(args)
@@ -1364,7 +1369,9 @@ class ShowMemoryTest(unittest.TestCase):
 
         with (
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["show", "memory", "release-"])
             with self.assertRaises(SystemExit) as cm:
@@ -1392,7 +1399,9 @@ class ShowMemoryTest(unittest.TestCase):
         # 1. Stem conflict -> exits with code 1 and prints candidates & disambiguation command to stderr
         with (
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["show", "memory", "conflict"])
             with self.assertRaises(SystemExit) as cm:
@@ -1409,7 +1418,9 @@ class ShowMemoryTest(unittest.TestCase):
         # 2. Disambiguated by scope/type/stem -> prints exact content
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
                 ["show", "memory", "global/notes/conflict"]
@@ -1419,7 +1430,9 @@ class ShowMemoryTest(unittest.TestCase):
 
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
                 ["show", "memory", "doxturbo/notes/conflict"]
@@ -1437,7 +1450,9 @@ class ShowMemoryTest(unittest.TestCase):
 
         with (
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["show", "memory", "release"])
             with self.assertRaises(SystemExit) as cm:
@@ -1452,7 +1467,9 @@ class ShowMemoryTest(unittest.TestCase):
     def test_show_memory_not_found(self) -> None:
         with (
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
                 ["show", "memory", "nonexistent"]
@@ -1475,7 +1492,9 @@ class ShowMemoryTest(unittest.TestCase):
 
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["show", "memory"])
             args.func(args)
@@ -1500,7 +1519,9 @@ class ShowMemoryTest(unittest.TestCase):
         # 1. Filter to specific project
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
                 ["show", "memory", "--project", "doxturbo"]
@@ -1514,7 +1535,9 @@ class ShowMemoryTest(unittest.TestCase):
         # 2. Filter to global scope
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
                 ["show", "memory", "--project", "global"]
@@ -1540,7 +1563,9 @@ class ShowMemoryTest(unittest.TestCase):
         # Directly resolves to project note when --project is passed
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
                 ["show", "memory", "conflict", "--project", "doxturbo"]
@@ -1551,7 +1576,9 @@ class ShowMemoryTest(unittest.TestCase):
         # Directly resolves to global note when --project global is passed
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
                 ["show", "memory", "conflict", "--project", "global"]
@@ -1562,7 +1589,9 @@ class ShowMemoryTest(unittest.TestCase):
     def test_show_memory_project_not_found(self) -> None:
         with (
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
                 ["show", "memory", "--project", "nonexistent"]
@@ -1579,7 +1608,9 @@ class ShowMemoryTest(unittest.TestCase):
         (self.aikito_dir / "projects" / "doxextra").mkdir(parents=True, exist_ok=True)
         with (
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
                 ["show", "memory", "--project", "dox"]
@@ -1600,7 +1631,9 @@ class ShowMemoryTest(unittest.TestCase):
         with (
             patch("pathlib.Path.cwd", return_value=proj_dir),
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["show", "memory", "--project"])
             args.func(args)
@@ -1611,7 +1644,9 @@ class ShowMemoryTest(unittest.TestCase):
         with (
             patch("pathlib.Path.cwd", return_value=Path("/unregistered/dir")),
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["show", "memory", "--project"])
             with self.assertRaises(SystemExit) as cm:
@@ -1636,7 +1671,9 @@ class ShowMemoryTest(unittest.TestCase):
 
         # Also test direct cmd invocation
         with (
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
             self.assertRaises(SystemExit) as cm,
         ):
@@ -1651,7 +1688,9 @@ class ShowMemoryTest(unittest.TestCase):
     def test_show_memory_note_not_found_in_project(self) -> None:
         with (
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
                 ["show", "memory", "missing-note", "--project", "doxturbo"]
@@ -1707,7 +1746,9 @@ class ShowSkillTest(unittest.TestCase):
     def test_show_skill_unique_match(self) -> None:
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
                 ["show", "skill", "durable-memory"]
@@ -1718,7 +1759,9 @@ class ShowSkillTest(unittest.TestCase):
     def test_show_skill_unique_prefix_match(self) -> None:
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["show", "skill", "dur"])
             args.func(args)
@@ -1734,7 +1777,9 @@ class ShowSkillTest(unittest.TestCase):
 
         with (
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["show", "skill", "gino"])
             with self.assertRaises(SystemExit) as cm:
@@ -1749,7 +1794,9 @@ class ShowSkillTest(unittest.TestCase):
     def test_show_skill_not_found(self) -> None:
         with (
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
                 ["show", "skill", "nonexistent"]
@@ -1874,7 +1921,9 @@ class EditMemoryTest(unittest.TestCase):
 
         with (
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["show", "memory", "escaped"])
             with self.assertRaises(SystemExit) as cm:
@@ -2022,7 +2071,9 @@ class EditSkillTest(unittest.TestCase):
 
         with (
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
                 ["show", "skill", "escaped-skill"]
@@ -2088,7 +2139,9 @@ url = "http://custom.example.com"
     def test_show_mcp(self) -> None:
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["show", "mcp"])
             args.func(args)
@@ -2099,7 +2152,9 @@ url = "http://custom.example.com"
     def test_show_mcp_agent_view_lists_managed_and_unmanaged(self) -> None:
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             patch.object(Path, "home", return_value=self.home),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
@@ -2118,7 +2173,9 @@ url = "http://custom.example.com"
     def test_show_mcp_intersection_displays_managed_entry(self) -> None:
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             patch.object(Path, "home", return_value=self.home),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
@@ -2153,10 +2210,12 @@ url = "http://custom.example.com"
         ]
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             patch.object(Path, "home", return_value=self.home),
             patch.object(
-                AIKITO_CLI,
+                AIKITO_SHOW,
                 "collect_mcp_runtime",
                 return_value=("managed", rows),
             ) as collect_runtime,
@@ -2191,10 +2250,12 @@ url = "http://custom.example.com"
         ]
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             patch.object(Path, "home", return_value=self.home),
             patch.object(
-                AIKITO_CLI,
+                AIKITO_SHOW,
                 "collect_mcp_runtime",
                 return_value=("managed", rows),
             ),
@@ -2221,7 +2282,9 @@ url = "http://custom.example.com"
     def test_show_subagents(self) -> None:
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["show", "subagents"])
             args.func(args)
@@ -2232,7 +2295,9 @@ url = "http://custom.example.com"
         # Show specific target
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
                 ["show", "subagent", "formatter"]
@@ -2245,7 +2310,9 @@ url = "http://custom.example.com"
         # Show target with prefix
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["show", "subagent", "form"])
             args.func(args)
@@ -2256,7 +2323,9 @@ url = "http://custom.example.com"
         # Show nonexistent target
         with (
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             self.assertRaises(SystemExit) as cm,
         ):
             args = AIKITO_CLI.build_parser().parse_args(["show", "subagent", "unknown"])
@@ -2275,7 +2344,9 @@ url = "http://custom.example.com"
         # 1. show subagents --agent codex (Agent table view)
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
                 ["show", "subagents", "--agent", "codex", "--no-color"]
@@ -2292,7 +2363,9 @@ url = "http://custom.example.com"
         # 2. show subagents formatter --agent (Detail view across agents)
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
                 ["show", "subagents", "formatter", "--agent", "--no-color"]
@@ -2311,7 +2384,9 @@ url = "http://custom.example.com"
         # 3. show subagents formatter --agent codex (Detail view single agent)
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
                 ["show", "subagents", "formatter", "--agent", "codex", "--no-color"]
@@ -2326,7 +2401,9 @@ url = "http://custom.example.com"
         # 4. Unknown agent error handling (no traceback)
         with (
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             self.assertRaises(SystemExit) as cm,
         ):
             args = AIKITO_CLI.build_parser().parse_args(
@@ -2339,7 +2416,9 @@ url = "http://custom.example.com"
         # 5. Unknown subagent with --agent error handling (no traceback)
         with (
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             self.assertRaises(SystemExit) as cm,
         ):
             args = AIKITO_CLI.build_parser().parse_args(
@@ -2357,7 +2436,9 @@ url = "http://custom.example.com"
 
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
                 ["show", "subagents", "formatter", "--agent", "other", "--no-color"]
@@ -2406,7 +2487,9 @@ url = "http://custom.example.com"
         )
 
         with (
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             patch.object(Path, "home", return_value=self.home),
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
         ):
@@ -2424,7 +2507,9 @@ url = "http://custom.example.com"
         self.assertIn("empty:  -", listing)
 
         with (
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             patch.object(Path, "home", return_value=self.home),
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
         ):
@@ -2435,7 +2520,9 @@ url = "http://custom.example.com"
         self.assertEqual(mock_stdout.getvalue(), "global rules\n")
 
         with (
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             patch.object(Path, "home", return_value=self.home),
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
         ):
@@ -2457,7 +2544,9 @@ url = "http://custom.example.com"
         )
 
         with (
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             patch.object(Path, "home", return_value=self.home),
             patch.object(Path, "cwd", return_value=nested_path),
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
@@ -2502,7 +2591,9 @@ url = "http://custom.example.com"
         )
 
         with (
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             patch.object(Path, "home", return_value=self.home),
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
         ):
@@ -2525,7 +2616,9 @@ url = "http://custom.example.com"
         )
 
         with (
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             patch.object(Path, "home", return_value=self.home),
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
         ):
@@ -2546,7 +2639,9 @@ url = "http://custom.example.com"
         )
 
         with (
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             patch.object(Path, "home", return_value=self.home),
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
         ):
@@ -3695,14 +3790,14 @@ class CliNoticePlacementTest(unittest.TestCase):
             skill_file.write_text("Skill Content\n", encoding="utf-8")
 
             with (
-                patch.object(AIKITO_CLI, "get_aikito_dir", return_value=ws),
+                patch.object(AIKITO_SHOW, "resolve_workspace", return_value=ws),
                 patch.object(
-                    AIKITO_CLI,
+                    AIKITO_SHOW,
                     "resolve_skill_target_for_command",
                     return_value=skill_file,
                 ),
                 patch.object(
-                    AIKITO_CLI, "print_bundled_skill_notice", side_effect=mock_notice
+                    AIKITO_SHOW, "print_bundled_skill_notice", side_effect=mock_notice
                 ),
                 patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
             ):
@@ -3832,11 +3927,13 @@ class CwdInteractionTest(unittest.TestCase):
         # In project, 'show project' -> detail
         args_single = parser.parse_args(["show", "project"])
         with (
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
             patch.object(AIKITO_CLI.Path, "cwd", return_value=self.project_path),
             patch.object(
-                AIKITO_CLI, "render_project_detail", return_value="DETAIL"
+                AIKITO_SHOW, "render_project_detail", return_value="DETAIL"
             ) as mock_detail,
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
         ):
@@ -3851,11 +3948,13 @@ class CwdInteractionTest(unittest.TestCase):
         # In project, 'show projects' -> table
         args_plural = parser.parse_args(["show", "projects"])
         with (
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
             patch.object(AIKITO_CLI.Path, "cwd", return_value=self.project_path),
             patch.object(
-                AIKITO_CLI, "render_projects_table", return_value="TABLE"
+                AIKITO_SHOW, "render_projects_table", return_value="TABLE"
             ) as mock_table,
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
         ):
@@ -3910,11 +4009,13 @@ class CwdInteractionTest(unittest.TestCase):
         # In project without --all
         args = parser.parse_args(["show", "memory"])
         with (
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
             patch.object(AIKITO_CLI.Path, "cwd", return_value=self.project_path),
             patch.object(
-                AIKITO_CLI, "collect_memory_notes_rows", return_value=[]
+                AIKITO_SHOW, "collect_memory_notes_rows", return_value=[]
             ) as mock_collect,
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
         ):
@@ -3934,11 +4035,13 @@ class CwdInteractionTest(unittest.TestCase):
         # In project with --all
         args_all = parser.parse_args(["show", "memory", "--all"])
         with (
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
             patch.object(AIKITO_CLI.Path, "cwd", return_value=self.project_path),
             patch.object(
-                AIKITO_CLI, "collect_memory_notes_rows", return_value=[]
+                AIKITO_SHOW, "collect_memory_notes_rows", return_value=[]
             ) as mock_collect,
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
         ):
@@ -4036,7 +4139,9 @@ class CwdInteractionTest(unittest.TestCase):
         # 1. Ambiguous target without scope inside project directory -> conflict reported, exits 1
         args_conflict = parser.parse_args(["show", "memory", "deploy-guide"])
         with (
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
             patch.object(AIKITO_CLI.Path, "cwd", return_value=self.project_path),
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
@@ -4053,7 +4158,9 @@ class CwdInteractionTest(unittest.TestCase):
         # 2. Unique target in project directory -> successfully shows project note
         args_unique = parser.parse_args(["show", "memory", "architecture-rules"])
         with (
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
             patch.object(AIKITO_CLI.Path, "cwd", return_value=self.project_path),
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
@@ -4065,7 +4172,9 @@ class CwdInteractionTest(unittest.TestCase):
         # 3. Explicit scope overrides ambiguity
         args_explicit = parser.parse_args(["show", "memory", "global/deploy-guide"])
         with (
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
             patch.object(AIKITO_CLI.Path, "cwd", return_value=self.project_path),
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,

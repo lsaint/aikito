@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aikito import cli as AIKITO_CLI
+from aikito import cli_show as AIKITO_SHOW
 from aikito.inbox import (
     InboxNoteRow,
     InboxTargetConflictError,
@@ -157,7 +158,9 @@ class AikitoInboxTest(unittest.TestCase):
     def test_cli_show_inbox_missing_dir_notice(self) -> None:
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["show", "inbox"])
             args.func(args)
@@ -168,7 +171,9 @@ class AikitoInboxTest(unittest.TestCase):
     def test_cli_show_inbox_target_missing_dir_exits_1(self) -> None:
         with (
             patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
             self.assertRaises(SystemExit) as cm,
         ):
             args = AIKITO_CLI.build_parser().parse_args(["show", "inbox", "any-note"])
@@ -183,7 +188,9 @@ class AikitoInboxTest(unittest.TestCase):
         self.inbox_dir.mkdir(parents=True)
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["show", "inbox"])
             args.func(args)
@@ -197,7 +204,9 @@ class AikitoInboxTest(unittest.TestCase):
 
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["show", "inbox"])
             args.func(args)
@@ -215,7 +224,9 @@ class AikitoInboxTest(unittest.TestCase):
 
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(
                 ["show", "inbox", "sample-note"]
@@ -236,7 +247,9 @@ class AikitoInboxTest(unittest.TestCase):
 
         with (
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
         ):
             args = AIKITO_CLI.build_parser().parse_args(["show", "inbox"])
             args.func(args)
