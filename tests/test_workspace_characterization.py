@@ -18,6 +18,7 @@ import pytest
 from aikito.init import init_workspace
 from aikito.templating import load_template, render_project_files
 from aikito.workspace_import import build_import_plan, run_workspace_import
+from aikito.workspace_merge import compare
 from aikito.workspace_reconcile import (
     WorkspaceReconcileError,
     apply_reconcile_plan,
@@ -26,12 +27,11 @@ from aikito.workspace_reconcile import (
     run_reconciliation,
 )
 from aikito.workspace_resources import snapshot_workspace
+from aikito.workspace_templates import template_fingerprints
 
 _OUTCOME = {
     "CREATE": "adopt",
     "UPDATE": "adopt",
-    "MERGE": "adopt",
-    "INCLUDED": "adopt",
     "NOOP": "keep",
     "CONFLICT": "conflict",
     "BLOCKED": "blocked",
@@ -194,16 +194,7 @@ _TEMPLATED: dict[str, Callable[[Path, object], None]] = {
     "config:memory.stale_days": _config,
     "global-instructions:AGENTS.md": _global,
     "project-instructions:demo": _project_instructions,
-    "project:demo": _sync_mode,
-}
-# Known asymmetry: project instructions and sync_mode conflict when only the
-# target is customized, while other templated resources keep the target.
-_TARGET_CUSTOM_ONLY = {
-    "agent:codex": "keep",
-    "config:memory.stale_days": "keep",
-    "global-instructions:AGENTS.md": "keep",
-    "project-instructions:demo": "conflict",
-    "project:demo": "conflict",
+    "project-field:demo/sync_mode": _sync_mode,
 }
 
 
@@ -232,7 +223,7 @@ def test_import_template_baseline_matrix(
     elif target_value is _TEMPLATE:
         expected = "adopt"
     elif source_value is _TEMPLATE:
-        expected = _TARGET_CUSTOM_ONLY[resource_id]
+        expected = "keep"
     else:
         expected = "conflict"
     assert _outcomes(source, target)[resource_id] == expected
@@ -276,6 +267,7 @@ def test_import_into_fresh_workspace_reproduces_every_source_resource(
         "mcp",
         "memory",
         "project",
+        "project-field",
         "project-instructions",
         "project-memory",
         "project-path",
@@ -452,3 +444,62 @@ def test_reconcile_rejects_unsupported_baseline_version(tmp_path: Path) -> None:
         path.write_text(json.dumps(state, sort_keys=True), encoding="utf-8")
     with pytest.raises(WorkspaceReconcileError, match="Unsupported baseline format"):
         build_reconcile_plan(left, right)
+
+
+# Shared three-way comparison and template history.
+
+
+@pytest.mark.parametrize(
+    ("base", "local", "remote", "action", "target"),
+    [
+        ((), None, None, "NOOP", None),
+        ((), "a", "a", "NOOP", None),
+        ((), None, "a", "CREATE", "local"),
+        ((), "a", None, "CREATE", "remote"),
+        ((), "a", "b", "CONFLICT", None),
+        (("a",), "a", "b", "UPDATE", "local"),
+        (("a",), "b", "a", "UPDATE", "remote"),
+        (("a",), "b", "b", "NOOP", None),
+        (("a",), "b", "c", "CONFLICT", None),
+        (("a",), None, "a", "DELETE", "remote"),
+        (("a",), "a", None, "DELETE", "local"),
+        (("a",), None, "b", "CONFLICT", None),
+        (("a", "old"), "old", "a", "NOOP", None),
+        (("a", "old"), "old", "b", "UPDATE", "local"),
+    ],
+)
+def test_three_way_compare(
+    base: tuple[str, ...],
+    local: str | None,
+    remote: str | None,
+    action: str,
+    target: str | None,
+) -> None:
+    outcome = compare(frozenset(base), local, remote)
+    assert (outcome.action, outcome.target) == (action, target)
+
+
+def test_template_history_lists_every_current_template(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path / "workspace")
+    _project(workspace)
+    for key, resource in snapshot_workspace(workspace).resources.items():
+        if key.split(":", 1)[0] in ("agent", "config", "global-instructions"):
+            assert resource.fingerprint in template_fingerprints(key), key
+        if key in ("project-instructions:demo", "project-field:demo/sync_mode"):
+            assert resource.fingerprint in template_fingerprints(key), key
+
+
+def test_unmodified_older_template_adopts_source(tmp_path: Path) -> None:
+    source = _workspace(tmp_path / "source")
+    target = _workspace(tmp_path / "target")
+    older = load_template("agents/codex.toml").replace(
+        'builtin_mcps = ["openaiDeveloperDocs"]\n', ""
+    )
+    (target / "agents/codex.toml").write_text(older, encoding="utf-8")
+    _agent(source, "s")
+    assert _outcomes(source, target)["agent:codex"] == "adopt"
+    _agent(source, _TEMPLATE)
+    assert _outcomes(source, target)["agent:codex"] == "keep"
+    (source / "agents/codex.toml").write_text(older, encoding="utf-8")
+    _agent(target, _TEMPLATE)
+    assert _outcomes(source, target)["agent:codex"] == "keep"

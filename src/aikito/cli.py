@@ -156,7 +156,11 @@ from .workspace_layout import (
     migration_path_policy,
     require_current_layout,
 )
-from .workspace_import import WorkspaceImportError, run_workspace_import
+from .workspace_import import (
+    IMPORT_SHARED_KINDS,
+    WorkspaceImportError,
+    run_workspace_import,
+)
 
 
 def get_aikito_dir() -> Path:
@@ -201,33 +205,40 @@ def cmd_import_workspace(args: argparse.Namespace) -> None:
     plan = run_workspace_import(
         args.source, get_aikito_dir(), Path.home(), dry_run=args.dry_run
     )
-    merged: dict[Path, list[str]] = {}
-    for item in plan.items:
-        if item.action == "MERGE":
-            merged.setdefault(item.resource.relative_path, []).append(
+    # Changes to one shared TOML file are shown as a single file-level line.
+    grouped: dict[Path, list[str]] = {}
+    for item in plan.changes:
+        if item.resource.kind in IMPORT_SHARED_KINDS:
+            grouped.setdefault(item.resource.relative_path, []).append(
                 f"{item.resource.kind}:{item.resource.name}"
             )
-    shown_merges: set[Path] = set()
+    shown: set[Path] = set()
+    counts: Counter[str] = Counter()
     for item in plan.items:
-        if item.action in ("NOOP", "INCLUDED") and not args.verbose:
+        if item.action == "NOOP":
+            if args.verbose:
+                print(
+                    f"[NOOP] {item.resource.relative_path.as_posix()} "
+                    f"({item.resource.kind}:{item.resource.name})"
+                )
             continue
         path = item.resource.relative_path
-        if item.action == "MERGE":
-            if path in shown_merges:
+        identity = f"{item.resource.kind}:{item.resource.name}"
+        action = item.action
+        names = [identity]
+        if path in grouped and action in ("CREATE", "UPDATE"):
+            if path in shown:
                 continue
-            shown_merges.add(path)
+            shown.add(path)
+            action = "UPDATE" if (plan.target / path).exists() else "CREATE"
+            names = grouped[path]
         detail = ""
-        if item.action in ("CONFLICT", "BLOCKED"):
-            identity = f"{item.resource.kind}:{item.resource.name}"
+        if action in ("CONFLICT", "BLOCKED"):
             detail = f" ({identity}): {item.reason}"
         elif args.verbose:
-            names = (
-                merged[path]
-                if item.action == "MERGE"
-                else [f"{item.resource.kind}:{item.resource.name}"]
-            )
             detail = f" ({', '.join(names)})"
-        print(f"[{item.action}] {path.as_posix()}{detail}")
+        counts[action] += 1
+        print(f"[{action}] {path.as_posix()}{detail}")
     if args.verbose:
         for excluded in plan.excluded:
             print(f"[{excluded}]")
@@ -237,10 +248,9 @@ def cmd_import_workspace(args: argparse.Namespace) -> None:
     for finding in plan.findings:
         if finding not in blocked_reasons:
             print(f"[BLOCKED] {finding}", file=sys.stderr)
-    counts = Counter(item.action for item in plan.items)
     summary = ", ".join(
         f"{action} {counts[action]}"
-        for action in ("CREATE", "MERGE", "UPDATE", "CONFLICT", "BLOCKED", "INCLUDED")
+        for action in ("CREATE", "UPDATE", "CONFLICT", "BLOCKED")
     )
     print(f"[SUMMARY] {summary}, SKIPPED {len(plan.excluded)}")
     if plan.blocked:

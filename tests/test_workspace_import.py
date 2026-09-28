@@ -102,7 +102,7 @@ def test_public_import_groups_merges_and_hides_noise(
         )
         args.func(args)
         compact = capsys.readouterr().out
-        assert compact.count("[MERGE] skills.toml") == 1
+        assert compact.count("[UPDATE] skills.toml") == 1
         assert "[NOOP]" not in compact
         assert "[SKIPPED" not in compact
         excluded = build_import_plan(source, target).excluded
@@ -118,7 +118,7 @@ def test_public_import_groups_merges_and_hides_noise(
         )
         verbose_args.func(verbose_args)
     verbose = capsys.readouterr().out
-    assert verbose.count("[MERGE] skills.toml") == 1
+    assert verbose.count("[UPDATE] skills.toml") == 1
     assert "[SKIPPED Source docs]" in verbose
     assert "SKIPPED Target" not in verbose
     assert ".pytest_cache" not in verbose
@@ -309,7 +309,7 @@ def test_project_defaults_and_instruction_template_adopt_source(tmp_path: Path) 
     (project / "AGENTS.md").write_text("# Source instructions\n", encoding="utf-8")
     preview = build_import_plan(source, target)
     assert not preview.blocked
-    assert {item.action for item in preview.items} >= {"MERGE", "UPDATE"}
+    assert {item.action for item in preview.items} >= {"CREATE", "UPDATE"}
     run_workspace_import(source, target, tmp_path / "home", dry_run=False)
     with (target / "projects/demo/agent.toml").open("rb") as stream:
         config = tomllib.load(stream)
@@ -494,7 +494,7 @@ def test_merge_selection_and_project_sets_preserves_other_fields(
         )
     preview = build_import_plan(source, target)
     assert not preview.blocked
-    assert sum(item.action == "MERGE" for item in preview.items) == 3
+    assert len(preview.merges) == 3
     run_workspace_import(source, target, tmp_path / "home", dry_run=False)
     with (target / "skills.toml").open("rb") as stream:
         assert tomllib.load(stream)["skills"] == ["at-target", "from-source"]
@@ -632,7 +632,7 @@ def test_import_merges_named_project_paths(tmp_path: Path) -> None:
 
     plan = build_import_plan(source, target)
     assert not plan.blocked
-    assert any(item.action == "MERGE" for item in plan.items)
+    assert any(item.resource.kind == "project-path" for item in plan.merges)
     run_workspace_import(source, target, tmp_path / "home", dry_run=False)
     with (target / "projects/demo/agent.toml").open("rb") as stream:
         paths = tomllib.load(stream)["paths"]
@@ -653,9 +653,7 @@ def test_project_path_merge_keeps_distinct_raw_values(tmp_path: Path) -> None:
         paths = tomllib.load(stream)["paths"]
     assert set(paths) == {"~/same", str(Path.home() / "same")}
     assert not build_import_plan(source, target).blocked
-    assert all(
-        item.action != "MERGE" for item in build_import_plan(source, target).items
-    )
+    assert not build_import_plan(source, target).changes
 
 
 def test_import_rolls_back_merged_lists_and_created_file(tmp_path: Path) -> None:
@@ -702,8 +700,8 @@ def test_second_batch_adopts_agent_config_and_global_templates(tmp_path: Path) -
     )
     preview = build_import_plan(source, target)
     assert not preview.blocked
-    assert sum(item.action == "UPDATE" for item in preview.items) >= 2
-    assert sum(item.action == "MERGE" for item in preview.items) >= 2
+    assert sum(item.action == "UPDATE" for item in preview.items) >= 4
+    assert len(preview.merges) >= 2
     run_workspace_import(source, target, tmp_path / "home", dry_run=False)
     assert (target / "agents/codex.toml").read_text(encoding="utf-8") == custom_agent
     assert (target / "global/AGENTS.md").read_text(

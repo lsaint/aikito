@@ -16,7 +16,7 @@ from .diagnostics import Finding
 from .init import is_recognized_workspace
 from .skill_state import WorkspaceWriterLock
 from .templating import BUNDLED_SKILL_NAMES
-from .workspace_import_decisions import SET_KINDS, decide_resource
+from .workspace_import_decisions import decide_resource
 from .workspace_import_render import render_merged_files
 from .workspace_core import (
     Change,
@@ -48,29 +48,33 @@ def _source_migration_command(source: Path) -> str:
     return f"AIKITO_DIR={shlex.quote(str(source))} aikito migrate workspace-resources"
 
 
-_SUPPORTED = frozenset(
-    {
-        "memory",
-        "project-memory",
-        "skill",
-        "inbox",
-        "skill-selection",
-        "subagent",
-        "mcp",
-        "project",
-        "project-path",
-        "project-skill",
-        "project-instructions",
-        "agent",
-        "config",
-        "global-instructions",
-    }
-)
-_FILE_KINDS = {
-    "project-memory": "memory",
-    "project": "project-config",
+# Resources stored as fields or members of a shared TOML file, by file kind.
+IMPORT_SHARED_KINDS = {
     "config": "workspace-config",
+    "skill-selection": "skills-config",
+    "project": "project-config",
+    "project-field": "project-config",
+    "project-path": "project-config",
+    "project-skill": "project-config",
 }
+# Resources stored as one standalone file or directory, by file kind.
+_FILE_KINDS = {
+    "memory": "memory",
+    "project-memory": "memory",
+    "skill": "skill",
+    "inbox": "inbox",
+    "subagent": "subagent",
+    "mcp": "mcp",
+    "agent": "agent",
+    "global-instructions": "global-instructions",
+    "project-instructions": "project-instructions",
+}
+_SUPPORTED = frozenset(IMPORT_SHARED_KINDS) | frozenset(_FILE_KINDS)
+_CHANGES = ("CREATE", "UPDATE")
+
+
+def _physical_kind(kind: str) -> str:
+    return IMPORT_SHARED_KINDS.get(kind) or _FILE_KINDS[kind]
 
 
 @dataclass(frozen=True)
@@ -106,6 +110,31 @@ class ImportPlan:
     @property
     def creates(self) -> tuple[ImportItem, ...]:
         return tuple(item for item in self.items if item.action == "CREATE")
+
+    @property
+    def changes(self) -> tuple[ImportItem, ...]:
+        return tuple(item for item in self.items if item.action in _CHANGES)
+
+    @property
+    def copies(self) -> tuple[Path, ...]:
+        """Target paths replaced by a whole source file or skill directory."""
+        paths = {
+            item.resource.relative_path
+            for item in self.changes
+            if item.resource.kind in _FILE_KINDS
+            or not (self.target / item.resource.relative_path).exists()
+        }
+        return tuple(sorted(paths))
+
+    @property
+    def merges(self) -> tuple[ImportItem, ...]:
+        """Field and member changes rendered into an existing target file."""
+        return tuple(
+            item
+            for item in self.changes
+            if item.resource.kind in IMPORT_SHARED_KINDS
+            and (self.target / item.resource.relative_path).exists()
+        )
 
     @property
     def blocked(self) -> bool:
@@ -160,8 +189,8 @@ def _planned_inbox_prefix(
 ) -> str | None:
     source_field = left.get("config:inbox.path")
     if source_field is not None:
-        action, _ = decide_resource(source_field, right, source, target)
-        if action == "MERGE":
+        action, _ = decide_resource(source_field, right)
+        if action in _CHANGES:
             return _configured_inbox_prefix(source / "config.toml", target)
     return _inbox_prefix(target)
 
@@ -180,7 +209,7 @@ def _missing_references(
 ) -> tuple[str, ...]:
     result = dict(target)
     for item in items:
-        if item.action in ("CREATE", "MERGE", "UPDATE", "INCLUDED"):
+        if item.action in _CHANGES:
             resource = source[f"{item.resource.kind}:{item.resource.name}"]
             result[resource.id] = resource
     findings = set()
@@ -233,20 +262,13 @@ def build_import_plan(source: Path, target: Path) -> ImportPlan:
     for resource in left.resources.values():
         if resource.kind not in _SUPPORTED:
             continue
-        action, reason = decide_resource(resource, right.resources, source, target)
+        action, reason = decide_resource(resource, right.resources)
         destination = _destination_path(resource, target, inbox_prefix)
-        if action in ("CREATE", "MERGE", "UPDATE"):
-            kind = _FILE_KINDS.get(resource.kind, resource.kind)
-            if resource.kind in SET_KINDS:
-                kind = (
-                    "skills-config"
-                    if resource.kind == "skill-selection"
-                    else "project-config"
-                )
+        if action in _CHANGES:
             try:
                 validate_resource_path(
                     destination.as_posix(),
-                    kind,
+                    _physical_kind(resource.kind),
                     _policy(target, destination_prefix=inbox_prefix),
                 )
             except WorkspaceCoreError as exc:
@@ -271,8 +293,7 @@ def build_import_plan(source: Path, target: Path) -> ImportPlan:
     imported_paths = {
         item.resource.source_path.as_posix()
         for item in planned
-        if item.action in ("CREATE", "MERGE", "UPDATE", "INCLUDED")
-        and item.resource.source_path is not None
+        if item.action in _CHANGES and item.resource.source_path is not None
     }
     warnings = tuple(
         finding
@@ -303,7 +324,7 @@ def build_import_plan(source: Path, target: Path) -> ImportPlan:
     )
     if not plan.blocked:
         try:
-            render_merged_files(plan)
+            render_merged_files(plan.source, plan.target, plan.merges)
         except (WorkspaceImportError, OSError, ValueError) as exc:
             message = (
                 str(exc)
@@ -364,60 +385,26 @@ def apply_import_plan(plan: ImportPlan, home: Path) -> None:
             )
         with tempfile.TemporaryDirectory(prefix="aikito-import-") as staging:
             staging_root = Path(staging)
-            changes = []
-            for item in plan.creates:
-                resource = item.resource
-                source = plan.source / (resource.source_path or resource.relative_path)
-                kind = _FILE_KINDS.get(resource.kind, resource.kind)
-                changes.append(
-                    Change(
-                        0,
-                        resource.relative_path.as_posix(),
-                        kind,
-                        source,
-                        None,
-                        fingerprint_resource(source, kind),
-                    )
-                )
-            for item in plan.items:
-                if item.action != "UPDATE":
-                    continue
-                resource = item.resource
-                source = plan.source / (resource.source_path or resource.relative_path)
-                target = plan.target / resource.relative_path
-                kind = _FILE_KINDS.get(resource.kind, resource.kind)
-                changes.append(
-                    Change(
-                        0,
-                        resource.relative_path.as_posix(),
-                        kind,
-                        source,
-                        fingerprint_resource(target, kind),
-                        fingerprint_resource(source, kind),
-                    )
-                )
-            for relative, content in render_merged_files(plan).items():
+            kinds = {
+                item.resource.relative_path: _physical_kind(item.resource.kind)
+                for item in plan.changes
+            }
+            sources = {
+                item.resource.relative_path: plan.source
+                / (item.resource.source_path or item.resource.relative_path)
+                for item in plan.changes
+            }
+            changes = [
+                _change(relative, kinds[relative], sources[relative], plan.target)
+                for relative in plan.copies
+            ]
+            merged = render_merged_files(plan.source, plan.target, plan.merges)
+            for relative, content in merged.items():
                 generated = staging_root / relative
                 generated.parent.mkdir(parents=True, exist_ok=True)
                 generated.write_text(content, encoding="utf-8")
-                kind = (
-                    "skills-config"
-                    if relative == Path("skills.toml")
-                    else "workspace-config"
-                    if relative == Path("config.toml")
-                    else "project-config"
-                )
                 changes.append(
-                    Change(
-                        0,
-                        relative.as_posix(),
-                        kind,
-                        generated,
-                        fingerprint_resource(plan.target / relative, kind)
-                        if (plan.target / relative).exists()
-                        else None,
-                        fingerprint_resource(generated, kind),
-                    )
+                    _change(relative, kinds[relative], generated, plan.target)
                 )
             if changes:
                 try:
@@ -430,6 +417,18 @@ def apply_import_plan(plan: ImportPlan, home: Path) -> None:
                     )
                 except WorkspaceCoreError as exc:
                     raise WorkspaceImportError(str(exc)) from exc
+
+
+def _change(relative: Path, kind: str, source: Path, target: Path) -> Change:
+    current = target / relative
+    return Change(
+        0,
+        relative.as_posix(),
+        kind,
+        source,
+        fingerprint_resource(current, kind) if current.exists() else None,
+        fingerprint_resource(source, kind),
+    )
 
 
 def run_workspace_import(

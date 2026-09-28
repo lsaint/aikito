@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- `aikito import workspace` reports each changed file as `CREATE` or `UPDATE`; the `MERGE` and `INCLUDED` actions are gone, and `--verbose` lists the resource IDs behind each file.
+- A target project whose instructions or `sync_mode` were customized is now kept when the source still has the template, instead of reporting a conflict.
+
+### Fixed
+
+- Resources left at a template shipped by an earlier Aikito version are no longer treated as customized, so importing them no longer reports false conflicts.
+
 ## [1.54.0] - 2026-09-26
 
 ### Added

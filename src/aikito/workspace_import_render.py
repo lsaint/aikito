@@ -8,15 +8,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .add import format_toml_key, format_toml_value, update_skills_in_toml
-from .project_config import (
-    DEFAULT_PROJECT_SYNC_MODE,
-    add_candidate_path_to_content,
-    get_project_candidate_paths,
-)
-from .workspace_import_decisions import ABSENT, nested_value, project_field_changes
+from .project_config import add_candidate_path_to_content, get_project_candidate_paths
 
 if TYPE_CHECKING:
-    from .workspace_import import ImportPlan
+    from .workspace_import import ImportItem
 
 
 def _list_field(root: Path, relative: Path, key: str) -> list[str]:
@@ -35,30 +30,8 @@ def _project_paths(root: Path, relative: Path) -> list[str]:
     return [raw for _, raw in get_project_candidate_paths(document)]
 
 
-def _adopt_project_fields(text: str, updates: dict[str, object]) -> str:
-    additions = []
-    for key, value in updates.items():
-        rendered = format_toml_value(value)
-        if key == "sync_mode":
-            match = re.search(
-                rf"(?m)^(sync_mode\s*=\s*)(['\"]{re.escape(DEFAULT_PROJECT_SYNC_MODE)}['\"])(?=\s*(?:#.*)?$)",
-                text,
-            )
-            if match:
-                text = text[: match.start(2)] + rendered + text[match.end(2) :]
-                continue
-        additions.append(f"{format_toml_key(key)} = {rendered}\n")
-    if additions:
-        section = re.search(r"(?m)^\[", text)
-        position = section.start() if section else len(text)
-        prefix = text[:position]
-        separator = "" if not prefix or prefix.endswith("\n") else "\n"
-        text = prefix + separator + "".join(additions) + text[position:]
-    return text
-
-
-def _adopt_config_field(text: str, name: str, value: object) -> str:
-    *sections, key = name.split(".")
+def _adopt_field(text: str, sections: list[str], key: str, value: object) -> str:
+    """Set one TOML field, keeping other fields, comments, and formatting."""
     header = f"[{'.'.join(sections)}]" if sections else ""
     rendered = f"{format_toml_key(key)} = {format_toml_value(value)}"
     lines = text.splitlines(keepends=True)
@@ -86,52 +59,56 @@ def _adopt_config_field(text: str, name: str, value: object) -> str:
                 comment = " #" + lines[index].partition("#")[2].rstrip("\r\n")
             lines[index] = rendered + comment + "\n"
             return "".join(lines)
+    if end and not lines[end - 1].endswith("\n"):
+        lines[end - 1] += "\n"
     lines.insert(end, rendered + "\n")
     return "".join(lines)
 
 
-def render_merged_files(plan: ImportPlan) -> dict[Path, str]:
-    groups: dict[Path, set[str]] = {}
-    for item in plan.items:
-        if item.action == "MERGE":
-            groups.setdefault(item.resource.relative_path, set()).add(
-                item.resource.kind
-            )
+def _nested_value(document: dict, name: str) -> object:
+    current: object = document
+    for part in name.split("."):
+        if not isinstance(current, dict) or part not in current:
+            raise ValueError(f"Missing source configuration field: {name}")
+        current = current[part]
+    return current
+
+
+def render_merged_files(
+    source: Path, target: Path, changes: tuple[ImportItem, ...]
+) -> dict[Path, str]:
+    """Render existing shared TOML files that receive field or member changes."""
+    groups: dict[Path, list[ImportItem]] = {}
+    for item in changes:
+        groups.setdefault(item.resource.relative_path, []).append(item)
     result = {}
-    for relative, kinds in groups.items():
-        target_file = plan.target / relative
-        text = target_file.read_text(encoding="utf-8") if target_file.exists() else ""
-        if "project" in kinds:
-            updates, conflicts = project_field_changes(
-                plan.source / relative, plan.target / relative
-            )
-            if conflicts:
-                raise ValueError(f"Project fields changed: {relative}")
-            text = _adopt_project_fields(text, updates)
-        if "skill-selection" in kinds or "project-skill" in kinds:
+    for relative, items in groups.items():
+        text = (target / relative).read_text(encoding="utf-8")
+        with (source / relative).open("rb") as stream:
+            source_document = tomllib.load(stream)
+        kinds = {item.resource.kind for item in items}
+        for item in items:
+            name = item.resource.name
+            if item.resource.kind == "config":
+                *sections, key = name.split(".")
+                value = _nested_value(source_document, name)
+                text = _adopt_field(text, sections, key, value)
+            elif item.resource.kind == "project-field":
+                key = name.partition("/")[2]
+                text = _adopt_field(text, [], key, source_document[key])
+        if kinds & {"skill-selection", "project-skill"}:
             values = sorted(
-                set(_list_field(plan.source, relative, "skills"))
-                | set(_list_field(plan.target, relative, "skills"))
+                set(_list_field(source, relative, "skills"))
+                | set(_list_field(target, relative, "skills"))
             )
             text = update_skills_in_toml(text, values)
         if "project-path" in kinds:
-            for value in _project_paths(plan.source, relative):
+            for value in _project_paths(source, relative):
                 updated = add_candidate_path_to_content(
                     text, value, Path.home(), match_resolved=False
                 )
                 if updated is not None:
                     text = updated
-        if "config" in kinds:
-            with (plan.source / relative).open("rb") as stream:
-                source_config = tomllib.load(stream)
-            for item in plan.items:
-                if item.action == "MERGE" and item.resource.kind == "config":
-                    value = nested_value(source_config, item.resource.name)
-                    if value is ABSENT:
-                        raise ValueError(
-                            f"Missing source configuration field: {item.resource.name}"
-                        )
-                    text = _adopt_config_field(text, item.resource.name, value)
         try:
             tomllib.loads(text)
         except tomllib.TOMLDecodeError as exc:

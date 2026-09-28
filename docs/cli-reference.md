@@ -78,8 +78,9 @@ aikito import workspace /path/to/source-workspace
 The importer creates missing projects from their canonical workspace files;
 their code directories may be cloned and synchronized later. A conflict blocks
 the whole import. The source workspace is read only. The default output lists
-changes and blockers with a summary; `--verbose` also lists unchanged, included,
-and skipped source items. After importing, preview runtime synchronization with
+one `CREATE` or `UPDATE` line per changed file and blockers with a summary;
+`--verbose` adds the affected resource IDs and lists unchanged and skipped
+source items. After importing, preview runtime synchronization with
 `aikito sync --dry-run`, bind any offline project with
 `aikito sync project <name> <path>`, and review the workspace with `aikito git`.
 

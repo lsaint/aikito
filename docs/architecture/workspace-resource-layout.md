@@ -129,11 +129,13 @@ created in the target workspace without requiring a local code checkout. Skill
 selections and project paths/skills merge by member. Project configuration
 adopts source fields when the target field is absent or still at its init
 default; an unmodified project instructions template is replaced by the source.
-Other differing resources conflict. Preview validates references against the
+A customized target is kept when the source is still at a template. Other
+differing resources conflict. Preview validates references against the
 whole result, reports managed-area findings together, and treats possible
 plaintext credentials as warnings. The source workspace is never modified.
-Agent definitions, workspace configuration, and global instructions use their
-bundled templates as the comparison baseline. A target still at the template
+Agent definitions, workspace configuration, global instructions, project
+instructions, and the project `sync_mode` use their bundled templates as the
+comparison baseline, including every earlier shipped version of a template. A target still at the template
 adopts a changed source; a customized target is retained when the source still
 matches the template. Independently changed values conflict. TOML field merges
 retain unrelated target fields and comments.

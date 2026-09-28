@@ -250,7 +250,9 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         "--dry-run", action="store_true", help="Preview actions without writing"
     )
     p_import_workspace.add_argument(
-        "--verbose", action="store_true", help="Show no-op, included, and skipped items"
+        "--verbose",
+        action="store_true",
+        help="Show resource IDs, no-op, and skipped items",
     )
     p_import_workspace.set_defaults(func=cmd_import_workspace)
 

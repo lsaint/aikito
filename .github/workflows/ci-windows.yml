@@ -152,6 +152,8 @@ jobs:
           $importVerbose = python -m aikito import workspace (Join-Path $importBase "source") --dry-run --verbose
           if ($LASTEXITCODE -ne 0) { throw "Verbose workspace import dry run failed" }
           $importVerbose | Select-String "\[SUMMARY\]"
+          if (-not ($importVerbose | Select-String -SimpleMatch "[UPDATE] skills.toml (skill-selection:import-smoke)")) { throw "Import did not group skills.toml" }
+          if ($importVerbose | Select-String -SimpleMatch "[MERGE]") { throw "Import still reports MERGE" }
           if (Test-Path (Join-Path $importBase "target\inbox\deep\import-smoke.md")) { throw "Dry run wrote inbox note" }
           python -m aikito import workspace (Join-Path $importBase "source")
           if ($LASTEXITCODE -ne 0) { throw "Workspace import failed" }

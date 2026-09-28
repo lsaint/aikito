@@ -202,6 +202,8 @@ jobs:
           AIKITO_DIR="$BASE/target" python3 -m aikito import workspace "$BASE/source" --dry-run
           AIKITO_DIR="$BASE/target" python3 -m aikito import workspace "$BASE/source" --dry-run --verbose > "$BASE/import-verbose.out"
           grep -F "[SUMMARY]" "$BASE/import-verbose.out"
+          grep -F "[UPDATE] skills.toml (skill-selection:import-smoke)" "$BASE/import-verbose.out"
+          ! grep -F "[MERGE]" "$BASE/import-verbose.out"
           test ! -f "$BASE/target/inbox/deep/import-smoke.md"
           AIKITO_DIR="$BASE/target" python3 -m aikito import workspace "$BASE/source"
           test -f "$BASE/target/inbox/deep/import-smoke.md"

@@ -267,6 +267,7 @@ class _Scanner:
             "subagent": "subagent",
             "mcp": "mcp",
             "project": "project-config",
+            "project-field": "project-config",
             "project-instructions": "project-instructions",
             "config": "workspace-config",
             "global-instructions": "global-instructions",
@@ -451,7 +452,15 @@ def _scan_project(scanner: _Scanner, project: Path) -> None:
         fields = {
             key: val for key, val in config.items() if key not in _PROJECT_SET_FIELDS
         }
-        scanner.add("project", name, value_fingerprint(fields), part)
+        scanner.add("project", name, "", part)
+        for key, value in sorted(fields.items()):
+            scanner.add(
+                "project-field",
+                f"{name}/{key}",
+                value_fingerprint(value),
+                part,
+                (f"project:{name}",),
+            )
         paths, skills = _project_members(config)
         for path in paths:
             scanner.add(
