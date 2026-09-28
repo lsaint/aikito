@@ -210,7 +210,12 @@ def resource_kind_for_path(path: str, *, inbox_prefix: str = "") -> str | None:
 
 def value_fingerprint(value: Any) -> str:
     """Fingerprint a parsed TOML value independently of its formatting."""
-    encoded = json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
+    encoded = json.dumps(
+        value,
+        sort_keys=True,
+        ensure_ascii=False,
+        default=lambda item: {"toml-type": type(item).__name__, "value": str(item)},
+    )
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
@@ -240,6 +245,45 @@ def fingerprint_resource(path: Path, kind: str) -> str:
     if result is None or scanner.findings:
         raise WorkspaceResourceError(f"Cannot fingerprint resource: {path}")
     return result
+
+
+def inspect_resource_content(
+    resource: Resource, path: Path
+) -> tuple[str, tuple[str, ...]]:
+    """Inspect a standalone payload with the same semantics as its scanner."""
+    try:
+        if resource.kind not in {"agent", "mcp", "subagent"}:
+            if resource.kind == "skill" and _entry_type(path / "SKILL.md") != "file":
+                raise ValueError("Skill lacks a regular SKILL.md")
+            return fingerprint_resource(
+                path, physical_kind(resource.kind)
+            ), resource.references
+        if _entry_type(path) != "file":
+            raise ValueError("Expected a regular file")
+        if resource.kind == "subagent":
+            metadata, body = parse_subagent_file(path)
+            return value_fingerprint(
+                {
+                    "instructions": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+                    "table": metadata,
+                }
+            ), _agent_references(metadata)
+        document = tomllib.loads(path.read_text(encoding="utf-8"))
+        if resource.kind == "mcp":
+            return value_fingerprint(document), _agent_references(document)
+        agents = document.get("agents")
+        if (
+            set(document) != {"agents"}
+            or not isinstance(agents, dict)
+            or set(agents) != {resource.name}
+            or not isinstance(agents[resource.name], dict)
+        ):
+            raise ValueError("Agent file must define its matching table only")
+        return value_fingerprint(agents[resource.name]), ()
+    except (OSError, ValueError, WorkspaceLayoutError) as exc:
+        raise WorkspaceResourceError(
+            f"Invalid resource content: {resource.id}"
+        ) from exc
 
 
 def is_ignored_name(name: str) -> bool:
@@ -302,6 +346,11 @@ class _Scanner:
             )
             return
         resource = Resource(kind, name, fingerprint, parts, references)
+        if resource.id in self.resources:
+            self.error(
+                "duplicate-resource", "Ambiguous resource ID", self.root / parts[0].path
+            )
+            return
         self.resources[resource.id] = resource
 
     def directory(self, path: Path, *, optional: bool = False) -> bool:
@@ -382,7 +431,9 @@ def _scan_markdown_file(scanner: _Scanner, path: Path, kind: str, name: str) -> 
     digest = scanner.file_digest(path)
     if digest is not None:
         references = (
-            (f"project:{name.partition('/')[0]}",) if kind == "project-memory" else ()
+            (f"project:{name.partition('/')[0]}",)
+            if kind in {"project-memory", "project-instructions"}
+            else ()
         )
         scanner.add(kind, name, digest, (ResourcePart(scanner.rel(path)),), references)
 
@@ -420,12 +471,28 @@ def _project_members(config: dict[str, Any]) -> tuple[list[str], list[str]]:
     return sorted(set(paths)), sorted(set(_string_members(config.get("skills"))))
 
 
+def _empty_project_tree(project: Path) -> bool:
+    """Allow only the empty managed directories left by resource deletion."""
+    allowed = {"memory", "memory/notes"}
+    for path in project.rglob("*"):
+        if is_ignored_name(path.name) and _entry_type(path) == "file":
+            continue
+        if (
+            path.relative_to(project).as_posix() not in allowed
+            or _entry_type(path) != "directory"
+        ):
+            return False
+    return True
+
+
 def _scan_project(scanner: _Scanner, project: Path) -> None:
     name = project.name
     if _validate_project_name(name):
         scanner.unsupported(project)
         return
     config_path = project / "agent.toml"
+    if _entry_type(config_path) == "missing" and _empty_project_tree(project):
+        return
     config = scanner.toml(config_path)
     if config is not None:
         if (

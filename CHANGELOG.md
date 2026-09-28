@@ -13,7 +13,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - Reconciliation uses logical resource IDs and the shared three-way comparator. Safe resources advance independently while conflicts keep their previous base; the old internal two-workspace baseline format is rejected.
-- The shared resource writer supports standalone deletion and content supplied by resource ID, including content stored outside a source workspace.
+- Internal reconciliation covers inbox notes, instructions, Agent/MCP/subagent definitions, workspace preferences, project fields, path candidates, and skill selections. Each replica retains its own inbox path; bundled skill contents and generated runtime resources remain excluded.
+- Shared TOML reconciliation composes field and set-member additions/deletions in one recoverable file write. The center stores accepted typed values rather than whole configuration files, so credential-blocked fields stay outside the accepted batch.
+- Resource center manifests use version 2 with typed values and references; version 1 manifests remain readable and upgrade on accepted writes. The shared writer accepts content by resource ID, independently of a source workspace layout.
 
 ## [1.55.0] - 2026-09-28
 

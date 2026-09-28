@@ -170,21 +170,39 @@ journals still use the caller's path policy.
 
 `workspace_reconcile` connects one workspace replica to a `FilesystemRemote`.
 This remains an internal API and is separate from runtime `aikito sync`.
-Supported kinds are `memory`, `project-memory`, and `skill`; bundled skills,
-configuration, runtime paths, and other resource kinds are excluded.
+Supported kinds are `memory`, `project-memory`, `skill`, `inbox`,
+`global-instructions`, `project-instructions`, `agent`, `mcp`, `subagent`,
+`skill-selection`, `project`, `project-field`, `project-path`, `project-skill`,
+and `config`. Bundled skill contents, `.local`, Git metadata, generated runtime
+entries, and scanner exclusions stay outside reconciliation. Selections of
+bundled skills are shared; their providers come from the installed package.
+
+The host-local configuration exclusion is `config:inbox.path`. Each replica
+keeps its own inbox prefix and receives notes by logical name beneath that
+prefix; the center uses `inbox/`. An inbox outside the workspace blocks inbox
+reconciliation, including absence-based deletion. Shared preferences such as
+`memory.stale_days` and `update.check` participate. Project path candidates,
+including offline candidates, are set members; runtime sync still decides
+which path is available locally.
 
 The resource center is an initially empty directory, not another workspace.
 It stores canonical resource content and a manifest at
 `.local/state/aikito/workspace-reconcile/remote.json`. The manifest contains
-`sync_id`, a monotonic `generation`, and fingerprints keyed by logical resource
-ID. Content is supplied to the writer by ID, so the source content location
-does not need to match a workspace layout. Physical storage paths are validated
+`sync_id`, a monotonic `generation`, and fingerprints and references keyed by
+logical resource ID. Version 2 also stores typed TOML field payloads, retaining
+actual key components and values through a TOML encoding. Shared config and
+project files are not copied to the center: only accepted fields and collection
+members enter its manifest. Version 1 centers remain readable and upgrade on
+an accepted write; their project notes require a project provider before that
+upgrade can commit. Content is supplied to the writer by ID, so the source
+content location does not need to match a workspace layout. Physical storage paths are validated
 implementation details rather than persisted comparison identities.
 
 Each replica keeps `.local/state/aikito/workspace-reconcile/replica.json` with
 its `sync_id`, `replica_id`, confirmed generation, and a per-resource base.
-Neither state format persists workspace paths. Completed replicas and centers
-may be moved without changing identity. Moving an unfinished transaction is
+Replica and center root locations are not comparison identities; project path
+candidates remain logical resource data. Completed replicas and centers may be
+moved without changing identity. Moving an unfinished transaction is
 not supported because recovery journals bind their original destinations.
 The old internal `baseline.json` is rejected explicitly; it is not migrated.
 
@@ -197,16 +215,28 @@ deletions; they do not bypass references or credential checks.
 
 The safe subset commits while conflicts and credential-blocked uploads retain
 their old base. Reference checks include preserved local resources: a skill
-cannot be deleted if a local selection would lose its provider. Project memory
-requires an existing local project configuration; the center stores its notes
-without carrying project configuration. A replica missing that project reports
-a reference conflict until the project is registered locally.
+cannot be deleted if a preserved selection would lose its provider. Project
+memory and instructions reference their project; MCP and subagent definitions
+reference Agents. New projects and their dependents can arrive together.
+Deleting a project cannot orphan preserved instructions, notes, fields, path
+candidates, or selected skills. Broken existing local references block the
+round; changes that would break otherwise valid references become conflicts.
+
+Scalar/table field overlaps are reported as preview conflicts rather than
+producing an invalid merged document. Shared TOML fields and collection
+additions/deletions are composed into one physical write per file. Rendering
+retains unrelated typed values and standalone comment lines, but may reformat tables and discard inline comments. Import
+continues using its existing renderer. Deleting every project resource removes
+its `agent.toml`; empty managed memory directories left behind are ignored.
+Unmanaged entries and unsafe paths still produce findings.
 
 Center writers share a cross-process lock. A batch is accepted only if its
 expected center identity, generation, and resource snapshot still match.
 All resource replacements, deletions, and the incremented generation use one
 transaction, verified before confirmation. Possible plaintext credentials are
-blocked before upload, including content supplied outside a workspace.
+blocked per logical payload before upload, including content supplied outside
+a workspace. A secret in one shared field does not prevent safe fields in the
+same file from advancing; blocked values never enter the center or replica base.
 
 Center and replica commits are separate atomic transactions. Center uploads
 commit first, then the replica commits downloads and its new base together.

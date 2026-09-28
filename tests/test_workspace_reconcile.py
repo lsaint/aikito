@@ -195,7 +195,7 @@ def test_paths_do_not_define_replica_or_center_identity(tmp_path):
     assert (center / "memory/notes/a.md").read_text() == "moved"
 
 
-def test_project_memory_needs_local_project_but_center_does_not(tmp_path):
+def test_project_memory_creates_local_project_without_workspace_center(tmp_path):
     a, remote, home = _pair(tmp_path)
     notes = a / "projects/demo/memory/notes"
     notes.mkdir(parents=True)
@@ -206,13 +206,9 @@ def test_project_memory_needs_local_project_but_center_does_not(tmp_path):
     assert not (remote.root / "projects/demo/agent.toml").exists()
     b = _workspace(tmp_path / "b")
     plan = _round(b, remote, home)
-    assert [i.id for i in plan.conflicts] == ["project-memory:demo/notes/a.md"]
-    assert "project:demo" in plan.conflicts[0].reason
-    assert not (b / "projects/demo").exists()
+    assert not plan.conflicts
+    assert (b / "projects/demo/agent.toml").is_file()
     assert (b / "memory/notes/safe.md").read_text() == "safe"
-    (b / "projects/demo").mkdir()
-    (b / "projects/demo/agent.toml").write_text('name = "demo"\n')
-    _round(b, remote, home)
     assert (b / "projects/demo/memory/notes/a.md").read_text() == "project"
     (b / "projects/demo/memory/notes/a.md").write_text("updated")
     _round(b, remote, home)
@@ -260,7 +256,7 @@ def test_skill_deletion_cannot_break_local_selection(tmp_path):
     _round(a, remote, home)
     _write(b, "safe", "safe")
     plan = _round(b, remote, home)
-    assert [i.id for i in plan.conflicts] == ["skill:review"]
+    assert {i.id for i in plan.conflicts} == {"skill:review", "skill-selection:review"}
     assert (b / "skills/review/SKILL.md").exists()
     assert "skill:review" in _state(b)["base"]
     assert (remote.root / "memory/notes/safe.md").exists()

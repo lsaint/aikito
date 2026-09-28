@@ -108,7 +108,11 @@ from provider deletion. Global snapshot findings stop the round. Center and
 replica commits are individually atomic: if the replica fails after a center
 upload, its base stays unchanged and the next round can continue. See the
 [resource reconciliation contract](architecture/workspace-resource-layout.md#internal-resource-reconciliation)
-for state, recovery, and supported resource boundaries.
+for state, recovery, and supported resource boundaries. Host-local
+`config:inbox.path` is excluded, and notes use each replica's inbox prefix.
+Shared TOML is transmitted as accepted logical values, with reference checks
+protecting project and Agent dependents. Shared files may be reformatted when
+reconciled; unrelated field values are preserved.
 
 The response depends on the resource and command. A matching file alone does
 not prove that Aikito owns it.

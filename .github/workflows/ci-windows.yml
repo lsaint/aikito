@@ -142,6 +142,15 @@ jobs:
           $reconcileBase = Join-Path $env:RUNNER_TEMP "reconcile-smoke"
           python tests/workspace_reconcile_smoke.py "$reconcileBase"
           if ($LASTEXITCODE -ne 0) { throw "Resource reconciliation smoke failed" }
+          $expandedBase = Join-Path $env:RUNNER_TEMP "expanded-reconcile-smoke"
+          python tests/workspace_reconcile_resources_smoke.py "$expandedBase"
+          if ($LASTEXITCODE -ne 0) { throw "Expanded resource reconciliation smoke failed" }
+          foreach ($relative in @("right/capture-b/deep/note.md", "right/global/AGENTS.md", "right/projects/demo/AGENTS.md", "right/agents/custom.toml", "right/mcps/docs.toml", "right/subagents/review.md", "right/config.toml", "right/skills.toml", "right/projects/demo/agent.toml")) {
+            if (-not (Test-Path (Join-Path $expandedBase $relative) -PathType Leaf)) { throw "Missing expanded resource: $relative" }
+          }
+          foreach ($relative in @("right/capture-b/deleted.md", "right/agents/deleted.toml", "right/mcps/deleted.toml", "right/subagents/deleted.md", "right/projects/retired/agent.toml", "right/projects/retired/AGENTS.md", "center/config.toml", "center/projects/demo/agent.toml", "left/.local/state/aikito/workspace-transactions/pending.json")) {
+            if (Test-Path (Join-Path $expandedBase $relative)) { throw "Unexpected expanded resource: $relative" }
+          }
           foreach ($relative in @("right\memory\notes\reconcile-smoke.md", "right\projects\demo\memory\notes\reconcile-smoke.md", "right\skills\reconcile-smoke\SKILL.md", "right\memory\notes\recovered.md", "right\memory\notes\relocated.md", "right\.local\state\aikito\workspace-reconcile\replica.json", "moved-left\.local\state\aikito\workspace-reconcile\replica.json", "moved-center\.local\state\aikito\workspace-reconcile\remote.json")) {
             if (-not (Test-Path (Join-Path $reconcileBase $relative))) { throw "Missing reconciled resource: $relative" }
           }

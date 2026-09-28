@@ -11,12 +11,12 @@ import json
 import tempfile
 import threading
 import uuid
-from shutil import copy2, copytree
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Iterator
 
+from .templating import BUNDLED_SKILL_NAMES
 from .compat import is_windows, secure_directory_permissions, secure_file_permissions
 from .workspace_core import (
     PathPolicy,
@@ -27,22 +27,29 @@ from .workspace_core import (
     has_pending,
     recover,
     validate_resource_path,
-    version_at,
 )
 from .workspace_resource_write import (
     ResourceContent,
     ResourceWrite,
     prepare_resource_writes,
+    credential_resources,
+    missing_references,
+    toml_conflicts,
     verify_resource_snapshot,
 )
 from .workspace_resources import (
     Resource,
     ResourcePart,
+    WorkspaceResourceError,
     WorkspaceSnapshot,
     is_ignored_name,
     physical_kind,
-    scan_credentials,
+    is_shared_resource,
+    inspect_resource_content,
+    value_fingerprint,
 )
+
+from .workspace_toml_render import TomlValue
 
 if is_windows():
     import msvcrt
@@ -50,10 +57,31 @@ else:
     import fcntl
 
 
-SYNC_KINDS = frozenset({"memory", "project-memory", "skill"})
+SYNC_KINDS = frozenset(
+    {
+        "memory",
+        "project-memory",
+        "skill",
+        "inbox",
+        "global-instructions",
+        "project-instructions",
+        "agent",
+        "mcp",
+        "subagent",
+        "skill-selection",
+        "project",
+        "project-field",
+        "project-path",
+        "project-skill",
+        "config",
+    }
+)
+LOCAL_CONFIG = frozenset({"inbox.path"})
 REMOTE_STATE = ".local/state/aikito/workspace-reconcile/remote.json"
 REPLICA_STATE = ".local/state/aikito/workspace-reconcile/replica.json"
-RECONCILE_POLICY = PathPolicy(states=(REMOTE_STATE, REPLICA_STATE), create_parents=True)
+RECONCILE_POLICY = PathPolicy(
+    states=(REMOTE_STATE, REPLICA_STATE), create_parents=True, inbox_prefix="inbox"
+)
 
 
 def state_path(root: Path, relative: str, *, create: bool = False) -> Path:
@@ -77,39 +105,93 @@ def state_path(root: Path, relative: str, *, create: bool = False) -> Path:
 
 
 def resource_for_id(identity: str, fingerprint: str) -> Resource:
-    """Decode supported IDs using their canonical, validated storage paths."""
+    """Decode logical IDs without treating set members as physical paths."""
     kind, separator, name = identity.partition(":")
     if not separator or not name or kind not in SYNC_KINDS:
         raise WorkspaceCoreError(f"Unsupported resource ID: {identity}")
     references = ()
-    if kind == "project-memory":
-        project, separator, note = name.partition("/")
-        if not separator:
+    table = ""
+    project, _, member = name.partition("/")
+    if kind == "project" and "/" in name:
+        raise WorkspaceCoreError(f"Invalid resource ID: {identity}")
+    if kind == "project-field" and member in {"path", "paths", "skills"}:
+        raise WorkspaceCoreError(f"Invalid project field ID: {identity}")
+    if kind == "config":
+        if name in LOCAL_CONFIG:
+            raise WorkspaceCoreError(f"Host-local resource ID: {identity}")
+        path, table = "config.toml", name.rpartition(".")[0]
+    elif kind == "skill-selection":
+        path = "skills.toml"
+        references = (f"skill:{name}",)
+    elif kind in {"project", "project-field", "project-path", "project-skill"}:
+        if kind != "project" and not member:
             raise WorkspaceCoreError(f"Invalid resource ID: {identity}")
-        path = f"projects/{project}/memory/{note}"
+        path = f"projects/{project}/agent.toml"
+        if kind != "project":
+            references = (f"project:{project}",)
+        if kind == "project-skill":
+            references += (f"skill:{member}",)
+    elif kind == "project-memory":
+        if not member:
+            raise WorkspaceCoreError(f"Invalid resource ID: {identity}")
+        path = f"projects/{project}/memory/{member}"
         references = (f"project:{project}",)
+    elif kind == "project-instructions":
+        path = f"projects/{name}/AGENTS.md"
+        references = (f"project:{name}",)
+    elif kind == "global-instructions":
+        if name != "AGENTS.md":
+            raise WorkspaceCoreError(f"Invalid resource ID: {identity}")
+        path = "global/AGENTS.md"
+    elif kind in {"agent", "mcp", "subagent"}:
+        area = {"agent": "agents", "mcp": "mcps", "subagent": "subagents"}[kind]
+        suffix = "md" if kind == "subagent" else "toml"
+        path = f"{area}/{name}.{suffix}"
     else:
-        path = f"{'skills' if kind == 'skill' else 'memory'}/{name}"
-    validate_resource_path(path, physical_kind(kind))
+        area = {"skill": "skills", "memory": "memory", "inbox": "inbox"}[kind]
+        path = f"{area}/{name}"
+    validate_resource_path(path, physical_kind(kind), RECONCILE_POLICY)
     if any(is_ignored_name(part) for part in Path(path).parts):
         raise WorkspaceCoreError(f"Excluded resource ID: {identity}")
-    if (kind == "skill" and len(Path(path).parts) != 2) or (
-        kind != "skill" and not path.endswith(".md")
-    ):
-        raise WorkspaceCoreError(f"Invalid resource ID: {identity}")
-    if (
-        not isinstance(fingerprint, str)
-        or len(fingerprint) != 64
+    empty = kind in {"project", "project-path", "project-skill", "skill-selection"}
+    if not isinstance(fingerprint, str) or (
+        fingerprint != ""
+        if empty
+        else len(fingerprint) != 64
         or any(char not in "0123456789abcdef" for char in fingerprint)
     ):
         raise WorkspaceCoreError(f"Invalid resource fingerprint: {identity}")
-    return Resource(kind, name, fingerprint, (ResourcePart(path),), references)
+    # Bundled skills are virtual providers and never center content.
+    references = tuple(
+        reference
+        for reference in references
+        if not (reference.startswith("skill:") and reference[6:] in BUNDLED_SKILL_NAMES)
+    )
+    return Resource(kind, name, fingerprint, (ResourcePart(path, table),), references)
 
 
 def decode_resources(raw: object) -> dict[str, Resource]:
     if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
         raise WorkspaceCoreError("Invalid resource state")
-    return {key: resource_for_id(key, value) for key, value in raw.items()}
+    resources = {}
+    for key, value in raw.items():
+        resource = resource_for_id(
+            key, value.get("fingerprint") if isinstance(value, dict) else value
+        )
+        if isinstance(value, dict):
+            references = value.get("references")
+            if not isinstance(references, list) or any(
+                not isinstance(ref, str) for ref in references
+            ):
+                raise WorkspaceCoreError("Invalid resource references")
+            if (
+                resource.kind not in {"mcp", "subagent"}
+                and tuple(references) != resource.references
+            ):
+                raise WorkspaceCoreError("Invalid resource references")
+            resource = replace(resource, references=tuple(references))
+        resources[key] = resource
+    return resources
 
 
 def encode_resources(resources: dict[str, Resource]) -> dict[str, str]:
@@ -124,21 +206,12 @@ def valid_identity(value: object) -> bool:
     )
 
 
-def external_projects(resources: dict[str, Resource]) -> frozenset[str]:
-    # Project configuration remains local until that resource kind is supported.
-    return frozenset(
-        reference
-        for resource in resources.values()
-        for reference in resource.references
-        if reference.startswith("project:")
-    )
-
-
 @dataclass(frozen=True)
 class RemoteSnapshot:
     sync_id: str
     generation: int
     resources: dict[str, Resource]
+    values: dict[str, TomlValue] = field(default_factory=dict)
 
 
 class FilesystemRemote:
@@ -208,16 +281,75 @@ class FilesystemRemote:
     def encode(snapshot: RemoteSnapshot) -> str:
         return json.dumps(
             {
-                "version": 1,
+                "version": 2,
                 "sync_id": snapshot.sync_id,
                 "generation": snapshot.generation,
-                "resources": encode_resources(snapshot.resources),
+                "resources": {
+                    key: {
+                        "fingerprint": resource.fingerprint,
+                        "references": list(resource.references),
+                    }
+                    for key, resource in sorted(snapshot.resources.items())
+                },
+                "values": {
+                    key: value.encode()
+                    for key, value in sorted(snapshot.values.items())
+                },
             },
             sort_keys=True,
         )
 
-    def verify_contents(self, resources: dict[str, Resource]) -> WorkspaceSnapshot:
-        paths = {resource.parts[0].path for resource in resources.values()}
+    def verify_contents(
+        self,
+        resources: dict[str, Resource],
+        values: dict[str, TomlValue] | None = None,
+        *,
+        legacy: bool = False,
+    ) -> WorkspaceSnapshot:
+        values = values or {}
+        scalar_ids = {
+            key
+            for key, resource in resources.items()
+            if resource.kind in {"config", "project-field"}
+        }
+        if set(values) != scalar_ids:
+            raise WorkspaceCoreError("Invalid center field values")
+        for key, value in values.items():
+            resource = resources[key]
+            valid_path = (
+                ".".join(value.path) == resource.name
+                if resource.kind == "config"
+                else value.path == (resource.name.partition("/")[2],)
+            )
+            if (
+                not valid_path
+                or (resource.kind == "config" and isinstance(value.value, dict))
+                or value_fingerprint(value.value) != resource.fingerprint
+            ):
+                raise WorkspaceCoreError(f"Invalid center field value: {key}")
+        payload = ResourceContent(resources, {}, values=values)
+        if toml_conflicts(payload, ResourceContent({}, {}), set(values), set()):
+            raise WorkspaceCoreError("Overlapping center configuration fields")
+        allowed = {
+            "memory",
+            "projects",
+            "inbox",
+            "global",
+            "agents",
+            "subagents",
+            "mcps",
+            "skills",
+            ".local",
+            ".git",
+        }
+        for path in self.root.iterdir():
+            if not is_ignored_name(path.name) and path.name not in allowed:
+                raise WorkspaceCoreError(f"Unmanaged center content: {path}")
+        paths = {
+            resource.parts[0].path
+            for resource in resources.values()
+            if not is_shared_resource(resource.kind)
+        }
 
         def check_files(directory: Path) -> None:
             kind = entry_type(directory)
@@ -239,8 +371,16 @@ class FilesystemRemote:
                         f"Unmanaged or unsafe center content: {child}"
                     )
 
-        check_files(self.root / "memory")
-        check_files(self.root / "projects")
+        for area in (
+            "memory",
+            "projects",
+            "inbox",
+            "global",
+            "agents",
+            "subagents",
+            "mcps",
+        ):
+            check_files(self.root / area)
         skills = self.root / "skills"
         if entry_type(skills) not in ("missing", "directory"):
             raise WorkspaceCoreError("Unsafe center skills directory")
@@ -254,22 +394,30 @@ class FilesystemRemote:
                         f"Unmanaged or unsafe center content: {child}"
                     )
         for resource in resources.values():
-            if (
-                resource.kind == "skill"
-                and entry_type(self.root / resource.parts[0].path / "SKILL.md")
-                != "file"
-            ):
-                raise WorkspaceCoreError(f"Invalid center skill: {resource.id}")
-            version = version_at(
-                self.root,
-                resource.parts[0].path,
-                physical_kind(resource.kind),
-                RECONCILE_POLICY,
-            )
-            if version is None or version.fingerprint != resource.fingerprint:
+            if is_shared_resource(resource.kind):
+                continue
+            try:
+                logical, references = inspect_resource_content(
+                    resource, self.root / resource.parts[0].path
+                )
+            except WorkspaceResourceError as exc:
+                raise WorkspaceCoreError(str(exc)) from exc
+            if logical != resource.fingerprint or references != resource.references:
                 raise WorkspaceCoreError(
                     f"Resource center content changed: {resource.id}"
                 )
+        external = (
+            frozenset(
+                ref
+                for resource in resources.values()
+                for ref in resource.references
+                if ref.startswith("project:")
+            )
+            if legacy
+            else frozenset()
+        )
+        if missing_references(resources, external=external):
+            raise WorkspaceCoreError("Invalid center resource references")
         return WorkspaceSnapshot(self.root, resources, (), ())
 
     def read(self) -> RemoteSnapshot:
@@ -286,17 +434,24 @@ class FilesystemRemote:
         if (
             not isinstance(raw, dict)
             or type(raw.get("version")) is not int
-            or raw.get("version") != 1
+            or raw.get("version") not in (1, 2)
             or not valid_identity(raw.get("sync_id"))
             or type(raw.get("generation")) is not int
             or raw["generation"] < 0
         ):
             raise WorkspaceCoreError("Invalid resource center state")
         resources = decode_resources(raw.get("resources"))
-        self.verify_contents(resources)
+        try:
+            values = {
+                key: TomlValue.decode(value)
+                for key, value in raw.get("values", {}).items()
+            }
+        except (ValueError, AttributeError, TypeError) as exc:
+            raise WorkspaceCoreError("Invalid center field values") from exc
+        self.verify_contents(resources, values, legacy=raw["version"] == 1)
         if path.read_text(encoding="utf-8") != before:
             raise WorkspaceCoreError("Resource center changed during read; run again")
-        return RemoteSnapshot(raw["sync_id"], raw["generation"], resources)
+        return RemoteSnapshot(raw["sync_id"], raw["generation"], resources, values)
 
     def content(self, snapshot: RemoteSnapshot) -> ResourceContent:
         return ResourceContent(
@@ -304,7 +459,9 @@ class FilesystemRemote:
             {
                 key: self.root / resource.parts[0].path
                 for key, resource in snapshot.resources.items()
+                if not is_shared_resource(resource.kind)
             },
+            values=snapshot.values,
         )
 
     def recover(self) -> bool:
@@ -324,49 +481,96 @@ class FilesystemRemote:
                 raise WorkspaceCoreError("Resource center generation changed; replan")
             if not writes:
                 return current
+            resources = dict(current.resources)
+            values = dict(current.values)
+            canonical_content = {}
+            standalone = []
             for write in writes:
-                canonical = resource_for_id(write.id, write.fingerprint or write.before)
-                if write.relative_path != Path(canonical.parts[0].path) or (
-                    write.fingerprint is not None
-                    and content.resources.get(write.id) != canonical
-                ):
+                old = current.resources.get(write.id)
+                if (old.fingerprint if old else None) != write.before:
                     raise WorkspaceCoreError(
-                        f"Invalid resource content metadata: {write.id}"
+                        f"Target changed before writing: {write.id}"
                     )
-            target = WorkspaceSnapshot(self.root, current.resources, (), ())
+                canonical = resource_for_id(
+                    write.id,
+                    write.fingerprint
+                    if write.fingerprint is not None
+                    else write.before,
+                )
+                if write.relative_path != Path(canonical.parts[0].path):
+                    raise WorkspaceCoreError(
+                        f"Invalid resource destination: {write.id}"
+                    )
+                if write.fingerprint is None:
+                    if old is None:
+                        raise WorkspaceCoreError(
+                            f"Missing deleted resource: {write.id}"
+                        )
+                    resources.pop(write.id)
+                    values.pop(write.id, None)
+                else:
+                    source = content.resources.get(write.id)
+                    if (
+                        source is None
+                        or source.id != write.id
+                        or source.fingerprint != write.fingerprint
+                        or (
+                            source.kind not in {"mcp", "subagent"}
+                            and source.references != canonical.references
+                        )
+                    ):
+                        raise WorkspaceCoreError(
+                            f"Invalid resource content metadata: {write.id}"
+                        )
+                    canonical = replace(canonical, references=source.references)
+                    canonical_content[write.id] = canonical
+                    resources[write.id] = canonical
+                    if write.kind in {"config", "project-field"}:
+                        value = content.values.get(write.id)
+                        if value is None:
+                            raise WorkspaceCoreError(
+                                f"Missing resource value: {write.id}"
+                            )
+                        values[write.id] = value
+                if not is_shared_resource(write.kind):
+                    standalone.append(
+                        replace(write, source_path=Path(canonical.parts[0].path))
+                    )
+            if credential_resources(
+                ResourceContent(canonical_content, content.paths, values=values),
+                {write.id for write in writes if write.fingerprint is not None},
+            ):
+                raise WorkspaceCoreError(
+                    "Possible plaintext credential; center commit blocked"
+                )
+            overlay = {
+                key: resource
+                for key, resource in resources.items()
+                if is_shared_resource(resource.kind)
+            }
+            target_resources = {
+                key: resource
+                for key, resource in current.resources.items()
+                if not is_shared_resource(resource.kind)
+            }
+            target_resources.update(overlay)
+            target = WorkspaceSnapshot(self.root, target_resources, (), ())
+            source_content = ResourceContent(
+                canonical_content, content.paths, values=values
+            )
             with tempfile.TemporaryDirectory(prefix="aikito-center-write-") as staging:
-                changes, resources = prepare_resource_writes(
-                    content,
+                changes, intended = prepare_resource_writes(
+                    source_content,
                     target,
-                    writes,
+                    tuple(standalone),
                     Path(staging),
                     policy=RECONCILE_POLICY,
-                    external=external_projects(
-                        {**current.resources, **content.resources}
-                    ),
                 )
-                # Scan the actual staged content, even when supplied outside a workspace.
-                uploaded = {}
-                for change in changes:
-                    if change.source is not None:
-                        destination = Path(staging) / "scan" / change.path
-                        destination.parent.mkdir(parents=True, exist_ok=True)
-                        if change.kind == "skill":
-                            copytree(change.source, destination)
-                        else:
-                            copy2(change.source, destination)
-                        uploaded[change.path] = Resource(
-                            change.kind,
-                            change.path,
-                            change.after,
-                            (ResourcePart(change.path),),
-                        )
-                scan = WorkspaceSnapshot(Path(staging) / "scan", uploaded, (), ())
-                if scan_credentials(scan):
-                    raise WorkspaceCoreError(
-                        "Possible plaintext credential; center commit blocked"
-                    )
-                new = RemoteSnapshot(current.sync_id, current.generation + 1, resources)
+                if intended != resources:
+                    raise WorkspaceCoreError("Invalid center resource batch")
+                new = RemoteSnapshot(
+                    current.sync_id, current.generation + 1, resources, values
+                )
                 path = state_path(self.root, REMOTE_STATE)
                 apply(
                     (self.root,),
@@ -380,9 +584,8 @@ class FilesystemRemote:
                         ),
                     ),
                     verify=lambda: verify_resource_snapshot(
-                        self.verify_contents(resources),
+                        self.verify_contents(resources, values),
                         resources,
-                        external=external_projects(resources),
                     ),
                     policy=RECONCILE_POLICY,
                 )

@@ -319,10 +319,12 @@ def test_import_skips_unmanaged_entries_and_bundled_skills(tmp_path: Path) -> No
     assert "SKIPPED Source skills/durable-memory" in plan.excluded
 
 
-# Reconcile: only the first three resource kinds are admitted.
+# Reconcile: all managed resources participate except local configuration.
 
 
-def test_reconcile_covers_only_memory_and_skills(tmp_path: Path) -> None:
+def test_reconcile_covers_managed_resources_and_excludes_bundled_skills(
+    tmp_path: Path,
+) -> None:
     local = _workspace(tmp_path / "local")
     remote = FilesystemRemote.create(tmp_path / "center")
     home = tmp_path / "home"
@@ -333,16 +335,19 @@ def test_reconcile_covers_only_memory_and_skills(tmp_path: Path) -> None:
     (local / "global/AGENTS.md").write_text("# Custom Global\n")
     (local / "mcps/docs.toml").write_text('transport = "remote"\n')
     plan = build_reconcile_plan(local, remote)
-    assert {item.id for item in plan.items} == {
+    assert {
         "memory:notes/a.md",
         "project-memory:demo/notes/a.md",
         "skill:alpha",
-    }
+        "global-instructions:AGENTS.md",
+        "mcp:docs",
+        "project:demo",
+    } <= {item.id for item in plan.items}
     run_reconciliation(local, remote, home, dry_run=False)
     assert (remote.root / "projects/demo/memory/notes/a.md").is_file()
     assert not (remote.root / "projects/demo/agent.toml").exists()
-    assert not (remote.root / "global/AGENTS.md").exists()
-    assert not (remote.root / "mcps/docs.toml").exists()
+    assert (remote.root / "global/AGENTS.md").is_file()
+    assert (remote.root / "mcps/docs.toml").is_file()
     assert "skill:aikito" not in remote.read().resources
     assert "skill:durable-memory" not in remote.read().resources
 

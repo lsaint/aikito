@@ -15,6 +15,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from .config import get_inbox_path
 from .init import is_recognized_workspace
 from .skill_state import WorkspaceWriterLock
 from .workspace_core import (
@@ -35,22 +36,25 @@ from .workspace_remote import (
     SYNC_KINDS,
     decode_resources,
     encode_resources,
-    external_projects,
+    LOCAL_CONFIG,
     state_path,
+    resource_for_id,
     valid_identity,
 )
 from .workspace_resource_write import (
     ResourceContent,
     ResourceWrite,
     prepare_resource_writes,
+    credential_resources,
     reference_conflicts,
+    toml_conflicts,
     verify_resource_snapshot,
 )
 from .workspace_resources import (
     Resource,
     WorkspaceSnapshot,
+    WorkspaceResourceError,
     physical_kind,
-    scan_credentials,
     snapshot_workspace,
 )
 from .workspace_templates import template_fingerprints
@@ -173,10 +177,24 @@ def _roots(local: Path, remote: FilesystemRemote) -> Path:
     return local
 
 
-def _write(item: ReconcileItem, resources: dict[str, Resource]) -> ResourceWrite:
+def _local_policy(local: Path):
+    try:
+        prefix = get_inbox_path(local).relative_to(local).as_posix()
+    except ValueError:
+        prefix = ""
+    return replace(RECONCILE_POLICY, inbox_prefix=prefix)
+
+
+def _write(
+    item: ReconcileItem, resources: dict[str, Resource], inbox_prefix: str
+) -> ResourceWrite:
     resource = resources[item.id]
     return ResourceWrite(
-        Path(resource.parts[0].path),
+        Path(
+            f"{inbox_prefix}/{resource.name}"
+            if resource.kind == "inbox" and item.after is not None
+            else resource.parts[0].path
+        ),
         resource.kind,
         item.after,
         resource.name,
@@ -203,7 +221,9 @@ def build_reconcile_plan(
             key: resource
             for key, resource in snapshot.resources.items()
             if resource.kind in SYNC_KINDS
+            and not (resource.kind == "config" and resource.name in LOCAL_CONFIG)
         }
+        policy = _local_policy(local)
         b = center.resources
         base = state.base if state else {}
         identities = base.keys() | a.keys() | b.keys()
@@ -254,29 +274,54 @@ def build_reconcile_plan(
             after = (remote_fp if target == "local" else local_fp) if target else None
             if target and action in {"CREATE", "UPDATE", "DELETE"}:
                 resource = left or right or ancestor
-                validate_resource_path(
-                    resource.parts[0].path,
-                    physical_kind(resource.kind),
-                    RECONCILE_POLICY,
-                )
+                resource_for_id(identity, resource.fingerprint)
+                if resource.kind == "inbox" and not policy.inbox_prefix:
+                    action, target, reason = (
+                        "BLOCKED",
+                        None,
+                        "Inbox is outside the workspace; reconciliation is not permitted",
+                    )
+                else:
+                    path = (
+                        f"{policy.inbox_prefix}/{resource.name}"
+                        if resource.kind == "inbox" and target == "local"
+                        else f"inbox/{resource.name}"
+                        if resource.kind == "inbox"
+                        else resource.parts[0].path
+                    )
+                    validate_resource_path(
+                        path,
+                        physical_kind(resource.kind),
+                        policy if target == "local" else RECONCILE_POLICY,
+                    )
             items.append(ReconcileItem(identity, action, target, before, after, reason))
         # Secrets block only the upload that contains them; unrelated work remains safe.
-        secrets = {finding.resource for finding in scan_credentials(snapshot)}
-        for index, item in enumerate(items):
-            if item.target == "remote" and item.after is not None:
-                resource = a[item.id]
-                paths = [part.path for part in resource.parts]
-                if any(
-                    secret == path or secret.startswith(path + "/")
-                    for secret in secrets
-                    for path in paths
-                ):
-                    items[index] = replace(
-                        item,
-                        action="BLOCKED",
-                        target=None,
-                        reason="Possible plaintext credential; resource is not uploaded",
-                    )
+        local_content = (
+            ResourceContent.from_workspace(snapshot) if not snapshot.findings else None
+        )
+        secrets = (
+            frozenset()
+            if snapshot.findings
+            else credential_resources(
+                local_content,
+                {
+                    item.id
+                    for item in items
+                    if item.target == "remote" and item.after is not None
+                },
+            )
+        )
+        items = [
+            replace(
+                item,
+                action="BLOCKED",
+                target=None,
+                reason="Possible plaintext credential; resource is not uploaded",
+            )
+            if item.id in secrets
+            else item
+            for item in items
+        ]
         # Include preserved local-only project/selection resources when checking deletion.
         for side, source, target_resources in (
             ("local", b, snapshot.resources),
@@ -292,14 +337,32 @@ def build_reconcile_plan(
                 for item in items
                 if item.target == side and item.action == "DELETE"
             }
+            if local_content is not None:
+                rejected_fields = toml_conflicts(
+                    remote.content(center) if side == "local" else local_content,
+                    local_content if side == "local" else remote.content(center),
+                    changes,
+                    deletions,
+                )
+                items = [
+                    replace(
+                        item,
+                        action="CONFLICT",
+                        target=None,
+                        before=None,
+                        after=None,
+                        reason=rejected_fields[item.id],
+                    )
+                    if item.id in rejected_fields and item.target == side
+                    else item
+                    for item in items
+                ]
+                changes.difference_update(rejected_fields)
             rejected, residual = reference_conflicts(
                 source,
                 target_resources,
                 changes,
                 deletions=deletions,
-                external=external_projects({**a, **b})
-                if side == "remote"
-                else frozenset(),
             )
             items = [
                 replace(
@@ -326,7 +389,7 @@ def build_reconcile_plan(
             tuple(sorted(set(findings))),
             tuple(sorted(choices.items())),
         )
-    except WorkspaceCoreError as exc:
+    except (WorkspaceCoreError, WorkspaceResourceError) as exc:
         if isinstance(exc, WorkspaceReconcileError):
             raise
         raise WorkspaceReconcileError(str(exc)) from exc
@@ -340,7 +403,7 @@ def recover_reconciliation(local: Path, remote: FilesystemRemote) -> bool:
             center = remote.recover()
             replica = recover((local,), policy=RECONCILE_POLICY)
             return center or replica
-    except WorkspaceCoreError as exc:
+    except (WorkspaceCoreError, WorkspaceResourceError) as exc:
         raise WorkspaceReconcileError(str(exc)) from exc
 
 
@@ -372,8 +435,9 @@ def apply_reconcile_plan(
                 _write(
                     item,
                     plan.local_snapshot.resources
-                    if item.after
+                    if item.after is not None
                     else plan.remote_snapshot.resources,
+                    "inbox",
                 )
                 for item in plan.changes
                 if item.target == "remote"
@@ -382,8 +446,9 @@ def apply_reconcile_plan(
                 _write(
                     item,
                     plan.remote_snapshot.resources
-                    if item.after
+                    if item.after is not None
                     else plan.local_snapshot.resources,
+                    _local_policy(plan.local).inbox_prefix,
                 )
                 for item in plan.changes
                 if item.target == "local"
@@ -394,7 +459,8 @@ def apply_reconcile_plan(
                     plan.local_snapshot,
                     downloads,
                     Path(staging),
-                    policy=RECONCILE_POLICY,
+                    policy=_local_policy(plan.local),
+                    sync=True,
                 )
                 center = remote.commit(
                     plan.remote_snapshot,
@@ -428,9 +494,9 @@ def apply_reconcile_plan(
                     verify=lambda: verify_resource_snapshot(
                         snapshot_workspace(plan.local), expected
                     ),
-                    policy=RECONCILE_POLICY,
+                    policy=_local_policy(plan.local),
                 )
-    except WorkspaceCoreError as exc:
+    except (WorkspaceCoreError, WorkspaceResourceError) as exc:
         if isinstance(exc, WorkspaceReconcileError):
             raise
         raise WorkspaceReconcileError(str(exc)) from exc

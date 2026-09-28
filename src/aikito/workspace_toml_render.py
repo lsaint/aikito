@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import tomllib
 from datetime import date, time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -13,6 +14,150 @@ from .project_config import add_candidate_path_to_content
 
 if TYPE_CHECKING:
     from .workspace_resource_write import ResourceWrite
+
+
+@dataclass(frozen=True, eq=False)
+class TomlValue:
+    """A field's actual key components and typed value, independent of files."""
+
+    path: tuple[str, ...]
+    value: object
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, TomlValue) and self.encode() == other.encode()
+
+    def encode(self) -> dict:
+        return {"path": list(self.path), "toml": f"value = {_toml_value(self.value)}\n"}
+
+    @classmethod
+    def decode(cls, raw: object) -> TomlValue:
+        if (
+            not isinstance(raw, dict)
+            or not isinstance(raw.get("path"), list)
+            or not raw["path"]
+            or any(not isinstance(key, str) for key in raw["path"])
+            or not isinstance(raw.get("toml"), str)
+        ):
+            raise ValueError("Invalid TOML resource value")
+        parsed = tomllib.loads(raw["toml"])
+        if set(parsed) != {"value"}:
+            raise ValueError("Invalid TOML resource value")
+        return cls(tuple(raw["path"]), parsed["value"])
+
+
+def document_values(
+    document: dict, prefix: tuple[str, ...] = ()
+) -> dict[str, TomlValue]:
+    result = {}
+    for key, value in document.items():
+        path = (*prefix, key)
+        if isinstance(value, dict):
+            result.update(document_values(value, path))
+        else:
+            result[".".join(path)] = TomlValue(path, value)
+    return result
+
+
+def _remove_value(document: dict, path: tuple[str, ...]) -> None:
+    node = document
+    parents = []
+    for key in path[:-1]:
+        child = node.get(key)
+        if not isinstance(child, dict):
+            return
+        parents.append((node, key))
+        node = child
+    node.pop(path[-1], None)
+    for parent, key in reversed(parents):
+        if not parent[key]:
+            parent.pop(key)
+        else:
+            break
+
+
+def render_sync_file(
+    text: str, items: list[ResourceWrite], values: dict[str, TomlValue], expected: dict
+) -> str | None:
+    """Compose a shared TOML result from selected changes and preserved values.
+
+    Sync can delete fields and set members. Rebuilding the typed document keeps
+    unrelated values, including literal dotted keys and multiline values; the
+    legacy Import renderer continues to preserve its existing formatting.
+    """
+    document = tomllib.loads(text)
+    for item in sorted(items, key=lambda item: item.fingerprint is not None):
+        if item.kind not in {"config", "project-field"}:
+            continue
+        current = (
+            document_values(document).get(item.name)
+            if item.kind == "config"
+            else TomlValue(
+                (item.name.partition("/")[2],),
+                document.get(item.name.partition("/")[2]),
+            )
+        )
+        field = values.get(item.id) if item.fingerprint is not None else current
+        if field is None:
+            if item.fingerprint is None:
+                continue
+            raise ValueError(f"Missing TOML value: {item.id}")
+        if current is not None and field.path != current.path:
+            _remove_value(document, current.path)
+        node = document
+        parents = []
+        for key in field.path[:-1]:
+            child = node.setdefault(key, {})
+            if not isinstance(child, dict):
+                raise ValueError(f"Conflicting TOML field: {item.id}")
+            parents.append((node, key))
+            node = child
+        key = field.path[-1]
+        if item.fingerprint is None:
+            node.pop(key, None)
+            for parent, part in reversed(parents):
+                if not parent[part]:
+                    parent.pop(part)
+                else:
+                    break
+        else:
+            node[key] = field.value
+    relative = items[0].relative_path.as_posix()
+    resources = [
+        resource for resource in expected.values() if resource.parts[0].path == relative
+    ]
+    if relative == "skills.toml":
+        document["skills"] = sorted(
+            resource.name
+            for resource in resources
+            if resource.kind == "skill-selection"
+        )
+    elif relative.startswith("projects/"):
+        if not any(resource.kind == "project" for resource in resources):
+            return None
+        kinds = {item.kind for item in items}
+        if "project-skill" in kinds:
+            document["skills"] = sorted(
+                resource.name.partition("/")[2]
+                for resource in resources
+                if resource.kind == "project-skill"
+            )
+        if "project-path" in kinds:
+            document.pop("path", None)
+            document.pop("paths", None)
+            paths = sorted(
+                resource.name.partition("/")[2]
+                for resource in resources
+                if resource.kind == "project-path"
+            )
+            if paths:
+                document["paths"] = paths
+    comments = "".join(
+        line + "\n" for line in text.splitlines() if line.lstrip().startswith("#")
+    )
+    return comments + "".join(
+        f"{format_toml_key(key)} = {_toml_value(value)}\n"
+        for key, value in document.items()
+    )
 
 
 def _list_field(root: Path, relative: Path, key: str) -> list[str]:

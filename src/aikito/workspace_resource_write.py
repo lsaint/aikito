@@ -9,7 +9,8 @@ Callers own the writer lock and choose which logical changes are allowed.
 from __future__ import annotations
 
 import tempfile
-from dataclasses import dataclass
+import tomllib
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .templating import BUNDLED_SKILL_NAMES
@@ -21,14 +22,24 @@ from .workspace_core import (
     entry_type,
     version_at,
 )
-from .workspace_toml_render import render_merged_files
+from .workspace_toml_render import (
+    TomlValue,
+    document_values,
+    render_merged_files,
+    render_sync_file,
+    _toml_value,
+)
 from .workspace_resources import (
     Resource,
     WorkspaceSnapshot,
+    ResourcePart,
     fingerprint_resource,
+    inspect_resource_content,
     is_shared_resource,
     physical_kind,
     snapshot_workspace,
+    scan_credentials,
+    value_fingerprint,
 )
 
 
@@ -53,9 +64,30 @@ class ResourceContent:
     resources: dict[str, Resource]
     paths: dict[str, Path]
     workspace_root: Path | None = None
+    values: dict[str, TomlValue] = field(default_factory=dict)
 
     @classmethod
     def from_workspace(cls, snapshot: WorkspaceSnapshot) -> ResourceContent:
+        values = {}
+        documents = {}
+        for key, resource in snapshot.resources.items():
+            if resource.kind not in {"config", "project-field"}:
+                continue
+            path = snapshot.root / resource.parts[0].path
+            if path not in documents:
+                documents[path] = tomllib.loads(path.read_text(encoding="utf-8"))
+            document = documents[path]
+            value = (
+                document_values(document).get(resource.name)
+                if resource.kind == "config"
+                else TomlValue(
+                    (resource.name.partition("/")[2],),
+                    document[resource.name.partition("/")[2]],
+                )
+            )
+            if value is None or value_fingerprint(value.value) != resource.fingerprint:
+                raise WorkspaceCoreError(f"Source field changed: {key}")
+            values[key] = value
         return cls(
             snapshot.resources,
             {
@@ -63,7 +95,38 @@ class ResourceContent:
                 for key, resource in snapshot.resources.items()
             },
             snapshot.root,
+            values,
         )
+
+
+def credential_resources(
+    content: ResourceContent, identities: set[str]
+) -> frozenset[str]:
+    """Scan each selected logical payload, so safe fields can still advance."""
+    result = set()
+    with tempfile.TemporaryDirectory(prefix="aikito-resource-scan-") as temporary:
+        for index, identity in enumerate(sorted(identities)):
+            resource = content.resources[identity]
+            value = content.values.get(identity)
+            if value is not None:
+                path = Path(temporary) / f"field-{index}.toml"
+                key = value.path[-1].rsplit(".", 1)[-1]
+                path.write_text(
+                    f"{key} = {_toml_value(value.value)}\n", encoding="utf-8"
+                )
+            else:
+                path = content.paths.get(identity)
+                if path is None or is_shared_resource(resource.kind):
+                    continue
+            snapshot = WorkspaceSnapshot(
+                path.parent,
+                {identity: replace(resource, parts=(ResourcePart(path.name),))},
+                (),
+                (),
+            )
+            if scan_credentials(snapshot):
+                result.add(identity)
+    return frozenset(result)
 
 
 def partition_writes(
@@ -109,6 +172,38 @@ def missing_references(
             }
         )
     )
+
+
+def toml_conflicts(
+    source: ResourceContent,
+    target: ResourceContent,
+    changes: set[str],
+    deletions: set[str],
+) -> dict[str, str]:
+    """Reject field merges that cannot coexist as one typed TOML document."""
+    rejected = {}
+    while True:
+        values = {
+            key: value for key, value in target.values.items() if key not in deletions
+        }
+        values.update(
+            (key, source.values[key]) for key in changes if key in source.values
+        )
+        invalid = set()
+        fields = [
+            (key, value.path)
+            for key, value in values.items()
+            if key.startswith("config:")
+        ]
+        for index, (left, path) in enumerate(fields):
+            for right, other in fields[index + 1 :]:
+                if path[: len(other)] == other or other[: len(path)] == path:
+                    invalid.update({left, right} & changes)
+        if not invalid:
+            return rejected
+        for key in invalid:
+            rejected[key] = "Configuration field overlaps a preserved TOML value"
+        changes = changes - invalid
 
 
 def reference_conflicts(
@@ -187,11 +282,13 @@ def prepare_resource_writes(
     *,
     policy: PathPolicy,
     external: frozenset[str] = frozenset(),
+    sync: bool = False,
 ) -> tuple[tuple[Change, ...], dict[str, Resource]]:
     """Compose logical writes or deletions before the caller's atomic commit.
 
-    The content provider supplies files by ID; only shared TOML rendering needs
-    a workspace source. Callers keep staging alive until the transaction ends.
+    Content is supplied by ID, including typed fields for reconciliation. The
+    legacy Import renderer needs a workspace source to retain its formatting.
+    Callers keep staging alive until the transaction ends.
     """
     right = target_snapshot
     target = right.root
@@ -203,7 +300,7 @@ def prepare_resource_writes(
         if (local.fingerprint if local else None) != write.before:
             raise WorkspaceCoreError(f"Target changed before writing: {write.id}")
         if write.fingerprint is None:
-            if local is None or is_shared_resource(write.kind):
+            if local is None or (is_shared_resource(write.kind) and not sync):
                 raise WorkspaceCoreError(f"Unsupported resource deletion: {write.id}")
             if write.relative_path != Path(local.parts[0].path):
                 raise WorkspaceCoreError(f"Unexpected destination path: {write.id}")
@@ -216,7 +313,13 @@ def prepare_resource_writes(
                 raise WorkspaceCoreError(f"Unexpected source path: {write.id}")
             if write.kind != "inbox" and write.relative_path != source_path:
                 raise WorkspaceCoreError(f"Unexpected destination path: {write.id}")
-            expected[write.id] = remote
+            expected[write.id] = replace(
+                remote,
+                parts=(
+                    replace(remote.parts[0], path=write.relative_path.as_posix()),
+                    *remote.parts[1:],
+                ),
+            )
         by_path.setdefault(write.relative_path, []).append(write)
     findings = missing_references(expected, external=external)
     if findings:
@@ -237,35 +340,72 @@ def prepare_resource_writes(
             )
         storage[relative] = (kind, current)
     _, merges = partition_writes(writes)
-    if merges and content.workspace_root is None:
+    if merges and not sync and content.workspace_root is None:
         raise WorkspaceCoreError("Shared TOML writes require workspace content")
-    rendered = (
-        render_merged_files(content.workspace_root, target, merges) if merges else {}
-    )
+    if sync:
+        rendered = {}
+        for relative, grouped in by_path.items():
+            if is_shared_resource(grouped[0].kind):
+                path = target / relative
+                text = path.read_text(encoding="utf-8") if storage[relative][1] else ""
+                for write in grouped:
+                    if write.fingerprint is not None and write.kind in {
+                        "config",
+                        "project-field",
+                    }:
+                        value = content.values.get(write.id)
+                        if (
+                            value is None
+                            or value_fingerprint(value.value) != write.fingerprint
+                        ):
+                            raise WorkspaceCoreError(
+                                f"Source field changed: {write.id}"
+                            )
+                rendered[relative] = render_sync_file(
+                    text, grouped, content.values, expected
+                )
+    else:
+        rendered = (
+            render_merged_files(content.workspace_root, target, merges)
+            if merges
+            else {}
+        )
     changes = []
     for relative, grouped in sorted(by_path.items()):
         kind, current = storage[relative]
-        if all(write.fingerprint is None for write in grouped):
+        if relative in rendered:
+            text = rendered[relative]
+            source = None
+            after = None
+            if text is not None:
+                source = staging / relative
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text(text, encoding="utf-8")
+                after = fingerprint_resource(source, kind)
+        elif all(write.fingerprint is None for write in grouped):
             source = None
             after = None
         elif any(write.fingerprint is None for write in grouped):
             raise WorkspaceCoreError(f"Conflicting deletion and update: {relative}")
         else:
-            if relative in rendered:
-                source = staging / relative
-                source.parent.mkdir(parents=True, exist_ok=True)
-                source.write_text(rendered[relative], encoding="utf-8")
-            else:
-                paths = {content.paths.get(write.id) for write in grouped}
-                if len(paths) != 1 or None in paths:
-                    raise WorkspaceCoreError(
-                        f"Missing or conflicting content: {relative}"
-                    )
-                source = paths.pop()
-                if kind == "skill" and entry_type(source / "SKILL.md") != "file":
-                    raise WorkspaceCoreError(
-                        f"Skill content lacks a regular SKILL.md: {grouped[0].id}"
-                    )
+            paths = {content.paths.get(write.id) for write in grouped}
+            if len(paths) != 1 or None in paths:
+                raise WorkspaceCoreError(f"Missing or conflicting content: {relative}")
+            source = paths.pop()
+            if kind == "skill" and entry_type(source / "SKILL.md") != "file":
+                raise WorkspaceCoreError(
+                    f"Skill content lacks a regular SKILL.md: {grouped[0].id}"
+                )
+            logical, references = inspect_resource_content(
+                expected[grouped[0].id], source
+            )
+            if (
+                logical != grouped[0].fingerprint
+                or references != expected[grouped[0].id].references
+            ):
+                raise WorkspaceCoreError(
+                    f"Source changed before writing: {grouped[0].id}"
+                )
             after = fingerprint_resource(source, kind)
             if (
                 grouped[0].kind in {"memory", "project-memory", "skill"}
