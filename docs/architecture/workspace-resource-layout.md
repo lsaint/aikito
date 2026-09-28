@@ -246,3 +246,13 @@ unfinished batch; the next round recognizes converged uploads and retries any
 remaining downloads. This protocol does not claim an atomic transaction across
 both stores. Conflicting resources never advance their base, and an unchanged
 round does not increment the center generation.
+
+
+The end-to-end acceptance scenario lives in
+`tests/workspace_reconcile_acceptance.py`. It runs through the pytest version
+matrix and as a real Python invocation in Ubuntu, macOS, and Windows smoke
+jobs. The same two replicas exercise every admitted resource kind, matching
+and conflicting shared-field edits, safe progress during conflicts, stale local
+and center plans with no-write assertions, shared-file recovery, repeated
+execution, and relocation of completed roots. Final snapshots match the center
+by logical resource fingerprint while each replica retains its own inbox path.

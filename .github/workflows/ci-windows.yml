@@ -145,6 +145,15 @@ jobs:
           $expandedBase = Join-Path $env:RUNNER_TEMP "expanded-reconcile-smoke"
           python tests/workspace_reconcile_resources_smoke.py "$expandedBase"
           if ($LASTEXITCODE -ne 0) { throw "Expanded resource reconciliation smoke failed" }
+          $acceptanceBase = Join-Path $env:RUNNER_TEMP "reconcile-acceptance"
+          python tests/workspace_reconcile_acceptance.py "$acceptanceBase"
+          if ($LASTEXITCODE -ne 0) { throw "Workspace reconciliation acceptance failed" }
+          foreach ($relative in @("right/capture-b/relocated.md", "moved-left/capture-a/relocated.md", "right/projects/demo/memory/notes/acceptance.md", "moved-left/config.toml", "right/config.toml", "moved-center/.local/state/aikito/workspace-reconcile/remote.json")) {
+            if (-not (Test-Path (Join-Path $acceptanceBase $relative) -PathType Leaf)) { throw "Missing acceptance resource: $relative" }
+          }
+          foreach ($relative in @("right/capture-b/safe.md", "moved-left/capture-a/safe.md", "moved-left/.local/state/aikito/workspace-transactions/pending.json", "moved-center/.local/state/aikito/workspace-transactions/pending.json")) {
+            if (Test-Path (Join-Path $acceptanceBase $relative)) { throw "Unexpected acceptance artifact: $relative" }
+          }
           foreach ($relative in @("right/capture-b/deep/note.md", "right/global/AGENTS.md", "right/projects/demo/AGENTS.md", "right/agents/custom.toml", "right/mcps/docs.toml", "right/subagents/review.md", "right/config.toml", "right/skills.toml", "right/projects/demo/agent.toml")) {
             if (-not (Test-Path (Join-Path $expandedBase $relative) -PathType Leaf)) { throw "Missing expanded resource: $relative" }
           }

@@ -105,6 +105,18 @@ jobs:
           python3 tests/workspace_reconcile_smoke.py "$BASE"
           EXPANDED=${{ runner.temp }}/expanded-reconcile-smoke
           python3 tests/workspace_reconcile_resources_smoke.py "$EXPANDED"
+          ACCEPTANCE=${{ runner.temp }}/reconcile-acceptance
+          python3 tests/workspace_reconcile_acceptance.py "$ACCEPTANCE"
+          test -f "$ACCEPTANCE/right/capture-b/relocated.md"
+          test -f "$ACCEPTANCE/moved-left/capture-a/relocated.md"
+          test -f "$ACCEPTANCE/right/projects/demo/memory/notes/acceptance.md"
+          test -f "$ACCEPTANCE/moved-left/config.toml"
+          test -f "$ACCEPTANCE/right/config.toml"
+          test -f "$ACCEPTANCE/moved-center/.local/state/aikito/workspace-reconcile/remote.json"
+          test ! -f "$ACCEPTANCE/right/capture-b/safe.md"
+          test ! -f "$ACCEPTANCE/moved-left/capture-a/safe.md"
+          test ! -f "$ACCEPTANCE/moved-left/.local/state/aikito/workspace-transactions/pending.json"
+          test ! -f "$ACCEPTANCE/moved-center/.local/state/aikito/workspace-transactions/pending.json"
           test -f "$EXPANDED/right/capture-b/deep/note.md"
           test -f "$EXPANDED/right/global/AGENTS.md"
           test -f "$EXPANDED/right/projects/demo/AGENTS.md"
