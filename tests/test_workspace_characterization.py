@@ -43,6 +43,11 @@ def _workspace(root: Path) -> Path:
     with redirect_stdout(io.StringIO()):
         assert init_workspace(root, root.parent / "home")
     (root / "skills.toml").write_text("skills = []\n", encoding="utf-8")
+    for agent_file in (root / "agents").glob("*.toml"):
+        agent_file.unlink()
+    (root / "agents/codex.toml").write_text(
+        load_template("agents/codex.toml"), encoding="utf-8"
+    )
     return root
 
 
