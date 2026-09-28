@@ -17,13 +17,13 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
 
-from .compat import (
+from ..compat import (
     is_reparse_point,
     secure_directory_permissions,
     secure_file_permissions,
 )
-from .init import is_recognized_workspace
-from .workspace_resources import (
+from ..init import is_recognized_workspace
+from .resources import (
     WorkspaceResourceError,
     fingerprint_resource,
     is_ignored_name,

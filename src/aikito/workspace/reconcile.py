@@ -15,10 +15,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from .config import get_inbox_path
-from .init import is_recognized_workspace
-from .skill_state import WorkspaceWriterLock
-from .workspace_core import (
+from ..config import get_inbox_path
+from ..init import is_recognized_workspace
+from ..skill_state import WorkspaceWriterLock
+from .transactions import (
     StateUpdate,
     WorkspaceCoreError,
     apply,
@@ -27,8 +27,8 @@ from .workspace_core import (
     recover,
     validate_resource_path,
 )
-from .workspace_merge import compare
-from .workspace_remote import (
+from .merge import compare
+from .remote import (
     FilesystemRemote,
     RemoteSnapshot,
     RECONCILE_POLICY,
@@ -41,7 +41,7 @@ from .workspace_remote import (
     resource_for_id,
     valid_identity,
 )
-from .workspace_resource_write import (
+from .resource_write import (
     ResourceContent,
     ResourceWrite,
     prepare_resource_writes,
@@ -50,14 +50,14 @@ from .workspace_resource_write import (
     toml_conflicts,
     verify_resource_snapshot,
 )
-from .workspace_resources import (
+from .resources import (
     Resource,
     WorkspaceSnapshot,
     WorkspaceResourceError,
     physical_kind,
     snapshot_workspace,
 )
-from .workspace_templates import template_fingerprints
+from .templates import template_fingerprints
 
 
 class WorkspaceReconcileError(WorkspaceCoreError):

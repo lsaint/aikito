@@ -9,7 +9,7 @@ from pathlib import Path
 
 from aikito.init import init_workspace
 from aikito.templating import load_template
-from aikito.workspace_import import run_workspace_import
+from aikito.workspace.importing import run_workspace_import
 
 
 def _workspace(root: Path) -> Path:

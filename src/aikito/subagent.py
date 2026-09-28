@@ -334,7 +334,7 @@ def load_all_agents(
 def load_subagent_definitions(
     aikito_dir: Path, allow_empty: bool = False
 ) -> dict[str, SubagentDefinition]:
-    from .workspace_layout import (
+    from .workspace.layout import (
         WorkspaceLayoutError,
         parse_subagent_file,
         require_current_layout,

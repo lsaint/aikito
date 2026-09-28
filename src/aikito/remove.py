@@ -22,7 +22,7 @@ from .project_sync import sync_project
 from .skill_state import WorkspaceWriterLock
 from .skill_runtime import execute_selection_transaction
 from .templating import BUNDLED_SKILL_NAMES
-from .workspace_sync import sync_global_resources
+from .workspace.sync import sync_global_resources
 
 
 def _remove_skill_from_projects(
@@ -378,7 +378,7 @@ def remove_subagent(
     sync: bool = False,
 ) -> bool:
     """Remove one canonical subagent file and optionally prune native configs."""
-    from .workspace_layout import (
+    from .workspace.layout import (
         WorkspaceLayoutError,
         parse_subagent_file,
         require_current_layout,

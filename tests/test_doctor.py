@@ -1037,7 +1037,7 @@ agents = ["claude-code"]
         plan = SubagentPlan(operations=(op,), file_plans=())
 
         with patch(
-            "aikito.workspace_inspection.build_subagent_plan", return_value=plan
+            "aikito.workspace.inspection.build_subagent_plan", return_value=plan
         ):
             section = check_drift(self.aikito_dir, self.home)
 
@@ -1062,13 +1062,13 @@ agents = ["claude-code"]
         )
 
         with (
-            patch("aikito.workspace_inspection.load_agent_specs", return_value=[spec]),
+            patch("aikito.workspace.inspection.load_agent_specs", return_value=[spec]),
             patch(
-                "aikito.workspace_inspection.WorkspaceInspectionContext.mcp_status",
+                "aikito.workspace.inspection.WorkspaceInspectionContext.mcp_status",
                 return_value="DRIFT",
             ),
             patch(
-                "aikito.workspace_inspection.build_subagent_plan",
+                "aikito.workspace.inspection.build_subagent_plan",
                 return_value=SubagentPlan(operations=(), file_plans=()),
             ),
         ):
@@ -1110,15 +1110,15 @@ agents = ["claude-code"]
 
         with (
             patch(
-                "aikito.workspace_inspection.load_agent_specs",
+                "aikito.workspace.inspection.load_agent_specs",
                 return_value=[spec_update, spec_drift],
             ),
             patch(
-                "aikito.workspace_inspection.WorkspaceInspectionContext.mcp_status",
+                "aikito.workspace.inspection.WorkspaceInspectionContext.mcp_status",
                 side_effect=eval_status,
             ),
             patch(
-                "aikito.workspace_inspection.build_subagent_plan",
+                "aikito.workspace.inspection.build_subagent_plan",
                 return_value=SubagentPlan(operations=(), file_plans=()),
             ),
         ):

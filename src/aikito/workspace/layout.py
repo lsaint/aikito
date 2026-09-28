@@ -11,8 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .add import validate_resource_name
-from .skill_state import WorkspaceWriterLock
+from ..add import validate_resource_name
+from ..skill_state import WorkspaceWriterLock
 
 LAYOUT_FILE = "layout.toml"
 LAYOUT_CONTENT = "version = 2\n"
@@ -27,7 +27,7 @@ class WorkspaceLayoutError(ValueError):
 
 def migration_path_policy():
     """Register migration-only files with the shared transaction engine."""
-    from .workspace_core import PathPolicy
+    from .transactions import PathPolicy
 
     return PathPolicy(
         resources=(
@@ -70,7 +70,7 @@ def _marker_version(root: Path) -> int | None:
 
 def require_current_layout(root: Path) -> None:
     """Reject legacy or incomplete workspaces before normal operations."""
-    from .workspace_core import WorkspaceCoreError, pending_kinds
+    from .transactions import WorkspaceCoreError, pending_kinds
 
     try:
         if "layout" in pending_kinds((root,)):
@@ -200,7 +200,7 @@ def _parse_subagent_text(path: Path, content: str) -> tuple[dict[str, Any], str]
         or len(set(agents)) != len(agents)
     ):
         raise WorkspaceLayoutError(f"Subagent agents list invalid: {path}")
-    from .subagent import KNOWN_PLATFORM_FIELDS
+    from ..subagent import KNOWN_PLATFORM_FIELDS
 
     if any(
         key not in ("description", "agents")
@@ -325,7 +325,7 @@ def build_migration_plan(root: Path) -> MigrationPlan:
     marker_content = LAYOUT_CONTENT
     creates: list[tuple[str, str]] = []
     updates: list[tuple[str, str]] = []
-    from .subagent import SubagentConfigError, validate_platform_opts
+    from ..subagent import SubagentConfigError, validate_platform_opts
 
     for name in legacy_paths:
         path = root / name
@@ -442,7 +442,7 @@ def build_migration_plan(root: Path) -> MigrationPlan:
 
 def apply_migration(plan: MigrationPlan, home: Path) -> None:
     """Apply a fresh migration plan through the shared workspace journal."""
-    from .workspace_core import Change, WorkspaceCoreError, apply, recover, version_at
+    from .transactions import Change, WorkspaceCoreError, apply, recover, version_at
 
     policy = migration_path_policy()
     with WorkspaceWriterLock(home):
@@ -500,7 +500,7 @@ def apply_migration(plan: MigrationPlan, home: Path) -> None:
 
             def verify() -> None:
                 _read_agent_files(plan.root)
-                from .subagent import validate_platform_opts
+                from ..subagent import validate_platform_opts
 
                 for path in (plan.root / "subagents").iterdir():
                     if path.name in (".DS_Store", "Thumbs.db", "desktop.ini"):

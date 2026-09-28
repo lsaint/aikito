@@ -12,21 +12,21 @@ from unittest.mock import patch
 
 import pytest
 
-from aikito import workspace_core
-from aikito.workspace_reconcile import (
+import aikito.workspace.transactions as transactions
+from aikito.workspace.reconcile import (
     WorkspaceReconcileError,
     apply_reconcile_plan,
     build_reconcile_plan,
     run_reconciliation,
 )
-from aikito.workspace_remote import (
+from aikito.workspace.remote import (
     FilesystemRemote,
     REMOTE_STATE,
     REPLICA_STATE,
     resource_for_id,
 )
-from aikito.workspace_resource_write import ResourceContent, ResourceWrite
-from aikito.workspace_resources import fingerprint_resource, snapshot_workspace
+from aikito.workspace.resource_write import ResourceContent, ResourceWrite
+from aikito.workspace.resources import fingerprint_resource, snapshot_workspace
 
 
 def _workspace(root: Path) -> Path:
@@ -293,7 +293,7 @@ def test_conditional_commit_rejects_stale_generation_before_writes(tmp_path):
     write = ResourceWrite(
         Path(resource.parts[0].path), resource.kind, resource.fingerprint, resource.name
     )
-    with pytest.raises(workspace_core.WorkspaceCoreError, match="generation changed"):
+    with pytest.raises(transactions.WorkspaceCoreError, match="generation changed"):
         remote.commit(stale, ResourceContent.from_workspace(snapshot), (write,))
     assert remote.read().generation == 1
 
@@ -327,7 +327,7 @@ def test_competing_center_writers_cannot_commit_same_generation(tmp_path):
                 .commit(expected, content, (write,))
                 .generation
             )
-        except workspace_core.WorkspaceCoreError as exc:
+        except transactions.WorkspaceCoreError as exc:
             assert "generation changed" in str(exc)
             return None
 
@@ -361,7 +361,7 @@ def test_failure_does_not_advance_replica_base(tmp_path, failure):
     before = _state(a)
     for name in ("a", "b"):
         _write(a, name, name)
-    original_replace, original_text = os.replace, workspace_core.atomic_text
+    original_replace, original_text = os.replace, transactions.atomic_text
     failed = False
 
     def fail_resource(src, dst):
@@ -383,9 +383,9 @@ def test_failure_does_not_advance_replica_base(tmp_path, failure):
         original_text(path, content)
 
     replacement = (
-        patch("aikito.workspace_core.os.replace", side_effect=fail_resource)
+        patch("aikito.workspace.transactions.os.replace", side_effect=fail_resource)
         if failure == "second-resource"
-        else patch("aikito.workspace_core.atomic_text", side_effect=fail_state)
+        else patch("aikito.workspace.transactions.atomic_text", side_effect=fail_state)
     )
     with replacement:
         with pytest.raises(OSError):
@@ -424,7 +424,7 @@ def test_interrupted_round_recovers_and_repeats(tmp_path, target):
             raise KeyboardInterrupt
         original(src, dst)
 
-    with patch("aikito.workspace_core.os.replace", side_effect=interrupt):
+    with patch("aikito.workspace.transactions.os.replace", side_effect=interrupt):
         with pytest.raises(KeyboardInterrupt):
             _round(a, remote, home)
     assert not destination.exists()
@@ -448,7 +448,7 @@ def test_recovery_preserves_external_change(tmp_path):
             raise KeyboardInterrupt
         original(src, dst)
 
-    with patch("aikito.workspace_core.os.replace", side_effect=interrupt):
+    with patch("aikito.workspace.transactions.os.replace", side_effect=interrupt):
         with pytest.raises(KeyboardInterrupt):
             _round(a, remote, home)
     destination.write_text("external")
@@ -472,7 +472,7 @@ def test_center_accepts_layout_independent_content_and_scans_credentials(
         Path(resource.parts[0].path), resource.kind, resource.fingerprint, resource.name
     )
     if secret:
-        with pytest.raises(workspace_core.WorkspaceCoreError, match="credential"):
+        with pytest.raises(transactions.WorkspaceCoreError, match="credential"):
             remote.commit(remote.read(), content, (write,))
         assert remote.read().generation == 0
     else:
@@ -538,7 +538,7 @@ def test_center_rejects_failed_or_changed_staging_before_confirmation(
 ):
     a, remote, home = _pair(tmp_path)
     _write(a, "expected")
-    original = workspace_core._fingerprint_private
+    original = transactions._fingerprint_private
     reads = 0
 
     def tamper(path, kind):
@@ -551,16 +551,17 @@ def test_center_rejects_failed_or_changed_staging_before_confirmation(
 
     if failure == "staging":
         replacement = patch(
-            "aikito.workspace_core._copy_resource", side_effect=OSError("stage failed")
+            "aikito.workspace.transactions._copy_resource",
+            side_effect=OSError("stage failed"),
         )
     elif failure == "tamper":
         replacement = patch(
-            "aikito.workspace_core._fingerprint_private", side_effect=tamper
+            "aikito.workspace.transactions._fingerprint_private", side_effect=tamper
         )
     else:
         replacement = patch(
-            "aikito.workspace_remote.verify_resource_snapshot",
-            side_effect=workspace_core.WorkspaceCoreError("verification failed"),
+            "aikito.workspace.remote.verify_resource_snapshot",
+            side_effect=transactions.WorkspaceCoreError("verification failed"),
         )
     with replacement:
         with pytest.raises((OSError, WorkspaceReconcileError)):
@@ -615,7 +616,7 @@ def test_center_rejects_skill_payload_without_skill_definition(tmp_path):
     write = ResourceWrite(
         Path("skills/invalid"), "skill", resource.fingerprint, "invalid"
     )
-    with pytest.raises(workspace_core.WorkspaceCoreError, match="SKILL.md"):
+    with pytest.raises(transactions.WorkspaceCoreError, match="SKILL.md"):
         remote.commit(remote.read(), content, (write,))
     assert remote.read().generation == 0
     assert not (remote.root / "skills/invalid").exists()
@@ -632,7 +633,7 @@ def test_first_pairing_preserves_resources_matching_template(tmp_path, existing)
         _round(a, remote, home)
         a = _workspace(tmp_path / "b")
     with patch(
-        "aikito.workspace_reconcile.template_fingerprints",
+        "aikito.workspace.reconcile.template_fingerprints",
         return_value=frozenset({resource.fingerprint}),
     ):
         plan = _round(a, remote, home)

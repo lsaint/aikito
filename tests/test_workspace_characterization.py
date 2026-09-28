@@ -16,15 +16,15 @@ import pytest
 
 from aikito.init import init_workspace
 from aikito.templating import load_template, render_project_files
-from aikito.workspace_import import build_import_plan, run_workspace_import
-from aikito.workspace_merge import compare
-from aikito.workspace_reconcile import (
+from aikito.workspace.importing import build_import_plan, run_workspace_import
+from aikito.workspace.merge import compare
+from aikito.workspace.reconcile import (
     build_reconcile_plan,
     run_reconciliation,
 )
-from aikito.workspace_remote import FilesystemRemote
-from aikito.workspace_resources import snapshot_workspace
-from aikito.workspace_templates import template_fingerprints
+from aikito.workspace.remote import FilesystemRemote
+from aikito.workspace.resources import snapshot_workspace
+from aikito.workspace.templates import template_fingerprints
 
 _OUTCOME = {
     "CREATE": "adopt",

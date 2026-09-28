@@ -9,7 +9,7 @@ import pytest
 
 from aikito.mcp import MCPExecutionResult
 from aikito.subagent import SubagentExecutionResult
-from aikito.workspace_sync import (
+from aikito.workspace.sync import (
     BundledSkillRefreshError,
     GlobalSyncExecutionResult,
     WorkspaceSyncPlan,
@@ -363,7 +363,7 @@ def test_sync_global_resources_application_service_and_bundled_verification(
     from unittest.mock import patch
 
     with patch(
-        "aikito.workspace_sync.execute_bundled_refresh_plan",
+        "aikito.workspace.sync.execute_bundled_refresh_plan",
         side_effect=BundledSkillRefreshError("Mock fingerprint divergence"),
     ):
         res_fail = sync_global_resources(ws, home, dry_run=False)

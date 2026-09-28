@@ -13,7 +13,7 @@ from aikito.inspection import (
     WorkspaceResourceInspection,
 )
 from aikito.mcp import MCPConfigTarget, MCPOperation, MCPPlan
-from aikito.workspace_inspection import create_inspection_context
+from aikito.workspace.inspection import create_inspection_context
 
 
 class InspectionContractTests(unittest.TestCase):
@@ -148,7 +148,7 @@ class InspectionContractTests(unittest.TestCase):
 
         inspection = create_inspection_context(Path("/tmp/ws"), Path("/tmp/home"))
         with patch(
-            "aikito.workspace_inspection.build_subagent_plan", return_value=Plan()
+            "aikito.workspace.inspection.build_subagent_plan", return_value=Plan()
         ) as build:
             first = inspection.subagent_views
             second = inspection.subagent_views

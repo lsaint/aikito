@@ -1,4 +1,4 @@
-"""Unit tests for GlobalSyncPlan and BundledSkillRefreshPlan in workspace_sync.py."""
+"""Unit tests for GlobalSyncPlan and BundledSkillRefreshPlan in workspace/sync.py."""
 
 from __future__ import annotations
 from layout_helpers import write_agents
@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 from aikito.templating import BUNDLED_SKILL_NAMES, bundled_skill_path
-from aikito.workspace_sync import (
+from aikito.workspace.sync import (
     BundledSkillRefreshPlan,
     GlobalSyncExecutionResult,
     build_bundled_refresh_plan,
@@ -199,7 +199,7 @@ skills_path = ".claude/skills"
         )
 
         # Create a mock project entry with batch on plan
-        from aikito.workspace_sync import ProjectSyncEntry
+        from aikito.workspace.sync import ProjectSyncEntry
         from aikito.project_sync import ProjectSyncBatch
 
         dummy_batch = ProjectSyncBatch(

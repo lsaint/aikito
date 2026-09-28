@@ -11,14 +11,14 @@ from unittest.mock import patch
 
 import pytest
 
-from aikito.workspace_reconcile import (
+from aikito.workspace.reconcile import (
     WorkspaceReconcileError,
     apply_reconcile_plan,
     build_reconcile_plan,
     run_reconciliation,
 )
-from aikito.workspace_remote import FilesystemRemote, REMOTE_STATE, REPLICA_STATE
-from aikito.workspace_resources import snapshot_workspace
+from aikito.workspace.remote import FilesystemRemote, REMOTE_STATE, REPLICA_STATE
+from aikito.workspace.resources import snapshot_workspace
 
 
 def workspace(root: Path) -> Path:
@@ -300,7 +300,7 @@ def test_shared_multiple_changes_commit_once_and_recover(tmp_path):
         original(src, dst)
 
     with (
-        patch("aikito.workspace_core.os.replace", side_effect=interrupt),
+        patch("aikito.workspace.transactions.os.replace", side_effect=interrupt),
         pytest.raises(KeyboardInterrupt),
     ):
         round_trip(b, remote, home)
@@ -403,7 +403,7 @@ def test_standalone_interruption_restores_content_and_base(
         original(src, dst)
 
     with (
-        patch("aikito.workspace_core.os.replace", side_effect=interrupt),
+        patch("aikito.workspace.transactions.os.replace", side_effect=interrupt),
         pytest.raises(KeyboardInterrupt),
     ):
         round_trip(b, remote, home)
@@ -468,7 +468,7 @@ def test_shared_center_manifest_interruption_recovers_values_and_generation(tmp_
         original(src, dst)
 
     with (
-        patch("aikito.workspace_core.os.replace", side_effect=interrupt),
+        patch("aikito.workspace.transactions.os.replace", side_effect=interrupt),
         pytest.raises(KeyboardInterrupt),
     ):
         round_trip(a, remote, home)

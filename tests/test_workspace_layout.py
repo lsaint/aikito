@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from aikito.workspace_layout import (
+from aikito.workspace.layout import (
     WorkspaceLayoutError,
     apply_migration,
     build_migration_plan,
@@ -15,7 +15,7 @@ from aikito.workspace_layout import (
     require_current_layout,
     migration_path_policy,
 )
-from aikito.workspace_core import WorkspaceCoreError, validate_resource_path
+from aikito.workspace.transactions import WorkspaceCoreError, validate_resource_path
 
 
 def legacy_workspace(root: Path) -> None:
@@ -114,7 +114,7 @@ def test_migration_restores_legacy_files_after_interrupted_apply(
             raise OSError("simulated interruption before layout marker")
         original_replace(source, destination)
 
-    with patch("aikito.workspace_core.os.replace", side_effect=fail_marker):
+    with patch("aikito.workspace.transactions.os.replace", side_effect=fail_marker):
         with pytest.raises(OSError, match="simulated interruption"):
             apply_migration(build_migration_plan(root), tmp_path)
 

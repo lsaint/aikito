@@ -1,18 +1,17 @@
-"""Resolve and persist the active Aikito workspace, and provide public Workspace facade."""
+"""Public read-only facade for inspecting and planning workspace operations."""
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from .compat import get_workspace_config_dir
-from .doctor import run_doctor
-from .agents import load_agent_definitions
-from .plan_observation import OperationEffect, PlanOperationView
-from .project import collect_project_summaries
-from .subagent import load_subagent_definitions
-from .workspace_sync import build_workspace_sync_plan
+from ..agents import load_agent_definitions
+from ..doctor import run_doctor
+from ..plan_observation import OperationEffect, PlanOperationView
+from ..project import collect_project_summaries
+from ..subagent import load_subagent_definitions
+from .paths import resolve_workspace
+from .sync import build_workspace_sync_plan
 
 
 class WorkspaceError(RuntimeError):
@@ -395,38 +394,3 @@ class Workspace:
             operations=tuple(operations),
             operation_views=tuple(structured_views),
         )
-
-
-def get_workspace_pointer_path(home: Path) -> Path:
-    """Return the user-level file that stores the default workspace path."""
-    return get_workspace_config_dir(home) / "workspace"
-
-
-def resolve_workspace_with_source(home: Path) -> tuple[Path, str]:
-    """Resolve the workspace and identify whether it came from env, config, or default."""
-    env_dir = os.environ.get("AIKITO_DIR")
-    if env_dir:
-        return Path(env_dir).expanduser().resolve(), "AIKITO_DIR"
-
-    pointer_path = get_workspace_pointer_path(home)
-    try:
-        configured_dir = pointer_path.read_text(encoding="utf-8").strip()
-    except OSError:
-        configured_dir = ""
-    if configured_dir:
-        return Path(configured_dir).expanduser().resolve(), "configured"
-
-    return (home / "aikito").resolve(), "default"
-
-
-def resolve_workspace(home: Path) -> Path:
-    """Resolve the workspace using environment, persisted choice, then default."""
-    return resolve_workspace_with_source(home)[0]
-
-
-def persist_workspace(workspace: Path, home: Path) -> Path:
-    """Persist the workspace selected by a successful explicit initialization."""
-    pointer_path = get_workspace_pointer_path(home)
-    pointer_path.parent.mkdir(parents=True, exist_ok=True)
-    pointer_path.write_text(f"{workspace.expanduser().resolve()}\n", encoding="utf-8")
-    return pointer_path

@@ -24,7 +24,7 @@ from aikito.project_sync import ProjectSyncBatch
 from aikito.skill_plan import SkillOperation, SkillPlan, SkillTarget
 from aikito.subagent import SubagentPlan
 from aikito.workspace import Workspace, WorkspaceFinding, WorkspaceSyncPreview
-from aikito.workspace_sync import (
+from aikito.workspace.sync import (
     BundledSkillRefreshOperation,
     BundledSkillRefreshPlan,
     GlobalSyncPlan,
@@ -893,7 +893,7 @@ def test_golden_full_preview_equivalence_matrix(tmp_path: Path) -> None:
     # Compute legacy simulated preview and actual preview via Workspace.plan_sync
     legacy_preview = _legacy_plan_sync_simulation(tmp_path, workspace_plan)
     with patch(
-        "aikito.workspace.build_workspace_sync_plan", return_value=workspace_plan
+        "aikito.workspace.api.build_workspace_sync_plan", return_value=workspace_plan
     ):
         actual_preview = ws.plan_sync()
 
@@ -1188,7 +1188,7 @@ def test_execution_gate_and_preview_enforce_observation_can_apply(
     tmp_path: Path,
 ) -> None:
     """Item 1 / P1: Execution gate and public preview must block when observation can_apply=False."""
-    from aikito.workspace_sync import execute_workspace_sync_plan
+    from aikito.workspace.sync import execute_workspace_sync_plan
 
     bundled_plan = BundledSkillRefreshPlan(
         operations=(
@@ -1220,7 +1220,7 @@ def test_execution_gate_and_preview_enforce_observation_can_apply(
     # 2. Public preview can_apply is False
     ws = Workspace(path=tmp_path, home=tmp_path)
     with patch(
-        "aikito.workspace.build_workspace_sync_plan", return_value=workspace_plan
+        "aikito.workspace.api.build_workspace_sync_plan", return_value=workspace_plan
     ):
         preview = ws.plan_sync()
     assert preview.can_apply is False

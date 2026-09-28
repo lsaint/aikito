@@ -9,26 +9,26 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from .config import LEGACY_DEFAULT_INBOX_PATH, get_inbox_path
-from .diagnostics import Finding
-from .init import is_recognized_workspace
-from .skill_state import WorkspaceWriterLock
-from .workspace_import_decisions import decide_resource
-from .workspace_toml_render import render_merged_files
-from .workspace_resource_write import (
+from ..config import LEGACY_DEFAULT_INBOX_PATH, get_inbox_path
+from ..diagnostics import Finding
+from ..init import is_recognized_workspace
+from ..skill_state import WorkspaceWriterLock
+from .import_decisions import decide_resource
+from .toml_render import render_merged_files
+from .resource_write import (
     ResourceWrite,
     apply_resource_writes,
     reference_conflicts,
     partition_writes,
 )
-from .workspace_core import (
+from .transactions import (
     PathPolicy,
     WorkspaceCoreError,
     recover,
     validate_resource_path,
     validate_roots,
 )
-from .workspace_resources import (
+from .resources import (
     RESOURCE_STORAGE,
     Resource,
     WorkspaceSnapshot,

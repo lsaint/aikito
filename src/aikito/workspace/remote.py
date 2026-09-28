@@ -16,9 +16,9 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Iterator
 
-from .templating import BUNDLED_SKILL_NAMES
-from .compat import is_windows, secure_directory_permissions, secure_file_permissions
-from .workspace_core import (
+from ..templating import BUNDLED_SKILL_NAMES
+from ..compat import is_windows, secure_directory_permissions, secure_file_permissions
+from .transactions import (
     PathPolicy,
     StateUpdate,
     WorkspaceCoreError,
@@ -28,7 +28,7 @@ from .workspace_core import (
     recover,
     validate_resource_path,
 )
-from .workspace_resource_write import (
+from .resource_write import (
     ResourceContent,
     ResourceWrite,
     prepare_resource_writes,
@@ -37,7 +37,7 @@ from .workspace_resource_write import (
     toml_conflicts,
     verify_resource_snapshot,
 )
-from .workspace_resources import (
+from .resources import (
     Resource,
     ResourcePart,
     WorkspaceResourceError,
@@ -49,7 +49,7 @@ from .workspace_resources import (
     value_fingerprint,
 )
 
-from .workspace_toml_render import TomlValue
+from .toml_render import TomlValue
 
 if is_windows():
     import msvcrt

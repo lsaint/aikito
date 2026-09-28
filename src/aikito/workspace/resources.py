@@ -21,16 +21,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .add import validate_resource_name
-from .compat import is_reparse_point, is_windows
-from .config import LEGACY_DEFAULT_INBOX_PATH, get_inbox_path, load_workspace_config
-from .diagnostics import Finding
-from .init import _validate_project_name, is_recognized_workspace
-from .memory import validate_memory_name
-from .project_config import get_project_candidate_paths
-from .subagent import SUBAGENT_NAME_PATTERN
-from .templating import BUNDLED_SKILL_NAMES
-from .workspace_layout import (
+from ..add import validate_resource_name
+from ..compat import is_reparse_point, is_windows
+from ..config import LEGACY_DEFAULT_INBOX_PATH, get_inbox_path, load_workspace_config
+from ..diagnostics import Finding
+from ..init import _validate_project_name, is_recognized_workspace
+from ..memory import validate_memory_name
+from ..project_config import get_project_candidate_paths
+from ..subagent import SUBAGENT_NAME_PATTERN
+from ..templating import BUNDLED_SKILL_NAMES
+from .layout import (
     WorkspaceLayoutError,
     parse_subagent_file,
     require_current_layout,

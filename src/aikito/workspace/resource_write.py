@@ -13,8 +13,8 @@ import tomllib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from .templating import BUNDLED_SKILL_NAMES
-from .workspace_core import (
+from ..templating import BUNDLED_SKILL_NAMES
+from .transactions import (
     Change,
     PathPolicy,
     WorkspaceCoreError,
@@ -22,14 +22,14 @@ from .workspace_core import (
     entry_type,
     version_at,
 )
-from .workspace_toml_render import (
+from .toml_render import (
     TomlValue,
     document_values,
     render_merged_files,
     render_sync_file,
     _toml_value,
 )
-from .workspace_resources import (
+from .resources import (
     Resource,
     WorkspaceSnapshot,
     ResourcePart,

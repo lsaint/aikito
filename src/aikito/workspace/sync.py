@@ -10,62 +10,62 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from .agents import AgentRegistry, AgentRegistryError, load_agent_definitions
-from .bundled_skills import (
+from ..agents import AgentRegistry, AgentRegistryError, load_agent_definitions
+from ..bundled_skills import (
     BundledSkillRefreshError,
     _backup_target,
     _replace_directory,
     directory_digest,
 )
-from .conflict import collect_resource_conflicts
-from .diagnostics import (
+from ..conflict import collect_resource_conflicts
+from ..diagnostics import (
     Finding,
     is_conflict_finding,
     is_error_finding,
     is_warning_finding,
 )
-from .global_skills import (
+from ..global_skills import (
     GlobalSkillExecutionResult,
     build_global_skill_batch,
     execute_global_skills,
     plan_global_skills,
 )
-from .instructions import (
+from ..instructions import (
     InstructionExecutionResult,
     build_global_instruction_batch,
     execute_instruction_plan,
     plan_instructions,
 )
-from .mcp import (
+from ..mcp import (
     MCPConfigError,
     MCPExecutionResult,
     MCPPlan,
     build_mcp_plan,
     execute_mcp_plan,
 )
-from .plan_observation import (
+from ..plan_observation import (
     OperationEffect,
     PlanObservation,
     PlanOperationView,
     combine_observations,
     safe_observe_plan,
 )
-from .project import resolve_project_binding
-from .project_sync import (
+from ..project import resolve_project_binding
+from ..project_sync import (
     ProjectSyncBatch,
     ProjectSyncExecutionResult,
     apply_project_sync_batch,
     build_project_sync_batch,
 )
-from .skill_state import WorkspaceWriterLock
-from .subagent import (
+from ..skill_state import WorkspaceWriterLock
+from ..subagent import (
     SubagentConfigError,
     SubagentExecutionResult,
     SubagentPlan,
     build_subagent_plan,
     execute_subagent_plan,
 )
-from .templating import BUNDLED_SKILL_NAMES, bundled_skill_path
+from ..templating import BUNDLED_SKILL_NAMES, bundled_skill_path
 
 
 @dataclass(frozen=True)
@@ -899,7 +899,7 @@ class WorkspaceSyncPlan:
 
     def render(self, *, verbose: bool = False) -> str:
         """Render presentation summary via aikito.render.render_workspace_sync_plan."""
-        from .render import render_workspace_sync_plan
+        from ..render import render_workspace_sync_plan
 
         return render_workspace_sync_plan(self, verbose=verbose)
 

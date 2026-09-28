@@ -13,7 +13,7 @@ from unittest.mock import patch
 from aikito import cli
 from aikito.doctor import run_doctor
 from aikito.init import init_workspace
-from aikito.workspace_sync import build_global_sync_plan
+from aikito.workspace.sync import build_global_sync_plan
 
 MESSAGE = "Agent 'a' mcp section must be a table"
 

@@ -24,7 +24,7 @@ from .project_config import (
     resolve_project_path,
 )
 from .project_sync import apply_project_sync_batch, build_project_sync_batch
-from .workspace import resolve_workspace
+from .workspace.paths import resolve_workspace
 
 PROJECT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 

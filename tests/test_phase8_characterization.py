@@ -30,7 +30,7 @@ from aikito.doctor import run_doctor
 from aikito.mcp import redact_mcp_entry
 from aikito.subagent import SubagentPlan, build_subagent_plan
 from aikito.web_console import ConsoleData, _redact
-from aikito.workspace_sync import GlobalSyncExecutionResult
+from aikito.workspace.sync import GlobalSyncExecutionResult
 
 
 class Phase8CharacterizationTests(unittest.TestCase):

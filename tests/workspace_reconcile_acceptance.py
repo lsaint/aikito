@@ -10,19 +10,19 @@ import tomllib
 from pathlib import Path
 from unittest.mock import patch
 
-from aikito.workspace_reconcile import (
+from aikito.workspace.reconcile import (
     WorkspaceReconcileError,
     apply_reconcile_plan,
     build_reconcile_plan,
     run_reconciliation,
 )
-from aikito.workspace_remote import (
+from aikito.workspace.remote import (
     FilesystemRemote,
     LOCAL_CONFIG,
     REPLICA_STATE,
     SYNC_KINDS,
 )
-from aikito.workspace_resources import snapshot_workspace
+from aikito.workspace.resources import snapshot_workspace
 from workspace_reconcile_resources_smoke import write
 from workspace_reconcile_smoke import _workspace
 
@@ -168,7 +168,7 @@ def exercise(base: Path) -> None:
         original(src, dst)
 
     try:
-        with patch("aikito.workspace_core.os.replace", side_effect=interrupt):
+        with patch("aikito.workspace.transactions.os.replace", side_effect=interrupt):
             apply(a)
     except KeyboardInterrupt:
         pass

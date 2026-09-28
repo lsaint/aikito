@@ -67,7 +67,7 @@ def load_agent_document(aikito_dir: Path) -> Mapping[str, Any]:
             f"Aikito workspace directory not found: {aikito_dir}. "
             "Run 'aikito init workspace' to initialize."
         )
-    from .workspace_layout import (
+    from .workspace.layout import (
         WorkspaceLayoutError,
         load_agent_document as load_layout_agents,
     )

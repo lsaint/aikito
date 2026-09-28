@@ -69,7 +69,7 @@ from .subagent import (
     load_subagent_definitions,
     validate_platform_opts,
 )
-from .workspace_inspection import WorkspaceInspectionContext, create_inspection_context
+from .workspace.inspection import WorkspaceInspectionContext, create_inspection_context
 from .templating import (
     detect_existing_agents,
     detected_agent_names,
@@ -797,7 +797,7 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
     if not agents_dir.is_dir():
         findings.append(_fail("agents: directory not found"))
     else:
-        from .workspace_layout import WorkspaceLayoutError, load_agent_document
+        from .workspace.layout import WorkspaceLayoutError, load_agent_document
 
         try:
             registered_agents = set(load_agent_document(aikito_dir)["agents"])
@@ -1507,7 +1507,7 @@ def _find_agent_references(aikito_dir: Path, agent_name: str) -> list[str]:
     references: list[str] = []
     subagents_dir = aikito_dir / "subagents"
     if subagents_dir.is_dir():
-        from .workspace_layout import WorkspaceLayoutError, parse_subagent_file
+        from .workspace.layout import WorkspaceLayoutError, parse_subagent_file
 
         for path in sorted(subagents_dir.glob("*.md")):
             try:

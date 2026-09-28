@@ -11,12 +11,12 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any, Sequence
 
-from .agents import AgentRegistry, load_agent_definitions
-from .global_skills import build_global_skill_batch, plan_global_skills
-from .instructions import build_global_instruction_batch, plan_instructions
-from .mcp import build_mcp_plan, evaluate_spec_status, load_agent_specs
-from .memory_runtime import build_project_memory_batch, plan_project_memory
-from .subagent import build_subagent_plan
+from ..agents import AgentRegistry, load_agent_definitions
+from ..global_skills import build_global_skill_batch, plan_global_skills
+from ..instructions import build_global_instruction_batch, plan_instructions
+from ..mcp import build_mcp_plan, evaluate_spec_status, load_agent_specs
+from ..memory_runtime import build_project_memory_batch, plan_project_memory
+from ..subagent import build_subagent_plan
 
 
 class WorkspaceInspectionContext:

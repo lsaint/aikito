@@ -21,7 +21,7 @@ from .project_sync import sync_project
 from .skill_state import WorkspaceWriterLock
 from .subagent import KNOWN_PLATFORM_FIELDS
 from .templating import BUNDLED_SKILL_NAMES
-from .workspace_sync import sync_global_resources
+from .workspace.sync import sync_global_resources
 
 
 NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
@@ -1299,7 +1299,7 @@ def add_subagent(
         sync_subagent_configs,
         validate_platform_opts,
     )
-    from .workspace_layout import (
+    from .workspace.layout import (
         WorkspaceLayoutError,
         parse_subagent_file,
         render_subagent_text,

@@ -13,14 +13,14 @@ import pytest
 
 from aikito.cli_parser import build_parser
 from aikito.init import init_workspace
-from aikito.workspace_import import (
+from aikito.workspace.importing import (
     WorkspaceImportError,
     apply_import_plan,
     build_import_plan,
     run_workspace_import,
 )
-from aikito.workspace_resource_write import reference_conflicts
-from aikito.workspace_resources import Resource, snapshot_workspace
+from aikito.workspace.resource_write import reference_conflicts
+from aikito.workspace.resources import Resource, snapshot_workspace
 
 
 def _workspace(root: Path) -> Path:
@@ -334,7 +334,7 @@ def test_partial_transaction_failure_rolls_back_only_planned_changes(
             raise OSError("simulated failure")
         original(src, dst)
 
-    with patch("aikito.workspace_core.os.replace", side_effect=fail_second):
+    with patch("aikito.workspace.transactions.os.replace", side_effect=fail_second):
         with pytest.raises(OSError, match="simulated failure"):
             run_workspace_import(source, target, tmp_path / "home", dry_run=False)
     assert not (target / "memory/notes/new.md").exists()

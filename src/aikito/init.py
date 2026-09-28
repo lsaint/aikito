@@ -144,7 +144,7 @@ def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
         (target_dir / name).exists()
         for name in ("agents.toml", "subagents.toml", "layout.toml")
     ):
-        from .workspace_layout import WorkspaceLayoutError, require_current_layout
+        from .workspace.layout import WorkspaceLayoutError, require_current_layout
 
         try:
             require_current_layout(target_dir)

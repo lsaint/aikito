@@ -538,15 +538,15 @@ agents = ["claude-code"]
         for command in (["status"], ["doctor", "--no-color"]):
             with (
                 patch(
-                    "aikito.workspace_inspection.build_subagent_plan",
+                    "aikito.workspace.inspection.build_subagent_plan",
                     wraps=build_subagent_plan,
                 ) as build_subagents,
                 patch(
-                    "aikito.workspace_inspection.plan_global_skills",
+                    "aikito.workspace.inspection.plan_global_skills",
                     wraps=plan_global_skills,
                 ) as build_skills,
                 patch(
-                    "aikito.workspace_inspection.build_mcp_plan",
+                    "aikito.workspace.inspection.build_mcp_plan",
                     wraps=build_mcp_plan,
                 ) as build_mcp,
             ):

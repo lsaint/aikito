@@ -8,9 +8,9 @@ history its absence cannot be a deliberate deletion.
 
 from __future__ import annotations
 
-from .workspace_merge import compare
-from .workspace_resources import Resource
-from .workspace_templates import template_fingerprints
+from .merge import compare
+from .resources import Resource
+from .templates import template_fingerprints
 
 
 def decide_resource(

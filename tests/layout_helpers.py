@@ -4,8 +4,8 @@ import tomllib
 import re
 from pathlib import Path
 
-from aikito.workspace_layout import _split_agent_text
-from aikito.workspace_layout import (
+from aikito.workspace.layout import _split_agent_text
+from aikito.workspace.layout import (
     WorkspaceLayoutError,
     parse_subagent_file,
     render_subagent_text,

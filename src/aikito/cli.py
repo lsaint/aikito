@@ -58,7 +58,7 @@ from .resolve import (
 from .project_sync import (
     sync_project,
 )
-from .workspace_sync import (
+from .workspace.sync import (
     GlobalSyncExecutionResult,
     build_global_sync_plan,
     build_workspace_sync_plan,
@@ -144,23 +144,23 @@ from .completion import (
     get_candidates,
 )
 from .update_notifier import check_and_notify_update, cmd_version as cmd_version
-from .workspace import (
+from .workspace.paths import (
     persist_workspace,
     resolve_workspace,
     resolve_workspace_with_source,
 )
-from .workspace_layout import (
+from .workspace.layout import (
     WorkspaceLayoutError,
     apply_migration,
     build_migration_plan,
     migration_path_policy,
     require_current_layout,
 )
-from .workspace_import import (
+from .workspace.importing import (
     WorkspaceImportError,
     run_workspace_import,
 )
-from .workspace_resources import is_shared_resource
+from .workspace.resources import is_shared_resource
 
 
 def get_aikito_dir() -> Path:
@@ -175,7 +175,7 @@ def cmd_migrate_workspace_resources(args: argparse.Namespace) -> None:
     """Preview or apply the required workspace resource layout migration."""
     if not args.dry_run:
         from .skill_state import WorkspaceWriterLock
-        from .workspace_core import recover
+        from .workspace.transactions import recover
 
         with WorkspaceWriterLock(Path.home()):
             if recover((get_aikito_dir(),), policy=migration_path_policy()):

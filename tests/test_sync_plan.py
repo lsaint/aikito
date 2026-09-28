@@ -9,7 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from aikito.workspace_sync import build_workspace_sync_plan
+from aikito.workspace.sync import build_workspace_sync_plan
 
 
 class SyncPlanIndependenceTest(unittest.TestCase):

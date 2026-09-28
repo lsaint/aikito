@@ -415,7 +415,7 @@ def test_memory_plan_observe(tmp_path: Path) -> None:
 
 
 def test_bundled_skill_refresh_plan_observe() -> None:
-    from aikito.workspace_sync import (
+    from aikito.workspace.sync import (
         BundledSkillRefreshOperation,
         BundledSkillRefreshPlan,
     )
@@ -713,7 +713,7 @@ def test_global_sync_plan_observe_and_provenance(tmp_path: Path) -> None:
     from aikito.agents import Target
     from aikito.global_skills import GlobalSkillBatch, GlobalSkillBatchPlan
     from aikito.link import LinkOperation
-    from aikito.workspace_sync import BundledSkillRefreshPlan, GlobalSyncPlan
+    from aikito.workspace.sync import BundledSkillRefreshPlan, GlobalSyncPlan
 
     child_op = LinkOperation(
         action="CONFLICT",
@@ -772,7 +772,7 @@ def test_global_sync_plan_observe_and_provenance(tmp_path: Path) -> None:
 def test_project_sync_entry_observe(tmp_path: Path) -> None:
     from aikito.project_sync import ProjectSyncBatch
     from aikito.skill_plan import SkillPlan
-    from aikito.workspace_sync import ProjectSyncEntry
+    from aikito.workspace.sync import ProjectSyncEntry
 
     # 1. Active with batch
     skill_plan = SkillPlan(
@@ -836,7 +836,7 @@ def test_finding_provenance_single_source_across_hierarchy(tmp_path: Path) -> No
     from aikito.link import LinkOperation
     from aikito.project_sync import ProjectSyncBatch
     from aikito.skill_plan import SkillPlan
-    from aikito.workspace_sync import (
+    from aikito.workspace.sync import (
         BundledSkillRefreshPlan,
         GlobalSyncPlan,
         ProjectSyncEntry,
@@ -923,7 +923,7 @@ def test_workspace_sync_plan_architecture_acceptance() -> None:
     use hasattr/getattr guessing, or duplicate child finding messages.
     """
     import inspect
-    from aikito.workspace_sync import WorkspaceSyncPlan
+    from aikito.workspace.sync import WorkspaceSyncPlan
 
     for prop_name in ("changes", "unchanged", "conflicts", "errors", "warnings"):
         prop = getattr(WorkspaceSyncPlan, prop_name)

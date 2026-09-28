@@ -9,11 +9,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .add import format_toml_key, format_toml_value, update_skills_in_toml
-from .project_config import add_candidate_path_to_content
+from ..add import format_toml_key, format_toml_value, update_skills_in_toml
+from ..project_config import add_candidate_path_to_content
 
 if TYPE_CHECKING:
-    from .workspace_resource_write import ResourceWrite
+    from .resource_write import ResourceWrite
 
 
 @dataclass(frozen=True, eq=False)

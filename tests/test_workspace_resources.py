@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from aikito.init import init_workspace
-from aikito.workspace_resources import (
+from aikito.workspace.resources import (
     WorkspaceResourceError,
     resource_id,
     resource_kind_for_path,

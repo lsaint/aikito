@@ -15,16 +15,20 @@ import pytest
 from aikito.cli_parser import build_parser
 from aikito.init import init_project, init_workspace
 from aikito.templating import load_template
-from aikito.workspace_core import PathPolicy, WorkspaceCoreError, validate_resource_path
-from aikito.workspace_import import (
+from aikito.workspace.transactions import (
+    PathPolicy,
+    WorkspaceCoreError,
+    validate_resource_path,
+)
+from aikito.workspace.importing import (
     WorkspaceImportError,
     apply_import_plan,
     build_import_plan,
     recover_imports,
     run_workspace_import,
 )
-from aikito.workspace_toml_render import render_merged_files
-from aikito.workspace_resources import snapshot_workspace
+from aikito.workspace.toml_render import render_merged_files
+from aikito.workspace.resources import snapshot_workspace
 
 
 def test_import_workspace_is_a_public_command() -> None:
@@ -410,7 +414,7 @@ def test_mid_apply_failure_rolls_back_created_notes(tmp_path: Path) -> None:
             raise OSError("simulated failure")
         original_replace(src, dst)
 
-    with patch("aikito.workspace_core.os.replace", side_effect=fail_second):
+    with patch("aikito.workspace.transactions.os.replace", side_effect=fail_second):
         with pytest.raises(OSError, match="simulated failure"):
             run_workspace_import(source, target, tmp_path / "home", dry_run=False)
     assert not (target / "memory/notes/a.md").exists()
@@ -429,7 +433,7 @@ def test_recovers_pending_journal_before_next_write(tmp_path: Path) -> None:
             raise KeyboardInterrupt
         original_replace(src, dst)
 
-    with patch("aikito.workspace_core.os.replace", side_effect=interrupt):
+    with patch("aikito.workspace.transactions.os.replace", side_effect=interrupt):
         with pytest.raises(KeyboardInterrupt):
             run_workspace_import(source, target, tmp_path / "home", dry_run=False)
     assert (target / ".local/state/aikito/workspace-transactions/pending.json").exists()
@@ -685,7 +689,7 @@ def test_recover_inbox_import_before_config_is_installed(tmp_path: Path) -> None
             raise KeyboardInterrupt
         original_replace(src, dst)
 
-    with patch("aikito.workspace_core.os.replace", side_effect=interrupt):
+    with patch("aikito.workspace.transactions.os.replace", side_effect=interrupt):
         with pytest.raises(KeyboardInterrupt):
             run_workspace_import(source, target, tmp_path / "home", dry_run=False)
     state = target / ".local/state/aikito/workspace-transactions"
@@ -723,7 +727,7 @@ def test_shared_config_changes_install_once(tmp_path: Path) -> None:
             installed.append(Path(dst))
         original_replace(src, dst)
 
-    with patch("aikito.workspace_core.os.replace", side_effect=record_install):
+    with patch("aikito.workspace.transactions.os.replace", side_effect=record_install):
         run_workspace_import(source, target, tmp_path / "home", dry_run=False)
     assert installed.count(target / "config.toml") == 1
     document = tomllib.loads((target / "config.toml").read_text(encoding="utf-8"))
@@ -758,7 +762,7 @@ def test_logical_verification_failure_rolls_back_every_file(tmp_path: Path) -> N
         return rendered
 
     with patch(
-        "aikito.workspace_resource_write.render_merged_files",
+        "aikito.workspace.resource_write.render_merged_files",
         side_effect=incorrect_render,
     ):
         with pytest.raises(WorkspaceImportError, match="Resource verification failed"):
@@ -792,7 +796,7 @@ def test_target_change_during_rendering_is_preserved(tmp_path: Path) -> None:
         return rendered
 
     with patch(
-        "aikito.workspace_resource_write.render_merged_files",
+        "aikito.workspace.resource_write.render_merged_files",
         side_effect=concurrent_render,
     ):
         with pytest.raises(WorkspaceImportError, match="Target changed before staging"):
@@ -816,7 +820,7 @@ def test_recovery_rejects_unsafe_saved_policy(tmp_path: Path, tamper: str) -> No
             raise KeyboardInterrupt
         original_replace(src, dst)
 
-    with patch("aikito.workspace_core.os.replace", side_effect=interrupt):
+    with patch("aikito.workspace.transactions.os.replace", side_effect=interrupt):
         with pytest.raises(KeyboardInterrupt):
             run_workspace_import(source, target, tmp_path / "home", dry_run=False)
     journal_path = target / ".local/state/aikito/workspace-transactions/pending.json"
@@ -891,7 +895,7 @@ def test_import_rolls_back_merged_lists_and_created_file(tmp_path: Path) -> None
             raise OSError("simulated merge failure")
         original_replace(src, dst)
 
-    with patch("aikito.workspace_core.os.replace", side_effect=fail_merge):
+    with patch("aikito.workspace.transactions.os.replace", side_effect=fail_merge):
         with pytest.raises(OSError, match="simulated merge failure"):
             run_workspace_import(source, target, tmp_path / "home", dry_run=False)
     assert not (target / "skills/demo").exists()

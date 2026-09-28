@@ -28,9 +28,9 @@ def _mcp_imports(path: Path) -> list[tuple[int, str]]:
     for node in ast.walk(tree):
         if not isinstance(node, ast.ImportFrom):
             continue
-        is_mcp = (node.level == 1 and node.module == "mcp") or (
-            node.level == 0 and node.module == "aikito.mcp"
-        )
+        is_mcp = (
+            node.level == len(path.relative_to(SRC).parts) and node.module == "mcp"
+        ) or (node.level == 0 and node.module == "aikito.mcp")
         if is_mcp:
             found.extend((node.lineno, alias.name) for alias in node.names)
     return found
@@ -40,9 +40,9 @@ def _imports_mcp_module(path: Path) -> bool:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
-            if node.level == 1 and node.module == "mcp":
+            if node.level == len(path.relative_to(SRC).parts) and node.module == "mcp":
                 return True
-            if node.level == 1 and node.module is None:
+            if node.level == len(path.relative_to(SRC).parts) and node.module is None:
                 if any(alias.name == "mcp" for alias in node.names):
                     return True
             if node.level == 0 and node.module in ("aikito.mcp", "aikito"):
@@ -177,7 +177,10 @@ class ArchitectureDependencyTests(unittest.TestCase):
             for node in ast.walk(tree):
                 if not isinstance(node, ast.ImportFrom):
                     continue
-                if node.level == 1 and path.parent == SRC and node.module == "mcp":
+                if (
+                    node.level == len(path.relative_to(SRC).parts)
+                    and node.module == "mcp"
+                ):
                     pass
                 elif node.module != "aikito.mcp":
                     continue

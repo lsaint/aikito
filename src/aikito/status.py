@@ -39,7 +39,7 @@ from .render import (
     get_consumer_display_name,
 )
 from .subagent import SubagentConfigError
-from .workspace_inspection import WorkspaceInspectionContext, create_inspection_context
+from .workspace.inspection import WorkspaceInspectionContext, create_inspection_context
 
 
 @dataclass(frozen=True)

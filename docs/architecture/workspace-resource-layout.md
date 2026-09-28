@@ -149,12 +149,12 @@ matches the template. Independently changed values conflict. TOML field merges
 retain unrelated target fields and comments.
 
 
-Import execution uses `workspace_resource_write`: each logical resource carries
+Import execution uses `workspace.resource_write`: each logical resource carries
 its source and expected target fingerprint. Execution reuses the snapshots from
 the locked plan recheck, captures physical file versions before rendering, and
 scans the target again for final verification. A single storage contract in
-`workspace_resources` classifies both snapshots and writes. Shared TOML changes
-are composed into one replacement per physical file, then `workspace_core`
+`workspace.resources` classifies both snapshots and writes. Shared TOML changes
+are composed into one replacement per physical file, then `workspace.transactions`
 stages and installs the complete batch. A fresh snapshot must match the
 expected logical resources, preserve target-only resources, and have valid
 references before the transaction commits. Verification failures roll back the
@@ -168,7 +168,7 @@ journals still use the caller's path policy.
 
 ## Internal Resource Reconciliation
 
-`workspace_reconcile` connects one workspace replica to a `FilesystemRemote`.
+`workspace.reconcile` connects one workspace replica to a `FilesystemRemote`.
 This remains an internal API and is separate from runtime `aikito sync`.
 Supported kinds are `memory`, `project-memory`, `skill`, `inbox`,
 `global-instructions`, `project-instructions`, `agent`, `mcp`, `subagent`,
@@ -208,7 +208,7 @@ The old internal `baseline.json` is rejected explicitly; it is not migrated.
 
 First pairing compares against bundled template fingerprints, unions missing
 resources, and never propagates deletions. Later rounds use the replica's base
-with `workspace_merge.compare`. Plans use `CREATE`, `UPDATE`, `DELETE`, `NOOP`,
+with `workspace.merge.compare`. Plans use `CREATE`, `UPDATE`, `DELETE`, `NOOP`,
 `CONFLICT`, and `BLOCKED`, with `local` or `remote` as the write target. Conflict
 choices select the local or remote version and become ordinary writes or
 deletions; they do not bypass references or credential checks.
@@ -256,3 +256,18 @@ and conflicting shared-field edits, safe progress during conflicts, stale local
 and center plans with no-write assertions, shared-file recovery, repeated
 execution, and relocation of completed roots. Final snapshots match the center
 by logical resource fingerprint while each replica retains its own inbox path.
+
+## Source package
+
+The `aikito.workspace` package exports the public `Workspace` facade and its
+result models. `api.py` implements that facade; `paths.py` owns workspace
+resolution and the persisted workspace pointer. Internal callers import the
+owning submodule directly rather than importing implementation helpers from
+the package facade.
+
+`sync.py` coordinates agent runtime synchronization, while `inspection.py`
+provides a shared, lazy inspection context for one command. `importing.py` and
+`reconcile.py` implement distinct workspace transfer policies over shared
+resource classification, comparison, rendering, and filesystem transactions.
+`transactions.py` owns staged writes, journaling, rollback, and crash recovery.
+This source organization does not change the canonical workspace data layout.

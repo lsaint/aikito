@@ -909,7 +909,7 @@ def _build_file_plans(
     if subagents:
         from .add import validate_resource_name
         from .subagent import SubagentConfigError, validate_platform_opts
-        from .workspace_layout import render_subagent_text
+        from .workspace.layout import render_subagent_text
 
         instructions_dir = aikito_dir / "subagents"
         for sub in subagents:

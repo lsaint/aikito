@@ -9,12 +9,12 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
-from aikito.workspace_reconcile import (
+from aikito.workspace.reconcile import (
     WorkspaceReconcileError,
     build_reconcile_plan,
     run_reconciliation,
 )
-from aikito.workspace_remote import FilesystemRemote, REMOTE_STATE, REPLICA_STATE
+from aikito.workspace.remote import FilesystemRemote, REMOTE_STATE, REPLICA_STATE
 
 
 def _workspace(root: Path) -> Path:
@@ -122,7 +122,7 @@ def main() -> None:
         original_replace(src, dst)
 
     try:
-        with patch("aikito.workspace_core.os.replace", side_effect=interrupt):
+        with patch("aikito.workspace.transactions.os.replace", side_effect=interrupt):
             apply(left)
     except KeyboardInterrupt:
         pass

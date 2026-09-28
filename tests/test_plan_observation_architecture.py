@@ -40,7 +40,7 @@ from aikito.skill_plan import (
     SkillTarget,
 )
 from aikito.subagent import SubagentPlan
-from aikito.workspace_sync import (
+from aikito.workspace.sync import (
     BundledSkillRefreshPlan,
     GlobalSyncPlan,
     ProjectSyncEntry,
@@ -324,7 +324,7 @@ def test_workspace_facades_do_not_interpret_domain_actions() -> None:
     import ast
 
     src_dir = Path(__file__).resolve().parents[1] / "src" / "aikito"
-    files = [src_dir / "workspace.py", src_dir / "workspace_sync.py"]
+    files = [src_dir / "workspace" / "api.py", src_dir / "workspace" / "sync.py"]
     render_tree = ast.parse((src_dir / "render.py").read_text(encoding="utf-8"))
     render_sync = next(
         (

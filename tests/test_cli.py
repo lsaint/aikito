@@ -287,7 +287,7 @@ class SyncAllExecutionTest(unittest.TestCase):
     def test_cmd_sync_all_does_not_apply_a_blocked_plan(self) -> None:
         from unittest.mock import Mock
         from aikito.diagnostics import Finding
-        from aikito.workspace_sync import WorkspaceSyncPlan
+        from aikito.workspace.sync import WorkspaceSyncPlan
 
         calls: list[bool] = []
 
@@ -392,7 +392,7 @@ skills_path = ".agents/skills"
             **_kwargs: Any,
         ) -> Any:
             calls.append(dry_run)
-            from aikito.workspace_sync import WorkspaceSyncExecutionResult
+            from aikito.workspace.sync import WorkspaceSyncExecutionResult
 
             return WorkspaceSyncExecutionResult(success=True)
 
