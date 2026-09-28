@@ -165,3 +165,54 @@ policy used during staging, including the current and planned inbox prefixes.
 Recovery validates these paths and retains caller-owned resource/state
 permissions; it does not infer the inbox location from staged TOML. Version 1
 journals still use the caller's path policy.
+
+## Internal Resource Reconciliation
+
+`workspace_reconcile` connects one workspace replica to a `FilesystemRemote`.
+This remains an internal API and is separate from runtime `aikito sync`.
+Supported kinds are `memory`, `project-memory`, and `skill`; bundled skills,
+configuration, runtime paths, and other resource kinds are excluded.
+
+The resource center is an initially empty directory, not another workspace.
+It stores canonical resource content and a manifest at
+`.local/state/aikito/workspace-reconcile/remote.json`. The manifest contains
+`sync_id`, a monotonic `generation`, and fingerprints keyed by logical resource
+ID. Content is supplied to the writer by ID, so the source content location
+does not need to match a workspace layout. Physical storage paths are validated
+implementation details rather than persisted comparison identities.
+
+Each replica keeps `.local/state/aikito/workspace-reconcile/replica.json` with
+its `sync_id`, `replica_id`, confirmed generation, and a per-resource base.
+Neither state format persists workspace paths. Completed replicas and centers
+may be moved without changing identity. Moving an unfinished transaction is
+not supported because recovery journals bind their original destinations.
+The old internal `baseline.json` is rejected explicitly; it is not migrated.
+
+First pairing compares against bundled template fingerprints, unions missing
+resources, and never propagates deletions. Later rounds use the replica's base
+with `workspace_merge.compare`. Plans use `CREATE`, `UPDATE`, `DELETE`, `NOOP`,
+`CONFLICT`, and `BLOCKED`, with `local` or `remote` as the write target. Conflict
+choices select the local or remote version and become ordinary writes or
+deletions; they do not bypass references or credential checks.
+
+The safe subset commits while conflicts and credential-blocked uploads retain
+their old base. Reference checks include preserved local resources: a skill
+cannot be deleted if a local selection would lose its provider. Project memory
+requires an existing local project configuration; the center stores its notes
+without carrying project configuration. A replica missing that project reports
+a reference conflict until the project is registered locally.
+
+Center writers share a cross-process lock. A batch is accepted only if its
+expected center identity, generation, and resource snapshot still match.
+All resource replacements, deletions, and the incremented generation use one
+transaction, verified before confirmation. Possible plaintext credentials are
+blocked before upload, including content supplied outside a workspace.
+
+Center and replica commits are separate atomic transactions. Center uploads
+commit first, then the replica commits downloads and its new base together.
+If the replica fails after a successful upload, the center keeps that accepted
+batch and the replica retains its previous base. Recovery rolls back each
+unfinished batch; the next round recognizes converged uploads and retries any
+remaining downloads. This protocol does not claim an atomic transaction across
+both stores. Conflicting resources never advance their base, and an unchanged
+round does not increment the center generation.

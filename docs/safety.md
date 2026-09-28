@@ -101,6 +101,15 @@ source items as well as planned changes.
 
 ## Conflict and Drift Protection
 
+Internal workspace reconciliation uses a resource center with conditional batch
+commits. Unresolved conflicts and uploads containing possible credentials are
+kept out of the accepted batch; reference checks also protect local selections
+from provider deletion. Global snapshot findings stop the round. Center and
+replica commits are individually atomic: if the replica fails after a center
+upload, its base stays unchanged and the next round can continue. See the
+[resource reconciliation contract](architecture/workspace-resource-layout.md#internal-resource-reconciliation)
+for state, recovery, and supported resource boundaries.
+
 The response depends on the resource and command. A matching file alone does
 not prove that Aikito owns it.
 

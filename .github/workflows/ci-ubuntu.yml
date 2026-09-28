@@ -194,6 +194,22 @@ jobs:
           BASE=${{ runner.temp }}/reconcile-smoke
           python3 tests/workspace_reconcile_smoke.py "$BASE"
           test -f "$BASE/right/memory/notes/reconcile-smoke.md"
+          test -f "$BASE/right/projects/demo/memory/notes/reconcile-smoke.md"
+          test -f "$BASE/right/skills/reconcile-smoke/SKILL.md"
+          grep -F '# Updated project' "$BASE/right/projects/demo/memory/notes/reconcile-smoke.md"
+          grep -F '# Updated skill' "$BASE/right/skills/reconcile-smoke/SKILL.md"
+          test -d "$BASE/right/skills/reconcile-smoke/empty"
+          test -f "$BASE/right/memory/notes/recovered.md"
+          test -f "$BASE/right/memory/notes/relocated.md"
+          test -f "$BASE/right/.local/state/aikito/workspace-reconcile/replica.json"
+          test -f "$BASE/moved-left/.local/state/aikito/workspace-reconcile/replica.json"
+          test -f "$BASE/moved-center/.local/state/aikito/workspace-reconcile/remote.json"
+          test ! -f "$BASE/right/memory/notes/deleted.md"
+          test ! -f "$BASE/right/projects/demo/memory/notes/deleted.md"
+          test ! -d "$BASE/right/skills/deleted"
+          test ! -f "$BASE/moved-center/layout.toml"
+          test ! -f "$BASE/right/.local/state/aikito/workspace-transactions/pending.json"
+          test ! -f "$BASE/moved-center/.local/state/aikito/workspace-transactions/pending.json"
 
       - name: Workspace import smoke
         run: |

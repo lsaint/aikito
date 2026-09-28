@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Internal resource reconciliation now connects independent workspace replicas through a filesystem resource center with conditional generation commits, per-resource conflict choices, and recoverable deletion.
+
+### Changed
+
+- Reconciliation uses logical resource IDs and the shared three-way comparator. Safe resources advance independently while conflicts keep their previous base; the old internal two-workspace baseline format is rejected.
+- The shared resource writer supports standalone deletion and content supplied by resource ID, including content stored outside a source workspace.
+
 ## [1.55.0] - 2026-09-28
 
 ### Added

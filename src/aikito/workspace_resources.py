@@ -381,7 +381,10 @@ class _Scanner:
 def _scan_markdown_file(scanner: _Scanner, path: Path, kind: str, name: str) -> None:
     digest = scanner.file_digest(path)
     if digest is not None:
-        scanner.add(kind, name, digest, (ResourcePart(scanner.rel(path)),))
+        references = (
+            (f"project:{name.partition('/')[0]}",) if kind == "project-memory" else ()
+        )
+        scanner.add(kind, name, digest, (ResourcePart(scanner.rel(path)),), references)
 
 
 def _scan_memory(scanner: _Scanner, memory: Path, kind: str, prefix: str) -> None:

@@ -1,4 +1,4 @@
-"""Shared comparison and crash recovery for workspace resource changes.
+"""Shared filesystem transactions and crash recovery for workspace resource changes.
 
 Callers choose which changes are allowed. This module owns the filesystem
 transaction: staged copies, a durable journal, replacement, and rollback.
@@ -28,7 +28,6 @@ from .workspace_resources import (
     fingerprint_resource,
     is_ignored_name,
     resource_kind_for_path,
-    snapshot_workspace,
 )
 
 
@@ -40,15 +39,6 @@ class WorkspaceCoreError(ValueError):
 class Version:
     kind: str
     fingerprint: str
-
-
-@dataclass(frozen=True)
-class Decision:
-    path: str
-    kind: str
-    action: str
-    target: str | None
-    reason: str
 
 
 @dataclass(frozen=True)
@@ -160,103 +150,6 @@ def version_at(
         return Version(kind, fingerprint_resource(target, kind))
     except WorkspaceResourceError as exc:
         raise WorkspaceCoreError(str(exc)) from exc
-
-
-def read_supported_snapshot(
-    root: Path,
-) -> tuple[dict[str, Version], tuple[str, ...], tuple[str, ...]]:
-    """Read one workspace and return all scan findings alongside its resources."""
-    snapshot = snapshot_workspace(root)
-    result: dict[str, Version] = {}
-    findings = [
-        f"{finding.resource}: {finding.message}" for finding in snapshot.findings
-    ]
-    for resource in snapshot.resources.values():
-        if resource.kind in ("memory", "project-memory", "skill"):
-            part = resource.parts[0]
-            kind = "skill" if resource.kind == "skill" else "memory"
-            try:
-                validate_resource_path(part.path, kind)
-            except WorkspaceCoreError as exc:
-                findings.append(str(exc))
-                continue
-            result[part.path] = Version(kind, resource.fingerprint)
-    return result, snapshot.skipped, tuple(findings)
-
-
-def supported_snapshot(root: Path) -> tuple[dict[str, Version], tuple[str, ...]]:
-    """Read supported resources and require a valid single-workspace snapshot."""
-    resources, skipped, findings = read_supported_snapshot(root)
-    if findings:
-        raise WorkspaceCoreError("; ".join(findings))
-    return resources, skipped
-
-
-def compare_versions(
-    base: dict[str, Version], left: dict[str, Version], right: dict[str, Version]
-) -> tuple[Decision, ...]:
-    """Compute deterministic three-way decisions without filesystem access."""
-    items = []
-    for path in sorted(base.keys() | left.keys() | right.keys()):
-        ancestor, a, b = base.get(path), left.get(path), right.get(path)
-        reference = ancestor or a or b
-        assert reference is not None
-        kind = reference.kind
-        if any(v is not None and v.kind != kind for v in (ancestor, a, b)):
-            items.append(
-                Decision(path, kind, "CONFLICT", None, "Resource type differs")
-            )
-        elif a == b:
-            items.append(Decision(path, kind, "NOOP", None, "Both sides agree"))
-        elif a == ancestor:
-            items.append(
-                Decision(
-                    path,
-                    kind,
-                    "DELETE" if b is None else "COPY",
-                    "left",
-                    "Right changed",
-                )
-            )
-        elif b == ancestor:
-            items.append(
-                Decision(
-                    path,
-                    kind,
-                    "DELETE" if a is None else "COPY",
-                    "right",
-                    "Left changed",
-                )
-            )
-        else:
-            items.append(Decision(path, kind, "CONFLICT", None, "Both sides changed"))
-    return tuple(items)
-
-
-def compare_import(
-    source: dict[str, Version], target: dict[str, Version]
-) -> tuple[Decision, ...]:
-    """Plan additive changes, leaving differing target resources untouched."""
-    items = []
-    for path, version in sorted(source.items()):
-        current = target.get(path)
-        if current is None:
-            items.append(
-                Decision(
-                    path,
-                    version.kind,
-                    "CREATE",
-                    "target",
-                    "Resource is absent from target",
-                )
-            )
-        elif current == version:
-            items.append(Decision(path, version.kind, "NOOP", None, "Contents match"))
-        else:
-            items.append(
-                Decision(path, version.kind, "CONFLICT", None, "Contents differ")
-            )
-    return tuple(items)
 
 
 def _secure_dir(path: Path) -> None:

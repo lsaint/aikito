@@ -1,313 +1,457 @@
-"""Internal reconciliation of two workspaces against a shared baseline."""
+"""Reconcile a workspace replica with a conditionally committed resource center.
+
+Each replica keeps its own per-resource base. Unresolved or blocked resources
+retain that base while the safe subset advances. Center and replica commits
+are separate atomic transactions: if the replica fails after an upload, its
+old base makes the next round safely recognize or repeat the accepted work.
+"""
 
 from __future__ import annotations
 
 import json
+import tempfile
 import uuid
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
 
-from .compat import secure_directory_permissions
+from .init import is_recognized_workspace
 from .skill_state import WorkspaceWriterLock
 from .workspace_core import (
-    Change,
-    Decision,
-    PathPolicy,
     StateUpdate,
-    Version,
     WorkspaceCoreError,
     apply,
-    compare_versions,
     entry_type,
     has_pending,
     recover,
-    supported_snapshot,
     validate_resource_path,
-    validate_roots,
 )
+from .workspace_merge import compare
+from .workspace_remote import (
+    FilesystemRemote,
+    RemoteSnapshot,
+    RECONCILE_POLICY,
+    REPLICA_STATE,
+    SYNC_KINDS,
+    decode_resources,
+    encode_resources,
+    external_projects,
+    state_path,
+    valid_identity,
+)
+from .workspace_resource_write import (
+    ResourceContent,
+    ResourceWrite,
+    prepare_resource_writes,
+    reference_conflicts,
+    verify_resource_snapshot,
+)
+from .workspace_resources import (
+    Resource,
+    WorkspaceSnapshot,
+    physical_kind,
+    scan_credentials,
+    snapshot_workspace,
+)
+from .workspace_templates import template_fingerprints
 
 
 class WorkspaceReconcileError(WorkspaceCoreError):
-    """Workspace versions cannot be reconciled safely."""
+    """A reconciliation round cannot be handled safely."""
 
 
-ResourceVersion = Version
-ReconcileItem = Decision
-_BASELINE_RELATIVE = ".local/state/aikito/workspace-reconcile/baseline.json"
-_BASELINE_VERSION = 1
-_PATH_POLICY = PathPolicy(states=(_BASELINE_RELATIVE,))
+@dataclass(frozen=True)
+class ReplicaState:
+    sync_id: str
+    replica_id: str
+    generation: int
+    base: dict[str, Resource]
+
+    def encode(self) -> str:
+        return json.dumps(
+            {
+                "version": 2,
+                "sync_id": self.sync_id,
+                "replica_id": self.replica_id,
+                "generation": self.generation,
+                "base": encode_resources(self.base),
+            },
+            sort_keys=True,
+        )
+
+
+@dataclass(frozen=True)
+class ReconcileItem:
+    id: str
+    action: str
+    target: str | None
+    before: str | None
+    after: str | None
+    reason: str
 
 
 @dataclass(frozen=True)
 class ReconcilePlan:
-    left: Path
-    right: Path
-    generation: int
-    base: dict[str, Version]
-    left_snapshot: dict[str, Version]
-    right_snapshot: dict[str, Version]
-    items: tuple[Decision, ...]
+    local: Path
+    remote: Path
+    local_snapshot: WorkspaceSnapshot
+    remote_snapshot: RemoteSnapshot
+    state: ReplicaState | None
+    state_text: str | None
+    items: tuple[ReconcileItem, ...]
+    findings: tuple[str, ...] = ()
+    resolutions: tuple[tuple[str, str], ...] = ()
 
     @property
-    def conflicts(self) -> tuple[Decision, ...]:
+    def generation(self) -> int:
+        return self.remote_snapshot.generation
+
+    @property
+    def base(self) -> dict[str, Resource]:
+        return self.state.base if self.state else {}
+
+    @property
+    def conflicts(self) -> tuple[ReconcileItem, ...]:
         return tuple(item for item in self.items if item.action == "CONFLICT")
 
     @property
-    def changes(self) -> tuple[Decision, ...]:
-        return tuple(item for item in self.items if item.action in ("COPY", "DELETE"))
-
-
-def _roots(left: Path, right: Path) -> tuple[Path, Path]:
-    try:
-        return tuple(sorted(validate_roots(left, right), key=str))  # type: ignore[return-value]
-    except WorkspaceCoreError as exc:
-        raise WorkspaceReconcileError(str(exc)) from exc
-
-
-def _baseline_path(root: Path, *, create: bool = False) -> Path:
-    current = root
-    for part in (".local", "state", "aikito", "workspace-reconcile"):
-        current /= part
-        kind = entry_type(current)
-        if kind == "missing" and create:
-            current.mkdir(mode=0o700)
-            if not secure_directory_permissions(current):
-                raise WorkspaceReconcileError(
-                    f"Cannot secure baseline directory: {current}"
-                )
-        elif kind != "directory":
-            raise WorkspaceReconcileError(
-                f"Missing or unsafe baseline directory: {current}"
-            )
-    return current / "baseline.json"
-
-
-def _encode_snapshot(snapshot: dict[str, Version]) -> dict[str, list[str]]:
-    return {
-        key: [item.kind, item.fingerprint] for key, item in sorted(snapshot.items())
-    }
-
-
-def _decode_snapshot(raw: object) -> dict[str, Version]:
-    if not isinstance(raw, dict):
-        raise WorkspaceReconcileError("Invalid baseline resources")
-    result = {}
-    for path, value in raw.items():
-        if (
-            not isinstance(path, str)
-            or not isinstance(value, list)
-            or len(value) != 2
-            or value[0] not in ("memory", "skill")
-            or not isinstance(value[1], str)
-            or len(value[1]) != 64
-            or any(char not in "0123456789abcdef" for char in value[1])
-        ):
-            raise WorkspaceReconcileError("Invalid baseline resource")
-        validate_resource_path(path, value[0])
-        result[path] = Version(value[0], value[1])
-    return result
-
-
-def _baseline_state(
-    left: Path,
-    right: Path,
-    baseline_id: str,
-    generation: int,
-    snapshot: dict[str, Version],
-) -> dict[str, object]:
-    return {
-        "version": _BASELINE_VERSION,
-        "roots": [str(left), str(right)],
-        "baseline_id": baseline_id,
-        "generation": generation,
-        "base": _encode_snapshot(snapshot),
-    }
-
-
-def _read_baseline(
-    left: Path, right: Path
-) -> tuple[dict[str, object], dict[str, Version]]:
-    states = []
-    for root in (left, right):
-        path = _baseline_path(root)
-        if entry_type(path) != "file":
-            raise WorkspaceReconcileError("Workspaces have no shared baseline")
-        try:
-            states.append(json.loads(path.read_text(encoding="utf-8")))
-        except (OSError, ValueError) as exc:
-            raise WorkspaceReconcileError(f"Cannot read baseline: {path}") from exc
-    if states[0] != states[1]:
-        raise WorkspaceReconcileError("Baseline versions differ")
-    state = states[0]
-    if isinstance(state, dict) and state.get("version") != _BASELINE_VERSION:
-        raise WorkspaceReconcileError(
-            f"Unsupported baseline format version {state.get('version')!r}; "
-            "remove the baseline in both workspaces and create a new one"
+    def changes(self) -> tuple[ReconcileItem, ...]:
+        return tuple(
+            item for item in self.items if item.action in {"CREATE", "UPDATE", "DELETE"}
         )
+
+    @property
+    def blocked(self) -> bool:
+        return bool(self.findings)
+
+
+def _read_state(
+    local: Path, remote: RemoteSnapshot
+) -> tuple[ReplicaState | None, str | None]:
+    legacy = state_path(local, ".local/state/aikito/workspace-reconcile/baseline.json")
+    if entry_type(legacy) != "missing":
+        raise WorkspaceReconcileError(
+            "Unsupported baseline format; remove the old internal baseline and pair again"
+        )
+    path = state_path(local, REPLICA_STATE)
+    if entry_type(path) == "missing":
+        return None, None
+    text = path.read_text(encoding="utf-8")
+    try:
+        raw = json.loads(text)
+    except ValueError as exc:
+        raise WorkspaceReconcileError("Invalid replica state") from exc
+    if not isinstance(raw, dict) or raw.get("version") != 2:
+        raise WorkspaceReconcileError("Unsupported replica state version")
     if (
-        not isinstance(state, dict)
-        or state.get("roots") != [str(left), str(right)]
-        or type(state.get("generation")) is not int
-        or state["generation"] < 0
-        or not isinstance(state.get("baseline_id"), str)
-        or len(state["baseline_id"]) != 32
+        not valid_identity(raw.get("sync_id"))
+        or not valid_identity(raw.get("replica_id"))
+        or type(raw.get("generation")) is not int
+        or not 0 <= raw["generation"] <= remote.generation
     ):
-        raise WorkspaceReconcileError("Invalid baseline state")
-    return state, _decode_snapshot(state.get("base"))
+        raise WorkspaceReconcileError("Invalid replica state")
+    if raw["sync_id"] != remote.sync_id:
+        raise WorkspaceReconcileError("Replica belongs to a different resource center")
+    return ReplicaState(
+        raw["sync_id"],
+        raw["replica_id"],
+        raw["generation"],
+        decode_resources(raw.get("base")),
+    ), text
 
 
-def baseline_workspaces(left: Path, right: Path, home: Path) -> None:
-    """Record identical supported resources as the initial common version."""
-    left, right = _roots(left, right)
-    roots = (left, right)
-    with WorkspaceWriterLock(home):
-        if has_pending(roots, policy=_PATH_POLICY):
-            raise WorkspaceReconcileError(
-                "Pending workspace transaction needs recovery"
-            )
-        for root in roots:
-            path = _baseline_path(root, create=True)
-            if entry_type(path) != "missing":
-                raise WorkspaceReconcileError(
-                    f"Workspace already has a baseline: {root}"
-                )
-        a, _ = supported_snapshot(left)
-        b, _ = supported_snapshot(right)
-        if a != b:
-            raise WorkspaceReconcileError(
-                "Supported resources differ; baseline requires identical workspaces"
-            )
-        state = _baseline_state(left, right, uuid.uuid4().hex, 0, a)
-        encoded = json.dumps(state, sort_keys=True)
-        try:
-            apply(
-                roots,
-                (),
-                states=tuple(
-                    StateUpdate(index, _BASELINE_RELATIVE, None, encoded)
-                    for index in range(2)
-                ),
-                policy=_PATH_POLICY,
-            )
-        except WorkspaceCoreError as exc:
-            raise WorkspaceReconcileError(str(exc)) from exc
+def _roots(local: Path, remote: FilesystemRemote) -> Path:
+    local = local.expanduser().resolve()
+    if not is_recognized_workspace(local):
+        raise WorkspaceReconcileError("Local path must be an Aikito workspace")
+    if (
+        local == remote.root
+        or local in remote.root.parents
+        or remote.root in local.parents
+    ):
+        raise WorkspaceReconcileError("Replica and resource center must be separate")
+    return local
 
 
-def build_reconcile_plan(left: Path, right: Path) -> ReconcilePlan:
-    """Compare two independent snapshots with their common baseline."""
-    left, right = _roots(left, right)
-    if has_pending((left, right), policy=_PATH_POLICY):
-        raise WorkspaceReconcileError("Pending round needs recovery before preview")
-    state, base = _read_baseline(left, right)
-    a, _ = supported_snapshot(left)
-    b, _ = supported_snapshot(right)
-    return ReconcilePlan(
-        left, right, state["generation"], base, a, b, compare_versions(base, a, b)
+def _write(item: ReconcileItem, resources: dict[str, Resource]) -> ResourceWrite:
+    resource = resources[item.id]
+    return ResourceWrite(
+        Path(resource.parts[0].path),
+        resource.kind,
+        item.after,
+        resource.name,
+        Path(resource.parts[0].path),
+        item.before,
     )
 
 
-def recover_reconciliation(left: Path, right: Path) -> bool:
-    """Recover an interrupted round while preserving external changes."""
-    roots = _roots(left, right)
+def build_reconcile_plan(
+    local: Path,
+    remote: FilesystemRemote,
+    *,
+    resolutions: Mapping[str, str] | None = None,
+) -> ReconcilePlan:
+    """Preview a round without creating state, lock files, or resource files."""
     try:
-        return recover(roots, policy=_PATH_POLICY)
+        local = _roots(local, remote)
+        if has_pending((local,), policy=RECONCILE_POLICY):
+            raise WorkspaceReconcileError("Pending round needs recovery before preview")
+        center = remote.read()
+        state, state_text = _read_state(local, center)
+        snapshot = snapshot_workspace(local)
+        a = {
+            key: resource
+            for key, resource in snapshot.resources.items()
+            if resource.kind in SYNC_KINDS
+        }
+        b = center.resources
+        base = state.base if state else {}
+        identities = base.keys() | a.keys() | b.keys()
+        choices = dict(resolutions or {})
+        for identity, side in choices.items():
+            if identity not in identities or side not in {"local", "remote"}:
+                raise WorkspaceReconcileError(
+                    f"Invalid reconciliation resolution: {identity}={side}"
+                )
+        findings = [
+            f"Local {finding.resource}: {finding.message}"
+            for finding in snapshot.findings
+        ]
+        items = []
+        for identity in sorted(identities):
+            left, right, ancestor = a.get(identity), b.get(identity), base.get(identity)
+            local_fp, remote_fp = (
+                left.fingerprint if left else None,
+                right.fingerprint if right else None,
+            )
+            reference = (
+                frozenset({ancestor.fingerprint})
+                if ancestor
+                else template_fingerprints(identity)
+                if state is None
+                else frozenset()
+            )
+            outcome = compare(reference, local_fp, remote_fp)
+            action, target, reason = outcome.action, outcome.target, outcome.reason
+            if state is None and action == "DELETE":
+                action = "CREATE"
+                target = "remote" if target == "local" else "local"
+                reason = "First pairing preserves existing resources"
+            if action == "CONFLICT" and identity in choices:
+                side = choices[identity]
+                target = "remote" if side == "local" else "local"
+                before = remote_fp if target == "remote" else local_fp
+                after = local_fp if target == "remote" else remote_fp
+                action = (
+                    "DELETE"
+                    if after is None
+                    else "CREATE"
+                    if before is None
+                    else "UPDATE"
+                )
+                reason = f"Conflict resolved using {side}"
+            before = (local_fp if target == "local" else remote_fp) if target else None
+            after = (remote_fp if target == "local" else local_fp) if target else None
+            if target and action in {"CREATE", "UPDATE", "DELETE"}:
+                resource = left or right or ancestor
+                validate_resource_path(
+                    resource.parts[0].path,
+                    physical_kind(resource.kind),
+                    RECONCILE_POLICY,
+                )
+            items.append(ReconcileItem(identity, action, target, before, after, reason))
+        # Secrets block only the upload that contains them; unrelated work remains safe.
+        secrets = {finding.resource for finding in scan_credentials(snapshot)}
+        for index, item in enumerate(items):
+            if item.target == "remote" and item.after is not None:
+                resource = a[item.id]
+                paths = [part.path for part in resource.parts]
+                if any(
+                    secret == path or secret.startswith(path + "/")
+                    for secret in secrets
+                    for path in paths
+                ):
+                    items[index] = replace(
+                        item,
+                        action="BLOCKED",
+                        target=None,
+                        reason="Possible plaintext credential; resource is not uploaded",
+                    )
+        # Include preserved local-only project/selection resources when checking deletion.
+        for side, source, target_resources in (
+            ("local", b, snapshot.resources),
+            ("remote", a, b),
+        ):
+            changes = {
+                item.id
+                for item in items
+                if item.target == side and item.action in {"CREATE", "UPDATE"}
+            }
+            deletions = {
+                item.id
+                for item in items
+                if item.target == side and item.action == "DELETE"
+            }
+            rejected, residual = reference_conflicts(
+                source,
+                target_resources,
+                changes,
+                deletions=deletions,
+                external=external_projects({**a, **b})
+                if side == "remote"
+                else frozenset(),
+            )
+            items = [
+                replace(
+                    item,
+                    action="CONFLICT",
+                    target=None,
+                    before=None,
+                    after=None,
+                    reason=rejected[item.id],
+                )
+                if item.id in rejected and item.target == side
+                else item
+                for item in items
+            ]
+            findings.extend(f"{side}: {finding}" for finding in residual)
+        return ReconcilePlan(
+            local,
+            remote.root,
+            snapshot,
+            center,
+            state,
+            state_text,
+            tuple(items),
+            tuple(sorted(set(findings))),
+            tuple(sorted(choices.items())),
+        )
+    except WorkspaceCoreError as exc:
+        if isinstance(exc, WorkspaceReconcileError):
+            raise
+        raise WorkspaceReconcileError(str(exc)) from exc
+
+
+def recover_reconciliation(local: Path, remote: FilesystemRemote) -> bool:
+    """Recover each pending batch, preserving externally changed resources."""
+    try:
+        local = _roots(local, remote)
+        with remote.lock():
+            center = remote.recover()
+            replica = recover((local,), policy=RECONCILE_POLICY)
+            return center or replica
     except WorkspaceCoreError as exc:
         raise WorkspaceReconcileError(str(exc)) from exc
 
 
-def apply_reconcile_plan(plan: ReconcilePlan, home: Path) -> None:
-    """Apply a fresh plan and advance the common version after verification."""
-    roots = (plan.left, plan.right)
-    with WorkspaceWriterLock(home):
-        if recover_reconciliation(*roots):
-            raise WorkspaceReconcileError("Recovered an interrupted round; run again")
-        fresh = build_reconcile_plan(*roots)
-        if fresh != plan:
-            raise WorkspaceReconcileError(
-                "Workspaces changed after planning; run again"
-            )
-        if plan.conflicts:
-            raise WorkspaceReconcileError(
-                "Reconciliation has conflicts; no files changed"
-            )
-        state, _ = _read_baseline(*roots)
-        if not plan.changes and plan.left_snapshot == plan.base:
-            return
-        changes = []
-        for item in plan.changes:
-            index = 0 if item.target == "left" else 1
-            before = (plan.left_snapshot if index == 0 else plan.right_snapshot).get(
-                item.path
-            )
-            after = (plan.right_snapshot if index == 0 else plan.left_snapshot).get(
-                item.path
-            )
-            changes.append(
-                Change(
-                    index,
-                    item.path,
-                    item.kind,
-                    roots[1 - index] / item.path if after else None,
-                    before.fingerprint if before else None,
-                    after.fingerprint if after else None,
+def apply_reconcile_plan(
+    plan: ReconcilePlan, home: Path, *, remote: FilesystemRemote | None = None
+) -> None:
+    """Conditionally commit the safe subset, then confirm each converged resource."""
+    remote = remote or FilesystemRemote(plan.remote)
+    if remote.root != plan.remote:
+        raise WorkspaceReconcileError("Plan belongs to a different resource center")
+    try:
+        with WorkspaceWriterLock(home), remote.lock():
+            if recover_reconciliation(plan.local, remote):
+                raise WorkspaceReconcileError(
+                    "Recovered an interrupted round; run again"
                 )
+            fresh = build_reconcile_plan(
+                plan.local, remote, resolutions=dict(plan.resolutions)
             )
-
-        def verify() -> None:
-            a, _ = supported_snapshot(plan.left)
-            b, _ = supported_snapshot(plan.right)
-            if a != b:
-                raise WorkspaceReconcileError("Workspaces differ after apply")
-
-        target_snapshot = dict(plan.left_snapshot)
-        for item in plan.changes:
-            version = (
-                plan.right_snapshot if item.target == "left" else plan.left_snapshot
-            ).get(item.path)
-            if version is None:
-                target_snapshot.pop(item.path, None)
-            else:
-                target_snapshot[item.path] = version
-        new_state = _baseline_state(
-            plan.left,
-            plan.right,
-            state["baseline_id"],
-            plan.generation + 1,
-            target_snapshot,
-        )
-        states = tuple(
-            StateUpdate(
-                index,
-                _BASELINE_RELATIVE,
-                _baseline_path(root).read_text(encoding="utf-8"),
-                json.dumps(new_state, sort_keys=True),
+            if fresh != plan:
+                raise WorkspaceReconcileError(
+                    "Resources or generation changed after planning; run again"
+                )
+            if plan.blocked:
+                raise WorkspaceReconcileError(
+                    "Reconciliation has blocking findings; no resources changed"
+                )
+            uploads = tuple(
+                _write(
+                    item,
+                    plan.local_snapshot.resources
+                    if item.after
+                    else plan.remote_snapshot.resources,
+                )
+                for item in plan.changes
+                if item.target == "remote"
             )
-            for index, root in enumerate(roots)
-        )
-        try:
-            apply(
-                roots,
-                tuple(changes),
-                states=states,
-                verify=verify,
-                policy=_PATH_POLICY,
+            downloads = tuple(
+                _write(
+                    item,
+                    plan.remote_snapshot.resources
+                    if item.after
+                    else plan.local_snapshot.resources,
+                )
+                for item in plan.changes
+                if item.target == "local"
             )
-        except WorkspaceCoreError as exc:
-            raise WorkspaceReconcileError(str(exc)) from exc
+            with tempfile.TemporaryDirectory(prefix="aikito-reconcile-") as staging:
+                local_changes, expected = prepare_resource_writes(
+                    remote.content(plan.remote_snapshot),
+                    plan.local_snapshot,
+                    downloads,
+                    Path(staging),
+                    policy=RECONCILE_POLICY,
+                )
+                center = remote.commit(
+                    plan.remote_snapshot,
+                    ResourceContent.from_workspace(plan.local_snapshot),
+                    uploads,
+                )
+                base = dict(plan.base)
+                for item in plan.items:
+                    if item.action in {"CONFLICT", "BLOCKED"}:
+                        continue
+                    left, right = expected.get(item.id), center.resources.get(item.id)
+                    if left is None and right is None:
+                        base.pop(item.id, None)
+                    elif left and right and left.fingerprint == right.fingerprint:
+                        base[item.id] = right
+                state = ReplicaState(
+                    center.sync_id,
+                    plan.state.replica_id if plan.state else uuid.uuid4().hex,
+                    center.generation,
+                    base,
+                )
+                if not local_changes and state == plan.state:
+                    return
+                state_path(plan.local, REPLICA_STATE, create=True)
+                apply(
+                    (plan.local,),
+                    local_changes,
+                    states=(
+                        StateUpdate(0, REPLICA_STATE, plan.state_text, state.encode()),
+                    ),
+                    verify=lambda: verify_resource_snapshot(
+                        snapshot_workspace(plan.local), expected
+                    ),
+                    policy=RECONCILE_POLICY,
+                )
+    except WorkspaceCoreError as exc:
+        if isinstance(exc, WorkspaceReconcileError):
+            raise
+        raise WorkspaceReconcileError(str(exc)) from exc
 
 
 def run_reconciliation(
-    left: Path, right: Path, home: Path, *, dry_run: bool
+    local: Path,
+    remote: FilesystemRemote,
+    home: Path,
+    *,
+    dry_run: bool,
+    resolutions: Mapping[str, str] | None = None,
 ) -> ReconcilePlan:
-    """Preview or apply one reconciliation round."""
-    left, right = _roots(left, right)
-    if has_pending((left, right), policy=_PATH_POLICY):
-        if dry_run:
-            raise WorkspaceReconcileError("Pending round needs recovery before preview")
-        with WorkspaceWriterLock(home):
-            recover_reconciliation(left, right)
-        raise WorkspaceReconcileError("Recovered an interrupted round; run again")
-    plan = build_reconcile_plan(left, right)
-    if not dry_run and not plan.conflicts:
-        apply_reconcile_plan(plan, home)
+    """Preview or apply safe work; conflicts and credential blocks remain visible."""
+    if not dry_run:
+        with WorkspaceWriterLock(home), remote.lock():
+            if recover_reconciliation(local, remote):
+                raise WorkspaceReconcileError(
+                    "Recovered an interrupted round; run again"
+                )
+    plan = build_reconcile_plan(local, remote, resolutions=resolutions)
+    if not dry_run and not plan.blocked:
+        apply_reconcile_plan(plan, home, remote=remote)
     return plan

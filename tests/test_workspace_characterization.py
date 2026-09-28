@@ -8,7 +8,6 @@ restructured without changing observable semantics.
 from __future__ import annotations
 
 import io
-import json
 from collections.abc import Callable
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -20,12 +19,10 @@ from aikito.templating import load_template, render_project_files
 from aikito.workspace_import import build_import_plan, run_workspace_import
 from aikito.workspace_merge import compare
 from aikito.workspace_reconcile import (
-    WorkspaceReconcileError,
-    apply_reconcile_plan,
-    baseline_workspaces,
     build_reconcile_plan,
     run_reconciliation,
 )
+from aikito.workspace_remote import FilesystemRemote
 from aikito.workspace_resources import snapshot_workspace
 from aikito.workspace_templates import template_fingerprints
 
@@ -322,133 +319,32 @@ def test_import_skips_unmanaged_entries_and_bundled_skills(tmp_path: Path) -> No
     assert "SKIPPED Source skills/durable-memory" in plan.excluded
 
 
-# Reconcile.
-
-
-def _reconcile_workspace(root: Path) -> Path:
-    for directory in ("agents", "subagents", "mcps", "memory/notes", "projects"):
-        (root / directory).mkdir(parents=True, exist_ok=True)
-    for directory in ("skills", "global"):
-        (root / directory).mkdir(exist_ok=True)
-    (root / "layout.toml").write_text("version = 2\n", encoding="utf-8")
-    (root / "skills.toml").write_text("skills = []\n", encoding="utf-8")
-    return root
-
-
-def _pair(tmp_path: Path) -> tuple[Path, Path, Path]:
-    left = _reconcile_workspace(tmp_path / "left")
-    right = _reconcile_workspace(tmp_path / "right")
-    home = tmp_path / "home"
-    baseline_workspaces(left, right, home)
-    return left, right, home
-
-
-def _decisions(left: Path, right: Path) -> dict[str, tuple[str, str | None]]:
-    return {
-        item.path: (item.action, item.target)
-        for item in build_reconcile_plan(left, right).items
-    }
-
-
-@pytest.mark.parametrize("deleted_on", ["left", "right"])
-def test_reconcile_delete_against_modify_conflicts(
-    tmp_path: Path, deleted_on: str
-) -> None:
-    left, right, home = _pair(tmp_path)
-    note = Path("memory/notes/a.md")
-    (left / note).write_text("base", encoding="utf-8")
-    run_reconciliation(left, right, home, dry_run=False)
-    deleted, modified = (left, right) if deleted_on == "left" else (right, left)
-    (deleted / note).unlink()
-    (modified / note).write_text("modified", encoding="utf-8")
-    plan = run_reconciliation(left, right, home, dry_run=False)
-    assert [item.path for item in plan.conflicts] == [note.as_posix()]
-    assert not (deleted / note).exists()
-    assert (modified / note).read_text(encoding="utf-8") == "modified"
-
-
-def test_reconcile_concurrent_creates_with_different_content_conflict(
-    tmp_path: Path,
-) -> None:
-    left, right, home = _pair(tmp_path)
-    _skill(left, "left")
-    _skill(right, "right")
-    assert _decisions(left, right) == {"skills/alpha": ("CONFLICT", None)}
-
-
-def test_reconcile_conflict_blocks_unrelated_changes(tmp_path: Path) -> None:
-    left, right, home = _pair(tmp_path)
-    (left / "memory/notes/a.md").write_text("left", encoding="utf-8")
-    (right / "memory/notes/a.md").write_text("right", encoding="utf-8")
-    (left / "memory/notes/b.md").write_text("only left", encoding="utf-8")
-    run_reconciliation(left, right, home, dry_run=False)
-    assert not (right / "memory/notes/b.md").exists()
+# Reconcile: only the first three resource kinds are admitted.
 
 
 def test_reconcile_covers_only_memory_and_skills(tmp_path: Path) -> None:
-    left = _reconcile_workspace(tmp_path / "left")
-    right = _reconcile_workspace(tmp_path / "right")
-    for root in (left, right):
-        (root / "projects/demo/memory/notes").mkdir(parents=True)
-        (root / "projects/demo/agent.toml").write_text(
-            'name = "demo"\n', encoding="utf-8"
-        )
+    local = _workspace(tmp_path / "local")
+    remote = FilesystemRemote.create(tmp_path / "center")
     home = tmp_path / "home"
-    baseline_workspaces(left, right, home)
-    (left / "memory/notes/a.md").write_text("a", encoding="utf-8")
-    (left / "projects/demo/memory/notes/d.md").write_text("d", encoding="utf-8")
-    _skill(left, "a")
-    (left / "projects/demo/agent.toml").write_text(
-        'name = "demo"\ndescription = "left"\n', encoding="utf-8"
-    )
-    (left / "global/AGENTS.md").write_text("# Global\n", encoding="utf-8")
-    (left / "mcps/docs.toml").write_text('transport = "remote"\n', encoding="utf-8")
-    assert set(_decisions(left, right)) == {
-        "memory/notes/a.md",
-        "projects/demo/memory/notes/d.md",
-        "skills/alpha",
+    run_reconciliation(local, remote, home, dry_run=False)
+    _memory(local, "a")
+    _project_memory(local, "d")
+    _skill(local, "a")
+    (local / "global/AGENTS.md").write_text("# Custom Global\n")
+    (local / "mcps/docs.toml").write_text('transport = "remote"\n')
+    plan = build_reconcile_plan(local, remote)
+    assert {item.id for item in plan.items} == {
+        "memory:notes/a.md",
+        "project-memory:demo/notes/a.md",
+        "skill:alpha",
     }
-    run_reconciliation(left, right, home, dry_run=False)
-    assert (right / "projects/demo/memory/notes/d.md").is_file()
-    assert not (right / "global/AGENTS.md").exists()
-    assert not (right / "mcps/docs.toml").exists()
-    assert "left" not in (right / "projects/demo/agent.toml").read_text(
-        encoding="utf-8"
-    )
-
-
-def test_reconcile_cannot_create_memory_for_unknown_project(tmp_path: Path) -> None:
-    # Known gap: project configuration is not reconciled, so project memory
-    # cannot be created where the project directory is missing.
-    left, right, home = _pair(tmp_path)
-    notes = left / "projects/demo/memory/notes"
-    notes.mkdir(parents=True)
-    (left / "projects/demo/agent.toml").write_text('name = "demo"\n', encoding="utf-8")
-    (notes / "d.md").write_text("d", encoding="utf-8")
-    with pytest.raises(WorkspaceReconcileError, match="Unsafe resource parent"):
-        run_reconciliation(left, right, home, dry_run=False)
-    assert not (right / "projects/demo").exists()
-
-
-def test_reconcile_rejects_plan_made_stale_by_later_edit(tmp_path: Path) -> None:
-    left, right, home = _pair(tmp_path)
-    (left / "memory/notes/a.md").write_text("planned", encoding="utf-8")
-    plan = build_reconcile_plan(left, right)
-    (right / "memory/notes/b.md").write_text("later", encoding="utf-8")
-    with pytest.raises(WorkspaceReconcileError, match="changed after planning"):
-        apply_reconcile_plan(plan, home)
-    assert not (right / "memory/notes/a.md").exists()
-
-
-def test_reconcile_rejects_unsupported_baseline_version(tmp_path: Path) -> None:
-    left, right, _ = _pair(tmp_path)
-    for root in (left, right):
-        path = root / ".local/state/aikito/workspace-reconcile/baseline.json"
-        state = json.loads(path.read_text(encoding="utf-8"))
-        state["version"] = 0
-        path.write_text(json.dumps(state, sort_keys=True), encoding="utf-8")
-    with pytest.raises(WorkspaceReconcileError, match="Unsupported baseline format"):
-        build_reconcile_plan(left, right)
+    run_reconciliation(local, remote, home, dry_run=False)
+    assert (remote.root / "projects/demo/memory/notes/a.md").is_file()
+    assert not (remote.root / "projects/demo/agent.toml").exists()
+    assert not (remote.root / "global/AGENTS.md").exists()
+    assert not (remote.root / "mcps/docs.toml").exists()
+    assert "skill:aikito" not in remote.read().resources
+    assert "skill:durable-memory" not in remote.read().resources
 
 
 # Shared three-way comparison and template history.

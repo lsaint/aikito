@@ -141,6 +141,16 @@ jobs:
           $connectOutput | Select-String "aikito doctor"
           $reconcileBase = Join-Path $env:RUNNER_TEMP "reconcile-smoke"
           python tests/workspace_reconcile_smoke.py "$reconcileBase"
+          if ($LASTEXITCODE -ne 0) { throw "Resource reconciliation smoke failed" }
+          foreach ($relative in @("right\memory\notes\reconcile-smoke.md", "right\projects\demo\memory\notes\reconcile-smoke.md", "right\skills\reconcile-smoke\SKILL.md", "right\memory\notes\recovered.md", "right\memory\notes\relocated.md", "right\.local\state\aikito\workspace-reconcile\replica.json", "moved-left\.local\state\aikito\workspace-reconcile\replica.json", "moved-center\.local\state\aikito\workspace-reconcile\remote.json")) {
+            if (-not (Test-Path (Join-Path $reconcileBase $relative))) { throw "Missing reconciled resource: $relative" }
+          }
+          if (-not (Test-Path (Join-Path $reconcileBase "right\skills\reconcile-smoke\empty") -PathType Container)) { throw "Missing reconciled empty directory" }
+          if (-not (Select-String -Path (Join-Path $reconcileBase "right\projects\demo\memory\notes\reconcile-smoke.md") -SimpleMatch "# Updated project" -Quiet)) { throw "Project memory update was not reconciled" }
+          if (-not (Select-String -Path (Join-Path $reconcileBase "right\skills\reconcile-smoke\SKILL.md") -SimpleMatch "# Updated skill" -Quiet)) { throw "Skill update was not reconciled" }
+          foreach ($relative in @("right\memory\notes\deleted.md", "right\projects\demo\memory\notes\deleted.md", "right\skills\deleted", "moved-center\layout.toml", "right\.local\state\aikito\workspace-transactions\pending.json", "moved-center\.local\state\aikito\workspace-transactions\pending.json")) {
+            if (Test-Path (Join-Path $reconcileBase $relative)) { throw "Unexpected reconciliation artifact: $relative" }
+          }
           if (-not (Test-Path (Join-Path $reconcileBase "right\memory\notes\reconcile-smoke.md"))) {
             throw "Workspace reconcile did not create the note"
           }
