@@ -161,6 +161,14 @@ the affected resource, source, reason, and exact review or skip command.
 Adoption findings are warnings: `doctor` and `doctor --fix` never import or skip
 resources.
 
+The LocalState section checks host-local project skill copy records under
+`~/.local/state/aikito/project-skills/`. Records for temporary workspaces and
+checkouts that both no longer exist include the cleanup command
+`aikito doctor --fix`. Cleanup rechecks bindings under the writer lock and is
+deferred while transaction journals are present. Unavailable non-temporary
+paths, malformed records, and symlinks are reported and preserved. Ordinary
+`doctor`, including JSON output, never removes or rewrites these records.
+
 When one detected resource is intentionally out of scope, repeat
 `--skip instructions`, `--skip mcp/<name>`, or `--skip subagent/<name>` as
 needed. Skips apply only to that invocation and are printed in the plan. Unknown

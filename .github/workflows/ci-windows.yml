@@ -171,6 +171,11 @@ jobs:
             if (!(Test-Path (Join-Path $revisionBase $relative) -PathType Leaf)) { throw "Missing revision resource: $relative" }
           }
           if (!(Get-ChildItem "$revisionBase/home/.local/state/aikito/project-skills" -Filter "*.json" -File)) { throw "Missing revision skill state" }
+          $localStateBase = Join-Path $env:RUNNER_TEMP "local-state-doctor"
+          python tests/local_state_doctor_smoke.py "$localStateBase"
+          if ($LASTEXITCODE -ne 0) { throw "Local state doctor smoke failed" }
+          if (!(Test-Path "$localStateBase/checked.json" -PathType Leaf)) { throw "Missing local state doctor report" }
+          if (!(Get-ChildItem "$localStateBase/home/.local/state/aikito/project-skills" -Filter "*.json" -File)) { throw "Missing preserved local skill state" }
           $boundaryBase = Join-Path $env:RUNNER_TEMP "reconcile-boundary"
           python tests/workspace_reconcile_boundary_smoke.py "$boundaryBase"
           if ($LASTEXITCODE -ne 0) { throw "Remote Store Boundary fingerprint smoke failed" }

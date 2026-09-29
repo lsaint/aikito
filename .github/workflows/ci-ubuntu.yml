@@ -218,6 +218,12 @@ jobs:
           test -f "$REVISION/right/.local/state/aikito/workspace-reconcile/replica.json"
           test -f "$REVISION/center/.local/state/aikito/workspace-reconcile/remote.json"
           test -f "$REVISION/home/.local/state/aikito/project-skills/"*.json
+          LOCAL_STATE=${{ runner.temp }}/local-state-doctor
+          python3 tests/local_state_doctor_smoke.py "$LOCAL_STATE"
+          test -f "$LOCAL_STATE/checked.json"
+          for STATE_FILE in "$LOCAL_STATE/home/.local/state/aikito/project-skills/"*.json; do
+            test -f "$STATE_FILE"
+          done
           BOUNDARY=${{ runner.temp }}/reconcile-boundary
           python3 tests/workspace_reconcile_boundary_smoke.py "$BOUNDARY"
           PAYLOAD=${{ runner.temp }}/workspace-payload

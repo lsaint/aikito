@@ -1171,12 +1171,13 @@ class RunDoctorIntegrationTest(unittest.TestCase):
         # Run against the actual aikito workspace (read-only)
         report = run_doctor(ROOT, Path(tempfile.gettempdir()))
         self.assertIsInstance(report, DoctorReport)
-        self.assertTrue(len(report.sections) == 10)
+        self.assertTrue(len(report.sections) == 11)
         # All section names present
         names = {s.name for s in report.sections}
         for expected in (
             "Symlinks",
             "Orphans",
+            "LocalState",
             "Memory",
             "Configuration",
             "Drift",
@@ -1200,6 +1201,7 @@ class RunDoctorIntegrationTest(unittest.TestCase):
             [
                 "Symlinks",
                 "Orphans",
+                "LocalState",
                 "Memory",
                 "Drift",
                 "Security",

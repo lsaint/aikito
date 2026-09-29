@@ -53,6 +53,7 @@ from .mcp import (
     load_agent_specs,
 )
 from .memory import validate_memory_name
+from .local_state import clean_local_state, inspect_local_state
 from .project import (
     ProjectSummary,
     collect_project_summaries,
@@ -1484,9 +1485,14 @@ def check_conflict_markers(aikito_dir: Path, home: Path) -> DoctorSection:
 
 
 def run_doctor_fixes(aikito_dir: Path, home: Path | None = None) -> list[str]:
-    """Apply safe Agent registry fixes."""
+    """Apply safe Agent registry fixes and abandoned temporary state cleanup."""
     fixes: list[str] = []
     resolved_home = home or Path.home()
+    try:
+        fixes.extend(clean_local_state(resolved_home))
+    except (OSError, RuntimeError):
+        # Leave failures visible in the diagnostic pass after fixes.
+        pass
     agents_path = aikito_dir / "agents"
     if agents_path.is_dir():
         try:
@@ -1501,6 +1507,13 @@ def run_doctor_fixes(aikito_dir: Path, home: Path | None = None) -> list[str]:
         except (OSError, tomllib.TOMLDecodeError):
             pass
     return fixes
+
+
+def check_local_state(home: Path) -> DoctorSection:
+    findings = inspect_local_state(home)
+    if not findings:
+        findings.append(_ok("No stale or unverifiable local skill state"))
+    return DoctorSection(name="LocalState", findings=findings)
 
 
 def _find_agent_references(aikito_dir: Path, agent_name: str) -> list[str]:
@@ -1563,6 +1576,7 @@ def run_doctor(
             lambda: check_symlinks(aikito_dir, home, inspection=inspection),
         ),
         ("Orphans", lambda: check_orphans(aikito_dir, home, inspection=inspection)),
+        ("LocalState", lambda: check_local_state(home)),
         (
             "Memory",
             lambda: check_memory_integrity(
