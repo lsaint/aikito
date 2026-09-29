@@ -421,17 +421,22 @@ def _get_final_path(path: Path) -> Path | None:
         file_flag_backup_semantics = 0x02000000
         file_name_normalized = 0x0
         volume_name_dos = 0x0
+        file_read_attributes = 0x0080
 
-        handle = ctypes.windll.kernel32.CreateFileW(  # type: ignore[attr-defined]
+        create_file = ctypes.windll.kernel32.CreateFileW  # type: ignore[attr-defined]
+        create_file.restype = ctypes.c_void_p
+
+        handle = create_file(
             str(path),
-            0,
+            file_read_attributes,
             file_share_read | file_share_write | file_share_delete,
             None,
             open_existing,
             file_flag_backup_semantics,
             None,
         )
-        if handle and handle != -1:
+        invalid = ctypes.c_void_p(-1).value
+        if handle and handle != invalid and handle != 0:
             try:
                 buf = ctypes.create_unicode_buffer(1024)
                 ret = ctypes.windll.kernel32.GetFinalPathNameByHandleW(  # type: ignore[attr-defined]
@@ -518,6 +523,8 @@ def is_directory_case_sensitive(path: Path) -> bool:
     """
     if is_windows():
         probe_dir = path if path.is_dir() else path.parent
+        while not probe_dir.is_dir() and probe_dir != probe_dir.parent:
+            probe_dir = probe_dir.parent
         if not probe_dir.is_dir():
             return False
         try:

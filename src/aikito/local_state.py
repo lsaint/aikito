@@ -7,6 +7,7 @@ changes state images while a transaction journal is present.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -14,7 +15,7 @@ import tempfile
 from dataclasses import replace
 from pathlib import Path
 
-from .compat import is_reparse_point, is_windows
+from .compat import get_physical_path, is_reparse_point, is_windows
 from .diagnostics import Finding, FindingAction
 from .skill_state import (
     WorkspaceWriterLock,
@@ -128,6 +129,28 @@ def _temporary(path: Path) -> bool:
     return False
 
 
+def _matches_binding(ws: Path, proj: str, co: Path, expected: str) -> bool:
+    if get_binding_hash(ws, proj, co) == expected:
+        return True
+    if is_windows():
+        folded = (
+            f"{ws.as_posix().lower()}:{proj.strip()}:{co.as_posix().lower()}".encode(
+                "utf-8"
+            )
+        )
+        if hashlib.sha256(folded).hexdigest() == expected:
+            return True
+        phys_folded = f"{get_physical_path(ws).as_posix().lower()}:{proj.strip()}:{get_physical_path(co).as_posix().lower()}".encode(
+            "utf-8"
+        )
+        if hashlib.sha256(phys_folded).hexdigest() == expected:
+            return True
+        non_folded = f"{ws.as_posix()}:{proj.strip()}:{co.as_posix()}".encode("utf-8")
+        if hashlib.sha256(non_folded).hexdigest() == expected:
+            return True
+    return False
+
+
 def _inspect_file(path: Path, cleanup_allowed: bool) -> Finding | None:
     try:
         if is_reparse_point(path) or not path.is_file():
@@ -155,7 +178,7 @@ def _inspect_file(path: Path, cleanup_allowed: bool) -> Finding | None:
         workspace, checkout = Path(fields[0]), Path(fields[2])
         if not workspace.is_absolute() or not checkout.is_absolute():
             raise ValueError("binding paths must be absolute")
-        if get_binding_hash(workspace, fields[1], checkout) != path.stem:
+        if not _matches_binding(workspace, fields[1], checkout, path.stem):
             raise ValueError("binding identity does not match state filename")
         workspace_missing, checkout_missing = _missing(workspace), _missing(checkout)
         if not workspace_missing and not checkout_missing:
