@@ -157,3 +157,17 @@ def test_unverifiable_transaction_storage_blocks_cleanup(tmp_path):
     assert inspect_local_state(home)[0].code == "local-state.invalid"
     assert clean_local_state(home) == []
     assert path.exists()
+
+
+def test_temporary_path_resolution_and_unc_handling(tmp_path):
+    from pathlib import Path
+    from aikito.local_state import _resolve_existing_parent, _strip_unc, _temporary
+
+    assert _strip_unc(Path(r"\\?\C:\Temp\test")) == Path(r"C:\Temp\test")
+    assert _strip_unc(Path(r"\\?\UNC\server\share")) == Path(r"\\server\share")
+    assert _strip_unc(Path("/tmp/normal")) == Path("/tmp/normal")
+
+    nonexistent = tmp_path / "nonexistent" / "child"
+    resolved = _resolve_existing_parent(nonexistent)
+    assert resolved.is_relative_to(_strip_unc(tmp_path.resolve()))
+    assert _temporary(nonexistent)

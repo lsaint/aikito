@@ -8,6 +8,7 @@ changes state images while a transaction journal is present.
 from __future__ import annotations
 
 import json
+import os
 import re
 import tempfile
 from dataclasses import replace
@@ -41,12 +42,90 @@ def _missing(path: Path) -> bool:
     return False
 
 
+def _strip_unc(path: Path) -> Path:
+    s = str(path)
+    if s.startswith("\\\\?\\UNC\\"):
+        return Path("\\\\" + s[8:])
+    elif s.startswith("\\\\?\\"):
+        return Path(s[4:])
+    return path
+
+
+def _resolve_existing_parent(path: Path) -> Path:
+    p = _strip_unc(path)
+    curr = p
+    tail: list[str] = []
+    while not curr.exists() and curr != curr.parent:
+        tail.append(curr.name)
+        curr = curr.parent
+    if curr.exists():
+        try:
+            resolved_curr = _strip_unc(curr.resolve())
+            for part in reversed(tail):
+                resolved_curr = resolved_curr / part
+            return resolved_curr
+        except OSError:
+            pass
+    try:
+        return _strip_unc(p.resolve())
+    except OSError:
+        return p
+
+
+def _is_subpath(path: Path, root: Path) -> bool:
+    try:
+        return _strip_unc(path).is_relative_to(_strip_unc(root))
+    except (ValueError, AttributeError):
+        return False
+
+
+def _temporary_roots() -> list[Path]:
+    roots: list[Path] = [Path(tempfile.gettempdir())]
+    if is_windows():
+        for env_var in ("TEMP", "TMP", "RUNNER_TEMP", "LOCALAPPDATA"):
+            val = os.environ.get(env_var)
+            if val:
+                p = Path(val)
+                roots.append(p)
+                if env_var == "LOCALAPPDATA":
+                    roots.append(p / "Temp")
+        roots.extend((Path("C:/Temp"), Path("C:/Windows/Temp")))
+    else:
+        for env_var in ("TMPDIR", "RUNNER_TEMP"):
+            val = os.environ.get(env_var)
+            if val:
+                roots.append(Path(val))
+        roots.extend(
+            (
+                Path("/tmp"),
+                Path("/var/folders"),
+                Path("/private/tmp"),
+                Path("/private/var/folders"),
+            )
+        )
+    return roots
+
+
 def _temporary(path: Path) -> bool:
-    roots = [Path(tempfile.gettempdir())]
-    if not is_windows():
-        roots.extend((Path("/tmp"), Path("/var/folders")))
-    resolved = path.resolve()
-    return any(resolved.is_relative_to(root.resolve()) for root in roots)
+    roots = _temporary_roots()
+    raw_path = _strip_unc(path)
+    res_path = _resolve_existing_parent(path)
+
+    for root in roots:
+        raw_root = _strip_unc(root)
+        try:
+            res_root = _strip_unc(root.resolve())
+        except OSError:
+            res_root = raw_root
+
+        if (
+            _is_subpath(res_path, res_root)
+            or _is_subpath(raw_path, raw_root)
+            or _is_subpath(res_path, raw_root)
+            or _is_subpath(raw_path, res_root)
+        ):
+            return True
+    return False
 
 
 def _inspect_file(path: Path, cleanup_allowed: bool) -> Finding | None:
