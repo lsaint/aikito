@@ -190,7 +190,7 @@ def atomic_text(path: Path, content: str) -> None:
     _secure_dir(path.parent)
     temporary = path.with_name(f".{path.name}-{uuid.uuid4().hex}")
     try:
-        with temporary.open("x", encoding="utf-8") as stream:
+        with temporary.open("x", encoding="utf-8", newline="") as stream:
             stream.write(content)
             stream.flush()
             os.fsync(stream.fileno())

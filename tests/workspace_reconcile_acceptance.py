@@ -145,6 +145,7 @@ def exercise_behavior(base: Path, backend: ReconciliationBackend) -> None:
     for relative, content in preserved.items():
         updated = (
             content.decode("utf-8")
+            .replace("\r\n", "\n")
             .replace("first", "updated")
             .replace("# Example", "# Updated")
             .replace("~/offline", "~/updated")

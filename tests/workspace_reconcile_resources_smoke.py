@@ -21,7 +21,7 @@ from workspace_reconcile_smoke import _workspace
 def write(root: Path, relative: str, value: str) -> None:
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(value, encoding="utf-8")
+    path.write_text(value.replace("\r\n", "\n"), encoding="utf-8", newline="\n")
 
 
 def main() -> None:

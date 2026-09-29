@@ -54,6 +54,8 @@ def read_executable_metadata(path: Path) -> frozenset[str]:
 
 def write_executable_metadata(path: Path, executable) -> None:
     path.write_text(
-        json.dumps({"version": 1, "executable": sorted(executable)}, sort_keys=True),
+        json.dumps({"version": 1, "executable": sorted(executable)}, sort_keys=True)
+        + "\n",
         encoding="utf-8",
+        newline="\n",
     )

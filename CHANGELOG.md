@@ -29,6 +29,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Executable skill scripts no longer cause cross-platform fingerprint mismatches, failed downloads, or spurious uploads between POSIX and Windows replicas.
 - Reconciliation choices now resolve reference conflicts, including concurrent skill deletion and project skill selection, by restoring required providers or removing dependent set members. Inferred writes retain reference and credential safety checks.
 - Reconciliation rejects choices for non-conflicting resources instead of silently ignoring them.
+- Shared TOML and test workspace writers normalize newlines so Windows replicas do not accumulate double carriage returns during reconciliation.
 
 ## [1.55.0] - 2026-09-28
 
