@@ -203,6 +203,221 @@ def _write(
     )
 
 
+def _check_items(
+    proposed: list[ReconcileItem],
+    snapshot: WorkspaceSnapshot,
+    center: RemoteSnapshot,
+    local_content: ResourceContent | None,
+    remote_content: ResourceContent,
+) -> tuple[list[ReconcileItem], list[str]]:
+    """Check candidate changes after comparison or conflict choices."""
+    items = list(proposed)
+    a, b = snapshot.resources, center.resources
+    policy = _local_policy(snapshot.root)
+    findings = [
+        f"Local {finding.resource}: {finding.message}" for finding in snapshot.findings
+    ]
+    for index, item in enumerate(items):
+        if item.action not in {"CREATE", "UPDATE", "DELETE"}:
+            continue
+        resource = a.get(item.id) or b.get(item.id)
+        resource_for_id(item.id, resource.fingerprint)
+        if resource.kind == "inbox" and not policy.inbox_prefix:
+            items[index] = replace(
+                item,
+                action="BLOCKED",
+                target=None,
+                reason="Inbox is outside the workspace; reconciliation is not permitted",
+            )
+            continue
+        path = (
+            f"{policy.inbox_prefix}/{resource.name}"
+            if resource.kind == "inbox" and item.target == "local"
+            else f"inbox/{resource.name}"
+            if resource.kind == "inbox"
+            else resource.parts[0].path
+        )
+        validate_resource_path(
+            path,
+            physical_kind(resource.kind),
+            policy if item.target == "local" else RECONCILE_POLICY,
+        )
+    # Secrets block only the upload that contains them; unrelated work remains safe.
+    secrets = (
+        frozenset()
+        if snapshot.findings
+        else credential_resources(
+            local_content,
+            {
+                item.id
+                for item in items
+                if item.target == "remote" and item.after is not None
+            },
+        )
+    )
+    items = [
+        replace(
+            item,
+            action="BLOCKED",
+            target=None,
+            reason="Possible plaintext credential; resource is not uploaded",
+        )
+        if item.id in secrets
+        else item
+        for item in items
+    ]
+    # Reference checks include every preserved resource on each side.
+    for side, source, target_resources in (
+        ("local", b, snapshot.resources),
+        ("remote", a, b),
+    ):
+        changes = {
+            item.id
+            for item in items
+            if item.target == side and item.action in {"CREATE", "UPDATE"}
+        }
+        deletions = {
+            item.id for item in items if item.target == side and item.action == "DELETE"
+        }
+        if local_content is not None:
+            rejected_fields = toml_conflicts(
+                remote_content if side == "local" else local_content,
+                local_content if side == "local" else remote_content,
+                changes,
+                deletions,
+            )
+            items = [
+                replace(
+                    item,
+                    action="CONFLICT",
+                    target=None,
+                    before=None,
+                    after=None,
+                    reason=rejected_fields[item.id],
+                )
+                if item.id in rejected_fields and item.target == side
+                else item
+                for item in items
+            ]
+            changes.difference_update(rejected_fields)
+        rejected, residual = reference_conflicts(
+            source,
+            target_resources,
+            changes,
+            deletions=deletions,
+        )
+        items = [
+            replace(
+                item,
+                action="CONFLICT",
+                target=None,
+                before=None,
+                after=None,
+                reason=rejected[item.id],
+            )
+            if item.id in rejected and item.target == side
+            else item
+            for item in items
+        ]
+        findings.extend(f"{side}: {finding}" for finding in residual)
+    return items, findings
+
+
+def _select_version(
+    identity: str, side: str, local: dict[str, Resource], remote: dict[str, Resource]
+) -> ReconcileItem:
+    source, destination = (local, remote) if side == "local" else (remote, local)
+    before = destination[identity].fingerprint if identity in destination else None
+    after = source[identity].fingerprint if identity in source else None
+    action = (
+        "NOOP"
+        if before == after
+        else "DELETE"
+        if after is None
+        else "CREATE"
+        if before is None
+        else "UPDATE"
+    )
+    target = None if action == "NOOP" else "remote" if side == "local" else "local"
+    return ReconcileItem(
+        identity, action, target, before, after, f"Conflict resolved using {side}"
+    )
+
+
+def _result_resources(
+    items: dict[str, ReconcileItem],
+    resources: dict[str, Resource],
+    source: dict[str, Resource],
+    side: str,
+) -> dict[str, Resource]:
+    result = dict(resources)
+    for item in items.values():
+        if item.target != side:
+            continue
+        if item.action == "DELETE":
+            result.pop(item.id, None)
+        elif item.action in {"CREATE", "UPDATE"}:
+            result[item.id] = source[item.id]
+    return result
+
+
+def _resolve_items(
+    proposed: list[ReconcileItem],
+    choices: dict[str, str],
+    local: dict[str, Resource],
+    remote: dict[str, Resource],
+) -> list[ReconcileItem]:
+    """Choose versions, restoring providers or pruning dependent set members.
+
+    A dependency choice never overrides another explicit choice. Only set
+    members are pruned automatically; standalone dependent content still needs
+    its own choice. All inferred changes go through ordinary safety checks.
+    """
+    items = {item.id: item for item in proposed}
+    pending = list(sorted(choices.items()))
+    for identity, side in pending:
+        items[identity] = _select_version(identity, side, local, remote)
+    visited = set()
+    while pending:
+        identity, side = pending.pop()
+        if (identity, side) in visited:
+            continue
+        visited.add((identity, side))
+        item = items[identity]
+        source, destination = (local, remote) if side == "local" else (remote, local)
+        target = "remote" if side == "local" else "local"
+        result = _result_resources(items, destination, source, target)
+        if item.action in {"CREATE", "UPDATE"}:
+            for reference in source[identity].references:
+                if reference in result or reference not in source:
+                    continue
+                if reference in choices and choices[reference] != side:
+                    continue
+                items[reference] = replace(
+                    _select_version(reference, side, local, remote),
+                    reason=f"Restore {reference} required by resolved {identity}",
+                )
+                pending.append((reference, side))
+        elif item.action == "DELETE":
+            for key, resource in sorted(result.items()):
+                if identity not in resource.references or resource.kind not in {
+                    "skill-selection",
+                    "project-skill",
+                    "project-path",
+                }:
+                    continue
+                if key in choices and choices[key] != side:
+                    continue
+                if key in source:
+                    continue
+                items[key] = replace(
+                    _select_version(key, side, local, remote),
+                    reason=f"Remove membership referencing deleted {identity}; resolved using {side}",
+                )
+                pending.append((key, side))
+    return [items[key] for key in sorted(items)]
+
+
 def build_reconcile_plan(
     local: Path,
     remote: FilesystemRemote,
@@ -223,7 +438,6 @@ def build_reconcile_plan(
             if resource.kind in SYNC_KINDS
             and not (resource.kind == "config" and resource.name in LOCAL_CONFIG)
         }
-        policy = _local_policy(local)
         b = center.resources
         base = state.base if state else {}
         identities = base.keys() | a.keys() | b.keys()
@@ -233,10 +447,6 @@ def build_reconcile_plan(
                 raise WorkspaceReconcileError(
                     f"Invalid reconciliation resolution: {identity}={side}"
                 )
-        findings = [
-            f"Local {finding.resource}: {finding.message}"
-            for finding in snapshot.findings
-        ]
         items = []
         for identity in sorted(identities):
             left, right, ancestor = a.get(identity), b.get(identity), base.get(identity)
@@ -257,127 +467,27 @@ def build_reconcile_plan(
                 action = "CREATE"
                 target = "remote" if target == "local" else "local"
                 reason = "First pairing preserves existing resources"
-            if action == "CONFLICT" and identity in choices:
-                side = choices[identity]
-                target = "remote" if side == "local" else "local"
-                before = remote_fp if target == "remote" else local_fp
-                after = local_fp if target == "remote" else remote_fp
-                action = (
-                    "DELETE"
-                    if after is None
-                    else "CREATE"
-                    if before is None
-                    else "UPDATE"
-                )
-                reason = f"Conflict resolved using {side}"
             before = (local_fp if target == "local" else remote_fp) if target else None
             after = (remote_fp if target == "local" else local_fp) if target else None
-            if target and action in {"CREATE", "UPDATE", "DELETE"}:
-                resource = left or right or ancestor
-                resource_for_id(identity, resource.fingerprint)
-                if resource.kind == "inbox" and not policy.inbox_prefix:
-                    action, target, reason = (
-                        "BLOCKED",
-                        None,
-                        "Inbox is outside the workspace; reconciliation is not permitted",
-                    )
-                else:
-                    path = (
-                        f"{policy.inbox_prefix}/{resource.name}"
-                        if resource.kind == "inbox" and target == "local"
-                        else f"inbox/{resource.name}"
-                        if resource.kind == "inbox"
-                        else resource.parts[0].path
-                    )
-                    validate_resource_path(
-                        path,
-                        physical_kind(resource.kind),
-                        policy if target == "local" else RECONCILE_POLICY,
-                    )
             items.append(ReconcileItem(identity, action, target, before, after, reason))
-        # Secrets block only the upload that contains them; unrelated work remains safe.
         local_content = (
             ResourceContent.from_workspace(snapshot) if not snapshot.findings else None
         )
-        secrets = (
-            frozenset()
-            if snapshot.findings
-            else credential_resources(
-                local_content,
-                {
-                    item.id
-                    for item in items
-                    if item.target == "remote" and item.after is not None
-                },
-            )
+        remote_content = remote.content(center)
+        checked, findings = _check_items(
+            items, snapshot, center, local_content, remote_content
         )
-        items = [
-            replace(
-                item,
-                action="BLOCKED",
-                target=None,
-                reason="Possible plaintext credential; resource is not uploaded",
-            )
-            if item.id in secrets
-            else item
-            for item in items
-        ]
-        # Include preserved local-only project/selection resources when checking deletion.
-        for side, source, target_resources in (
-            ("local", b, snapshot.resources),
-            ("remote", a, b),
-        ):
-            changes = {
-                item.id
-                for item in items
-                if item.target == side and item.action in {"CREATE", "UPDATE"}
-            }
-            deletions = {
-                item.id
-                for item in items
-                if item.target == side and item.action == "DELETE"
-            }
-            if local_content is not None:
-                rejected_fields = toml_conflicts(
-                    remote.content(center) if side == "local" else local_content,
-                    local_content if side == "local" else remote.content(center),
-                    changes,
-                    deletions,
+        conflicts = {item.id for item in checked if item.action == "CONFLICT"}
+        for identity in choices:
+            if identity not in conflicts:
+                raise WorkspaceReconcileError(
+                    f"Resolution requires a conflicting resource: {identity}"
                 )
-                items = [
-                    replace(
-                        item,
-                        action="CONFLICT",
-                        target=None,
-                        before=None,
-                        after=None,
-                        reason=rejected_fields[item.id],
-                    )
-                    if item.id in rejected_fields and item.target == side
-                    else item
-                    for item in items
-                ]
-                changes.difference_update(rejected_fields)
-            rejected, residual = reference_conflicts(
-                source,
-                target_resources,
-                changes,
-                deletions=deletions,
+        if choices:
+            proposed = _resolve_items(items, choices, a, b)
+            checked, findings = _check_items(
+                proposed, snapshot, center, local_content, remote_content
             )
-            items = [
-                replace(
-                    item,
-                    action="CONFLICT",
-                    target=None,
-                    before=None,
-                    after=None,
-                    reason=rejected[item.id],
-                )
-                if item.id in rejected and item.target == side
-                else item
-                for item in items
-            ]
-            findings.extend(f"{side}: {finding}" for finding in residual)
         return ReconcilePlan(
             local,
             remote.root,
@@ -385,7 +495,7 @@ def build_reconcile_plan(
             center,
             state,
             state_text,
-            tuple(items),
+            tuple(checked),
             tuple(sorted(set(findings))),
             tuple(sorted(choices.items())),
         )

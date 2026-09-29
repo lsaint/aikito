@@ -566,3 +566,198 @@ def test_date_and_same_text_are_distinct_shared_values(tmp_path):
     assert next(i for i in plan.changes if i.id == "config:start").action == "UPDATE"
     round_trip(a, remote, home)
     assert tomllib.loads((a / "config.toml").read_text())["start"] == "2026-09-28"
+
+
+def deletion_reference_race(tmp_path):
+    a, b, remote, home = pair(tmp_path)
+    write(a, "skills/x/SKILL.md", "# X\n")
+    round_trip(a, remote, home)
+    round_trip(b, remote, home)
+    shutil.rmtree(a / "skills/x")
+    round_trip(a, remote, home)
+    write(b, "projects/demo/agent.toml", 'name = "demo"\nskills = ["x", "aikito"]\n')
+    plan = round_trip(b, remote, home)
+    assert {i.id for i in plan.conflicts} == {"skill:x", "project-skill:demo/x"}
+    return a, b, remote, home
+
+
+@pytest.mark.parametrize("identity", ("skill:x", "project-skill:demo/x"))
+@pytest.mark.parametrize("side", ("local", "remote"))
+def test_reference_conflicts_accept_each_resolution_and_converge(
+    tmp_path, identity, side
+):
+    a, b, remote, home = deletion_reference_race(tmp_path)
+    before = {p.relative_to(b): p.read_bytes() for p in b.rglob("*") if p.is_file()}
+    plan = build_reconcile_plan(b, remote, resolutions={identity: side})
+    assert not plan.conflicts and not plan.blocked
+    assert before == {
+        p.relative_to(b): p.read_bytes() for p in b.rglob("*") if p.is_file()
+    }
+    apply_reconcile_plan(plan, home)
+    round_trip(a, remote, home)
+    round_trip(b, remote, home)
+    for local in (a, b):
+        assert (local / "skills/x/SKILL.md").exists() == (side == "local")
+        skills = tomllib.loads((local / "projects/demo/agent.toml").read_text())[
+            "skills"
+        ]
+        assert set(skills) == ({"aikito", "x"} if side == "local" else {"aikito"})
+        assert not build_reconcile_plan(local, remote).changes
+        assert not build_reconcile_plan(local, remote).conflicts
+    assert ("skill:x" in remote.read().resources) == (side == "local")
+    assert ("project-skill:demo/x" in remote.read().resources) == (side == "local")
+    assert ("skill:x" in json.loads((b / REPLICA_STATE).read_text())["base"]) == (
+        side == "local"
+    )
+
+
+@pytest.mark.parametrize("side", ("local", "remote"))
+def test_consistent_multiple_reference_choices(tmp_path, side):
+    a, b, remote, home = deletion_reference_race(tmp_path)
+    plan = round_trip(
+        b, remote, home, resolutions={"skill:x": side, "project-skill:demo/x": side}
+    )
+    assert not plan.conflicts
+    round_trip(a, remote, home)
+    assert (a / "skills/x").exists() == (side == "local")
+
+
+def test_contradictory_reference_choices_do_not_override_each_other(tmp_path):
+    a, b, remote, home = deletion_reference_race(tmp_path)
+    plan = round_trip(
+        b,
+        remote,
+        home,
+        resolutions={"skill:x": "remote", "project-skill:demo/x": "local"},
+    )
+    assert {i.id for i in plan.conflicts} == {"skill:x", "project-skill:demo/x"}
+    assert (b / "skills/x/SKILL.md").is_file()
+    assert "project-skill:demo/x" not in remote.read().resources
+
+
+@pytest.mark.parametrize("action", ("CREATE", "UPDATE", "DELETE", "NOOP", "BLOCKED"))
+@pytest.mark.parametrize("side", ("local", "remote"))
+def test_nonconflicting_resolution_is_rejected_without_writes(tmp_path, action, side):
+    a, b, remote, home = pair(tmp_path)
+    if action in {"UPDATE", "DELETE", "NOOP"}:
+        write(a, "memory/notes/n.md", "base")
+        round_trip(a, remote, home)
+        if action == "UPDATE":
+            write(a, "memory/notes/n.md", "changed")
+        elif action == "DELETE":
+            (a / "memory/notes/n.md").unlink()
+    else:
+        write(
+            a,
+            "memory/notes/n.md",
+            'api_key = "abcdefghijklmnop123456"' if action == "BLOCKED" else "new",
+        )
+    plan = build_reconcile_plan(a, remote)
+    assert next(i for i in plan.items if i.id == "memory:notes/n.md").action == action
+    before = (
+        {p.relative_to(a): p.read_bytes() for p in a.rglob("*") if p.is_file()},
+        {
+            p.relative_to(remote.root): p.read_bytes()
+            for p in remote.root.rglob("*")
+            if p.is_file()
+        },
+    )
+    with pytest.raises(
+        WorkspaceReconcileError, match="requires a conflicting resource"
+    ):
+        run_reconciliation(
+            a, remote, home, dry_run=False, resolutions={"memory:notes/n.md": side}
+        )
+    assert before == (
+        {p.relative_to(a): p.read_bytes() for p in a.rglob("*") if p.is_file()},
+        {
+            p.relative_to(remote.root): p.read_bytes()
+            for p in remote.root.rglob("*")
+            if p.is_file()
+        },
+    )
+
+
+def test_resolution_inferred_provider_still_checks_credentials(tmp_path):
+    a, b, remote, home = deletion_reference_race(tmp_path)
+    write(b, "skills/x/SKILL.md", 'api_key = "abcdefghijklmnop123456"')
+    plan = round_trip(b, remote, home, resolutions={"project-skill:demo/x": "local"})
+    assert next(i for i in plan.items if i.id == "skill:x").action == "BLOCKED"
+    assert (
+        next(i for i in plan.items if i.id == "project-skill:demo/x").action
+        == "CONFLICT"
+    )
+    assert "skill:x" not in remote.read().resources
+    assert "project-skill:demo/x" not in remote.read().resources
+
+
+@pytest.mark.parametrize("identity", ("skill:x", "skill-selection:x"))
+@pytest.mark.parametrize("side", ("local", "remote"))
+def test_root_selection_reference_choices_converge(tmp_path, identity, side):
+    a, b, remote, home = pair(tmp_path)
+    write(a, "skills/x/SKILL.md", "# X\n")
+    round_trip(a, remote, home)
+    round_trip(b, remote, home)
+    shutil.rmtree(a / "skills/x")
+    round_trip(a, remote, home)
+    write(b, "skills.toml", 'skills = ["x", "aikito"]\n')
+    assert {i.id for i in round_trip(b, remote, home).conflicts} == {
+        "skill:x",
+        "skill-selection:x",
+    }
+    assert not round_trip(b, remote, home, resolutions={identity: side}).conflicts
+    for local in (a, b):
+        assert not round_trip(local, remote, home).conflicts
+        assert (local / "skills/x/SKILL.md").exists() == (side == "local")
+        assert set(tomllib.loads((local / "skills.toml").read_text())["skills"]) == (
+            {"aikito", "x"} if side == "local" else {"aikito"}
+        )
+        assert not build_reconcile_plan(local, remote).changes
+
+
+def test_reference_resolution_preview_is_stale_after_provider_edit(tmp_path):
+    a, b, remote, home = deletion_reference_race(tmp_path)
+    plan = build_reconcile_plan(
+        b, remote, resolutions={"project-skill:demo/x": "local"}
+    )
+    write(b, "skills/x/SKILL.md", "# Edited after preview\n")
+    generation = remote.read().generation
+    with pytest.raises(WorkspaceReconcileError, match="changed after planning"):
+        apply_reconcile_plan(plan, home)
+    assert remote.read().generation == generation
+    assert "skill:x" not in remote.read().resources
+    assert (b / "skills/x/SKILL.md").read_text() == "# Edited after preview\n"
+
+
+def test_provider_deletion_preserves_standalone_dependents_until_explicit_choice(
+    tmp_path,
+):
+    a, b, remote, home = pair(tmp_path)
+    write(a, "projects/demo/agent.toml", 'name = "demo"\n')
+    round_trip(a, remote, home)
+    round_trip(b, remote, home)
+    shutil.rmtree(a / "projects/demo")
+    round_trip(a, remote, home)
+    write(b, "projects/demo/AGENTS.md", "# Keep these instructions\n")
+    unresolved = round_trip(b, remote, home)
+    assert {i.id for i in unresolved.conflicts} == {
+        "project:demo",
+        "project-instructions:demo",
+    }
+    plan = round_trip(b, remote, home, resolutions={"project:demo": "remote"})
+    assert {i.id for i in plan.conflicts} == {
+        "project:demo",
+        "project-instructions:demo",
+    }
+    assert (b / "projects/demo/AGENTS.md").read_text() == "# Keep these instructions\n"
+    plan = round_trip(
+        b,
+        remote,
+        home,
+        resolutions={"project:demo": "remote", "project-instructions:demo": "remote"},
+    )
+    assert not plan.conflicts
+    assert not (b / "projects/demo/agent.toml").exists()
+    assert not (b / "projects/demo/AGENTS.md").exists()
+    assert "project:demo" not in snapshot_workspace(b).resources
+    assert not build_reconcile_plan(b, remote).changes

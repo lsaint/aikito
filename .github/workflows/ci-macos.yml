@@ -107,6 +107,23 @@ jobs:
           python3 tests/workspace_reconcile_resources_smoke.py "$EXPANDED"
           ACCEPTANCE=${{ runner.temp }}/reconcile-acceptance
           python3 tests/workspace_reconcile_acceptance.py "$ACCEPTANCE"
+          RESOLUTIONS=${{ runner.temp }}/reconcile-resolutions
+          python3 tests/workspace_reconcile_resolution_smoke.py "$RESOLUTIONS"
+          for CASE in skill-local project-skill-local; do
+            test -f "$RESOLUTIONS/$CASE/left/skills/x/SKILL.md"
+            test -f "$RESOLUTIONS/$CASE/right/skills/x/SKILL.md"
+            test -f "$RESOLUTIONS/$CASE/center/skills/x/SKILL.md"
+          done
+          for CASE in skill-remote project-skill-remote; do
+            test ! -d "$RESOLUTIONS/$CASE/left/skills/x"
+            test ! -d "$RESOLUTIONS/$CASE/right/skills/x"
+            test ! -d "$RESOLUTIONS/$CASE/center/skills/x"
+          done
+          for CASE in skill-local project-skill-local skill-remote project-skill-remote; do
+            test -f "$RESOLUTIONS/$CASE/right/projects/newcomer/agent.toml"
+            test -f "$RESOLUTIONS/$CASE/right/memory/notes/rejected.md"
+            test ! -f "$RESOLUTIONS/$CASE/center/memory/notes/rejected.md"
+          done
           test -f "$ACCEPTANCE/right/capture-b/relocated.md"
           test -f "$ACCEPTANCE/moved-left/capture-a/relocated.md"
           test -f "$ACCEPTANCE/right/projects/demo/memory/notes/acceptance.md"

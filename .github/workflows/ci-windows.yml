@@ -148,6 +148,24 @@ jobs:
           $acceptanceBase = Join-Path $env:RUNNER_TEMP "reconcile-acceptance"
           python tests/workspace_reconcile_acceptance.py "$acceptanceBase"
           if ($LASTEXITCODE -ne 0) { throw "Workspace reconciliation acceptance failed" }
+          $resolutionBase = Join-Path $env:RUNNER_TEMP "reconcile-resolutions"
+          python tests/workspace_reconcile_resolution_smoke.py "$resolutionBase"
+          if ($LASTEXITCODE -ne 0) { throw "Reference conflict resolution smoke failed" }
+          foreach ($case in @("skill-local", "project-skill-local")) {
+            foreach ($replica in @("left", "right", "center")) {
+              if (!(Test-Path "$resolutionBase/$case/$replica/skills/x/SKILL.md" -PathType Leaf)) { throw "Resolved skill missing" }
+            }
+          }
+          foreach ($case in @("skill-remote", "project-skill-remote")) {
+            foreach ($replica in @("left", "right", "center")) {
+              if (Test-Path "$resolutionBase/$case/$replica/skills/x") { throw "Deleted skill remains" }
+            }
+          }
+          foreach ($case in @("skill-local", "project-skill-local", "skill-remote", "project-skill-remote")) {
+            if (!(Test-Path "$resolutionBase/$case/right/projects/newcomer/agent.toml" -PathType Leaf)) { throw "Resolved project missing" }
+            if (!(Test-Path "$resolutionBase/$case/right/memory/notes/rejected.md" -PathType Leaf)) { throw "Local note missing" }
+            if (Test-Path "$resolutionBase/$case/center/memory/notes/rejected.md") { throw "Rejected resolution uploaded note" }
+          }
           foreach ($relative in @("right/capture-b/relocated.md", "moved-left/capture-a/relocated.md", "right/projects/demo/memory/notes/acceptance.md", "moved-left/config.toml", "right/config.toml", "moved-center/.local/state/aikito/workspace-reconcile/remote.json")) {
             if (-not (Test-Path (Join-Path $acceptanceBase $relative) -PathType Leaf)) { throw "Missing acceptance resource: $relative" }
           }

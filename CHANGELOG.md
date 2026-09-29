@@ -17,6 +17,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Shared TOML reconciliation composes field and set-member additions/deletions in one recoverable file write. The center stores accepted typed values rather than whole configuration files, so credential-blocked fields stay outside the accepted batch.
 - Resource center manifests use version 2 with typed values and references; version 1 manifests remain readable and upgrade on accepted writes. The shared writer accepts content by resource ID, independently of a source workspace layout.
 
+### Fixed
+
+- Reconciliation choices now resolve reference conflicts, including concurrent skill deletion and project skill selection, by restoring required providers or removing dependent set members. Inferred writes retain reference and credential safety checks.
+- Reconciliation rejects choices for non-conflicting resources instead of silently ignoring them.
+
 ## [1.55.0] - 2026-09-28
 
 ### Added

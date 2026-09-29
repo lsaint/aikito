@@ -210,8 +210,15 @@ First pairing compares against bundled template fingerprints, unions missing
 resources, and never propagates deletions. Later rounds use the replica's base
 with `workspace.merge.compare`. Plans use `CREATE`, `UPDATE`, `DELETE`, `NOOP`,
 `CONFLICT`, and `BLOCKED`, with `local` or `remote` as the write target. Conflict
-choices select the local or remote version and become ordinary writes or
-deletions; they do not bypass references or credential checks.
+choices are accepted only for resources currently reported as `CONFLICT`,
+including conflicts found by reference or TOML checks; choices for other IDs
+raise an error. They select the local or remote version and become ordinary
+writes or deletions. Selecting content restores missing referenced providers
+from the selected side. Selecting deletion also removes dependent set members
+absent on that side; standalone dependent content requires its own choice.
+These inferred changes appear in the preview and pass reference and credential
+checks. Contradictory explicit choices remain conflicts. Choices apply to one
+round and must not be reused after those conflicts have converged.
 
 The safe subset commits while conflicts and credential-blocked uploads retain
 their old base. Reference checks include preserved local resources: a skill
