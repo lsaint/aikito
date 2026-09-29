@@ -6,9 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Fixed
-
-- Targeted diffs avoid reading unrelated resource kinds, normalize relative file paths across platforms, and identify each project checkout in indices and full diffs.
+## [1.57.0] - 2026-09-29
 
 ### Added
 
@@ -22,6 +20,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `aikito diff --all` preserves full unified diff output for all drifted resources across the workspace.
 - `aikito doctor` recommendations and project runtime details update copied skill drift fix actions from generic `aikito diff` to precise `aikito diff project <name>`.
 - State version counters use `revision` consistently across RemoteStore, reconciliation, skill copy plans, persisted state, and transaction journals. Existing local skill copy state accepts the legacy `generation` field on read and writes `revision` on the next successful save.
+
+### Fixed
+
+- Targeted diffs avoid reading unrelated resource kinds, normalize relative file paths across platforms, and identify each project checkout in indices and full diffs.
 
 ## [1.56.0] - 2026-09-29
 
@@ -1037,7 +1039,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.56.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.57.0...HEAD
+[1.57.0]: https://github.com/lsaint/aikito/compare/v1.56.0...v1.57.0
 [1.56.0]: https://github.com/lsaint/aikito/compare/v1.55.0...v1.56.0
 [1.55.0]: https://github.com/lsaint/aikito/compare/v1.54.0...v1.55.0
 [1.54.0]: https://github.com/lsaint/aikito/compare/v1.53.0...v1.54.0
