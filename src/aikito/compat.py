@@ -412,14 +412,7 @@ def is_reparse_point(path: Path) -> bool:
         return path.is_symlink()
 
 
-def get_physical_path(path: Path) -> Path:
-    """Resolve the true physical path on the filesystem, resolving case aliases and symlinks.
-
-    On Windows: uses GetFinalPathNameByHandleW to normalize drive letter casing and volume roots.
-    On POSIX: uses Path.resolve(strict=False).
-    """
-    if not is_windows():
-        return path.resolve(strict=False)
+def _get_final_path(path: Path) -> Path | None:
     try:
         file_share_read = 0x00000001
         file_share_write = 0x00000002
@@ -455,6 +448,36 @@ def get_physical_path(path: Path) -> Path:
                 ctypes.windll.kernel32.CloseHandle(handle)  # type: ignore[attr-defined]
     except Exception:
         pass
+    return None
+
+
+def get_physical_path(path: Path) -> Path:
+    """Resolve the true physical path on the filesystem, resolving case aliases and symlinks.
+
+    On Windows: uses GetFinalPathNameByHandleW to normalize drive letter casing and volume roots.
+    On POSIX: uses Path.resolve(strict=False).
+    """
+    if not is_windows():
+        return path.resolve(strict=False)
+
+    final = _get_final_path(path)
+    if final is not None:
+        return final
+
+    # When the path does not exist, resolve via nearest existing ancestor so drive
+    # letters and volume roots match the canonical physical format.
+    curr = path
+    tail: list[str] = []
+    while not curr.exists() and curr != curr.parent:
+        tail.append(curr.name)
+        curr = curr.parent
+    if curr.exists():
+        final_curr = _get_final_path(curr)
+        if final_curr is not None:
+            for part in reversed(tail):
+                final_curr = final_curr / part
+            return final_curr
+
     res = path.resolve(strict=False)
     s = str(res)
     if s.startswith("\\\\?\\UNC\\"):

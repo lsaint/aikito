@@ -69,7 +69,11 @@ def exercise(base: Path) -> None:
     before = {p: p.read_bytes() for p in (stale, live, unavailable)}
     report = doctor()
     section = next(s for s in report["sections"] if s["name"] == "LocalState")
-    finding = next(f for f in section["findings"] if f["code"] == "local-state.stale")
+    findings_by_code = {f.get("code"): f for f in section["findings"]}
+    assert "local-state.stale" in findings_by_code, (
+        f"Expected local-state.stale, got: {section['findings']}"
+    )
+    finding = findings_by_code["local-state.stale"]
     assert finding["fix_hint"] == "aikito doctor --fix"
     assert finding["actions"][0]["command"] == finding["fix_hint"]
     assert all(p.read_bytes() == value for p, value in before.items())
