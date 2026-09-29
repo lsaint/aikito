@@ -6,7 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.56.0] - 2026-09-29
+
 ### Added
+
+- `aikito show projects` and project status details display estimated context token footprints across project instructions, project memory notes, and selected skill definitions, with summary notices and token-count formatting.
 
 - Internal portable resource payloads and mutations support byte files, typed TOML fields, skill trees, and logical membership, with deterministic transport hashes and validated local staging.
 - Internal resource reconciliation now connects independent workspace replicas through a filesystem resource center with conditional generation commits, per-resource conflict choices, and recoverable deletion.
@@ -1015,7 +1019,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.55.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.56.0...HEAD
+[1.56.0]: https://github.com/lsaint/aikito/compare/v1.55.0...v1.56.0
 [1.55.0]: https://github.com/lsaint/aikito/compare/v1.54.0...v1.55.0
 [1.54.0]: https://github.com/lsaint/aikito/compare/v1.53.0...v1.54.0
 [1.53.0]: https://github.com/lsaint/aikito/compare/v1.52.1...v1.53.0
