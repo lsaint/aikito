@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .agents import AGENT_INSTALL_MARKERS
 from .diagnostics import Finding
 from .plan_observation import OperationEffect, safe_observe_plan
+from .context_footprint import format_token_estimate
 from .project import (
     ProjectSummary,
     evaluate_project_health,
@@ -907,6 +908,7 @@ def render_projects_table(
             get_instructions_line_count_display(agents_md) if agents_md else "-"
         )
         paths_display = format_project_path_counts(project)
+        context_display = format_token_estimate(project.context_tokens)
 
         rows.append(
             [
@@ -914,6 +916,7 @@ def render_projects_table(
                 instr_display,
                 str(project.skills_count),
                 str(project.memory_notes_count),
+                context_display,
                 paths_display,
                 project.sync_mode,
                 status_badge,
@@ -926,6 +929,7 @@ def render_projects_table(
             "Instr",
             "Skills",
             "Memory",
+            "Context",
             "Paths",
             "Mode",
             "Status",
@@ -961,6 +965,7 @@ def render_project_detail(
         ),
         ("Selected skills:", skills),
         ("Memory:", memory),
+        ("Context:", f"{format_token_estimate(project.context_tokens)} tokens"),
         ("Sync:", project.runtime_status),
     ]
     if project.error:

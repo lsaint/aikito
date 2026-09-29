@@ -20,6 +20,7 @@ from .mcp import (
     read_entry,
     redact_mcp_entry,
 )
+from .context_footprint import extract_skill_description
 from .memory import extract_note_title
 from .project import (
     collect_project_summaries,
@@ -924,27 +925,8 @@ def collect_memory_notes_rows(
 
 
 def _parse_skill_description(skill_dir: Path) -> str:
-    skill_md = skill_dir / "SKILL.md"
-    if not skill_md.is_file():
-        return "-"
-    try:
-        content = skill_md.read_text(encoding="utf-8", errors="ignore")
-        lines = content.lstrip("\ufeff").splitlines()
-        if (
-            lines
-            and lines[0].rstrip() == "---"
-            and not lines[0].startswith((" ", "\t"))
-        ):
-            for line in lines[1:]:
-                line_stripped = line.rstrip()
-                if line_stripped == "---" and not line.startswith((" ", "\t")):
-                    break
-                if line.strip().startswith("description:"):
-                    desc = line.strip().split("description:", 1)[1].strip().strip("\"'")
-                    return desc
-    except Exception:
-        pass
-    return "-"
+    desc = extract_skill_description(skill_dir)
+    return desc if desc is not None else "-"
 
 
 def collect_skills_rows(aikito_dir: Path) -> list[SkillRow]:

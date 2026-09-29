@@ -5,6 +5,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from .context_footprint import GlobalContextCache, estimate_project_context
 from .instructions import build_project_instruction_batch, plan_instructions
 from .memory_runtime import build_project_memory_batch, plan_project_memory
 from .compat import resolve_symlink_target
@@ -62,6 +63,7 @@ class ProjectSummary:
     active_paths: tuple[tuple[str, str], ...] = ()
     offline_paths: tuple[tuple[str, str], ...] = ()
     candidate_paths: tuple[tuple[str, str, bool], ...] = ()
+    context_tokens: int = 0
 
     @property
     def has_conflict(self) -> bool:
@@ -255,6 +257,7 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
     if not projects_dir.is_dir():
         return summaries
 
+    global_cache = GlobalContextCache.load(aikito_dir)
     copied_skill_states = {
         (state.project_name, state.skill_name, str(state.runtime_path)): state
         for state in collect_project_skill_states(aikito_dir, home)
@@ -527,6 +530,13 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
         instructions_notice = "\n".join(instructions_notices)
         skills_notice = "\n".join(skills_notices)
 
+        context_tokens = estimate_project_context(
+            aikito_dir,
+            project_dir,
+            skill_names,
+            global_cache=global_cache,
+        )
+
         summaries.append(
             ProjectSummary(
                 name=project_dir.name,
@@ -546,6 +556,7 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
                 active_paths=active_paths,
                 offline_paths=offline_paths,
                 candidate_paths=candidate_paths,
+                context_tokens=context_tokens,
             )
         )
     return summaries

@@ -333,7 +333,7 @@ aikito version --json
 ## Projects
 
 List each registered project's path, synchronization mode, instructions,
-selected skill count, project memory note count, and aggregate sync status:
+selected skill count, project memory note count, context footprint estimate, and aggregate sync status:
 
 ```bash
 aikito show projects

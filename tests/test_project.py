@@ -477,6 +477,7 @@ class ProjectSummaryTest(unittest.TestCase):
         rendered = render_projects_table(summaries, False, False)
         detail = render_project_detail(summary, False, False)
         self.assertIn("Instr", rendered)
+        self.assertIn("Context", rendered)
         self.assertIn("| 1      |", rendered)
         self.assertIn(f"Canonical path:  {definition}", detail)
         self.assertIn("Project paths:", detail)
@@ -486,6 +487,7 @@ class ProjectSummaryTest(unittest.TestCase):
         self.assertIn("configured", detail)
         self.assertIn("Selected skills:", detail)
         self.assertIn("1 notes | 0 references", detail)
+        self.assertIn("Context:", detail)
         value_start = len("Selected skills:") + 2
         self.assertTrue(
             all(

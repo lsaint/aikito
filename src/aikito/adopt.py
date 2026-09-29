@@ -18,8 +18,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .add import _parse_markdown_frontmatter
 from .diagnostics import Finding, FindingAction
+from .frontmatter import _parse_markdown_frontmatter
 from .agents import AgentDefinition, AgentRegistryError, load_agent_definitions
 from .render import render_finding_lines
 from .subagent import has_aikito_marker

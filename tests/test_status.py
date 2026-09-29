@@ -605,6 +605,7 @@ class AikitoStatusRenderTest(unittest.TestCase):
             clean_projects, use_unicode=True, use_color=False
         )
         self.assertIn("✓", out_clean)
+        self.assertIn("Context", out_clean)
         self.assertIn("Paths", out_clean)
         self.assertIn("Status", out_clean)
 

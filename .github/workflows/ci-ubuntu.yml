@@ -855,6 +855,7 @@ jobs:
           grep -F "Instr" ${{ runner.temp }}/show-projects.out
           grep -F "Skills" ${{ runner.temp }}/show-projects.out
           grep -F "Memory" ${{ runner.temp }}/show-projects.out
+          grep -F "Context" ${{ runner.temp }}/show-projects.out
           grep -F "Paths" ${{ runner.temp }}/show-projects.out
           grep -F "Mode" ${{ runner.temp }}/show-projects.out
           grep -F "Status" ${{ runner.temp }}/show-projects.out
@@ -864,6 +865,8 @@ jobs:
             python3 -m aikito show project example | grep -q "CI example project"
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito show project example | grep -q "Project paths"
+          AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito show project example | grep -q "Context:"
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito sync project example --dry-run
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
