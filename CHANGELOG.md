@@ -8,10 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Internal portable resource payloads and mutations support byte files, typed TOML fields, skill trees, and logical membership, with deterministic transport hashes and validated local staging.
 - Internal resource reconciliation now connects independent workspace replicas through a filesystem resource center with conditional generation commits, per-resource conflict choices, and recoverable deletion.
 
 ### Changed
 
+- Reconciliation credential checks scan typed fields in memory without writing temporary TOML files. Portable skill payloads retain executable flags separately from their content fingerprint, including Windows metadata and POSIX restoration.
 - Skill fingerprints now use the same content-only tree rules on every platform. Permission-only edits do not trigger reconciliation; historical center manifests and replica Bases containing skills without the new fingerprint marker are explicitly rejected and preserved.
 - Reconciliation uses logical resource IDs and the shared three-way comparator. Safe resources advance independently while conflicts keep their previous base; the old internal two-workspace baseline format is rejected.
 - Internal reconciliation covers inbox notes, instructions, Agent/MCP/subagent definitions, workspace preferences, project fields, path candidates, and skill selections. Each replica retains its own inbox path; bundled skill contents and generated runtime resources remain excluded.

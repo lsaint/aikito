@@ -33,8 +33,10 @@ from ..templating import BUNDLED_SKILL_NAMES
 from .layout import (
     WorkspaceLayoutError,
     parse_subagent_file,
+    parse_subagent_text,
     require_current_layout,
 )
+from .skill_metadata import SKILL_EXECUTABLE_METADATA
 
 # Operating-system and interpreter artifacts that never carry resource content.
 IGNORED_NAMES = frozenset(
@@ -264,15 +266,29 @@ def inspect_resource_content(
             ), resource.references
         if _entry_type(path) != "file":
             raise ValueError("Expected a regular file")
+        return inspect_resource_bytes(resource, path.read_bytes())
+    except (OSError, ValueError, WorkspaceLayoutError) as exc:
+        raise WorkspaceResourceError(
+            f"Invalid resource content: {resource.id}"
+        ) from exc
+
+
+def inspect_resource_bytes(
+    resource: Resource, content: bytes
+) -> tuple[str, tuple[str, ...]]:
+    """Apply scanner semantics directly to a standalone file's bytes."""
+    try:
+        if resource.kind not in {"agent", "mcp", "subagent"}:
+            return hashlib.sha256(content).hexdigest(), resource.references
         if resource.kind == "subagent":
-            metadata, body = parse_subagent_file(path)
+            metadata, body = parse_subagent_text(content.decode("utf-8"))
             return value_fingerprint(
                 {
                     "instructions": hashlib.sha256(body.encode("utf-8")).hexdigest(),
                     "table": metadata,
                 }
             ), _agent_references(metadata)
-        document = tomllib.loads(path.read_text(encoding="utf-8"))
+        document = tomllib.loads(content.decode("utf-8"))
         if resource.kind == "mcp":
             return value_fingerprint(document), _agent_references(document)
         agents = document.get("agents")
@@ -284,14 +300,24 @@ def inspect_resource_content(
         ):
             raise ValueError("Agent file must define its matching table only")
         return value_fingerprint(agents[resource.name]), ()
-    except (OSError, ValueError, WorkspaceLayoutError) as exc:
+    except (ValueError, WorkspaceLayoutError) as exc:
         raise WorkspaceResourceError(
             f"Invalid resource content: {resource.id}"
         ) from exc
 
 
 def is_ignored_name(name: str) -> bool:
-    return name in IGNORED_NAMES or name.startswith("._") or name.endswith(".pyc")
+    return (
+        name in IGNORED_NAMES
+        or name == SKILL_EXECUTABLE_METADATA
+        or name.startswith("._")
+        or name.endswith(".pyc")
+    )
+
+
+def has_credential_bytes(content: bytes) -> bool:
+    """Scan bytes without exposing matched secret values."""
+    return bool(_SECRET_PATTERN.search(content))
 
 
 def _entry_type(path: Path) -> str:
@@ -845,7 +871,7 @@ def scan_credentials(snapshot: WorkspaceSnapshot) -> tuple[Finding, ...]:
                 content = path.read_bytes()
             except OSError:
                 continue
-            if _SECRET_PATTERN.search(content):
+            if has_credential_bytes(content):
                 findings.append(
                     Finding(
                         "warning",

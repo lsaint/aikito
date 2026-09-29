@@ -151,6 +151,13 @@ jobs:
           $boundaryBase = Join-Path $env:RUNNER_TEMP "reconcile-boundary"
           python tests/workspace_reconcile_boundary_smoke.py "$boundaryBase"
           if ($LASTEXITCODE -ne 0) { throw "Remote Store Boundary fingerprint smoke failed" }
+          $payloadBase = Join-Path $env:RUNNER_TEMP "workspace-payload"
+          python tests/workspace_payload_smoke.py "$payloadBase"
+          if ($LASTEXITCODE -ne 0) { throw "Portable resource payload smoke failed" }
+          foreach ($relative in @("target/skills/portable/SKILL.md", "target/skills/portable/run.sh", "target/capture/payload.md", "target/config.toml", "target/projects/demo/agent.toml")) {
+            if (!(Test-Path (Join-Path $payloadBase $relative) -PathType Leaf)) { throw "Missing payload resource: $relative" }
+          }
+          if (!(Test-Path "$payloadBase/target/skills/portable/empty" -PathType Container)) { throw "Missing payload empty directory" }
           foreach ($relative in @("left/skills/portable/run.sh", "right/skills/portable/run.sh", "center/.local/state/aikito/workspace-reconcile/remote.json", "left/.local/state/aikito/workspace-reconcile/replica.json")) {
             if (!(Test-Path (Join-Path $boundaryBase $relative) -PathType Leaf)) { throw "Missing boundary resource: $relative" }
           }

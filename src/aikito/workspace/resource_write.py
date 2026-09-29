@@ -40,6 +40,7 @@ from .resources import (
     snapshot_workspace,
     scan_credentials,
     value_fingerprint,
+    has_credential_bytes,
 )
 
 
@@ -104,28 +105,28 @@ def credential_resources(
 ) -> frozenset[str]:
     """Scan each selected logical payload, so safe fields can still advance."""
     result = set()
-    with tempfile.TemporaryDirectory(prefix="aikito-resource-scan-") as temporary:
-        for index, identity in enumerate(sorted(identities)):
-            resource = content.resources[identity]
-            value = content.values.get(identity)
-            if value is not None:
-                path = Path(temporary) / f"field-{index}.toml"
-                key = value.path[-1].rsplit(".", 1)[-1]
-                path.write_text(
-                    f"{key} = {_toml_value(value.value)}\n", encoding="utf-8"
-                )
-            else:
-                path = content.paths.get(identity)
-                if path is None or is_shared_resource(resource.kind):
-                    continue
-            snapshot = WorkspaceSnapshot(
-                path.parent,
-                {identity: replace(resource, parts=(ResourcePart(path.name),))},
-                (),
-                (),
-            )
-            if scan_credentials(snapshot):
+    for identity in sorted(identities):
+        resource = content.resources[identity]
+        value = content.values.get(identity)
+        if value is not None:
+            key = value.path[-1].rsplit(".", 1)[-1]
+            if has_credential_bytes(
+                f"{key} = {_toml_value(value.value)}\n".encode("utf-8")
+            ):
                 result.add(identity)
+            continue
+        else:
+            path = content.paths.get(identity)
+            if path is None or is_shared_resource(resource.kind):
+                continue
+        snapshot = WorkspaceSnapshot(
+            path.parent,
+            {identity: replace(resource, parts=(ResourcePart(path.name),))},
+            (),
+            (),
+        )
+        if scan_credentials(snapshot):
+            result.add(identity)
     return frozenset(result)
 
 

@@ -29,6 +29,11 @@ from .resources import (
     is_ignored_name,
     resource_kind_for_path,
 )
+from .skill_metadata import (
+    SKILL_EXECUTABLE_METADATA,
+    read_executable_metadata,
+    write_executable_metadata,
+)
 
 
 class WorkspaceCoreError(ValueError):
@@ -204,6 +209,11 @@ def _copy_resource(source: Path, dest: Path, kind: str) -> None:
     if kind == "skill":
         dest.mkdir()
         for child in sorted(source.iterdir()):
+            if child.name == SKILL_EXECUTABLE_METADATA:
+                write_executable_metadata(
+                    dest / child.name, read_executable_metadata(child)
+                )
+                continue
             if is_ignored_name(child.name):
                 continue
             _copy_resource(

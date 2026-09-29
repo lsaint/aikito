@@ -143,7 +143,7 @@ def _read_agent_files(root: Path) -> dict[str, Any]:
     return {"agents": agents}
 
 
-def _parse_subagent_text(path: Path, content: str) -> tuple[dict[str, Any], str]:
+def _parse_subagent_text(path: Path | str, content: str) -> tuple[dict[str, Any], str]:
     def reject_duplicate_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         value: dict[str, Any] = {}
         for key, item in pairs:
@@ -212,6 +212,11 @@ def _parse_subagent_text(path: Path, content: str) -> tuple[dict[str, Any], str]
     if not body.strip():
         raise WorkspaceLayoutError(f"Subagent instructions missing: {path}")
     return metadata, body
+
+
+def parse_subagent_text(content: str) -> tuple[dict[str, Any], str]:
+    """Validate canonical subagent content without accessing the filesystem."""
+    return _parse_subagent_text("<subagent payload>", content)
 
 
 def parse_subagent_file(path: Path) -> tuple[dict[str, Any], str]:

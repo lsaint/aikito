@@ -1,7 +1,8 @@
 # Remote Store Boundary
 
-This internal design fixes the storage contract before portable payloads and
-backend migration. It adds no public CLI or service. The current engine still
+This internal design fixes the storage contract before backend migration.
+Portable payloads are implemented internally; there is no public CLI or service.
+The current engine still
 uses `FilesystemRemote`; the acceptance driver is test orchestration, not a
 production `RemoteStore` implementation.
 
@@ -92,11 +93,9 @@ Stage zero chooses **content-only** skill fingerprints on all platforms. A tree
 hash is SHA-256 of sorted newline-separated records `f <path> <byte hash>` and
 `d <path>` for explicit empty directories. POSIX execute bits are no longer
 included. A permission-only edit is not a resource edit and cannot trigger
-synchronization. Native copies still preserve permissions where supported;
-Windows permission round-tripping is not promised by the existing path-based
-writer. Portable payloads will carry executable flags separately; those flags
-will remain outside the logical fingerprint under this decision. Payload
-round-trip tests must eventually verify them independently of semantic equality.
+synchronization. Native copies still preserve permissions where supported.
+Portable payloads carry executable flags separately, outside the logical
+fingerprint; round-trip tests verify them independently of semantic equality.
 
 New center and replica state records include `skill_fingerprint: "content-v1"`.
 State version remains 2 because the resource/value schema is unchanged. A
@@ -113,6 +112,54 @@ migration is introduced. `workspace_reconcile_boundary_smoke.py` simulates both
 permission views on each OS, exercises upload/download/reverse edits and NOOP,
 and verifies legacy refusal is read-only. It does not merely compare separate
 native CI runs.
+
+## Portable payload implementation
+
+`workspace.payload` defines immutable `FilePayload`, `TomlPayload`,
+`TreePayload` / `TreeEntry`, and `MemberPayload`, plus `ResourceDescriptor`
+and `ResourceMutation`. None contains physical resource parts or paths.
+The client validates semantic fingerprints/references in memory, separately
+from the canonical version-1 JSON transport hash. Encoded bytes use base64;
+typed fields use canonical TOML text plus actual key components. Nested typed
+values are defensively reconstructed rather than shared through mutable objects.
+Deletion carries a before descriptor and no replacement/payload; the empty
+fingerprint of a present member differs from absence.
+
+`workspace.payload_io.capture_resources` accepts only the authorized IDs,
+rejects changed source content and credentials, and returns a read-only mapping.
+`capture_mutations` also checks each planned before/after fingerprint. Shared
+field payloads never contain a copy of their source TOML file or neighboring
+blocked fields. Credential checks for bytes, typed fields, and trees perform no
+temporary writes. Existing Import keeps its path-based adapter and formatting.
+
+`materialize_resources` validates the full downloaded batch, including client
+credential and semantic checks, before writing to an owned empty staging
+directory. `prepare_payload_writes` then calls the existing shared writer in
+sync mode, composing each shared TOML target once. The caller still checks
+transport hashes at decode, owns the local writer lock, and performs the
+resource/Base transaction and post-write validation. Stage one does not yet
+route the reconciliation engine through the new payloads; that is backend
+migration work.
+
+Tree paths reject traversal, absolute/drive paths, separators unsafe on Windows,
+reserved Windows names, symlinks/special nodes, duplicates, and case/Unicode
+collisions, including directory-prefix aliases. Empty-directory nodes cannot
+have descendants. Scanner exclusions apply before capture. The additional
+reserved artifact `.aikito-executable.json` stores executable paths on Windows;
+it is excluded from logical fingerprints and portable tree entries. The local
+transaction copies only its validated canonical metadata, rejecting extra
+fields and unsafe nodes. Windows recapture reads these logical flags; POSIX
+materialization applies them as native modes and writes no metadata artifact.
+Missing paths left after a local deletion are ignored during recapture, so a
+stale metadata entry cannot recreate a deleted file. Permissions alone still do
+not trigger reconciliation.
+
+`workspace_payload_smoke.py` exchanges all admitted resource kinds through
+encoded payloads and writes a distinct local workspace, retaining its inbox
+path and excluding a credential-blocked field. It runs as a real script in all
+three OS workflows. `test_workspace_payload.py` covers typed/time values,
+mutation presence/deletion, corruption, client checks, immutable copies,
+unsafe paths/nodes, and Windows-to-POSIX flag preservation through local copies.
 
 ## Acceptance classification
 

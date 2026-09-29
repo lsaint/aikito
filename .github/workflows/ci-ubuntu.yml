@@ -199,6 +199,14 @@ jobs:
           python3 tests/workspace_reconcile_acceptance.py "$ACCEPTANCE"
           BOUNDARY=${{ runner.temp }}/reconcile-boundary
           python3 tests/workspace_reconcile_boundary_smoke.py "$BOUNDARY"
+          PAYLOAD=${{ runner.temp }}/workspace-payload
+          python3 tests/workspace_payload_smoke.py "$PAYLOAD"
+          test -f "$PAYLOAD/target/skills/portable/SKILL.md"
+          test -f "$PAYLOAD/target/skills/portable/run.sh"
+          test -d "$PAYLOAD/target/skills/portable/empty"
+          test -f "$PAYLOAD/target/capture/payload.md"
+          test -f "$PAYLOAD/target/config.toml"
+          test -f "$PAYLOAD/target/projects/demo/agent.toml"
           test -f "$BOUNDARY/left/skills/portable/run.sh"
           test -f "$BOUNDARY/right/skills/portable/run.sh"
           test -d "$BOUNDARY/right/skills/portable/empty"
