@@ -310,8 +310,8 @@ nav {
 }
 
 .hero {
-  padding: 92px 0 54px;
-  min-height: 760px;
+  padding: 52px 0 48px;
+  min-height: 660px;
   display: grid;
   grid-template-columns: 1.03fr 0.97fr;
   gap: 72px;
@@ -1014,7 +1014,7 @@ footer {
   .hero {
     grid-template-columns: 1fr;
     gap: 18px;
-    padding-top: 72px;
+    padding-top: 48px;
   }
   .hero-side {
     min-height: 380px;
@@ -1088,7 +1088,7 @@ footer {
   }
   .hero {
     min-height: auto;
-    padding: 52px 0 32px;
+    padding: 36px 0 32px;
   }
   .hero-side {
     min-height: 300px;
