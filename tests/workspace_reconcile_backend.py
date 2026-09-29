@@ -81,3 +81,9 @@ class InMemoryBackend(StoreBackend):
     def checkpoint(self) -> object:
         snapshot = self.remote.read()
         return snapshot, self.remote.fetch(snapshot, tuple(snapshot.resources))
+
+
+BACKEND_FACTORIES = {
+    "filesystem": FilesystemBackend,
+    "memory": lambda root: InMemoryBackend(),
+}

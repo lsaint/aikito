@@ -148,10 +148,13 @@ jobs:
           $acceptanceBase = Join-Path $env:RUNNER_TEMP "reconcile-acceptance"
           python tests/workspace_reconcile_acceptance.py "$acceptanceBase"
           if ($LASTEXITCODE -ne 0) { throw "Workspace reconciliation acceptance failed" }
+          foreach ($relative in @("moved-left/memory/notes/accepted-base.md", "right/capture-b/accepted-before-local.md")) {
+            if (!(Test-Path (Join-Path $acceptanceBase $relative) -PathType Leaf)) { throw "Missing acceptance recovery resource: $relative" }
+          }
           $memoryStoreBase = Join-Path $env:RUNNER_TEMP "memory-remote-store"
           python tests/workspace_memory_remote_smoke.py "$memoryStoreBase"
           if ($LASTEXITCODE -ne 0) { throw "In-memory RemoteStore smoke failed" }
-          foreach ($relative in @("right/capture-b/relocated.md", "moved-left/projects/demo/memory/notes/acceptance.md", "right/.local/state/aikito/workspace-reconcile/replica.json")) {
+          foreach ($relative in @("right/capture-b/relocated.md", "moved-left/projects/demo/memory/notes/acceptance.md", "right/.local/state/aikito/workspace-reconcile/replica.json", "moved-left/memory/notes/accepted-base.md", "right/capture-b/accepted-before-local.md")) {
             if (!(Test-Path (Join-Path $memoryStoreBase $relative) -PathType Leaf)) { throw "Missing memory store resource: $relative" }
           }
           if (Test-Path "$memoryStoreBase/center") { throw "Memory store created a center directory" }

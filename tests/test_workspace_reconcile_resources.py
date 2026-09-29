@@ -17,7 +17,8 @@ from aikito.workspace.reconcile import (
     build_reconcile_plan,
     run_reconciliation,
 )
-from aikito.workspace.remote import FilesystemRemote, REMOTE_STATE, REPLICA_STATE
+from aikito.workspace.resource_state import REPLICA_STATE
+from workspace_reconcile_backend import BACKEND_FACTORIES
 from aikito.workspace.resources import snapshot_workspace
 
 
@@ -44,13 +45,23 @@ def write(root: Path, relative: str, value: str) -> None:
     path.write_text(value, encoding="utf-8")
 
 
-def pair(tmp_path):
+def pair(tmp_path, remote):
     a, b = workspace(tmp_path / "a"), workspace(tmp_path / "b")
-    remote = FilesystemRemote.create(tmp_path / "center")
     home = tmp_path / "home"
     for local in (a, b):
         round_trip(local, remote, home)
     return a, b, remote, home
+
+
+@pytest.fixture(params=tuple(BACKEND_FACTORIES))
+def replicas(request, tmp_path):
+    backend = BACKEND_FACTORIES[request.param](tmp_path / "center")
+    return pair(tmp_path, backend.remote)
+
+
+def store_content(remote):
+    snapshot = remote.read()
+    return snapshot, remote.fetch(snapshot, snapshot.resources)
 
 
 def round_trip(local, remote, home, **kwargs):
@@ -81,9 +92,9 @@ STANDALONE = (
 
 @pytest.mark.parametrize("identity,relative,first,second", STANDALONE)
 def test_standalone_create_update_delete_and_conflict(
-    tmp_path, identity, relative, first, second
+    tmp_path, replicas, identity, relative, first, second
 ):
-    a, b, remote, home = pair(tmp_path)
+    a, b, remote, home = replicas
     if identity.startswith("project-"):
         write(a, "projects/demo/agent.toml", 'name = "demo"\n')
     if identity.startswith("subagent:"):
@@ -113,8 +124,8 @@ def test_standalone_create_update_delete_and_conflict(
     assert not build_reconcile_plan(b, remote).changes
 
 
-def test_shared_fields_memberships_and_project_delete(tmp_path):
-    a, b, remote, home = pair(tmp_path)
+def test_shared_fields_memberships_and_project_delete(tmp_path, replicas):
+    a, b, remote, home = replicas
     write(a, "skills/example/SKILL.md", "# Example\n")
     write(a, "skills.toml", 'skills = ["example", "aikito"]\n')
     write(
@@ -143,9 +154,6 @@ def test_shared_fields_memberships_and_project_delete(tmp_path):
         "config:update.check",
     } <= resources.keys()
     assert "config:inbox.path" not in resources
-    assert not (remote.root / "config.toml").exists()
-    assert not (remote.root / "skills.toml").exists()
-    assert not (remote.root / "projects/demo/agent.toml").exists()
     assert tomllib.loads((b / "config.toml").read_text())["inbox"]["path"] == "capture"
     write(
         b,
@@ -174,15 +182,15 @@ def test_shared_fields_memberships_and_project_delete(tmp_path):
     assert not any(key.startswith("project") for key in snapshot_workspace(a).resources)
 
 
-def test_inbox_uses_each_replica_prefix_and_outside_is_blocked(tmp_path):
-    a, b, remote, home = pair(tmp_path)
+def test_inbox_uses_each_replica_prefix_and_outside_is_blocked(tmp_path, replicas):
+    a, b, remote, home = replicas
     write(a, "config.toml", '[inbox]\npath = "capture-a"\n')
     write(b, "config.toml", '[inbox]\npath = "capture-b"\n')
     write(a, "capture-a/deep/a.md", "note")
     round_trip(a, remote, home)
     round_trip(b, remote, home)
     assert (b / "capture-b/deep/a.md").read_text() == "note"
-    assert (remote.root / "inbox/deep/a.md").read_text() == "note"
+    assert store_content(remote)[1]["inbox:deep/a.md"].data == b"note"
     write(
         b, "config.toml", f"[inbox]\npath = {json.dumps(str(tmp_path / 'outside'))}\n"
     )
@@ -195,8 +203,8 @@ def test_inbox_uses_each_replica_prefix_and_outside_is_blocked(tmp_path):
     assert not (tmp_path / "outside").exists()
 
 
-def test_shared_independent_changes_and_partial_credential_block(tmp_path):
-    a, b, remote, home = pair(tmp_path)
+def test_shared_independent_changes_and_partial_credential_block(tmp_path, replicas):
+    a, b, remote, home = replicas
     write(a, "config.toml", "[memory]\nstale_days = 9\n[update]\ncheck = true\n")
     round_trip(a, remote, home)
     round_trip(b, remote, home)
@@ -228,7 +236,7 @@ def test_shared_independent_changes_and_partial_credential_block(tmp_path):
     assert tomllib.loads((b / "config.toml").read_text()) == {
         "memory": {"stale_days": 11}
     }
-    assert "abcdefghijklmnop" not in (remote.root / REMOTE_STATE).read_text()
+    assert "config:service.api_key" not in store_content(remote)[1]
 
 
 @pytest.mark.parametrize(
@@ -243,9 +251,9 @@ def test_shared_independent_changes_and_partial_credential_block(tmp_path):
     ),
 )
 def test_agent_reference_checks_creation_and_deletion(
-    tmp_path, consumer, relative, content
+    tmp_path, replicas, consumer, relative, content
 ):
-    a, b, remote, home = pair(tmp_path)
+    a, b, remote, home = replicas
     write(a, relative, content)
     plan = build_reconcile_plan(a, remote)
     assert plan.blocked
@@ -261,11 +269,11 @@ def test_agent_reference_checks_creation_and_deletion(
     assert "invalidate" in next(
         i.reason for i in plan.conflicts if i.id == "agent:custom"
     )
-    assert (remote.root / "agents/custom.toml").is_file()
+    assert "agent:custom" in remote.read().resources
 
 
-def test_project_deletion_cannot_orphan_instructions_or_notes(tmp_path):
-    a, b, remote, home = pair(tmp_path)
+def test_project_deletion_cannot_orphan_instructions_or_notes(tmp_path, replicas):
+    a, b, remote, home = replicas
     write(a, "projects/demo/agent.toml", 'name = "demo"\n')
     write(a, "projects/demo/AGENTS.md", "policy")
     write(a, "projects/demo/memory/notes/n.md", "note")
@@ -281,8 +289,8 @@ def test_project_deletion_cannot_orphan_instructions_or_notes(tmp_path):
     assert "project:demo" in remote.read().resources
 
 
-def test_shared_multiple_changes_commit_once_and_recover(tmp_path):
-    a, b, remote, home = pair(tmp_path)
+def test_shared_multiple_changes_commit_once_and_recover(tmp_path, replicas):
+    a, b, remote, home = replicas
     write(a, "config.toml", "[memory]\nstale_days = 10\n[update]\ncheck = true\n")
     round_trip(a, remote, home)
     round_trip(b, remote, home)
@@ -317,8 +325,8 @@ def test_shared_multiple_changes_commit_once_and_recover(tmp_path):
     }
 
 
-def test_typed_and_literal_keys_survive_shared_rendering(tmp_path):
-    a, b, remote, home = pair(tmp_path)
+def test_typed_and_literal_keys_survive_shared_rendering(tmp_path, replicas):
+    a, b, remote, home = replicas
     write(
         a,
         "config.toml",
@@ -337,54 +345,22 @@ def test_typed_and_literal_keys_survive_shared_rendering(tmp_path):
     )
 
 
-def test_legacy_center_reads_then_upgrades_on_commit(tmp_path):
-    a, b, remote, home = pair(tmp_path)
-    write(a, "memory/notes/a.md", "note")
-    round_trip(a, remote, home)
-    state_path = remote.root / REMOTE_STATE
-    state = json.loads(state_path.read_text())
-    state["version"] = 1
-    state.pop("payload_hashes")
-    state["resources"] = {
-        key: value["fingerprint"] for key, value in state["resources"].items()
-    }
-    state.pop("values")
-    state_path.write_text(json.dumps(state))
-    assert remote.read().generation == state["generation"]
-    assert json.loads(state_path.read_text())["version"] == 1
-    write(a, "config.toml", "[update]\ncheck = false\n")
-    round_trip(a, remote, home)
-    assert json.loads(state_path.read_text())["version"] == 2
-
-
-def test_center_rejects_tampered_field_payload_and_references(tmp_path):
-    a, b, remote, home = pair(tmp_path)
-    write(a, "config.toml", "[memory]\nstale_days = 10\n")
-    round_trip(a, remote, home)
-    path = remote.root / REMOTE_STATE
-    state = json.loads(path.read_text())
-    state["values"]["config:memory.stale_days"]["toml"] = "value = 99\n"
-    path.write_text(json.dumps(state))
-    with pytest.raises(WorkspaceReconcileError, match="Invalid center field value"):
-        build_reconcile_plan(b, remote)
-
-
-def test_plan_rejects_ambiguous_config_ids(tmp_path):
-    a, b, remote, home = pair(tmp_path)
+def test_plan_rejects_ambiguous_config_ids(tmp_path, replicas):
+    a, b, remote, home = replicas
     write(a, "config.toml", '"feature.flag" = true\n[feature]\nflag = false\n')
     plan = build_reconcile_plan(a, remote)
     assert plan.blocked
-    before = (remote.root / REMOTE_STATE).read_bytes()
+    before = store_content(remote)
     with pytest.raises(WorkspaceReconcileError, match="blocking findings"):
         apply_reconcile_plan(plan, home, remote=remote)
-    assert (remote.root / REMOTE_STATE).read_bytes() == before
+    assert store_content(remote) == before
 
 
 @pytest.mark.parametrize("identity,relative,first,second", STANDALONE)
 def test_standalone_interruption_restores_content_and_base(
-    tmp_path, identity, relative, first, second
+    tmp_path, replicas, identity, relative, first, second
 ):
-    a, b, remote, home = pair(tmp_path)
+    a, b, remote, home = replicas
     if identity.startswith("project-"):
         write(a, "projects/demo/agent.toml", 'name = "demo"\n')
     if identity.startswith("subagent:"):
@@ -435,9 +411,9 @@ def test_standalone_interruption_restores_content_and_base(
     ),
 )
 def test_shared_same_field_conflict_keeps_base_until_resolution(
-    tmp_path, relative, identity, first, second, third
+    tmp_path, replicas, relative, identity, first, second, third
 ):
-    a, b, remote, home = pair(tmp_path)
+    a, b, remote, home = replicas
     write(a, relative, first)
     round_trip(a, remote, home)
     round_trip(b, remote, home)
@@ -453,70 +429,8 @@ def test_shared_same_field_conflict_keeps_base_until_resolution(
     assert tomllib.loads((b / relative).read_text()) == tomllib.loads(second)
 
 
-def test_shared_center_manifest_interruption_recovers_values_and_generation(tmp_path):
-    a, b, remote, home = pair(tmp_path)
-    write(a, "config.toml", "[memory]\nstale_days = 10\n")
-    round_trip(a, remote, home)
-    before = (remote.root / REMOTE_STATE).read_bytes()
-    state = (a / REPLICA_STATE).read_bytes()
-    write(a, "config.toml", "[memory]\nstale_days = 20\n[update]\ncheck = false\n")
-    original = os.replace
-
-    def interrupt(src, dst):
-        if Path(dst) == remote.root / REMOTE_STATE:
-            original(src, dst)
-            raise KeyboardInterrupt
-        original(src, dst)
-
-    with (
-        patch("aikito.workspace.transactions.os.replace", side_effect=interrupt),
-        pytest.raises(KeyboardInterrupt),
-    ):
-        round_trip(a, remote, home)
-    assert (a / REPLICA_STATE).read_bytes() == state
-    with pytest.raises(WorkspaceReconcileError, match="Recovered an interrupted"):
-        round_trip(a, remote, home)
-    assert (remote.root / REMOTE_STATE).read_bytes() == before
-    round_trip(a, remote, home)
-    round_trip(b, remote, home)
-    assert tomllib.loads((b / "config.toml").read_text()) == {
-        "memory": {"stale_days": 20},
-        "update": {"check": False},
-    }
-
-
-def test_legacy_project_notes_gain_provider_before_manifest_upgrade(tmp_path):
-    a, b, remote, home = pair(tmp_path)
-    write(a, "projects/demo/agent.toml", 'name = "demo"\n')
-    write(a, "projects/demo/memory/notes/a.md", "note")
-    round_trip(a, remote, home)
-    path = remote.root / REMOTE_STATE
-    state = json.loads(path.read_text())
-    state["version"] = 1
-    state.pop("payload_hashes")
-    state["resources"] = {
-        key: value["fingerprint"]
-        for key, value in state["resources"].items()
-        if key.startswith("project-memory:")
-    }
-    state.pop("values")
-    path.write_text(json.dumps(state))
-    # A phase-4 base knew only the note, so project resources are new uploads.
-    local_state = json.loads((a / REPLICA_STATE).read_text())
-    local_state["base"] = {
-        key: value
-        for key, value in local_state["base"].items()
-        if key.startswith("project-memory:")
-    }
-    (a / REPLICA_STATE).write_text(json.dumps(local_state))
-    round_trip(a, remote, home)
-    round_trip(b, remote, home)
-    assert (b / "projects/demo/agent.toml").is_file()
-    assert (b / "projects/demo/memory/notes/a.md").read_text() == "note"
-
-
-def test_toml_scalar_and_table_merge_is_preview_conflict(tmp_path):
-    a, b, remote, home = pair(tmp_path)
+def test_toml_scalar_and_table_merge_is_preview_conflict(tmp_path, replicas):
+    a, b, remote, home = replicas
     write(a, "config.toml", 'feature = "scalar"\n')
     write(b, "config.toml", "[feature]\nflag = true\n[update]\ncheck = false\n")
     round_trip(b, remote, home)
@@ -529,8 +443,8 @@ def test_toml_scalar_and_table_merge_is_preview_conflict(tmp_path):
     assert "config:feature" not in remote.read().resources
 
 
-def test_nonfinite_toml_values_do_not_make_plans_stale(tmp_path):
-    a, b, remote, home = pair(tmp_path)
+def test_nonfinite_toml_values_do_not_make_plans_stale(tmp_path, replicas):
+    a, b, remote, home = replicas
     write(a, "config.toml", "special = nan\nlimit = inf\n")
     round_trip(a, remote, home)
     plan = build_reconcile_plan(b, remote)
@@ -538,8 +452,8 @@ def test_nonfinite_toml_values_do_not_make_plans_stale(tmp_path):
     assert not build_reconcile_plan(b, remote).changes
 
 
-def test_outside_inbox_absence_cannot_delete_center_notes(tmp_path):
-    a, b, remote, home = pair(tmp_path)
+def test_outside_inbox_absence_cannot_delete_center_notes(tmp_path, replicas):
+    a, b, remote, home = replicas
     write(a, "inbox/a.md", "note")
     round_trip(a, remote, home)
     round_trip(b, remote, home)
@@ -548,18 +462,11 @@ def test_outside_inbox_absence_cannot_delete_center_notes(tmp_path):
     )
     plan = round_trip(b, remote, home)
     assert next(i for i in plan.items if i.id == "inbox:a.md").action == "BLOCKED"
-    assert (remote.root / "inbox/a.md").read_text() == "note"
+    assert store_content(remote)[1]["inbox:a.md"].data == b"note"
 
 
-def test_center_rejects_unregistered_whole_configuration(tmp_path):
-    a, b, remote, home = pair(tmp_path)
-    write(remote.root, "config.toml", '[inbox]\npath = "private"\n')
-    with pytest.raises(WorkspaceReconcileError, match="Unmanaged center content"):
-        build_reconcile_plan(a, remote)
-
-
-def test_date_and_same_text_are_distinct_shared_values(tmp_path):
-    a, b, remote, home = pair(tmp_path)
+def test_date_and_same_text_are_distinct_shared_values(tmp_path, replicas):
+    a, b, remote, home = replicas
     write(a, "config.toml", "start = 2026-09-28\n")
     round_trip(a, remote, home)
     round_trip(b, remote, home)
@@ -570,8 +477,8 @@ def test_date_and_same_text_are_distinct_shared_values(tmp_path):
     assert tomllib.loads((a / "config.toml").read_text())["start"] == "2026-09-28"
 
 
-def deletion_reference_race(tmp_path):
-    a, b, remote, home = pair(tmp_path)
+def deletion_reference_race(replicas):
+    a, b, remote, home = replicas
     write(a, "skills/x/SKILL.md", "# X\n")
     round_trip(a, remote, home)
     round_trip(b, remote, home)
@@ -586,9 +493,9 @@ def deletion_reference_race(tmp_path):
 @pytest.mark.parametrize("identity", ("skill:x", "project-skill:demo/x"))
 @pytest.mark.parametrize("side", ("local", "remote"))
 def test_reference_conflicts_accept_each_resolution_and_converge(
-    tmp_path, identity, side
+    tmp_path, replicas, identity, side
 ):
-    a, b, remote, home = deletion_reference_race(tmp_path)
+    a, b, remote, home = deletion_reference_race(replicas)
     before = {p.relative_to(b): p.read_bytes() for p in b.rglob("*") if p.is_file()}
     plan = build_reconcile_plan(b, remote, resolutions={identity: side})
     assert not plan.conflicts and not plan.blocked
@@ -614,8 +521,8 @@ def test_reference_conflicts_accept_each_resolution_and_converge(
 
 
 @pytest.mark.parametrize("side", ("local", "remote"))
-def test_consistent_multiple_reference_choices(tmp_path, side):
-    a, b, remote, home = deletion_reference_race(tmp_path)
+def test_consistent_multiple_reference_choices(tmp_path, replicas, side):
+    a, b, remote, home = deletion_reference_race(replicas)
     plan = round_trip(
         b, remote, home, resolutions={"skill:x": side, "project-skill:demo/x": side}
     )
@@ -624,8 +531,8 @@ def test_consistent_multiple_reference_choices(tmp_path, side):
     assert (a / "skills/x").exists() == (side == "local")
 
 
-def test_contradictory_reference_choices_do_not_override_each_other(tmp_path):
-    a, b, remote, home = deletion_reference_race(tmp_path)
+def test_contradictory_reference_choices_do_not_override_each_other(tmp_path, replicas):
+    a, b, remote, home = deletion_reference_race(replicas)
     plan = round_trip(
         b,
         remote,
@@ -639,8 +546,10 @@ def test_contradictory_reference_choices_do_not_override_each_other(tmp_path):
 
 @pytest.mark.parametrize("action", ("CREATE", "UPDATE", "DELETE", "NOOP", "BLOCKED"))
 @pytest.mark.parametrize("side", ("local", "remote"))
-def test_nonconflicting_resolution_is_rejected_without_writes(tmp_path, action, side):
-    a, b, remote, home = pair(tmp_path)
+def test_nonconflicting_resolution_is_rejected_without_writes(
+    tmp_path, replicas, action, side
+):
+    a, b, remote, home = replicas
     if action in {"UPDATE", "DELETE", "NOOP"}:
         write(a, "memory/notes/n.md", "base")
         round_trip(a, remote, home)
@@ -658,11 +567,7 @@ def test_nonconflicting_resolution_is_rejected_without_writes(tmp_path, action, 
     assert next(i for i in plan.items if i.id == "memory:notes/n.md").action == action
     before = (
         {p.relative_to(a): p.read_bytes() for p in a.rglob("*") if p.is_file()},
-        {
-            p.relative_to(remote.root): p.read_bytes()
-            for p in remote.root.rglob("*")
-            if p.is_file()
-        },
+        store_content(remote),
     )
     with pytest.raises(
         WorkspaceReconcileError, match="requires a conflicting resource"
@@ -672,16 +577,12 @@ def test_nonconflicting_resolution_is_rejected_without_writes(tmp_path, action, 
         )
     assert before == (
         {p.relative_to(a): p.read_bytes() for p in a.rglob("*") if p.is_file()},
-        {
-            p.relative_to(remote.root): p.read_bytes()
-            for p in remote.root.rglob("*")
-            if p.is_file()
-        },
+        store_content(remote),
     )
 
 
-def test_resolution_inferred_provider_still_checks_credentials(tmp_path):
-    a, b, remote, home = deletion_reference_race(tmp_path)
+def test_resolution_inferred_provider_still_checks_credentials(tmp_path, replicas):
+    a, b, remote, home = deletion_reference_race(replicas)
     write(b, "skills/x/SKILL.md", 'api_key = "abcdefghijklmnop123456"')
     plan = round_trip(b, remote, home, resolutions={"project-skill:demo/x": "local"})
     assert next(i for i in plan.items if i.id == "skill:x").action == "BLOCKED"
@@ -695,8 +596,8 @@ def test_resolution_inferred_provider_still_checks_credentials(tmp_path):
 
 @pytest.mark.parametrize("identity", ("skill:x", "skill-selection:x"))
 @pytest.mark.parametrize("side", ("local", "remote"))
-def test_root_selection_reference_choices_converge(tmp_path, identity, side):
-    a, b, remote, home = pair(tmp_path)
+def test_root_selection_reference_choices_converge(tmp_path, replicas, identity, side):
+    a, b, remote, home = replicas
     write(a, "skills/x/SKILL.md", "# X\n")
     round_trip(a, remote, home)
     round_trip(b, remote, home)
@@ -717,8 +618,8 @@ def test_root_selection_reference_choices_converge(tmp_path, identity, side):
         assert not build_reconcile_plan(local, remote).changes
 
 
-def test_reference_resolution_preview_is_stale_after_provider_edit(tmp_path):
-    a, b, remote, home = deletion_reference_race(tmp_path)
+def test_reference_resolution_preview_is_stale_after_provider_edit(tmp_path, replicas):
+    a, b, remote, home = deletion_reference_race(replicas)
     plan = build_reconcile_plan(
         b, remote, resolutions={"project-skill:demo/x": "local"}
     )
@@ -733,8 +634,9 @@ def test_reference_resolution_preview_is_stale_after_provider_edit(tmp_path):
 
 def test_provider_deletion_preserves_standalone_dependents_until_explicit_choice(
     tmp_path,
+    replicas,
 ):
-    a, b, remote, home = pair(tmp_path)
+    a, b, remote, home = replicas
     write(a, "projects/demo/agent.toml", 'name = "demo"\n')
     round_trip(a, remote, home)
     round_trip(b, remote, home)

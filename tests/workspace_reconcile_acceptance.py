@@ -10,11 +10,14 @@ import tomllib
 from pathlib import Path
 from unittest.mock import patch
 
+from aikito.workspace import transactions
 from aikito.workspace.reconcile import (
     WorkspaceReconcileError,
 )
 from aikito.workspace.remote import (
     FilesystemRemote,
+)
+from aikito.workspace.resource_state import (
     LOCAL_CONFIG,
     REPLICA_STATE,
     SYNC_KINDS,
@@ -67,6 +70,7 @@ def exercise_behavior(base: Path, backend: ReconciliationBackend) -> None:
         "global/AGENTS.md": "first",
         "projects/demo/AGENTS.md": "first",
         "skills/example/SKILL.md": "# Example\n",
+        "skills/example/run.sh": "echo first\n",
         "agents/custom.toml": '[agents.custom]\nvalue = "first"\n',
         "mcps/docs.toml": 'agents = ["custom"]\ncommand = "first"\n',
         "subagents/review.md": '---\ndescription: "Review"\nagents: ["custom"]\n---\nfirst\n',
@@ -76,12 +80,83 @@ def exercise_behavior(base: Path, backend: ReconciliationBackend) -> None:
     }
     for relative, value in payloads.items():
         write(a, relative, value)
+    (a / "skills/example/empty").mkdir()
     before = _files(a), _files(b), backend.checkpoint()
     preview = backend.plan(a)
     assert preview.changes and not preview.conflicts and not preview.blocked
     assert before == (_files(a), _files(b), backend.checkpoint())
     converge()
     assert {identity.partition(":")[0] for identity in _resources(a)} == SYNC_KINDS
+    assert (b / "skills/example/empty").is_dir()
+
+    # Credentials block only their resource; safe neighboring fields still sync.
+    text = (a / "config.toml").read_text(encoding="utf-8")
+    write(a, "config.toml", text + '[service]\napi_key = "abcdefghijklmnop123456"\n')
+    write(a, "capture-a/credential-safe.md", "safe alongside a blocked field")
+    blocked = apply(a)
+    assert (
+        next(
+            item for item in blocked.items if item.id == "config:service.api_key"
+        ).action
+        == "BLOCKED"
+    )
+    assert "config:service.api_key" not in backend.fingerprints()
+    assert (
+        "config:service.api_key"
+        not in json.loads((a / REPLICA_STATE).read_text())["base"]
+    )
+    apply(b)
+    assert (b / "capture-b/credential-safe.md").is_file()
+    assert "service" not in tomllib.loads((b / "config.toml").read_text())
+    write(a, "config.toml", text)
+    converge()
+
+    # Every admitted kind can be deleted as one batch, then recreated safely.
+    preserved = {relative: (a / relative).read_bytes() for relative in payloads}
+    for area in (
+        "memory/notes",
+        "projects",
+        "capture-a",
+        "global",
+        "skills",
+        "agents",
+        "mcps",
+        "subagents",
+    ):
+        shutil.rmtree(a / area)
+        (a / area).mkdir(parents=True)
+    write(a, "config.toml", '[inbox]\npath = "capture-a"\n')
+    write(a, "skills.toml", "skills = []\n")
+    generation = backend.generation()
+    deleted = apply(a)
+    assert {item.id.partition(":")[0] for item in deleted.changes} == SYNC_KINDS
+    assert backend.generation() == generation + 1
+    converge()
+    assert not backend.fingerprints()
+    for relative, content in preserved.items():
+        path = a / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    (a / "skills/example/empty").mkdir()
+    converge()
+
+    # Standalone bytes, skill trees, typed fields, and member identities update
+    # through the same payload boundary, then return to the original version.
+    for relative, content in preserved.items():
+        updated = (
+            content.decode("utf-8")
+            .replace("first", "updated")
+            .replace("# Example", "# Updated")
+            .replace("~/offline", "~/updated")
+            .replace("stale_days = 10", "stale_days = 11")
+        )
+        write(a, relative, updated)
+    converge()
+    assert (b / "skills/example/SKILL.md").read_text() == "# Updated\n"
+    assert (b / "memory/notes/acceptance.md").read_text() == "updated"
+    for relative, content in preserved.items():
+        (a / relative).write_bytes(content)
+    converge()
 
     # Identical concurrent shared-field edits confirm bases without another upload.
     for local in (a, b):
@@ -173,6 +248,60 @@ def exercise_behavior(base: Path, backend: ReconciliationBackend) -> None:
         raise AssertionError("Expected recovery before replay")
     assert _files(a) == before
     converge()
+
+    # Center acceptance and local application are separate transactions. Fail
+    # after a simultaneous upload has published, keeping downloads and old Base.
+    for failure in ("download", "base"):
+        write(b, "capture-b/accepted-before-local.md", failure)
+        apply(b)
+        write(a, f"memory/notes/accepted-{failure}.md", "accepted upload")
+        before = _files(a)
+        state_before = (a / REPLICA_STATE).read_bytes()
+        generation = backend.generation()
+        original_replace = os.replace
+        original_text = transactions.atomic_text
+        failed = False
+
+        def fail_download(src, dst):
+            nonlocal failed
+            if (
+                not failed
+                and "stage" in Path(src).parts
+                and Path(dst) == a / "capture-a/accepted-before-local.md"
+            ):
+                failed = True
+                raise OSError("Local download failed after center acceptance")
+            original_replace(src, dst)
+
+        def fail_base(path, content):
+            nonlocal failed
+            if not failed and Path(path) == a / REPLICA_STATE:
+                failed = True
+                raise OSError("Local Base failed after center acceptance")
+            original_text(path, content)
+
+        # Fault injection concerns only local transactions, never backend files.
+        injection = (
+            patch("aikito.workspace.transactions.os.replace", side_effect=fail_download)
+            if failure == "download"
+            else patch(
+                "aikito.workspace.transactions.atomic_text", side_effect=fail_base
+            )
+        )
+        try:
+            with injection:
+                apply(a)
+        except OSError as exc:
+            assert "after center acceptance" in str(exc)
+        else:
+            raise AssertionError("Expected local application failure")
+        assert failed
+        assert backend.generation() == generation + 1
+        assert f"memory:notes/accepted-{failure}.md" in backend.fingerprints()
+        assert _files(a) == before and (a / REPLICA_STATE).read_bytes() == state_before
+        converge()
+        assert backend.generation() == generation + 1
+        assert (a / "capture-a/accepted-before-local.md").read_text() == failure
 
     # Removal and local relocation preserve pairing and host-local paths.
     (b / "capture-b/safe.md").unlink()

@@ -171,12 +171,12 @@ unsafe paths/nodes, and Windows-to-POSIX flag preservation through local copies.
 
 | Suite or scenario | Classification |
 | --- | --- |
-| `exercise_behavior(base, backend)` in `workspace_reconcile_acceptance.py` | Shared engine behavior: all admitted resources, convergence, conflict Base, safe subset, stale local/center plans, host-local inbox paths, local journal recovery, deletion, replica relocation, repeat NOOP. The injected driver exposes no center directory. |
+| `exercise_behavior(base, backend)` in `workspace_reconcile_acceptance.py` | Shared engine behavior on both backends: all admitted resources create/update/delete/recreate, credential-safe subsets, convergence, conflict Base, stale local/center plans, host-local inbox paths, local journal recovery, center-accepted/local-failed transactions, replica relocation, repeat NOOP. Shared assertions access no center directory. |
 | `exercise(base)` wrapper and `FilesystemBackend` | Filesystem orchestration and center relocation; storage checkpoints inspect files only within the driver. |
 | `test_workspace_reconcile_boundary.py` | Portable skill behavior and schema compatibility. The injected center-change test pins refusal between read and download staging with no local/Base write. |
 | Existing conditional batch / competing-writer / empty-batch tests in `test_workspace_reconcile.py` | Shared portable storage guarantees now run in test_workspace_remote_store_contract.py on filesystem and memory stores; plaintext semantic defenses remain filesystem-specific. |
-| Credential / reference / shared TOML / conflict / local safety tests in `test_workspace_reconcile*.py` | Client behavior; hash, credential, reference, and read/fetch race tests run against both backends. The broader client matrix is stage-four work. Direct center plaintext parsing/rejection belongs to filesystem defense. |
-| Center manifest parsing, `resource_for_id`, layout checks, `verify_contents`, center journal recovery and root overlap tests | Filesystem-specific defense and lifecycle. Local journal recovery remains shared engine behavior. |
+| Credential / reference / shared TOML / conflict / local safety tests in `test_workspace_reconcile*.py` | Client behavior: test_workspace_reconcile_resources.py parameterizes standalone/shared TOML, typed values, memberships, references, credentials, local recovery and conflict resolutions across both backends. Hash and read/fetch race cases in test_workspace_remote_store.py also run on both. Direct center plaintext parsing/rejection belongs to filesystem defense. |
+| test_workspace_reconcile_filesystem.py plus existing center manifest parsing, `resource_for_id`, `verify_contents` and root overlap tests | Filesystem-specific defense and lifecycle. Local journal recovery remains shared engine behavior. |
 
 `test_workspace_remote_store.py` checks immutable boundary values, rejected whole
 batches, missing/corrupt fetch content, read/fetch purity, stale empty requests,
@@ -239,7 +239,32 @@ recover local transactions, relocate a replica, and repeat NOOP. CI runs the
 script on all three OS workflows and asserts local output files and absence of
 a center directory. Filesystem center relocation remains its own wrapper.
 
-Stage four will finish the broader unified client/acceptance test matrix and
-review remaining backend-specific assertions and documentation. The memory
-backend remains test-only; no public CLI, persistence, or network support is
-introduced.
+## Completed boundary and validation
+
+`test_workspace_reconcile_acceptance.py` parameterizes the same behavior scenario
+with both factories; filesystem center relocation is a separate test.
+`test_workspace_reconcile_resources.py` uses the same two-backend fixture for
+client behavior and never accesses center paths. Manifest compatibility,
+unmanaged center files, shared-value layout, and center journal interruption
+live in `test_workspace_reconcile_filesystem.py`. Existing legacy filesystem
+regressions remain useful as backend-specific checks alongside the shared suites.
+
+The acceptance script deliberately fails local download and Base writes after
+a simultaneous upload has been accepted by the center. The accepted generation
+and uploaded content remain at the center; the local resources and old Base
+roll back together, and replanning converges without another semantic upload.
+The separate KeyboardInterrupt scenario verifies explicit local journal recovery.
+Memory storage does not imitate a filesystem recovery capability.
+
+Ubuntu, macOS, and Windows workflows call both real acceptance scripts and assert
+local resources, replica state, and the results of failure/recovery scenarios.
+Filesystem center assertions remain separate; the memory script asserts no
+center directory exists. Local verification does not imply those remote CI
+jobs have run. Release and push are independent actions, not part of validation.
+
+Remote Store Boundary stages zero through four are implemented. This internal
+boundary introduces no public reconciliation CLI, hosted service, account,
+network transport, or encryption. The memory store remains test-only. A future
+HTTP implementation must add uncertain-commit resolution, retries, and explicit
+request/result identity before production network use; E2EE and authorized
+readable scopes need their own key and privacy design.
