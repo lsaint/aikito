@@ -16,6 +16,7 @@ from aikito.workspace.reconcile import (
     run_reconciliation,
 )
 from aikito.workspace.remote import FilesystemRemote
+from workspace_memory_remote import InMemoryRemote
 
 
 def files(root: Path) -> dict[str, bytes]:
@@ -42,9 +43,9 @@ class ReconciliationBackend(Protocol):
         ...
 
 
-class FilesystemBackend:
-    def __init__(self, root: Path):
-        self.remote = FilesystemRemote.create(root)
+class StoreBackend:
+    def __init__(self, remote):
+        self.remote = remote
 
     def run(self, local: Path, home: Path, **kwargs) -> ReconcilePlan:
         return run_reconciliation(local, self.remote, home, dry_run=False, **kwargs)
@@ -64,5 +65,19 @@ class FilesystemBackend:
     def generation(self) -> int:
         return self.remote.read().generation
 
+
+class FilesystemBackend(StoreBackend):
+    def __init__(self, root: Path):
+        super().__init__(FilesystemRemote.create(root))
+
     def checkpoint(self) -> object:
         return files(self.remote.root)
+
+
+class InMemoryBackend(StoreBackend):
+    def __init__(self):
+        super().__init__(InMemoryRemote())
+
+    def checkpoint(self) -> object:
+        snapshot = self.remote.read()
+        return snapshot, self.remote.fetch(snapshot, tuple(snapshot.resources))

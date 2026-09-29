@@ -16,6 +16,7 @@ from aikito.workspace.payload import (
 )
 from aikito.workspace.reconcile import (
     WorkspaceReconcileError,
+    apply_reconcile_plan,
     build_reconcile_plan,
     run_reconciliation,
 )
@@ -25,9 +26,25 @@ from aikito.workspace.remote_store import (
     RemoteSnapshot,
     SnapshotExpired,
 )
+from aikito.workspace.resources import value_fingerprint
+from workspace_memory_remote import InMemoryRemote
 from workspace_reconcile_backend import files
 from workspace_reconcile_smoke import _workspace
 from workspace_remote_store_smoke import StoreFacade, exercise
+
+
+@pytest.fixture(params=["filesystem", "memory"])
+def protocol_store(request, tmp_path):
+    return (
+        FilesystemRemote.create(tmp_path / "center")
+        if request.param == "filesystem"
+        else InMemoryRemote()
+    )
+
+
+def stored_content(remote):
+    snapshot = remote.read()
+    return snapshot, remote.fetch(snapshot, snapshot.resources)
 
 
 def mutation(name="one", data=b"one", before=None):
@@ -148,9 +165,9 @@ def test_backend_attachment_preserves_overlap_guard(tmp_path, relation):
         build_reconcile_plan(local, store)
 
 
-def test_client_rejects_corrupt_fetch_from_protocol_backend(tmp_path):
+def test_client_rejects_corrupt_fetch_from_protocol_backend(tmp_path, protocol_store):
     local = _workspace(tmp_path / "local")
-    remote = FilesystemRemote.create(tmp_path / "center")
+    remote = protocol_store
     remote.commit(remote.read(), [mutation()])
 
     class CorruptStore(StoreFacade):
@@ -160,15 +177,17 @@ def test_client_rejects_corrupt_fetch_from_protocol_backend(tmp_path):
                 result[next(iter(result))] = FilePayload(b"corrupted")
             return result
 
-    before = files(local), files(remote.root)
+    before = files(local), stored_content(remote)
     with pytest.raises(WorkspaceReconcileError, match="hash"):
         build_reconcile_plan(local, CorruptStore(remote))
-    assert before == (files(local), files(remote.root))
+    assert before == (files(local), stored_content(remote))
 
 
-def test_client_blocks_credential_download_independently_of_backend(tmp_path):
+def test_client_blocks_credential_download_independently_of_backend(
+    tmp_path, protocol_store
+):
     local = _workspace(tmp_path / "local")
-    remote = FilesystemRemote.create(tmp_path / "center")
+    remote = protocol_store
     secret = mutation("secret", b'api_key = "abcdefghijklmnopqrstuv"\n')
 
     class OpaqueStore(StoreFacade):
@@ -179,17 +198,19 @@ def test_client_blocks_credential_download_independently_of_backend(tmp_path):
         def fetch(self, expected, ids):
             return {identity: secret.payload for identity in ids}
 
-    before = files(local), files(remote.root)
+    before = files(local), stored_content(remote)
     plan = build_reconcile_plan(local, OpaqueStore(remote))
     item = next(item for item in plan.items if item.id == secret.id)
     assert item.action == "BLOCKED" and item.target is None
     assert "credential" in item.reason
-    assert before == (files(local), files(remote.root))
+    assert before == (files(local), stored_content(remote))
 
 
-def test_download_is_staged_before_conditional_commit_and_local_base(tmp_path):
+def test_download_is_staged_before_conditional_commit_and_local_base(
+    tmp_path, protocol_store
+):
     local = _workspace(tmp_path / "local")
-    remote = FilesystemRemote.create(tmp_path / "center")
+    remote = protocol_store
     remote.commit(remote.read(), [mutation()])
     before = files(local)
 
@@ -203,3 +224,49 @@ def test_download_is_staged_before_conditional_commit_and_local_base(tmp_path):
             local, RefusingStore(remote), tmp_path / "home", dry_run=False
         )
     assert files(local) == before
+
+
+def test_client_rejects_invalid_download_references_on_both_stores(
+    tmp_path, protocol_store
+):
+    local = _workspace(tmp_path / "local")
+    payload = FilePayload(b'agents = ["missing"]\ncommand = "tool"\n')
+    descriptor = ResourceDescriptor(
+        value_fingerprint({"agents": ["missing"], "command": "tool"}),
+        payload_hash(payload),
+        ("agent:missing",),
+    )
+
+    class OpaqueStore(StoreFacade):
+        def read(self):
+            return replace(super().read(), resources={"mcp:orphan": descriptor})
+
+        def fetch(self, expected, ids):
+            return {identity: payload for identity in ids}
+
+    before = files(local), stored_content(protocol_store)
+    plan = build_reconcile_plan(local, OpaqueStore(protocol_store))
+    assert plan.blocked
+    assert "mcp:orphan" in {item.id for item in plan.conflicts}
+    assert before == (files(local), stored_content(protocol_store))
+
+
+def test_center_change_between_read_and_fetch_preserves_local_base(
+    tmp_path, protocol_store
+):
+    local = _workspace(tmp_path / "local")
+    home = tmp_path / "home"
+    run_reconciliation(local, protocol_store, home, dry_run=False)
+    protocol_store.commit(protocol_store.read(), [mutation()])
+    plan = build_reconcile_plan(local, protocol_store)
+    before = files(local)
+
+    class RacingStore(StoreFacade):
+        def fetch(self, expected, ids):
+            protocol_store.commit(protocol_store.read(), [mutation("concurrent")])
+            return super().fetch(expected, ids)
+
+    with pytest.raises(WorkspaceReconcileError, match="generation changed"):
+        apply_reconcile_plan(plan, home, remote=RacingStore(protocol_store))
+    assert files(local) == before
+    assert protocol_store.read().generation == plan.generation + 1

@@ -174,8 +174,8 @@ unsafe paths/nodes, and Windows-to-POSIX flag preservation through local copies.
 | `exercise_behavior(base, backend)` in `workspace_reconcile_acceptance.py` | Shared engine behavior: all admitted resources, convergence, conflict Base, safe subset, stale local/center plans, host-local inbox paths, local journal recovery, deletion, replica relocation, repeat NOOP. The injected driver exposes no center directory. |
 | `exercise(base)` wrapper and `FilesystemBackend` | Filesystem orchestration and center relocation; storage checkpoints inspect files only within the driver. |
 | `test_workspace_reconcile_boundary.py` | Portable skill behavior and schema compatibility. The injected center-change test pins refusal between read and download staging with no local/Base write. |
-| Existing conditional batch / competing-writer / empty-batch tests in `test_workspace_reconcile.py` | Portable store contract behavior through FilesystemRemote; stage three will share these assertions with the in-memory backend. |
-| Credential / reference / shared TOML / conflict / local safety tests in `test_workspace_reconcile*.py` | Client behavior; run against both backends after migration. Assertions that a direct center commit parses/rejects plaintext belong to filesystem defense instead. |
+| Existing conditional batch / competing-writer / empty-batch tests in `test_workspace_reconcile.py` | Shared portable storage guarantees now run in test_workspace_remote_store_contract.py on filesystem and memory stores; plaintext semantic defenses remain filesystem-specific. |
+| Credential / reference / shared TOML / conflict / local safety tests in `test_workspace_reconcile*.py` | Client behavior; hash, credential, reference, and read/fetch race tests run against both backends. The broader client matrix is stage-four work. Direct center plaintext parsing/rejection belongs to filesystem defense. |
 | Center manifest parsing, `resource_for_id`, layout checks, `verify_contents`, center journal recovery and root overlap tests | Filesystem-specific defense and lifecycle. Local journal recovery remains shared engine behavior. |
 
 `test_workspace_remote_store.py` checks immutable boundary values, rejected whole
@@ -205,6 +205,41 @@ Stored hash mismatch is refused without resetting state or Base. The historical
 path-based `content()` and three-argument commit are replaced by fetch and
 portable mutation commit; Import keeps its independent local path adapter.
 
-No in-memory backend is implemented here. The same behavior scenarios will be
-injected with that backend after engine migration; no backend branches belong
-inside shared acceptance assertions.
+## Test-only memory backend
+
+`tests/workspace_memory_remote.py` implements `InMemoryRemote`, outside the
+installed product package. It stores only canonical encoded payload bytes and
+immutable descriptors, with an in-process mutex protecting snapshot comparison,
+full-batch validation, and one generation publication. It has no root, Path,
+center manifest, journal, staging directory, or filesystem attachment constraint.
+`recover()` returns false and claims no persistent recovery capability.
+
+The memory store treats IDs, identity, fingerprints, and references as opaque.
+It checks transport hashes and before descriptors but never decodes logical IDs,
+recomputes semantic fingerprints, scans credentials, or validates reference
+meaning. Opaque content and even credentials or invalid logical references may
+be stored with a valid transport hash; client checks must reject unsafe downloads
+before local materialization. This is a content-blind contract test, not an
+implementation of encryption or a hosted service.
+
+`test_workspace_remote_store_contract.py` runs the same storage guarantees on
+filesystem and memory stores: atomic batches, concurrent writers, stale/identity
+rejection including empty requests, corruption, deletion versus empty-fingerprint
+presence, independent immutable reads, and typed-value ownership. Additional
+memory tests prohibit filesystem calls and temporary staging during store
+operations and inject corrupted stored bytes or missing payloads. Filesystem
+semantic and manifest defenses remain separate in `test_workspace_remote_store.py`.
+The client hash, credential, reference, and read/fetch race tests run on both.
+
+`workspace_memory_remote_smoke.py` injects `InMemoryBackend` into the existing
+`exercise_behavior` scenario without engine changes or backend branches in its
+assertions. Two independent workspaces exchange all admitted resource kinds,
+converge, preserve host-local inbox paths and conflict Base, reject stale plans,
+recover local transactions, relocate a replica, and repeat NOOP. CI runs the
+script on all three OS workflows and asserts local output files and absence of
+a center directory. Filesystem center relocation remains its own wrapper.
+
+Stage four will finish the broader unified client/acceptance test matrix and
+review remaining backend-specific assertions and documentation. The memory
+backend remains test-only; no public CLI, persistence, or network support is
+introduced.
