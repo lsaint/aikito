@@ -34,7 +34,7 @@ version.
 | `aikito add mcp [name] [--from <source>] [--transport {stdio,remote}] [--command <cmd>] [--url <url>] [--agents <list>] [--sync] [--force]` | Create a canonical MCP server configuration or import from an external file (.json, .toml) or remote URL |
 | `aikito adopt [path] [--dry-run] [--verbose] [--skip <resource>]` | Preflight existing local configuration, then import it only when the complete plan is safe |
 | `aikito status` | Show the synchronization dashboard |
-| `aikito diff [--all]` | Show unified diffs for drifted MCP, subagent, and copied project skill resources (defaults to current project if inside one) |
+| `aikito diff [project|mcp|subagent] [--all]` | Show drift index or drill-down unified diffs for drifted resources |
 | `aikito sync [--dry-run] [--verbose]` | Preflight all host-compatible resources together, then synchronize only when the complete plan is safe |
 | `aikito sync global [--dry-run]` | Synchronize or preview global instructions and skills |
 | `aikito sync project [name] [path] [--dry-run] [--force]` | Synchronize or preview a project's `.agents/` directory (detected from cwd if omitted) |
@@ -207,22 +207,28 @@ templates, and never rely on repository publication as a secrets store.
 
 ## Drift Diff
 
-After `aikito status` reports drift, inspect every drifted managed MCP entry and
-subagent file at once:
+After `aikito status` or `aikito doctor` reports drift, inspect drifted managed resources:
 
 ```bash
+# High-level drift index across the workspace
 aikito diff
+
+# Drill-down into a specific project (defaults to cwd if omitted inside a project)
+aikito diff project [project]
+aikito diff project <project> <skill>
+aikito diff project <project> <skill> <file>
+
+# Specific MCP server or subagent
+aikito diff mcp <agent> <server>
+aikito diff subagent <agent> <name>
+
+# Full unified diff dump across all drifted resources
 aikito diff --all
 ```
 
-The command compares actual Agent configuration and copied project skills
-against Aikito's expected rendering and prints unified diffs. When run inside a
-registered project directory, `aikito diff` defaults to that project's copied
-skills alongside workspace MCP/subagent drift; use `--all` to inspect copied skills
-across all projects. Outside any registered project, all projects are inspected.
-MCP credentials and sensitive headers are redacted. Binary project skill files
-are reported without printing their contents. Missing resources and unmanaged
-conflicts remain status findings and are not rendered as drift diffs.
+The bare `aikito diff` command outputs a high-level drift index showing which MCPs, subagents, and projects have drifted, without dumping raw unified diffs. To inspect full diffs, drill down by project/skill/file or use `--all` to print all unified diffs at once. MCP credentials and sensitive headers are redacted. Binary project skill files are reported without printing their contents. Missing resources and unmanaged conflicts remain status findings and are not rendered as drift diffs.
+
+Targeted commands inspect only their resource kind, so unrelated MCP configuration errors do not block project or subagent diffs. Project indices group changes by checkout path, and full diffs identify the checkout in each resource label. File targets accept `/` or `\` separators and equivalent relative paths such as `./scripts/check.py`.
 
 ## Instructions
 

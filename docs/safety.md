@@ -119,7 +119,7 @@ not prove that Aikito owns it.
 
 | Situation | Default response | Reviewed next step |
 | --- | --- | --- |
-| Copied project skill changed locally | Block project sync and preserve the copy | Use `aikito diff`; keep the local edit in the canonical skill or explicitly run `aikito sync project <name> --force` to replace the copy. |
+| Copied project skill changed locally | Block project sync and preserve the copy | Use `aikito diff project <name>`; keep the local edit in the canonical skill or explicitly run `aikito sync project <name> --force` to replace the copy. |
 | Unmanaged project skill directory matches the canonical skill | Leave files unchanged and report that ownership is unproven | `aikito sync project <name> --force` can explicitly claim the matching copy. |
 | Unmanaged global skill directory or foreign skill symlink | Report a conflict and preserve the target | Inspect and resolve the target manually; global sync has no `--force` option. |
 | Existing instruction or memory target is unmanaged | Report a conflict and preserve the target | Inspect both sources and resolve manually; `--force` cannot overwrite instructions or memory. |

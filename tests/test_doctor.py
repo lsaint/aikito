@@ -343,7 +343,7 @@ class CheckProjectsTest(unittest.TestCase):
         failures = [finding for finding in section.findings if finding.status == "FAIL"]
         self.assertEqual(len(failures), 1)
         self.assertIn("Project 'demo': DRIFT", failures[0].message)
-        self.assertEqual(failures[0].fix_hint, "aikito diff")
+        self.assertEqual(failures[0].fix_hint, "aikito diff project demo")
 
 
 # ---------------------------------------------------------------------------

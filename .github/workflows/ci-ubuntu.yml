@@ -1540,14 +1540,28 @@ jobs:
             grep -E "Project:\s+cwd-proj" ${{ runner.temp }}/cwd-show-dot.out
           )
 
-          # 3. diff inside project directory scopes to project, and diff --all includes all projects
+          # 3. diff shows global index, diff project scopes to project, and diff --all includes all projects
           printf "drift in copy-proj\n" > ${{ runner.temp }}/copy-mode-proj/.agents/skills/copy-test-skill/SKILL.md
           (
             cd "$CWD_PROJ"
+            # Bare diff is global index (not cwd-scoped)
             AIKITO_DIR="$WS" python3 -m aikito diff | tee ${{ runner.temp }}/cwd-diff.out
-            grep -F "[aikito] Target project: 'cwd-proj' (detected from cwd)" ${{ runner.temp }}/cwd-diff.out
-            ! grep -F "copy-test-skill" ${{ runner.temp }}/cwd-diff.out
+            grep -F "copy-proj" ${{ runner.temp }}/cwd-diff.out
+            grep -F "copy-test-skill" ${{ runner.temp }}/cwd-diff.out
+            ! grep -F "Target project:" ${{ runner.temp }}/cwd-diff.out
+            ! grep -F "drift in copy-proj" ${{ runner.temp }}/cwd-diff.out
 
+            # diff project inside project directory scopes from cwd
+            AIKITO_DIR="$WS" python3 -m aikito diff project | tee ${{ runner.temp }}/cwd-diff-project.out
+            grep -F "[aikito] Target project: 'cwd-proj' (detected from cwd)" ${{ runner.temp }}/cwd-diff-project.out
+            ! grep -F "copy-test-skill" ${{ runner.temp }}/cwd-diff-project.out
+
+            # diff project <name> <skill> drills down to unified diff
+            AIKITO_DIR="$WS" python3 -m aikito diff project copy-proj copy-test-skill | tee ${{ runner.temp }}/cwd-diff-drilldown.out
+            grep -F "copy-test-skill" ${{ runner.temp }}/cwd-diff-drilldown.out
+            grep -F "drift in copy-proj" ${{ runner.temp }}/cwd-diff-drilldown.out
+
+            # diff --all dumps all unified diffs
             AIKITO_DIR="$WS" python3 -m aikito diff --all | tee ${{ runner.temp }}/cwd-diff-all.out
             grep -F "copy-test-skill" ${{ runner.temp }}/cwd-diff-all.out
             grep -F "drift in copy-proj" ${{ runner.temp }}/cwd-diff-all.out
@@ -1616,3 +1630,24 @@ jobs:
 
           rm -rf "$CWD_PROJ" "$OTHER_PROJ" "$WS/projects/cwd-proj" "$WS/projects/other-proj" \
             "$WS/skills/cwd-skill" "$WS/skills/global-skill" "$WS/memory/notes/smoke-global-note.md"
+
+      - name: Diff drill-down isolation, paths, and checkouts
+        run: |
+          DIFF_FIXTURE="${{ runner.temp }}/diff-drilldown"
+          python3 tests/diff_drilldown_fixture.py "$DIFF_FIXTURE"
+          DIFF_FIXTURE="$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$DIFF_FIXTURE")"
+          test -f "$DIFF_FIXTURE/mcps/broken.toml"
+          test -f "$DIFF_FIXTURE/first/.agents/skills/example/scripts/check.py"
+          test -f "$DIFF_FIXTURE/second/.agents/skills/example/scripts/check.py"
+          AIKITO_DIR="$DIFF_FIXTURE" python3 -m aikito diff project demo > "$DIFF_FIXTURE/project.out"
+          grep -F "Checkout: $DIFF_FIXTURE/first" "$DIFF_FIXTURE/project.out"
+          grep -F "Checkout: $DIFF_FIXTURE/second" "$DIFF_FIXTURE/project.out"
+          AIKITO_DIR="$DIFF_FIXTURE" python3 -m aikito diff project demo example ./scripts/check.py > "$DIFF_FIXTURE/file.out"
+          grep -F -- "-local first" "$DIFF_FIXTURE/file.out"
+          grep -F -- "-local second" "$DIFF_FIXTURE/file.out"
+          AIKITO_DIR="$DIFF_FIXTURE" python3 -m aikito diff project demo example 'scripts\check.py' > "$DIFF_FIXTURE/backslash.out"
+          cmp "$DIFF_FIXTURE/file.out" "$DIFF_FIXTURE/backslash.out"
+          rm "$DIFF_FIXTURE/mcps/broken.toml"
+          AIKITO_DIR="$DIFF_FIXTURE" python3 -m aikito diff > "$DIFF_FIXTURE/global.out"
+          grep -F "Checkout: $DIFF_FIXTURE/first" "$DIFF_FIXTURE/global.out"
+          grep -F "Checkout: $DIFF_FIXTURE/second" "$DIFF_FIXTURE/global.out"

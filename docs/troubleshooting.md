@@ -51,6 +51,8 @@ Malformed or unreadable source files must be repaired and cannot be skipped.
 
 ```bash
 aikito diff
+aikito diff project <project>
+aikito diff --all
 ```
 
 Review runtime changes and bring improvements you want to keep back into the

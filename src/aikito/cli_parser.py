@@ -515,15 +515,71 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     # diff
     p_diff = subparsers.add_parser(
         "diff",
-        help="Show unified diffs for all drifted managed resources",
+        help="Show drift index or unified diffs for drifted managed resources",
     )
     p_diff.add_argument(
         "--all",
         action="store_true",
         default=False,
-        help="Show diffs across all registered projects instead of scoping to the current project",
+        help="Show full unified diffs for all drifted resources across the entire workspace",
     )
     p_diff.set_defaults(func=cmd_diff)
+    diff_subparsers = p_diff.add_subparsers(dest="diff_target", required=False)
+
+    # diff project [project] [skill] [file]
+    p_diff_project = diff_subparsers.add_parser(
+        "project",
+        help="Show drift index or unified diffs for project skills",
+    )
+    p_diff_project.add_argument(
+        "project_name",
+        nargs="?",
+        default=None,
+        help="Name of the project under <workspace>/projects/ (detected from cwd if omitted)",
+    )
+    p_diff_project.add_argument(
+        "skill_name",
+        nargs="?",
+        default=None,
+        help="Specific skill name to diff",
+    )
+    p_diff_project.add_argument(
+        "file_path",
+        nargs="?",
+        default=None,
+        help="Relative file path within the skill to diff",
+    )
+    p_diff_project.set_defaults(func=cmd_diff)
+
+    # diff mcp <agent> <server>
+    p_diff_mcp = diff_subparsers.add_parser(
+        "mcp",
+        help="Show unified diff for a specific drifted MCP server",
+    )
+    p_diff_mcp.add_argument(
+        "agent",
+        help="Agent identifier (e.g. claude, codex, agy)",
+    )
+    p_diff_mcp.add_argument(
+        "server",
+        help="Server name in mcps/<server>.toml",
+    )
+    p_diff_mcp.set_defaults(func=cmd_diff)
+
+    # diff subagent <agent> <name>
+    p_diff_subagent = diff_subparsers.add_parser(
+        "subagent",
+        help="Show unified diff for a specific drifted subagent",
+    )
+    p_diff_subagent.add_argument(
+        "agent",
+        help="Agent identifier (e.g. claude, codex)",
+    )
+    p_diff_subagent.add_argument(
+        "name",
+        help="Subagent name in subagents/<name>.md",
+    )
+    p_diff_subagent.set_defaults(func=cmd_diff)
 
     # maintain memory
     p_maintain = subparsers.add_parser(

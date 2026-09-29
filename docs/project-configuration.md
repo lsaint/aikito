@@ -132,7 +132,7 @@ aikito show memory
 
 The dry run reports planned links and copies without changing the runtime or
 workspace configuration. Synchronization stops before writing when it finds
-unmanaged conflicts or drifted copied skills. Use `aikito diff` to review copy
+unmanaged conflicts or drifted copied skills. Use `aikito diff project <name>` to review copy
 mode drift, reconcile changes that should survive, and use `--force` only when
 the reviewed runtime changes may be discarded. Deselected workspace links and
 unchanged canonical copies are recognized as managed and cleaned automatically;

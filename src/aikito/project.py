@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .context_footprint import GlobalContextCache, estimate_project_context
+from .diff_model import DriftDiff
 from .instructions import build_project_instruction_batch, plan_instructions
 from .memory_runtime import build_project_memory_batch, plan_project_memory
 from .compat import resolve_symlink_target
@@ -95,7 +96,7 @@ class ProjectSummary:
         if self.has_conflict:
             return f"aikito show project {self.name}"
         if self.has_copied_skill_drift:
-            return "aikito diff"
+            return f"aikito diff project {self.name}"
         if self.is_sync_fixable:
             return f"aikito sync project {self.name}"
         return ""
@@ -107,7 +108,7 @@ class ProjectSummary:
             return "Remove unmanaged files from .agents/ or reconcile conflicting resources"
         if self.has_copied_skill_drift:
             return (
-                f"Run 'aikito diff' to review changes, then 'aikito sync "
+                f"Run 'aikito diff project {self.name}' to review changes, then 'aikito sync "
                 f"project {self.name} --force' after review"
             )
         if self.is_sync_fixable:
@@ -721,9 +722,9 @@ def _is_binary(content: bytes) -> bool:
 
 def collect_project_skill_diffs(
     aikito_dir: Path, home: Path, *, project_filter: str | None = None
-) -> list[tuple[str, str]]:
+) -> list[DriftDiff]:
     """Return unified diffs for every drifted copied project skill."""
-    results: list[tuple[str, str]] = []
+    results: list[DriftDiff] = []
     for state in collect_project_skill_states(aikito_dir, home):
         if project_filter is not None and state.project_name != project_filter:
             continue
@@ -743,9 +744,6 @@ def collect_project_skill_diffs(
                 continue
             if actual == expected:
                 continue
-            label = (
-                f"Project {state.project_name}/skill {state.skill_name} — {relative}"
-            )
             actual_label = str(actual_path) if actual_path else "/dev/null"
             expected_label = str(expected_path) if expected_path else "/dev/null"
             if _is_binary(actual) or _is_binary(expected):
@@ -763,7 +761,16 @@ def collect_project_skill_diffs(
                         tofile=f"expected: {expected_label}",
                     )
                 ).rstrip()
-            results.append((label, diff))
+            results.append(
+                DriftDiff(
+                    kind="project_skill",
+                    name=state.skill_name,
+                    diff=diff,
+                    project=state.project_name,
+                    file=relative,
+                    checkout=str(state.runtime_path.parents[2]),
+                )
+            )
     return results
 
 

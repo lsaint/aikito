@@ -911,16 +911,36 @@ jobs:
               throw "show project . did not display project cwd-proj"
             }
 
-            # 3. diff inside project directory scopes to project, and diff --all includes all projects
+            # 3. diff shows global index, diff project scopes to project, and diff --all includes all projects
             $winCopySkillMd = Join-Path $env:RUNNER_TEMP "win-copy-proj\.agents\skills\win-copy-skill\SKILL.md"
             @("drift in win-copy") | Set-Content $winCopySkillMd
             $diffOut = python -m aikito diff | Out-String
-            if ($diffOut -notmatch "\[aikito\] Target project: 'cwd-proj' \(detected from cwd\)") {
-              throw "diff did not detect cwd-proj from cwd"
+            if ($diffOut -notmatch "win-copy") {
+              throw "diff did not include win-copy in global index"
             }
-            if ($diffOut -match "win-copy-skill") {
-              throw "diff unexpectedly included win-copy-skill from another project"
+            if ($diffOut -match "Target project:") {
+              throw "bare diff unexpectedly scoped to cwd project"
             }
+            if ($diffOut -match "drift in win-copy") {
+              throw "bare diff unexpectedly dumped raw diff content"
+            }
+
+            $diffProjOut = python -m aikito diff project | Out-String
+            if ($diffProjOut -notmatch "\[aikito\] Target project: 'cwd-proj' \(detected from cwd\)") {
+              throw "diff project did not detect cwd-proj from cwd"
+            }
+            if ($diffProjOut -match "win-copy-skill") {
+              throw "diff project unexpectedly included win-copy-skill from another project"
+            }
+
+            $diffDrillOut = python -m aikito diff project win-copy win-copy-skill | Out-String
+            if ($diffDrillOut -notmatch "win-copy-skill") {
+              throw "diff project drilldown did not include win-copy-skill"
+            }
+            if ($diffDrillOut -notmatch "drift in win-copy") {
+              throw "diff project drilldown did not include drift content"
+            }
+
             $diffAllOut = python -m aikito diff --all | Out-String
             if ($diffAllOut -notmatch "win-copy-skill") {
               throw "diff --all did not include win-copy-skill"
@@ -1036,3 +1056,32 @@ jobs:
           Remove-Item -Recurse -Force (Join-Path $ws "projects\cwd-proj"), (Join-Path $ws "projects\other-proj")
           Remove-Item -Recurse -Force (Join-Path $ws "skills\cwd-skill"), (Join-Path $ws "skills\global-skill")
           Remove-Item -Force (Join-Path $globalNotesDir "smoke-global-note.md")
+
+      - name: Diff drill-down isolation, paths, and checkouts
+        shell: pwsh
+        env:
+          AIKITO_DIR: ${{ runner.temp }}/diff-drilldown
+        run: |
+          python tests/diff_drilldown_fixture.py $env:AIKITO_DIR
+          if ($LASTEXITCODE -ne 0) { throw "Failed to create diff fixture" }
+          $env:AIKITO_DIR = (Resolve-Path $env:AIKITO_DIR).Path
+          foreach ($file in @("mcps/broken.toml", "first/.agents/skills/example/scripts/check.py", "second/.agents/skills/example/scripts/check.py")) {
+            if (-not (Test-Path (Join-Path $env:AIKITO_DIR $file) -PathType Leaf)) { throw "Missing fixture file: $file" }
+          }
+          $projectOut = python -m aikito diff project demo | Out-String
+          if ($LASTEXITCODE -ne 0) { throw "Project diff was blocked by unrelated MCP config" }
+          foreach ($checkout in @("first", "second")) {
+            $path = Join-Path $env:AIKITO_DIR $checkout
+            if (-not $projectOut.Contains("Checkout: $path")) { throw "Project index omitted checkout: $path" }
+          }
+          $fileOut = python -m aikito diff project demo example ./scripts/check.py | Out-String
+          if ($LASTEXITCODE -ne 0 -or $fileOut -notmatch "-local first" -or $fileOut -notmatch "-local second") { throw "File diff omitted checkout drift" }
+          $backslashOut = python -m aikito diff project demo example 'scripts\check.py' | Out-String
+          if ($LASTEXITCODE -ne 0 -or $backslashOut -ne $fileOut) { throw "Equivalent file paths produced different diffs" }
+          Remove-Item (Join-Path $env:AIKITO_DIR "mcps/broken.toml")
+          $globalOut = python -m aikito diff | Out-String
+          if ($LASTEXITCODE -ne 0) { throw "Global index failed" }
+          foreach ($checkout in @("first", "second")) {
+            $path = Join-Path $env:AIKITO_DIR $checkout
+            if (-not $globalOut.Contains("Checkout: $path")) { throw "Global index omitted checkout: $path" }
+          }

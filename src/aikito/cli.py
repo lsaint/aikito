@@ -44,7 +44,13 @@ from .cli_show import (
     cmd_show_inbox as cmd_show_inbox,
     cmd_show_memory as cmd_show_memory,
 )
-from .diff import collect_drift_diffs, render_drift_diffs
+from .diff import (
+    collect_drift_diffs,
+    filter_drift_diffs,
+    render_drift_diffs,
+    render_drift_index,
+    render_project_drift_index,
+)
 from .doctor import run_doctor, run_doctor_fixes
 from .global_skills import (
     execute_global_skills,
@@ -649,23 +655,104 @@ def cmd_web(args: argparse.Namespace) -> None:
 def cmd_diff(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
     home = Path.home()
-    project_filter = None
-    if not getattr(args, "all", False):
-        try:
-            detected = detect_current_project(aikito_dir, Path.cwd(), home)
-        except ProjectContextConflictError as exc:
-            names = ", ".join(exc.projects)
-            print(
-                f"[CONFLICT] Multiple projects match current directory '{exc.path}': {names}",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        if detected:
-            print(f"[aikito] Target project: '{detected}' (detected from cwd)")
-            project_filter = detected
+    target = getattr(args, "diff_target", None)
 
-    diffs = collect_drift_diffs(aikito_dir, home, project_filter=project_filter)
-    print(render_drift_diffs(diffs))
+    # 1. Full diff across all resources
+    if getattr(args, "all", False):
+        diffs = collect_drift_diffs(aikito_dir, home, project_filter=None)
+        print(render_drift_diffs(diffs))
+        return
+
+    # 2. Targeted drill-down: project
+    if target == "project":
+        project_name = getattr(args, "project_name", None)
+        if not project_name:
+            try:
+                detected = detect_current_project(aikito_dir, Path.cwd(), home)
+            except ProjectContextConflictError as exc:
+                names = ", ".join(exc.projects)
+                print(
+                    f"[CONFLICT] Multiple projects match current directory '{exc.path}': {names}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            if not detected:
+                print(
+                    "[ERROR] No project specified and current directory is not inside any registered project.\n"
+                    "Usage: aikito diff project <project> [skill] [file]",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            print(f"[aikito] Target project: '{detected}' (detected from cwd)")
+            project_name = detected
+
+        skill_name = getattr(args, "skill_name", None)
+        file_path = getattr(args, "file_path", None)
+
+        diffs = collect_drift_diffs(
+            aikito_dir, home, project_filter=project_name, kind="project_skill"
+        )
+
+        if file_path is not None:
+            matching = filter_drift_diffs(
+                diffs,
+                kind="project_skill",
+                project=project_name,
+                name=skill_name,
+                file=file_path,
+            )
+            print(
+                render_drift_diffs(
+                    matching, empty_message="No matching drift detected."
+                )
+            )
+        elif skill_name is not None:
+            matching = filter_drift_diffs(
+                diffs,
+                kind="project_skill",
+                project=project_name,
+                name=skill_name,
+            )
+            print(
+                render_drift_diffs(
+                    matching, empty_message="No matching drift detected."
+                )
+            )
+        else:
+            print(render_project_drift_index(project_name, diffs))
+        return
+
+    # 3. Targeted drill-down: mcp
+    if target == "mcp":
+        agent = getattr(args, "agent", None)
+        server = getattr(args, "server", None)
+        diffs = collect_drift_diffs(aikito_dir, home, kind="mcp")
+        matching = filter_drift_diffs(
+            diffs,
+            kind="mcp",
+            agent=agent,
+            name=server,
+        )
+        print(render_drift_diffs(matching, empty_message="No matching drift detected."))
+        return
+
+    # 4. Targeted drill-down: subagent
+    if target == "subagent":
+        agent = getattr(args, "agent", None)
+        name = getattr(args, "name", None)
+        diffs = collect_drift_diffs(aikito_dir, home, kind="subagent")
+        matching = filter_drift_diffs(
+            diffs,
+            kind="subagent",
+            agent=agent,
+            name=name,
+        )
+        print(render_drift_diffs(matching, empty_message="No matching drift detected."))
+        return
+
+    # 5. Default naked `aikito diff` -> global drift index
+    diffs = collect_drift_diffs(aikito_dir, home, project_filter=None)
+    print(render_drift_index(diffs))
 
 
 def cmd_init(args: argparse.Namespace) -> None:

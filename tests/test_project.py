@@ -659,7 +659,7 @@ class ProjectSummaryTest(unittest.TestCase):
         self.assertIn("Issue:", detail)
         self.assertIn("Fix:", detail)
         self.assertIn(
-            "Run 'aikito diff' to review changes, then 'aikito sync project demo --force' after review",
+            "Run 'aikito diff project demo' to review changes, then 'aikito sync project demo --force' after review",
             detail,
         )
 
@@ -689,9 +689,9 @@ class ProjectSummaryTest(unittest.TestCase):
             self.assertEqual(summary.runtime_status, "DRIFT")
             self.assertTrue(summary.has_copied_skill_drift)
             self.assertFalse(summary.is_sync_fixable)
-            self.assertEqual(summary.fix_action, "aikito diff")
+            self.assertEqual(summary.fix_action, "aikito diff project demo")
             self.assertIn(
-                "Run 'aikito diff' to review changes, then 'aikito sync project demo --force' after review",
+                "Run 'aikito diff project demo' to review changes, then 'aikito sync project demo --force' after review",
                 summary.fix_hint,
             )
 
@@ -699,7 +699,7 @@ class ProjectSummaryTest(unittest.TestCase):
             self.assertIn("Issue:", detail)
             self.assertIn("Fix:", detail)
             self.assertIn(
-                "Run 'aikito diff' to review changes, then 'aikito sync project demo --force' after review",
+                "Run 'aikito diff project demo' to review changes, then 'aikito sync project demo --force' after review",
                 detail,
             )
 

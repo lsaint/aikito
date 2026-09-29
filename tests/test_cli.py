@@ -16,6 +16,7 @@ from aikito import cli as AIKITO_CLI
 from aikito import cli_show as AIKITO_SHOW
 from aikito.cli_parser import AikitoArgumentParser
 from aikito.compat import resolve_symlink_target
+from aikito.diff_model import DriftDiff
 from aikito.init import init_project
 from aikito.status import MCPRuntimeRow
 
@@ -3965,7 +3966,7 @@ class CwdInteractionTest(unittest.TestCase):
     def test_diff_cwd_scoping(self) -> None:
         parser = AIKITO_CLI.build_parser()
 
-        # Without --all inside project
+        # Naked diff inside project does NOT scope to project (shows global index)
         args = parser.parse_args(["diff"])
         with (
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
@@ -3979,11 +3980,47 @@ class CwdInteractionTest(unittest.TestCase):
             args.func(args)
 
         mock_diffs.assert_called_once_with(
-            self.aikito_dir, self.home, project_filter="myproject"
+            self.aikito_dir, self.home, project_filter=None
+        )
+        self.assertNotIn("[aikito] Target project:", mock_stdout.getvalue())
+        self.assertIn("No drift detected.", mock_stdout.getvalue())
+
+        # diff project inside project without project name scopes from cwd
+        args_proj = parser.parse_args(["diff", "project"])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI.Path, "cwd", return_value=self.project_path),
+            patch.object(
+                AIKITO_CLI, "collect_drift_diffs", return_value=[]
+            ) as mock_diffs,
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args_proj.func(args_proj)
+
+        mock_diffs.assert_called_once_with(
+            self.aikito_dir, self.home, project_filter="myproject", kind="project_skill"
         )
         self.assertIn(
             "[aikito] Target project: 'myproject' (detected from cwd)",
             mock_stdout.getvalue(),
+        )
+
+        # diff project with explicit project name
+        args_explicit = parser.parse_args(["diff", "project", "myproject"])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI.Path, "cwd", return_value=self.root),
+            patch.object(
+                AIKITO_CLI, "collect_drift_diffs", return_value=[]
+            ) as mock_diffs,
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args_explicit.func(args_explicit)
+
+        mock_diffs.assert_called_once_with(
+            self.aikito_dir, self.home, project_filter="myproject", kind="project_skill"
         )
 
         # With --all inside project
@@ -4002,6 +4039,103 @@ class CwdInteractionTest(unittest.TestCase):
         mock_diffs.assert_called_once_with(
             self.aikito_dir, self.home, project_filter=None
         )
+
+    def test_diff_drilldown_options(self) -> None:
+        parser = AIKITO_CLI.build_parser()
+
+        dummy_diffs = [
+            DriftDiff(
+                kind="project_skill",
+                name="formatter",
+                project="demo",
+                file="SKILL.md",
+                diff="-old\n+new",
+            ),
+            DriftDiff(
+                kind="mcp",
+                name="github",
+                agent="codex",
+                diff="-old_mcp\n+new_mcp",
+            ),
+            DriftDiff(
+                kind="subagent",
+                name="reviewer",
+                agent="claude",
+                diff="-old_sub\n+new_sub",
+            ),
+        ]
+
+        # 1. diff project demo formatter
+        args_skill = parser.parse_args(["diff", "project", "demo", "formatter"])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(
+                AIKITO_CLI, "collect_drift_diffs", return_value=dummy_diffs
+            ) as mock_diffs,
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args_skill.func(args_skill)
+
+        mock_diffs.assert_called_once_with(
+            self.aikito_dir, self.home, project_filter="demo", kind="project_skill"
+        )
+        self.assertIn(
+            "[Project demo/skill formatter — SKILL.md]", mock_stdout.getvalue()
+        )
+
+        # 2. diff project demo formatter SKILL.md
+        args_file = parser.parse_args(
+            ["diff", "project", "demo", "formatter", "SKILL.md"]
+        )
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI, "collect_drift_diffs", return_value=dummy_diffs),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args_file.func(args_file)
+
+        self.assertIn(
+            "[Project demo/skill formatter — SKILL.md]", mock_stdout.getvalue()
+        )
+
+        # 3. diff mcp codex github
+        args_mcp = parser.parse_args(["diff", "mcp", "codex", "github"])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI, "collect_drift_diffs", return_value=dummy_diffs),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args_mcp.func(args_mcp)
+
+        self.assertIn("[MCP codex/github]", mock_stdout.getvalue())
+
+        # 4. diff subagent claude reviewer
+        args_sub = parser.parse_args(["diff", "subagent", "claude", "reviewer"])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI, "collect_drift_diffs", return_value=dummy_diffs),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args_sub.func(args_sub)
+
+        self.assertIn("[Subagent claude/reviewer]", mock_stdout.getvalue())
+
+        # 5. diff project without project name outside of project directory exits 1
+        args_proj_no_cwd = parser.parse_args(["diff", "project"])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI.Path, "cwd", return_value=self.root),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+        ):
+            with self.assertRaises(SystemExit) as cm:
+                args_proj_no_cwd.func(args_proj_no_cwd)
+            self.assertEqual(cm.exception.code, 1)
+            self.assertIn("No project specified", mock_stderr.getvalue())
 
     def test_show_memory_cwd_scoping(self) -> None:
         parser = AIKITO_CLI.build_parser()

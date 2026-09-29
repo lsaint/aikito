@@ -272,8 +272,8 @@ class ConsoleData:
 
     def diff(self) -> list[dict[str, str]]:
         return [
-            {"resource": name, "diff": content}
-            for name, content in collect_drift_diffs(self.aikito_dir, self.home)
+            {"resource": item.display_label, "diff": item.diff}
+            for item in collect_drift_diffs(self.aikito_dir, self.home)
         ]
 
     def _markdown_resources(self) -> dict[Path, dict[str, str]]:

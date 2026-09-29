@@ -6,6 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Targeted diffs avoid reading unrelated resource kinds, normalize relative file paths across platforms, and identify each project checkout in indices and full diffs.
+
+### Added
+
+- `aikito diff` supports hierarchical drill-down commands: `aikito diff project [project] [skill] [file]`, `aikito diff mcp <agent> <server>`, and `aikito diff subagent <agent> <name>`.
+- `aikito diff` without arguments now outputs a concise global drift index listing drifted resources and changed file counts across the workspace instead of dumping raw unified diff hunks.
+
+### Changed
+
+- Bare `aikito diff` is decoupled from cwd project scoping so that global drift is always visible regardless of the current working directory.
+- `aikito diff --all` preserves full unified diff output for all drifted resources across the workspace.
+- `aikito doctor` recommendations and project runtime details update copied skill drift fix actions from generic `aikito diff` to precise `aikito diff project <name>`.
+
 ## [1.56.0] - 2026-09-29
 
 ### Added
