@@ -381,7 +381,7 @@ def prepare_resource_writes(
             if text is not None:
                 source = staging / relative
                 source.parent.mkdir(parents=True, exist_ok=True)
-                source.write_text(text, encoding="utf-8", newline="\n")
+                source.write_text(text, encoding="utf-8")
                 after = fingerprint_resource(source, kind)
         elif all(write.fingerprint is None for write in grouped):
             source = None
