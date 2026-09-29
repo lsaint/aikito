@@ -1,7 +1,7 @@
 """Backend injection for reconciliation behavior, separate from storage checks.
 
-This is an acceptance driver, not the future RemoteStore protocol. It hides the
-current path-based engine API until that API moves to portable payloads.
+This is an acceptance driver over the portable RemoteStore protocol. Physical
+center paths are used only for filesystem-specific checkpoints.
 """
 
 from __future__ import annotations

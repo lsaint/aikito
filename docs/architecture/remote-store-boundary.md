@@ -1,14 +1,13 @@
 # Remote Store Boundary
 
-This internal design fixes the storage contract before backend migration.
-Portable payloads are implemented internally; there is no public CLI or service.
-The current engine still
-uses `FilesystemRemote`; the acceptance driver is test orchestration, not a
-production `RemoteStore` implementation.
+The internal reconciliation engine uses the `workspace.remote_store.RemoteStore`
+protocol and portable payloads. `FilesystemRemote` implements that protocol;
+there is no public reconciliation CLI or service. The acceptance driver remains
+test orchestration, separate from the production store contract.
 
 ## Contract
 
-The future interface is `read() -> RemoteSnapshot`,
+The implemented data interface is `read() -> RemoteSnapshot`,
 `fetch(expected, ids) -> Mapping[str, ResourcePayload]`,
 `commit(expected, mutations) -> RemoteSnapshot`, and `recover() -> bool`.
 The first implementation retains no historical content: a changed center
@@ -33,8 +32,9 @@ Errors distinguish `SnapshotExpired` (definite conditional rejection),
 and `StoreUnavailable`. A future network transport also needs
 `CommitOutcomeUnknown`: an uncertain response is not proof that the center
 rejected the batch, and clients must resolve the result before retrying.
-Exception names describe the required future categories; current filesystem
-errors remain internal `WorkspaceCoreError` / `WorkspaceReconcileError`.
+Filesystem errors map to these store categories. The reconciliation entrypoints
+wrap store and client validation failures as `WorkspaceReconcileError`, retaining
+the original cause. Local transaction I/O failures retain their existing behavior.
 
 Transport hashes are over the versioned canonical payload encoding. They do
 not replace logical fingerprints. Encodings must distinguish bytes, dates,
@@ -64,7 +64,13 @@ particular naming syntax. A backend can require consistency with previously
 stored identity but not a client-specific ID format. Replica identity is local
 client state and need not appear in store requests. A filesystem backend keeps
 its own path mapping, writer lock, manifest, and journal. It must also enforce
-workspace/center non-overlap at its attachment boundary.
+workspace/center non-overlap at its attachment boundary. The local lifecycle
+hook `validate_replica(local)` checks this without exposing a center path to the
+engine; its local path is never a snapshot, payload, or transport request. A
+backend with no local attachment constraint may implement this hook as a no-op.
+`workspace.resource_state.local_resource_for_id` decodes client logical IDs for
+local writing. Filesystem-specific `resource_for_id` and `verify_contents` remain
+backend defenses; neither is imported by the engine.
 
 Client credential, reference, and semantic checks run while planning and again
 on downloaded content before any local write. Backend-specific defenses cannot
@@ -137,9 +143,9 @@ credential and semantic checks, before writing to an owned empty staging
 directory. `prepare_payload_writes` then calls the existing shared writer in
 sync mode, composing each shared TOML target once. The caller still checks
 transport hashes at decode, owns the local writer lock, and performs the
-resource/Base transaction and post-write validation. Stage one does not yet
-route the reconciliation engine through the new payloads; that is backend
-migration work.
+resource/Base transaction and post-write validation. The engine now uses these
+adapters for all uploads and downloads. Apply requires an explicit `RemoteStore`
+and never constructs a backend from a path embedded in the plan.
 
 Tree paths reject traversal, absolute/drive paths, separators unsafe on Windows,
 reserved Windows names, symlinks/special nodes, duplicates, and case/Unicode
@@ -168,19 +174,36 @@ unsafe paths/nodes, and Windows-to-POSIX flag preservation through local copies.
 | `exercise_behavior(base, backend)` in `workspace_reconcile_acceptance.py` | Shared engine behavior: all admitted resources, convergence, conflict Base, safe subset, stale local/center plans, host-local inbox paths, local journal recovery, deletion, replica relocation, repeat NOOP. The injected driver exposes no center directory. |
 | `exercise(base)` wrapper and `FilesystemBackend` | Filesystem orchestration and center relocation; storage checkpoints inspect files only within the driver. |
 | `test_workspace_reconcile_boundary.py` | Portable skill behavior and schema compatibility. The injected center-change test pins refusal between read and download staging with no local/Base write. |
-| Existing conditional batch / competing-writer / empty-batch tests in `test_workspace_reconcile.py` | Store contract behavior, currently exercised through the filesystem API; migrate to the shared contract suite with portable mutations. |
+| Existing conditional batch / competing-writer / empty-batch tests in `test_workspace_reconcile.py` | Portable store contract behavior through FilesystemRemote; stage three will share these assertions with the in-memory backend. |
 | Credential / reference / shared TOML / conflict / local safety tests in `test_workspace_reconcile*.py` | Client behavior; run against both backends after migration. Assertions that a direct center commit parses/rejects plaintext belong to filesystem defense instead. |
 | Center manifest parsing, `resource_for_id`, layout checks, `verify_contents`, center journal recovery and root overlap tests | Filesystem-specific defense and lifecycle. Local journal recovery remains shared engine behavior. |
 
-When portable payloads and `RemoteStore` land, shared contract tests must cover
-opaque IDs, caller mutation isolation, invalid entire batches, missing/corrupt
-fetch content, read/fetch/commit purity, stale empty requests, and center
-identity mismatch. In particular: read S, accept a different batch, fetch
-against S must raise `SnapshotExpired`; resources, generation, and local Base
-must be unchanged by the failed fetch. Stage zero's existing API test guarantees
-the weaker current behavior (conditional commit refuses after staging);
-snapshot-bound **fetch itself** is an implementation gate for backend migration,
-not a claim about the current path-based `content()` method.
+`test_workspace_remote_store.py` checks immutable boundary values, rejected whole
+batches, missing/corrupt fetch content, read/fetch purity, stale empty requests,
+identity mismatch, client hash validation, and local/Base preservation on
+conditional rejection. `workspace_remote_store_smoke.py` exposes only the five
+protocol methods through a facade: the engine can access no root, lock, content
+path, or journal. The script runs on Ubuntu, macOS, and Windows with local file
+assertions and separate filesystem center assertions. The facade still delegates
+to the real filesystem store; it is not the stage-three in-memory backend.
+
+Filesystem read/fetch optimistically capture manifest and payload content,
+checking the manifest again and refusing pending journals; they create no lock
+or staging files and never recover. Fetch compares the complete expected
+snapshot before returning any content, including for empty requests. Commit
+owns its cross-process lock, validates and stages the whole batch, and publishes
+through the existing recoverable center transaction. Empty commits still check
+the snapshot but do not advance generation. Recovery is explicit and requires
+replanning when it repaired a transaction.
+
+The existing version-1/version-2 center schema, identity, layout, and journal
+remain supported under the skill compatibility rules above. New manifests also
+record `payload_hashes`, protecting executable metadata as well as content.
+Legacy manifests without hashes are verified semantically and captured read-only;
+a later nonempty commit records hashes. An empty commit does not rewrite them.
+Stored hash mismatch is refused without resetting state or Base. The historical
+path-based `content()` and three-argument commit are replaced by fetch and
+portable mutation commit; Import keeps its independent local path adapter.
 
 No in-memory backend is implemented here. The same behavior scenarios will be
 injected with that backend after engine migration; no backend branches belong

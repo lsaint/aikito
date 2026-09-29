@@ -64,7 +64,7 @@ def test_new_state_records_portable_scheme(tmp_path: Path):
 def test_center_change_between_read_and_download_rejects_local_application(
     tmp_path: Path, monkeypatch
 ):
-    """Pin the current atomic refusal before snapshot-bound fetch is introduced."""
+    """Reject an outdated fetch before staging or any local/Base write."""
     a, b = _workspace(tmp_path / "a"), _workspace(tmp_path / "b")
     backend = FilesystemBackend(tmp_path / "center")
     home = tmp_path / "home"
@@ -74,20 +74,20 @@ def test_center_change_between_read_and_download_rejects_local_application(
     backend.run(b, home)
     plan = backend.plan(a)
     before = files(a)
-    original = backend.remote.content
+    original = backend.remote.fetch
 
-    def content(expected):
+    def fetch(expected, ids):
         # A second accepted upload changes only the center generation after the
         # applying client read it, before it obtains planned download content.
         (b / "memory/notes/concurrent.md").write_text("concurrent", encoding="utf-8")
-        monkeypatch.setattr(backend.remote, "content", original)
+        monkeypatch.setattr(backend.remote, "fetch", original)
         try:
             backend.run(b, home)
         finally:
-            monkeypatch.setattr(backend.remote, "content", content)
-        return original(expected)
+            monkeypatch.setattr(backend.remote, "fetch", fetch)
+        return original(expected, ids)
 
-    monkeypatch.setattr(backend.remote, "content", content)
+    monkeypatch.setattr(backend.remote, "fetch", fetch)
     with pytest.raises(WorkspaceReconcileError, match="generation changed"):
         backend.apply(plan, home)
     assert files(a) == before

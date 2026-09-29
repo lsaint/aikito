@@ -30,7 +30,12 @@ from .payload import (
     validate_tree_path,
 )
 from .resource_write import ResourceContent, ResourceWrite, prepare_resource_writes
-from .resources import Resource, WorkspaceSnapshot, SKILL_EXECUTABLE_METADATA, is_ignored_name
+from .resources import (
+    Resource,
+    WorkspaceSnapshot,
+    SKILL_EXECUTABLE_METADATA,
+    is_ignored_name,
+)
 from .skill_metadata import read_executable_metadata, write_executable_metadata
 from .transactions import Change, PathPolicy, entry_type
 
@@ -110,7 +115,10 @@ def _capture_tree(root: Path) -> TreePayload:
 
 
 def capture_resources(
-    content: ResourceContent, identities: Sequence[str]
+    content: ResourceContent,
+    identities: Sequence[str],
+    *,
+    check_credentials: bool = True,
 ) -> Mapping[str, ResourcePayload]:
     """Capture only explicitly authorized resources and verify planned semantics."""
     if len(identities) != len(set(identities)):
@@ -143,7 +151,7 @@ def capture_resources(
                 else FilePayload(_safe_file(path))
             )
         validate_payload(resource, payload)
-        if credential_payload(payload):
+        if check_credentials and credential_payload(payload):
             raise PayloadError("Possible plaintext credential; payload capture blocked")
         result[identity] = payload
     return MappingProxyType(result)

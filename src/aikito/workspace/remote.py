@@ -14,19 +14,18 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from collections.abc import Collection, Mapping, Sequence
+from types import MappingProxyType
 from typing import Iterator
 
-from ..templating import BUNDLED_SKILL_NAMES
-from ..compat import is_windows, secure_directory_permissions, secure_file_permissions
+from ..compat import is_windows, secure_file_permissions
 from .transactions import (
-    PathPolicy,
     StateUpdate,
     WorkspaceCoreError,
     apply,
     entry_type,
     has_pending,
     recover,
-    validate_resource_path,
 )
 from .resource_write import (
     ResourceContent,
@@ -39,11 +38,9 @@ from .resource_write import (
 )
 from .resources import (
     Resource,
-    ResourcePart,
     WorkspaceResourceError,
     WorkspaceSnapshot,
     is_ignored_name,
-    physical_kind,
     is_shared_resource,
     inspect_resource_content,
     value_fingerprint,
@@ -51,6 +48,35 @@ from .resources import (
 )
 
 from .toml_render import TomlValue
+from .payload import (
+    ResourceDescriptor,
+    ResourceMutation,
+    ResourcePayload,
+    PayloadError,
+    payload_hash,
+)
+from .payload_io import capture_resources, materialize_resources
+from .remote_store import (
+    RemoteSnapshot,
+    SnapshotExpired,
+    InvalidContent,
+    RecoveryRequired,
+    StoreUnavailable,
+)
+
+from .resource_state import (
+    SYNC_KINDS,
+    LOCAL_CONFIG,
+    REMOTE_STATE,
+    REPLICA_STATE,
+    RECONCILE_POLICY,
+    state_path,
+    local_resource_for_id,
+    decode_resources,
+    encode_resources,
+    validate_skill_fingerprint_scheme,
+    valid_identity,
+)
 
 if is_windows():
     import msvcrt
@@ -58,175 +84,34 @@ else:
     import fcntl
 
 
-SYNC_KINDS = frozenset(
-    {
-        "memory",
-        "project-memory",
-        "skill",
-        "inbox",
-        "global-instructions",
-        "project-instructions",
-        "agent",
-        "mcp",
-        "subagent",
-        "skill-selection",
-        "project",
-        "project-field",
-        "project-path",
-        "project-skill",
-        "config",
-    }
-)
-LOCAL_CONFIG = frozenset({"inbox.path"})
-REMOTE_STATE = ".local/state/aikito/workspace-reconcile/remote.json"
-REPLICA_STATE = ".local/state/aikito/workspace-reconcile/replica.json"
-RECONCILE_POLICY = PathPolicy(
-    states=(REMOTE_STATE, REPLICA_STATE), create_parents=True, inbox_prefix="inbox"
-)
-
-
-def state_path(root: Path, relative: str, *, create: bool = False) -> Path:
-    """Resolve private state without following unsafe directory entries."""
-    current = root
-    for part in Path(relative).parts[:-1]:
-        current /= part
-        kind = entry_type(current)
-        if kind == "missing" and create:
-            current.mkdir(mode=0o700)
-            if not secure_directory_permissions(current):
-                raise WorkspaceCoreError(f"Cannot secure state directory: {current}")
-        elif kind == "missing":
-            return root / relative
-        elif kind != "directory":
-            raise WorkspaceCoreError(f"Unsafe state directory: {current}")
-    path = root / relative
-    if entry_type(path) not in ("missing", "file"):
-        raise WorkspaceCoreError(f"Unsafe state file: {path}")
-    return path
+__all__ = [
+    "FilesystemRemote",
+    "SYNC_KINDS",
+    "LOCAL_CONFIG",
+    "REMOTE_STATE",
+    "REPLICA_STATE",
+    "RECONCILE_POLICY",
+    "state_path",
+    "resource_for_id",
+    "decode_resources",
+    "encode_resources",
+    "validate_skill_fingerprint_scheme",
+    "valid_identity",
+]
 
 
 def resource_for_id(identity: str, fingerprint: str) -> Resource:
-    """Decode logical IDs without treating set members as physical paths."""
-    kind, separator, name = identity.partition(":")
-    if not separator or not name or kind not in SYNC_KINDS:
-        raise WorkspaceCoreError(f"Unsupported resource ID: {identity}")
-    references = ()
-    table = ""
-    project, _, member = name.partition("/")
-    if kind == "project" and "/" in name:
-        raise WorkspaceCoreError(f"Invalid resource ID: {identity}")
-    if kind == "project-field" and member in {"path", "paths", "skills"}:
-        raise WorkspaceCoreError(f"Invalid project field ID: {identity}")
-    if kind == "config":
-        if name in LOCAL_CONFIG:
-            raise WorkspaceCoreError(f"Host-local resource ID: {identity}")
-        path, table = "config.toml", name.rpartition(".")[0]
-    elif kind == "skill-selection":
-        path = "skills.toml"
-        references = (f"skill:{name}",)
-    elif kind in {"project", "project-field", "project-path", "project-skill"}:
-        if kind != "project" and not member:
-            raise WorkspaceCoreError(f"Invalid resource ID: {identity}")
-        path = f"projects/{project}/agent.toml"
-        if kind != "project":
-            references = (f"project:{project}",)
-        if kind == "project-skill":
-            references += (f"skill:{member}",)
-    elif kind == "project-memory":
-        if not member:
-            raise WorkspaceCoreError(f"Invalid resource ID: {identity}")
-        path = f"projects/{project}/memory/{member}"
-        references = (f"project:{project}",)
-    elif kind == "project-instructions":
-        path = f"projects/{name}/AGENTS.md"
-        references = (f"project:{name}",)
-    elif kind == "global-instructions":
-        if name != "AGENTS.md":
-            raise WorkspaceCoreError(f"Invalid resource ID: {identity}")
-        path = "global/AGENTS.md"
-    elif kind in {"agent", "mcp", "subagent"}:
-        area = {"agent": "agents", "mcp": "mcps", "subagent": "subagents"}[kind]
-        suffix = "md" if kind == "subagent" else "toml"
-        path = f"{area}/{name}.{suffix}"
-    else:
-        area = {"skill": "skills", "memory": "memory", "inbox": "inbox"}[kind]
-        path = f"{area}/{name}"
-    validate_resource_path(path, physical_kind(kind), RECONCILE_POLICY)
-    if any(is_ignored_name(part) for part in Path(path).parts):
-        raise WorkspaceCoreError(f"Excluded resource ID: {identity}")
-    empty = kind in {"project", "project-path", "project-skill", "skill-selection"}
-    if not isinstance(fingerprint, str) or (
-        fingerprint != ""
-        if empty
-        else len(fingerprint) != 64
-        or any(char not in "0123456789abcdef" for char in fingerprint)
-    ):
-        raise WorkspaceCoreError(f"Invalid resource fingerprint: {identity}")
-    # Bundled skills are virtual providers and never center content.
-    references = tuple(
-        reference
-        for reference in references
-        if not (reference.startswith("skill:") and reference[6:] in BUNDLED_SKILL_NAMES)
-    )
-    return Resource(kind, name, fingerprint, (ResourcePart(path, table),), references)
-
-
-def decode_resources(raw: object) -> dict[str, Resource]:
-    if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
-        raise WorkspaceCoreError("Invalid resource state")
-    resources = {}
-    for key, value in raw.items():
-        resource = resource_for_id(
-            key, value.get("fingerprint") if isinstance(value, dict) else value
-        )
-        if isinstance(value, dict):
-            references = value.get("references")
-            if not isinstance(references, list) or any(
-                not isinstance(ref, str) for ref in references
-            ):
-                raise WorkspaceCoreError("Invalid resource references")
-            if (
-                resource.kind not in {"mcp", "subagent"}
-                and tuple(references) != resource.references
-            ):
-                raise WorkspaceCoreError("Invalid resource references")
-            resource = replace(resource, references=tuple(references))
-        resources[key] = resource
-    return resources
-
-
-def encode_resources(resources: dict[str, Resource]) -> dict[str, str]:
-    return {key: resource.fingerprint for key, resource in sorted(resources.items())}
-
-
-def validate_skill_fingerprint_scheme(
-    scheme: object, resources: dict[str, Resource]
-) -> None:
-    """Refuse ambiguous old skill hashes without rewriting historical state."""
-    if scheme == SKILL_FINGERPRINT_SCHEME:
-        return
-    if scheme is None and not any(r.kind == "skill" for r in resources.values()):
-        return
-    raise WorkspaceCoreError(
-        "Unsupported skill fingerprint scheme; preserve the existing center and "
-        "replica Base, then explicitly create and pair a new resource center"
-    )
-
-
-def valid_identity(value: object) -> bool:
-    return (
-        isinstance(value, str)
-        and len(value) == 32
-        and all(char in "0123456789abcdef" for char in value)
-    )
+    """Map a logical resource to the plaintext center layout."""
+    return local_resource_for_id(identity, fingerprint)
 
 
 @dataclass(frozen=True)
-class RemoteSnapshot:
+class _CenterState:
     sync_id: str
     generation: int
     resources: dict[str, Resource]
     values: dict[str, TomlValue] = field(default_factory=dict)
+    payload_hashes: dict[str, str] | None = field(default_factory=dict)
 
 
 class FilesystemRemote:
@@ -234,9 +119,20 @@ class FilesystemRemote:
 
     _mutex = threading.RLock()
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, *, workspace: Path | None = None):
         self.root = root.expanduser().resolve()
         self._depth = 0
+        if workspace is not None:
+            self.validate_replica(workspace)
+
+    def validate_replica(self, local: Path) -> None:
+        local = local.expanduser().resolve()
+        if (
+            local == self.root
+            or local in self.root.parents
+            or self.root in local.parents
+        ):
+            raise InvalidContent("Replica and resource center must be separate")
 
     @classmethod
     def create(cls, root: Path) -> FilesystemRemote:
@@ -247,7 +143,7 @@ class FilesystemRemote:
             raise WorkspaceCoreError("Resource center requires an empty directory")
         state_path(remote.root, REMOTE_STATE, create=True)
         with remote.lock():
-            initial = RemoteSnapshot(uuid.uuid4().hex, 0, {})
+            initial = _CenterState(uuid.uuid4().hex, 0, {})
             apply(
                 (remote.root,),
                 (),
@@ -293,7 +189,7 @@ class FilesystemRemote:
                         fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
     @staticmethod
-    def encode(snapshot: RemoteSnapshot) -> str:
+    def encode(snapshot: _CenterState) -> str:
         return json.dumps(
             {
                 "version": 2,
@@ -307,6 +203,7 @@ class FilesystemRemote:
                     }
                     for key, resource in sorted(snapshot.resources.items())
                 },
+                "payload_hashes": dict(sorted(snapshot.payload_hashes.items())),
                 "values": {
                     key: value.encode()
                     for key, value in sorted(snapshot.values.items())
@@ -436,9 +333,9 @@ class FilesystemRemote:
             raise WorkspaceCoreError("Invalid center resource references")
         return WorkspaceSnapshot(self.root, resources, (), ())
 
-    def read(self) -> RemoteSnapshot:
+    def _read_state(self) -> _CenterState:
         if has_pending((self.root,), policy=RECONCILE_POLICY):
-            raise WorkspaceCoreError("Pending center transaction needs recovery")
+            raise RecoveryRequired("Pending center transaction needs recovery")
         path = state_path(self.root, REMOTE_STATE)
         if entry_type(path) != "file":
             raise WorkspaceCoreError("Resource center is not initialized")
@@ -468,9 +365,15 @@ class FilesystemRemote:
         self.verify_contents(resources, values, legacy=raw["version"] == 1)
         if path.read_text(encoding="utf-8") != before:
             raise WorkspaceCoreError("Resource center changed during read; run again")
-        return RemoteSnapshot(raw["sync_id"], raw["generation"], resources, values)
+        return _CenterState(
+            raw["sync_id"],
+            raw["generation"],
+            resources,
+            values,
+            raw.get("payload_hashes"),
+        )
 
-    def content(self, snapshot: RemoteSnapshot) -> ResourceContent:
+    def _content(self, snapshot: _CenterState) -> ResourceContent:
         return ResourceContent(
             snapshot.resources,
             {
@@ -482,18 +385,135 @@ class FilesystemRemote:
         )
 
     def recover(self) -> bool:
-        with self.lock():
-            return recover((self.root,), policy=RECONCILE_POLICY)
+        try:
+            with self.lock():
+                return recover((self.root,), policy=RECONCILE_POLICY)
+        except WorkspaceCoreError as exc:
+            raise InvalidContent(str(exc)) from exc
+        except OSError as exc:
+            raise StoreUnavailable("Resource center recovery unavailable") from exc
+
+    def _load(
+        self,
+    ) -> tuple[_CenterState, RemoteSnapshot, Mapping[str, ResourcePayload]]:
+        """Optimistically capture one coherent version without creating a lock."""
+        try:
+            path = state_path(self.root, REMOTE_STATE)
+            before = path.read_bytes()
+            state = self._read_state()
+            payloads = capture_resources(
+                self._content(state), list(state.resources), check_credentials=False
+            )
+            if path.read_bytes() != before:
+                raise SnapshotExpired(
+                    "Resource center generation changed during read; replan"
+                )
+            if has_pending((self.root,), policy=RECONCILE_POLICY):
+                raise RecoveryRequired("Pending center transaction needs recovery")
+            hashes = {key: payload_hash(payload) for key, payload in payloads.items()}
+            if state.payload_hashes is not None and state.payload_hashes != hashes:
+                raise InvalidContent("Resource center payload integrity mismatch")
+            snapshot = RemoteSnapshot(
+                state.sync_id,
+                state.generation,
+                {
+                    key: ResourceDescriptor(
+                        resource.fingerprint, hashes[key], resource.references
+                    )
+                    for key, resource in state.resources.items()
+                },
+            )
+            return state, snapshot, payloads
+        except (WorkspaceCoreError, WorkspaceResourceError, PayloadError) as exc:
+            raise InvalidContent(str(exc)) from exc
+        except OSError as exc:
+            raise StoreUnavailable("Resource center is unavailable") from exc
+
+    def read(self) -> RemoteSnapshot:
+        return self._load()[1]
+
+    def fetch(
+        self, expected: RemoteSnapshot, ids: Collection[str]
+    ) -> Mapping[str, ResourcePayload]:
+        _, current, payloads = self._load()
+        if current != expected:
+            raise SnapshotExpired("Resource center generation changed; replan")
+        if any(identity not in current.resources for identity in ids):
+            raise InvalidContent("Missing requested resource content")
+        return MappingProxyType({identity: payloads[identity] for identity in ids})
 
     def commit(
+        self, expected: RemoteSnapshot, mutations: Sequence[ResourceMutation]
+    ) -> RemoteSnapshot:
+        try:
+            with self.lock():
+                state, current, _ = self._load()
+                if current != expected:
+                    raise SnapshotExpired("Resource center generation changed; replan")
+                if len(mutations) != len({m.id for m in mutations}):
+                    raise InvalidContent("Duplicate resource mutation ID")
+                if not mutations:
+                    return current
+                resources, payloads, writes = {}, {}, []
+                descriptors = dict(current.resources)
+                for mutation in mutations:
+                    if current.resources.get(mutation.id) != mutation.before:
+                        raise SnapshotExpired("Target changed before writing")
+                    descriptor = mutation.after or mutation.before
+                    resource = resource_for_id(mutation.id, descriptor.fingerprint)
+                    resource = replace(resource, references=descriptor.references)
+                    if mutation.after is None:
+                        descriptors.pop(mutation.id)
+                    else:
+                        if (
+                            payload_hash(mutation.payload)
+                            != mutation.after.content_hash
+                        ):
+                            raise InvalidContent("Mutation payload hash mismatch")
+                        resources[mutation.id] = resource
+                        payloads[mutation.id] = mutation.payload
+                        descriptors[mutation.id] = mutation.after
+                    writes.append(
+                        ResourceWrite(
+                            Path(resource.parts[0].path),
+                            resource.kind,
+                            mutation.after.fingerprint if mutation.after else None,
+                            resource.name,
+                            before=mutation.before.fingerprint
+                            if mutation.before
+                            else None,
+                        )
+                    )
+                with tempfile.TemporaryDirectory(
+                    prefix="aikito-center-payload-"
+                ) as staging:
+                    content = materialize_resources(resources, payloads, Path(staging))
+                    self._commit_resources(
+                        state,
+                        content,
+                        tuple(writes),
+                        payload_hashes={
+                            key: value.content_hash
+                            for key, value in descriptors.items()
+                        },
+                    )
+                return self.read()
+        except (WorkspaceCoreError, WorkspaceResourceError, PayloadError) as exc:
+            raise InvalidContent(str(exc)) from exc
+        except OSError as exc:
+            raise StoreUnavailable("Resource center commit unavailable") from exc
+
+    def _commit_resources(
         self,
-        expected: RemoteSnapshot,
+        expected: _CenterState,
         content: ResourceContent,
         writes: tuple[ResourceWrite, ...],
-    ) -> RemoteSnapshot:
+        *,
+        payload_hashes: Mapping[str, str],
+    ) -> _CenterState:
         """Commit all accepted writes and generation together, or none of them."""
         with self.lock():
-            current = self.read()
+            current = self._read_state()
             if current != expected:
                 raise WorkspaceCoreError("Resource center generation changed; replan")
             if not writes:
@@ -585,8 +605,12 @@ class FilesystemRemote:
                 )
                 if intended != resources:
                     raise WorkspaceCoreError("Invalid center resource batch")
-                new = RemoteSnapshot(
-                    current.sync_id, current.generation + 1, resources, values
+                new = _CenterState(
+                    current.sync_id,
+                    current.generation + 1,
+                    resources,
+                    values,
+                    dict(payload_hashes),
                 )
                 path = state_path(self.root, REMOTE_STATE)
                 apply(

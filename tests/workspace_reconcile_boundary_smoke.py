@@ -17,7 +17,7 @@ from aikito.workspace.reconcile import (
 )
 from aikito.workspace.remote import FilesystemRemote, REMOTE_STATE, REPLICA_STATE
 from aikito.workspace.resources import SKILL_FINGERPRINT_SCHEME, snapshot_workspace
-from aikito.workspace.transactions import WorkspaceCoreError
+from aikito.workspace.remote_store import InvalidContent
 from workspace_reconcile_backend import files
 from workspace_reconcile_resources_smoke import write
 from workspace_reconcile_smoke import _workspace
@@ -30,7 +30,11 @@ def executable_view(enabled: bool):
 
     def lstat(path, *args, **kwargs):
         result = original(path, *args, **kwargs)
-        if path.name != "run.sh" or not stat.S_ISREG(result.st_mode):
+        if (
+            "center" in path.parts
+            or path.name != "run.sh"
+            or not stat.S_ISREG(result.st_mode)
+        ):
             return result
         fields = list(result)
         mask = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
@@ -80,7 +84,7 @@ def exercise(base: Path) -> None:
 
     # Ambiguous historical skill hashes are refused before any state advances.
     for path, preview, error in (
-        (remote.root / REMOTE_STATE, remote.read, WorkspaceCoreError),
+        (remote.root / REMOTE_STATE, remote.read, InvalidContent),
         (
             a / REPLICA_STATE,
             lambda: build_reconcile_plan(a, remote),

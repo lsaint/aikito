@@ -107,6 +107,11 @@ jobs:
           python3 tests/workspace_reconcile_resources_smoke.py "$EXPANDED"
           ACCEPTANCE=${{ runner.temp }}/reconcile-acceptance
           python3 tests/workspace_reconcile_acceptance.py "$ACCEPTANCE"
+          STORE=${{ runner.temp }}/remote-store
+          python3 tests/workspace_remote_store_smoke.py "$STORE"
+          test -f "$STORE/right/memory/notes/portable-store.md"
+          test -f "$STORE/right/.local/state/aikito/workspace-reconcile/replica.json"
+          test -f "$STORE/center/.local/state/aikito/workspace-reconcile/remote.json"
           BOUNDARY=${{ runner.temp }}/reconcile-boundary
           python3 tests/workspace_reconcile_boundary_smoke.py "$BOUNDARY"
           PAYLOAD=${{ runner.temp }}/workspace-payload

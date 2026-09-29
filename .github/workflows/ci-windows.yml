@@ -148,6 +148,12 @@ jobs:
           $acceptanceBase = Join-Path $env:RUNNER_TEMP "reconcile-acceptance"
           python tests/workspace_reconcile_acceptance.py "$acceptanceBase"
           if ($LASTEXITCODE -ne 0) { throw "Workspace reconciliation acceptance failed" }
+          $storeBase = Join-Path $env:RUNNER_TEMP "remote-store"
+          python tests/workspace_remote_store_smoke.py "$storeBase"
+          if ($LASTEXITCODE -ne 0) { throw "Portable RemoteStore smoke failed" }
+          foreach ($relative in @("right/memory/notes/portable-store.md", "right/.local/state/aikito/workspace-reconcile/replica.json", "center/.local/state/aikito/workspace-reconcile/remote.json")) {
+            if (!(Test-Path (Join-Path $storeBase $relative) -PathType Leaf)) { throw "Missing store resource: $relative" }
+          }
           $boundaryBase = Join-Path $env:RUNNER_TEMP "reconcile-boundary"
           python tests/workspace_reconcile_boundary_smoke.py "$boundaryBase"
           if ($LASTEXITCODE -ne 0) { throw "Remote Store Boundary fingerprint smoke failed" }

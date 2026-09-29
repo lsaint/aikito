@@ -344,6 +344,7 @@ def test_legacy_center_reads_then_upgrades_on_commit(tmp_path):
     state_path = remote.root / REMOTE_STATE
     state = json.loads(state_path.read_text())
     state["version"] = 1
+    state.pop("payload_hashes")
     state["resources"] = {
         key: value["fingerprint"] for key, value in state["resources"].items()
     }
@@ -375,7 +376,7 @@ def test_plan_rejects_ambiguous_config_ids(tmp_path):
     assert plan.blocked
     before = (remote.root / REMOTE_STATE).read_bytes()
     with pytest.raises(WorkspaceReconcileError, match="blocking findings"):
-        apply_reconcile_plan(plan, home)
+        apply_reconcile_plan(plan, home, remote=remote)
     assert (remote.root / REMOTE_STATE).read_bytes() == before
 
 
@@ -492,6 +493,7 @@ def test_legacy_project_notes_gain_provider_before_manifest_upgrade(tmp_path):
     path = remote.root / REMOTE_STATE
     state = json.loads(path.read_text())
     state["version"] = 1
+    state.pop("payload_hashes")
     state["resources"] = {
         key: value["fingerprint"]
         for key, value in state["resources"].items()
@@ -532,7 +534,7 @@ def test_nonfinite_toml_values_do_not_make_plans_stale(tmp_path):
     write(a, "config.toml", "special = nan\nlimit = inf\n")
     round_trip(a, remote, home)
     plan = build_reconcile_plan(b, remote)
-    apply_reconcile_plan(plan, home)
+    apply_reconcile_plan(plan, home, remote=remote)
     assert not build_reconcile_plan(b, remote).changes
 
 
@@ -593,7 +595,7 @@ def test_reference_conflicts_accept_each_resolution_and_converge(
     assert before == {
         p.relative_to(b): p.read_bytes() for p in b.rglob("*") if p.is_file()
     }
-    apply_reconcile_plan(plan, home)
+    apply_reconcile_plan(plan, home, remote=remote)
     round_trip(a, remote, home)
     round_trip(b, remote, home)
     for local in (a, b):
@@ -723,7 +725,7 @@ def test_reference_resolution_preview_is_stale_after_provider_edit(tmp_path):
     write(b, "skills/x/SKILL.md", "# Edited after preview\n")
     generation = remote.read().generation
     with pytest.raises(WorkspaceReconcileError, match="changed after planning"):
-        apply_reconcile_plan(plan, home)
+        apply_reconcile_plan(plan, home, remote=remote)
     assert remote.read().generation == generation
     assert "skill:x" not in remote.read().resources
     assert (b / "skills/x/SKILL.md").read_text() == "# Edited after preview\n"

@@ -28,6 +28,39 @@ from aikito.workspace.remote import (
 from aikito.workspace.resource_write import ResourceContent, ResourceWrite
 from aikito.workspace.resources import fingerprint_resource, snapshot_workspace
 
+from aikito.workspace.payload import (
+    ResourceDescriptor,
+    ResourceMutation,
+    PayloadError,
+    payload_hash,
+)
+from aikito.workspace.payload_io import capture_resources
+from aikito.workspace.remote_store import SnapshotExpired, InvalidContent
+
+
+def _commit(remote, expected, content, writes):
+    payloads = capture_resources(
+        content,
+        [w.id for w in writes if w.fingerprint is not None],
+        check_credentials=False,
+    )
+    mutations = tuple(
+        ResourceMutation(
+            w.id,
+            expected.resources.get(w.id),
+            ResourceDescriptor(
+                w.fingerprint,
+                payload_hash(payloads[w.id]),
+                content.resources[w.id].references,
+            )
+            if w.fingerprint is not None
+            else None,
+            payloads.get(w.id),
+        )
+        for w in writes
+    )
+    return remote.commit(expected, mutations)
+
 
 def _workspace(root: Path) -> Path:
     for directory in (
@@ -293,8 +326,8 @@ def test_conditional_commit_rejects_stale_generation_before_writes(tmp_path):
     write = ResourceWrite(
         Path(resource.parts[0].path), resource.kind, resource.fingerprint, resource.name
     )
-    with pytest.raises(transactions.WorkspaceCoreError, match="generation changed"):
-        remote.commit(stale, ResourceContent.from_workspace(snapshot), (write,))
+    with pytest.raises(SnapshotExpired, match="generation changed"):
+        _commit(remote, stale, ResourceContent.from_workspace(snapshot), (write,))
     assert remote.read().generation == 1
 
 
@@ -322,12 +355,10 @@ def test_competing_center_writers_cannot_commit_same_generation(tmp_path):
     def commit(batch):
         content, write = batch
         try:
-            return (
-                FilesystemRemote(remote.root)
-                .commit(expected, content, (write,))
-                .generation
-            )
-        except transactions.WorkspaceCoreError as exc:
+            return _commit(
+                FilesystemRemote(remote.root), expected, content, (write,)
+            ).generation
+        except SnapshotExpired as exc:
             assert "generation changed" in str(exc)
             return None
 
@@ -344,14 +375,14 @@ def test_plan_rejects_stale_local_or_center_changes(tmp_path):
     plan = build_reconcile_plan(a, remote)
     _write(a, "later", "b")
     with pytest.raises(WorkspaceReconcileError, match="changed after planning"):
-        apply_reconcile_plan(plan, home)
+        apply_reconcile_plan(plan, home, remote=remote)
     assert remote.read().generation == 0
     plan = build_reconcile_plan(a, remote)
     b = _workspace(tmp_path / "b")
     _write(b, "other replica", "c")
     _round(b, remote, home)
     with pytest.raises(WorkspaceReconcileError, match="changed after planning"):
-        apply_reconcile_plan(plan, home)
+        apply_reconcile_plan(plan, home, remote=remote)
     assert not (remote.root / "memory/notes/a.md").exists()
 
 
@@ -388,7 +419,9 @@ def test_failure_does_not_advance_replica_base(tmp_path, failure):
         else patch("aikito.workspace.transactions.atomic_text", side_effect=fail_state)
     )
     with replacement:
-        with pytest.raises(OSError):
+        with pytest.raises(
+            OSError if failure == "replica-state" else WorkspaceReconcileError
+        ):
             _round(a, remote, home)
     assert _state(a) == before
     if failure == "replica-state":
@@ -472,11 +505,11 @@ def test_center_accepts_layout_independent_content_and_scans_credentials(
         Path(resource.parts[0].path), resource.kind, resource.fingerprint, resource.name
     )
     if secret:
-        with pytest.raises(transactions.WorkspaceCoreError, match="credential"):
-            remote.commit(remote.read(), content, (write,))
+        with pytest.raises(InvalidContent, match="credential"):
+            _commit(remote, remote.read(), content, (write,))
         assert remote.read().generation == 0
     else:
-        remote.commit(remote.read(), content, (write,))
+        _commit(remote, remote.read(), content, (write,))
         b = _workspace(tmp_path / "b")
         _round(b, remote, home)
         assert (b / "memory/notes/a.md").read_text() == "portable"
@@ -616,8 +649,8 @@ def test_center_rejects_skill_payload_without_skill_definition(tmp_path):
     write = ResourceWrite(
         Path("skills/invalid"), "skill", resource.fingerprint, "invalid"
     )
-    with pytest.raises(transactions.WorkspaceCoreError, match="SKILL.md"):
-        remote.commit(remote.read(), content, (write,))
+    with pytest.raises(PayloadError, match="SKILL.md"):
+        _commit(remote, remote.read(), content, (write,))
     assert remote.read().generation == 0
     assert not (remote.root / "skills/invalid").exists()
 

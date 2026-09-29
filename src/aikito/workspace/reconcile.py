@@ -28,24 +28,21 @@ from .transactions import (
     validate_resource_path,
 )
 from .merge import compare
-from .remote import (
-    FilesystemRemote,
-    RemoteSnapshot,
-    RECONCILE_POLICY,
+from .resource_state import (
+    REPLICA_POLICY as RECONCILE_POLICY,
     REPLICA_STATE,
     SYNC_KINDS,
     decode_resources,
     encode_resources,
     LOCAL_CONFIG,
     state_path,
-    resource_for_id,
+    local_resource_for_id,
     valid_identity,
     validate_skill_fingerprint_scheme,
 )
 from .resource_write import (
     ResourceContent,
     ResourceWrite,
-    prepare_resource_writes,
     credential_resources,
     reference_conflicts,
     toml_conflicts,
@@ -59,6 +56,16 @@ from .resources import (
     snapshot_workspace,
     SKILL_FINGERPRINT_SCHEME,
 )
+from .remote_store import RemoteStore, RemoteSnapshot, StoreError
+from .payload import (
+    ResourcePayload,
+    TomlPayload,
+    PayloadError,
+    credential_payload,
+    payload_hash,
+    validate_payload,
+)
+from .payload_io import capture_mutations, prepare_payload_writes
 from .templates import template_fingerprints
 
 
@@ -100,7 +107,6 @@ class ReconcileItem:
 @dataclass(frozen=True)
 class ReconcilePlan:
     local: Path
-    remote: Path
     local_snapshot: WorkspaceSnapshot
     remote_snapshot: RemoteSnapshot
     state: ReplicaState | None
@@ -132,6 +138,33 @@ class ReconcilePlan:
         return bool(self.findings)
 
 
+def _center_resources(center: RemoteSnapshot) -> dict[str, Resource]:
+    """Decode remote logical descriptions only at the client's local boundary."""
+    result = {}
+    for identity, descriptor in center.resources.items():
+        canonical = local_resource_for_id(identity, descriptor.fingerprint)
+        if (
+            canonical.kind not in {"mcp", "subagent"}
+            and descriptor.references != canonical.references
+        ):
+            raise PayloadError("Invalid remote resource references")
+        result[identity] = replace(canonical, references=descriptor.references)
+    return result
+
+
+def _fetch_validated(
+    remote: RemoteStore, center: RemoteSnapshot, resources: Mapping[str, Resource]
+) -> Mapping[str, ResourcePayload]:
+    payloads = remote.fetch(center, tuple(resources))
+    if set(payloads) != set(resources):
+        raise PayloadError("Incomplete remote payload batch")
+    for identity, resource in resources.items():
+        if payload_hash(payloads[identity]) != center.resources[identity].content_hash:
+            raise PayloadError("Downloaded payload transport hash mismatch")
+        validate_payload(resource, payloads[identity])
+    return payloads
+
+
 def _read_state(
     local: Path, remote: RemoteSnapshot
 ) -> tuple[ReplicaState | None, str | None]:
@@ -151,7 +184,8 @@ def _read_state(
     if not isinstance(raw, dict) or raw.get("version") != 2:
         raise WorkspaceReconcileError("Unsupported replica state version")
     if (
-        not valid_identity(raw.get("sync_id"))
+        not isinstance(raw.get("sync_id"), str)
+        or not raw.get("sync_id")
         or not valid_identity(raw.get("replica_id"))
         or type(raw.get("generation")) is not int
         or not 0 <= raw["generation"] <= remote.generation
@@ -169,16 +203,11 @@ def _read_state(
     ), text
 
 
-def _roots(local: Path, remote: FilesystemRemote) -> Path:
+def _roots(local: Path, remote: RemoteStore) -> Path:
     local = local.expanduser().resolve()
     if not is_recognized_workspace(local):
         raise WorkspaceReconcileError("Local path must be an Aikito workspace")
-    if (
-        local == remote.root
-        or local in remote.root.parents
-        or remote.root in local.parents
-    ):
-        raise WorkspaceReconcileError("Replica and resource center must be separate")
+    remote.validate_replica(local)
     return local
 
 
@@ -211,13 +240,14 @@ def _write(
 def _check_items(
     proposed: list[ReconcileItem],
     snapshot: WorkspaceSnapshot,
-    center: RemoteSnapshot,
+    center: dict[str, Resource],
     local_content: ResourceContent | None,
     remote_content: ResourceContent,
+    remote_payloads: Mapping[str, ResourcePayload],
 ) -> tuple[list[ReconcileItem], list[str]]:
     """Check candidate changes after comparison or conflict choices."""
     items = list(proposed)
-    a, b = snapshot.resources, center.resources
+    a, b = snapshot.resources, center
     policy = _local_policy(snapshot.root)
     findings = [
         f"Local {finding.resource}: {finding.message}" for finding in snapshot.findings
@@ -226,7 +256,7 @@ def _check_items(
         if item.action not in {"CREATE", "UPDATE", "DELETE"}:
             continue
         resource = a.get(item.id) or b.get(item.id)
-        resource_for_id(item.id, resource.fingerprint)
+        local_resource_for_id(item.id, resource.fingerprint)
         if resource.kind == "inbox" and not policy.inbox_prefix:
             items[index] = replace(
                 item,
@@ -268,6 +298,19 @@ def _check_items(
             reason="Possible plaintext credential; resource is not uploaded",
         )
         if item.id in secrets
+        else item
+        for item in items
+    ]
+    items = [
+        replace(
+            item,
+            action="BLOCKED",
+            target=None,
+            reason="Possible plaintext credential; resource is not downloaded",
+        )
+        if item.target == "local"
+        and item.after is not None
+        and credential_payload(remote_payloads[item.id])
         else item
         for item in items
     ]
@@ -425,7 +468,7 @@ def _resolve_items(
 
 def build_reconcile_plan(
     local: Path,
-    remote: FilesystemRemote,
+    remote: RemoteStore,
     *,
     resolutions: Mapping[str, str] | None = None,
 ) -> ReconcilePlan:
@@ -443,7 +486,7 @@ def build_reconcile_plan(
             if resource.kind in SYNC_KINDS
             and not (resource.kind == "config" and resource.name in LOCAL_CONFIG)
         }
-        b = center.resources
+        b = _center_resources(center)
         base = state.base if state else {}
         identities = base.keys() | a.keys() | b.keys()
         choices = dict(resolutions or {})
@@ -478,9 +521,18 @@ def build_reconcile_plan(
         local_content = (
             ResourceContent.from_workspace(snapshot) if not snapshot.findings else None
         )
-        remote_content = remote.content(center)
+        remote_payloads = _fetch_validated(remote, center, b)
+        remote_content = ResourceContent(
+            b,
+            {},
+            values={
+                key: payload.field()
+                for key, payload in remote_payloads.items()
+                if isinstance(payload, TomlPayload)
+            },
+        )
         checked, findings = _check_items(
-            items, snapshot, center, local_content, remote_content
+            items, snapshot, b, local_content, remote_content, remote_payloads
         )
         conflicts = {item.id for item in checked if item.action == "CONFLICT"}
         for identity in choices:
@@ -491,11 +543,10 @@ def build_reconcile_plan(
         if choices:
             proposed = _resolve_items(items, choices, a, b)
             checked, findings = _check_items(
-                proposed, snapshot, center, local_content, remote_content
+                proposed, snapshot, b, local_content, remote_content, remote_payloads
             )
         return ReconcilePlan(
             local,
-            remote.root,
             snapshot,
             center,
             state,
@@ -504,33 +555,39 @@ def build_reconcile_plan(
             tuple(sorted(set(findings))),
             tuple(sorted(choices.items())),
         )
-    except (WorkspaceCoreError, WorkspaceResourceError) as exc:
+    except (
+        WorkspaceCoreError,
+        WorkspaceResourceError,
+        StoreError,
+        PayloadError,
+    ) as exc:
         if isinstance(exc, WorkspaceReconcileError):
             raise
         raise WorkspaceReconcileError(str(exc)) from exc
 
 
-def recover_reconciliation(local: Path, remote: FilesystemRemote) -> bool:
+def recover_reconciliation(local: Path, remote: RemoteStore) -> bool:
     """Recover each pending batch, preserving externally changed resources."""
     try:
         local = _roots(local, remote)
-        with remote.lock():
-            center = remote.recover()
-            replica = recover((local,), policy=RECONCILE_POLICY)
-            return center or replica
-    except (WorkspaceCoreError, WorkspaceResourceError) as exc:
+        center = remote.recover()
+        replica = recover((local,), policy=RECONCILE_POLICY)
+        return center or replica
+    except (
+        WorkspaceCoreError,
+        WorkspaceResourceError,
+        StoreError,
+        PayloadError,
+    ) as exc:
         raise WorkspaceReconcileError(str(exc)) from exc
 
 
 def apply_reconcile_plan(
-    plan: ReconcilePlan, home: Path, *, remote: FilesystemRemote | None = None
+    plan: ReconcilePlan, home: Path, *, remote: RemoteStore
 ) -> None:
     """Conditionally commit the safe subset, then confirm each converged resource."""
-    remote = remote or FilesystemRemote(plan.remote)
-    if remote.root != plan.remote:
-        raise WorkspaceReconcileError("Plan belongs to a different resource center")
     try:
-        with WorkspaceWriterLock(home), remote.lock():
+        with WorkspaceWriterLock(home):
             if recover_reconciliation(plan.local, remote):
                 raise WorkspaceReconcileError(
                     "Recovered an interrupted round; run again"
@@ -551,7 +608,7 @@ def apply_reconcile_plan(
                     item,
                     plan.local_snapshot.resources
                     if item.after is not None
-                    else plan.remote_snapshot.resources,
+                    else _center_resources(plan.remote_snapshot),
                     "inbox",
                 )
                 for item in plan.changes
@@ -560,7 +617,7 @@ def apply_reconcile_plan(
             downloads = tuple(
                 _write(
                     item,
-                    plan.remote_snapshot.resources
+                    _center_resources(plan.remote_snapshot)
                     if item.after is not None
                     else plan.local_snapshot.resources,
                     _local_policy(plan.local).inbox_prefix,
@@ -569,24 +626,35 @@ def apply_reconcile_plan(
                 if item.target == "local"
             )
             with tempfile.TemporaryDirectory(prefix="aikito-reconcile-") as staging:
-                local_changes, expected = prepare_resource_writes(
-                    remote.content(plan.remote_snapshot),
+                remote_resources = _center_resources(plan.remote_snapshot)
+                download_resources = {
+                    write.id: remote_resources[write.id]
+                    for write in downloads
+                    if write.fingerprint is not None
+                }
+                payloads = _fetch_validated(
+                    remote, plan.remote_snapshot, download_resources
+                )
+                local_changes, expected = prepare_payload_writes(
+                    download_resources,
+                    payloads,
                     plan.local_snapshot,
                     downloads,
                     Path(staging),
                     policy=_local_policy(plan.local),
-                    sync=True,
                 )
-                center = remote.commit(
-                    plan.remote_snapshot,
+                mutations = capture_mutations(
                     ResourceContent.from_workspace(plan.local_snapshot),
                     uploads,
+                    plan.remote_snapshot.resources,
                 )
+                center = remote.commit(plan.remote_snapshot, mutations)
+                center_resources = _center_resources(center)
                 base = dict(plan.base)
                 for item in plan.items:
                     if item.action in {"CONFLICT", "BLOCKED"}:
                         continue
-                    left, right = expected.get(item.id), center.resources.get(item.id)
+                    left, right = expected.get(item.id), center_resources.get(item.id)
                     if left is None and right is None:
                         base.pop(item.id, None)
                     elif left and right and left.fingerprint == right.fingerprint:
@@ -611,7 +679,12 @@ def apply_reconcile_plan(
                     ),
                     policy=_local_policy(plan.local),
                 )
-    except (WorkspaceCoreError, WorkspaceResourceError) as exc:
+    except (
+        WorkspaceCoreError,
+        WorkspaceResourceError,
+        StoreError,
+        PayloadError,
+    ) as exc:
         if isinstance(exc, WorkspaceReconcileError):
             raise
         raise WorkspaceReconcileError(str(exc)) from exc
@@ -619,7 +692,7 @@ def apply_reconcile_plan(
 
 def run_reconciliation(
     local: Path,
-    remote: FilesystemRemote,
+    remote: RemoteStore,
     home: Path,
     *,
     dry_run: bool,
@@ -627,7 +700,7 @@ def run_reconciliation(
 ) -> ReconcilePlan:
     """Preview or apply safe work; conflicts and credential blocks remain visible."""
     if not dry_run:
-        with WorkspaceWriterLock(home), remote.lock():
+        with WorkspaceWriterLock(home):
             if recover_reconciliation(local, remote):
                 raise WorkspaceReconcileError(
                     "Recovered an interrupted round; run again"
