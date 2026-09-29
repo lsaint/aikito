@@ -12,9 +12,6 @@ from unittest.mock import patch
 
 from aikito.workspace.reconcile import (
     WorkspaceReconcileError,
-    apply_reconcile_plan,
-    build_reconcile_plan,
-    run_reconciliation,
 )
 from aikito.workspace.remote import (
     FilesystemRemote,
@@ -23,16 +20,13 @@ from aikito.workspace.remote import (
     SYNC_KINDS,
 )
 from aikito.workspace.resources import snapshot_workspace
+from workspace_reconcile_backend import (
+    FilesystemBackend,
+    ReconciliationBackend,
+    files as _files,
+)
 from workspace_reconcile_resources_smoke import write
 from workspace_reconcile_smoke import _workspace
-
-
-def _files(root: Path) -> dict[str, bytes]:
-    return {
-        path.relative_to(root).as_posix(): path.read_bytes()
-        for path in root.rglob("*")
-        if path.is_file()
-    }
 
 
 def _resources(root: Path) -> dict[str, str]:
@@ -44,22 +38,19 @@ def _resources(root: Path) -> dict[str, str]:
     }
 
 
-def exercise(base: Path) -> None:
+def exercise_behavior(base: Path, backend: ReconciliationBackend) -> None:
     a, b = _workspace(base / "left"), _workspace(base / "right")
-    remote = FilesystemRemote.create(base / "center")
     home = base / "home"
 
     def apply(local: Path, **kwargs):
-        plan = run_reconciliation(local, remote, home, dry_run=False, **kwargs)
+        plan = backend.run(local, home, **kwargs)
         assert not plan.blocked, plan.findings
         return plan
 
     def converge():
         for local in (a, b, a):
             assert not apply(local).conflicts
-        fingerprints = {
-            key: value.fingerprint for key, value in remote.read().resources.items()
-        }
+        fingerprints = backend.fingerprints()
         assert _resources(a) == _resources(b) == fingerprints
         for local, prefix in ((a, "capture-a"), (b, "capture-b")):
             config = tomllib.loads((local / "config.toml").read_text(encoding="utf-8"))
@@ -85,10 +76,10 @@ def exercise(base: Path) -> None:
     }
     for relative, value in payloads.items():
         write(a, relative, value)
-    before = _files(a), _files(b), _files(remote.root)
-    preview = build_reconcile_plan(a, remote)
+    before = _files(a), _files(b), backend.checkpoint()
+    preview = backend.plan(a)
     assert preview.changes and not preview.conflicts and not preview.blocked
-    assert before == (_files(a), _files(b), _files(remote.root))
+    assert before == (_files(a), _files(b), backend.checkpoint())
     converge()
     assert {identity.partition(":")[0] for identity in _resources(a)} == SYNC_KINDS
 
@@ -97,13 +88,13 @@ def exercise(base: Path) -> None:
         text = (local / "config.toml").read_text(encoding="utf-8")
         write(local, "config.toml", text.replace("true", "false"))
     apply(b)
-    generation = remote.read().generation
+    generation = backend.generation()
     plan = apply(a)
     assert (
         next(item for item in plan.items if item.id == "config:update.check").action
         == "NOOP"
     )
-    assert remote.read().generation == generation
+    assert backend.generation() == generation
     converge()
 
     # Conflicts retain their old base while independent additions still converge.
@@ -123,7 +114,7 @@ def exercise(base: Path) -> None:
         ]
         == ancestor
     )
-    assert (remote.root / "inbox/safe.md").read_text(encoding="utf-8") == "safe"
+    assert backend.fingerprints()["inbox:safe.md"] == _resources(a)["inbox:safe.md"]
     apply(b)
     assert (b / "capture-b/safe.md").read_text(encoding="utf-8") == "safe"
     assert not apply(a, resolutions={"config:memory.stale_days": "local"}).conflicts
@@ -131,27 +122,27 @@ def exercise(base: Path) -> None:
 
     # A stale local plan and a stale center generation both fail without any writes.
     write(a, "memory/notes/pending.md", "pending")
-    plan = build_reconcile_plan(a, remote)
+    plan = backend.plan(a)
     write(a, "projects/demo/AGENTS.md", "after preview")
-    before = _files(a), _files(b), _files(remote.root)
+    before = _files(a), _files(b), backend.checkpoint()
     try:
-        apply_reconcile_plan(plan, home)
+        backend.apply(plan, home)
     except WorkspaceReconcileError as exc:
         assert "changed after planning" in str(exc)
     else:
         raise AssertionError("A stale local plan was accepted")
-    assert before == (_files(a), _files(b), _files(remote.root))
-    plan = build_reconcile_plan(a, remote)
+    assert before == (_files(a), _files(b), backend.checkpoint())
+    plan = backend.plan(a)
     write(b, "global/AGENTS.md", "new generation")
     apply(b)
-    before = _files(a), _files(b), _files(remote.root)
+    before = _files(a), _files(b), backend.checkpoint()
     try:
-        apply_reconcile_plan(plan, home)
+        backend.apply(plan, home)
     except WorkspaceReconcileError as exc:
         assert "changed after planning" in str(exc)
     else:
         raise AssertionError("A stale center plan was accepted")
-    assert before == (_files(a), _files(b), _files(remote.root))
+    assert before == (_files(a), _files(b), backend.checkpoint())
     converge()
 
     # Recover a shared-file download together with its unchanged replica base.
@@ -183,16 +174,14 @@ def exercise(base: Path) -> None:
     assert _files(a) == before
     converge()
 
-    # Removal propagates from B; moving completed roots retains pairing and paths.
+    # Removal and local relocation preserve pairing and host-local paths.
     (b / "capture-b/safe.md").unlink()
     apply(b)
     converge()
     assert not (a / "capture-a/safe.md").exists()
     identity = json.loads((a / REPLICA_STATE).read_text(encoding="utf-8"))
     shutil.move(a, base / "moved-left")
-    shutil.move(remote.root, base / "moved-center")
     a = base / "moved-left"
-    remote = FilesystemRemote(base / "moved-center")
     write(a, "capture-a/relocated.md", "relocated")
     converge()
     assert (b / "capture-b/relocated.md").read_text(encoding="utf-8") == "relocated"
@@ -206,11 +195,30 @@ def exercise(base: Path) -> None:
     assert (a / "projects/demo/memory/notes/acceptance.md").read_text(
         encoding="utf-8"
     ) == "final"
-    before = _files(a), _files(b), _files(remote.root)
+    before = _files(a), _files(b), backend.checkpoint()
     for local in (a, b, a, b):
         plan = apply(local)
         assert not plan.changes and not plan.conflicts
-    assert before == (_files(a), _files(b), _files(remote.root))
+    assert before == (_files(a), _files(b), backend.checkpoint())
+
+
+def exercise(base: Path) -> None:
+    backend = FilesystemBackend(base / "center")
+    exercise_behavior(base, backend)
+    # Center relocation is a FilesystemRemote lifecycle check, not shared behavior.
+    before = backend.remote.read()
+    shutil.move(backend.remote.root, base / "moved-center")
+    backend.remote = FilesystemRemote(base / "moved-center")
+    assert backend.remote.read() == before
+    a, b, home = base / "moved-left", base / "right", base / "home"
+    write(a, "capture-a/center-relocated.md", "after center relocation")
+    for local in (a, b, a):
+        plan = backend.run(local, home)
+        assert not plan.blocked and not plan.conflicts
+    assert (
+        b / "capture-b/center-relocated.md"
+    ).read_text() == "after center relocation"
+    assert _resources(a) == _resources(b) == backend.fingerprints()
 
 
 if __name__ == "__main__":

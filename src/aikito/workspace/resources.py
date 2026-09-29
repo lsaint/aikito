@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from ..add import validate_resource_name
-from ..compat import is_reparse_point, is_windows
+from ..compat import is_reparse_point
 from ..config import LEGACY_DEFAULT_INBOX_PATH, get_inbox_path, load_workspace_config
 from ..diagnostics import Finding
 from ..init import _validate_project_name, is_recognized_workspace
@@ -49,6 +49,10 @@ IGNORED_NAMES = frozenset(
 )
 # Host-local workspace entries that are neither resources nor worth reporting.
 LOCAL_ONLY_NAMES = frozenset({".git", ".local"})
+
+# Permission changes are not portable resource edits. Payloads may still carry
+# executable flags separately from this content fingerprint.
+SKILL_FINGERPRINT_SCHEME = "content-v1"
 
 _SECRET_PATTERN = re.compile(
     rb"(?i)(?:api[_-]?key|access[_-]?token|password|client[_-]?secret)"
@@ -420,11 +424,8 @@ class _Scanner:
             digest = self.file_digest(child)
             if digest is None:
                 continue
-            executable = not is_windows() and bool(
-                child.lstat().st_mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-            )
             rel = child.relative_to(base).as_posix()
-            entries.append(f"f {rel} {digest}{' *' if executable else ''}")
+            entries.append(f"f {rel} {digest}")
 
 
 def _scan_markdown_file(scanner: _Scanner, path: Path, kind: str, name: str) -> None:

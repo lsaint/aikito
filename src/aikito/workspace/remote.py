@@ -47,6 +47,7 @@ from .resources import (
     is_shared_resource,
     inspect_resource_content,
     value_fingerprint,
+    SKILL_FINGERPRINT_SCHEME,
 )
 
 from .toml_render import TomlValue
@@ -198,6 +199,20 @@ def encode_resources(resources: dict[str, Resource]) -> dict[str, str]:
     return {key: resource.fingerprint for key, resource in sorted(resources.items())}
 
 
+def validate_skill_fingerprint_scheme(
+    scheme: object, resources: dict[str, Resource]
+) -> None:
+    """Refuse ambiguous old skill hashes without rewriting historical state."""
+    if scheme == SKILL_FINGERPRINT_SCHEME:
+        return
+    if scheme is None and not any(r.kind == "skill" for r in resources.values()):
+        return
+    raise WorkspaceCoreError(
+        "Unsupported skill fingerprint scheme; preserve the existing center and "
+        "replica Base, then explicitly create and pair a new resource center"
+    )
+
+
 def valid_identity(value: object) -> bool:
     return (
         isinstance(value, str)
@@ -282,6 +297,7 @@ class FilesystemRemote:
         return json.dumps(
             {
                 "version": 2,
+                "skill_fingerprint": SKILL_FINGERPRINT_SCHEME,
                 "sync_id": snapshot.sync_id,
                 "generation": snapshot.generation,
                 "resources": {
@@ -441,6 +457,7 @@ class FilesystemRemote:
         ):
             raise WorkspaceCoreError("Invalid resource center state")
         resources = decode_resources(raw.get("resources"))
+        validate_skill_fingerprint_scheme(raw.get("skill_fingerprint"), resources)
         try:
             values = {
                 key: TomlValue.decode(value)

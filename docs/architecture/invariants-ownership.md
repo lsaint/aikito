@@ -47,6 +47,10 @@ Copy management records follow an explicit two-state lifecycle (`active` vs. `in
 
 Directory fingerprints must capture the complete directory tree: file relative paths, file types (regular file, symlink, directory), byte contents, empty directories, and POSIX executable permission bits. File timestamps (`mtime`) and filesystem inode numbers are excluded from content equality comparisons, but may be used during preflight to detect concurrent entry replacement.
 
+This rule governs runtime copy ownership. Workspace import and resource
+reconciliation use separate, portable content-only skill fingerprints; see
+[Remote Store Boundary](remote-store-boundary.md#skill-fingerprint-decision-and-compatibility).
+
 Any unsupported filesystem entry (FIFO, socket, device node) or internal symlink inside a copy source or target causes fingerprinting/inspection to fail and blocks synchronization.
 
 ### INV-BIND-01: Global Binding Identity Definition `[current]` {: #inv-bind-01 }
@@ -66,4 +70,3 @@ When multiple independent Aikito workspaces configure the same host agent target
 ### INV-BIND-03: Scope Reduction for Link-Only Resources `[current]` {: #inv-bind-03 }
 
 Global skills and instructions operate strictly in `link` mode (`mode="link"`); copy mode is intentionally not supported. Therefore, global resources require NO content baseline records ($B$), NO directory fingerprint tracking in state documents, and NO copy reconciliation lifecycle. Their ownership and state transitions depend exclusively on live filesystem directory entries and symlink destination verification ([INV-OWN-02](#inv-own-02), [INV-OWN-03](#inv-own-03)).
-

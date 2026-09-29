@@ -197,6 +197,13 @@ jobs:
           python3 tests/workspace_reconcile_resources_smoke.py "$EXPANDED"
           ACCEPTANCE=${{ runner.temp }}/reconcile-acceptance
           python3 tests/workspace_reconcile_acceptance.py "$ACCEPTANCE"
+          BOUNDARY=${{ runner.temp }}/reconcile-boundary
+          python3 tests/workspace_reconcile_boundary_smoke.py "$BOUNDARY"
+          test -f "$BOUNDARY/left/skills/portable/run.sh"
+          test -f "$BOUNDARY/right/skills/portable/run.sh"
+          test -d "$BOUNDARY/right/skills/portable/empty"
+          test -f "$BOUNDARY/center/.local/state/aikito/workspace-reconcile/remote.json"
+          test -f "$BOUNDARY/left/.local/state/aikito/workspace-reconcile/replica.json"
           RESOLUTIONS=${{ runner.temp }}/reconcile-resolutions
           python3 tests/workspace_reconcile_resolution_smoke.py "$RESOLUTIONS"
           for CASE in skill-local project-skill-local; do

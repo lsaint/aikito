@@ -195,13 +195,13 @@ def test_symlinks_are_findings_not_followed(workspace: Path, tmp_path: Path) -> 
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX executable bit")
-def test_skill_fingerprint_tracks_executable_bit(workspace: Path) -> None:
+def test_skill_fingerprint_ignores_executable_bit(workspace: Path) -> None:
     script = workspace / "skills/demo/run.sh"
     _write(workspace / "skills/demo/SKILL.md", "demo\n")
     _write(script, "echo\n")
     before = snapshot_workspace(workspace).resources["skill:demo"]
     script.chmod(0o755)
-    assert snapshot_workspace(workspace).resources["skill:demo"] != before
+    assert snapshot_workspace(workspace).resources["skill:demo"] == before
 
 
 def test_inbox_follows_configured_path(workspace: Path) -> None:

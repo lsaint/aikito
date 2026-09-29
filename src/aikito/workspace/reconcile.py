@@ -40,6 +40,7 @@ from .remote import (
     state_path,
     resource_for_id,
     valid_identity,
+    validate_skill_fingerprint_scheme,
 )
 from .resource_write import (
     ResourceContent,
@@ -56,6 +57,7 @@ from .resources import (
     WorkspaceResourceError,
     physical_kind,
     snapshot_workspace,
+    SKILL_FINGERPRINT_SCHEME,
 )
 from .templates import template_fingerprints
 
@@ -75,6 +77,7 @@ class ReplicaState:
         return json.dumps(
             {
                 "version": 2,
+                "skill_fingerprint": SKILL_FINGERPRINT_SCHEME,
                 "sync_id": self.sync_id,
                 "replica_id": self.replica_id,
                 "generation": self.generation,
@@ -156,11 +159,13 @@ def _read_state(
         raise WorkspaceReconcileError("Invalid replica state")
     if raw["sync_id"] != remote.sync_id:
         raise WorkspaceReconcileError("Replica belongs to a different resource center")
+    base = decode_resources(raw.get("base"))
+    validate_skill_fingerprint_scheme(raw.get("skill_fingerprint"), base)
     return ReplicaState(
         raw["sync_id"],
         raw["replica_id"],
         raw["generation"],
-        decode_resources(raw.get("base")),
+        base,
     ), text
 
 

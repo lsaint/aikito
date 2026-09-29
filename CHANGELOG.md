@@ -12,6 +12,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Skill fingerprints now use the same content-only tree rules on every platform. Permission-only edits do not trigger reconciliation; historical center manifests and replica Bases containing skills without the new fingerprint marker are explicitly rejected and preserved.
 - Reconciliation uses logical resource IDs and the shared three-way comparator. Safe resources advance independently while conflicts keep their previous base; the old internal two-workspace baseline format is rejected.
 - Internal reconciliation covers inbox notes, instructions, Agent/MCP/subagent definitions, workspace preferences, project fields, path candidates, and skill selections. Each replica retains its own inbox path; bundled skill contents and generated runtime resources remain excluded.
 - Shared TOML reconciliation composes field and set-member additions/deletions in one recoverable file write. The center stores accepted typed values rather than whole configuration files, so credential-blocked fields stay outside the accepted batch.
@@ -19,6 +20,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Executable skill scripts no longer cause cross-platform fingerprint mismatches, failed downloads, or spurious uploads between POSIX and Windows replicas.
 - Reconciliation choices now resolve reference conflicts, including concurrent skill deletion and project skill selection, by restoring required providers or removing dependent set members. Inferred writes retain reference and credential safety checks.
 - Reconciliation rejects choices for non-conflicting resources instead of silently ignoring them.
 
