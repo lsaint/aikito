@@ -1063,7 +1063,7 @@ class ProjectSummaryTest(unittest.TestCase):
             b_fp, _ = calculate_directory_fingerprint(p1_agents_skills)
             doc = ProjectSkillStateDocument(
                 version=1,
-                generation=1,
+                revision=1,
                 workspace_root=aikito_dir.as_posix(),
                 project_name="p1",
                 physical_checkout=project_dir.as_posix(),
@@ -1488,7 +1488,7 @@ class ClassifyProjectSkillStateMappingTests(unittest.TestCase):
             # 3. Upstream updated
             doc = ProjectSkillStateDocument(
                 version=1,
-                generation=1,
+                revision=1,
                 workspace_root=ws.as_posix(),
                 project_name="p1",
                 physical_checkout=proj.as_posix(),

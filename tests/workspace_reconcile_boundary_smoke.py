@@ -69,16 +69,16 @@ def exercise(base: Path) -> None:
         assert (
             snapshot_workspace(b).resources["skill:portable"].fingerprint == fingerprint
         )
-        generation = remote.read().generation
+        revision = remote.read().revision
         assert not run(b).changes
-        assert remote.read().generation == generation
+        assert remote.read().revision == revision
         write(b, "skills/portable/run.sh", "echo changed\n")
         run(b)
     with executable_view(True):
         run(a)
-        generation = remote.read().generation
+        revision = remote.read().revision
         assert not run(a).changes
-        assert remote.read().generation == generation
+        assert remote.read().revision == revision
     assert (a / "skills/portable/run.sh").read_bytes() == b"echo changed\n"
     assert (b / "skills/portable/empty").is_dir()
 

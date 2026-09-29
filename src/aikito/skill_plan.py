@@ -25,7 +25,7 @@ from .skill_state import SkillStateRecord
 def _skill_op_from_link_op(
     link_op: LinkOperation,
     target: SkillTarget,
-    exp_gen: int | None = None,
+    expected_revision: int | None = None,
 ) -> SkillOperation:
     return SkillOperation(
         action=link_op.action,
@@ -36,7 +36,7 @@ def _skill_op_from_link_op(
         is_authorized=link_op.is_authorized,
         expected_representation=link_op.expected_representation,
         desired_representation=link_op.desired_representation,
-        expected_generation=exp_gen,
+        expected_revision=expected_revision,
     )
 
 
@@ -69,7 +69,7 @@ class ObservedSkill:
     state_record: SkillStateRecord | None = None
     state_error: str | None = None
     target_lstat: Any = None
-    state_generation: int = 0  # Generation of the state doc at plan time
+    state_revision: int = 0  # Revision of the state doc at plan time
 
 
 @dataclass(frozen=True)
@@ -112,7 +112,7 @@ class SkillOperation:
     desired_representation: str = "link"  # "link", "copy", "absent"
     expected_fingerprint: str | None = None
     desired_fingerprint: str | None = None
-    expected_generation: int | None = None
+    expected_revision: int | None = None
     next_state_lifecycle: str | None = None  # "active", "inactive", or None
     next_baseline_origin: str | None = (
         None  # "write", "reconcile", "claim", "reactivate"
@@ -239,7 +239,9 @@ def plan_single_skill(
             desired_representation=desired.mode,
         )
 
-    exp_gen = observed.state_generation if observed.state_generation is not None else 0
+    expected_revision = (
+        observed.state_revision if observed.state_revision is not None else 0
+    )
 
     # 1. Selected skills: Link or Copy
     if desired.mode in ("link", "copy"):
@@ -288,7 +290,7 @@ def plan_single_skill(
                         expected_representation="copy",
                         desired_representation="link",
                         expected_fingerprint=observed.runtime_fingerprint,
-                        expected_generation=exp_gen,
+                        expected_revision=expected_revision,
                         next_state_lifecycle="inactive",
                         is_authorized=True,
                     )
@@ -320,7 +322,7 @@ def plan_single_skill(
                 has_state_record=bool(observed.state_record),
                 resource_name=target.skill_name,
             )
-            return _skill_op_from_link_op(link_op, target, exp_gen)
+            return _skill_op_from_link_op(link_op, target, expected_revision)
 
         # Mode: Copy
         if observed.state_error:
@@ -343,7 +345,7 @@ def plan_single_skill(
                 expected_representation="missing",
                 desired_representation="copy",
                 desired_fingerprint=observed.canonical_fingerprint,
-                expected_generation=exp_gen,
+                expected_revision=expected_revision,
                 next_state_lifecycle="active",
                 next_baseline_origin="write",
                 is_authorized=True,
@@ -358,7 +360,7 @@ def plan_single_skill(
                     expected_representation="link",
                     desired_representation="copy",
                     desired_fingerprint=observed.canonical_fingerprint,
-                    expected_generation=exp_gen,
+                    expected_revision=expected_revision,
                     next_state_lifecycle="active",
                     next_baseline_origin="write",
                     is_authorized=True,
@@ -377,8 +379,8 @@ def plan_single_skill(
             r_fp = observed.runtime_fingerprint
             c_fp = observed.canonical_fingerprint
             state = observed.state_record
-            # Capture current state document generation for executor pre-condition check.
-            exp_gen = observed.state_generation
+            # Capture current state document revision for executor pre-condition check.
+            expected_revision = observed.state_revision
 
             if state and state.lifecycle == "active":
                 b_fp = state.baseline_fingerprint
@@ -392,7 +394,7 @@ def plan_single_skill(
                         desired_representation="copy",
                         expected_fingerprint=r_fp,
                         desired_fingerprint=c_fp,
-                        expected_generation=exp_gen,
+                        expected_revision=expected_revision,
                         is_authorized=True,
                     )
                 if r_fp == b_fp and r_fp != c_fp:
@@ -405,7 +407,7 @@ def plan_single_skill(
                         desired_representation="copy",
                         expected_fingerprint=r_fp,
                         desired_fingerprint=c_fp,
-                        expected_generation=exp_gen,
+                        expected_revision=expected_revision,
                         next_state_lifecycle="active",
                         next_baseline_origin="write",
                         is_authorized=True,
@@ -429,7 +431,7 @@ def plan_single_skill(
                         desired_representation="copy",
                         expected_fingerprint=r_fp,
                         desired_fingerprint=c_fp,
-                        expected_generation=exp_gen,
+                        expected_revision=expected_revision,
                         next_state_lifecycle="active" if auth else None,
                         next_baseline_origin="write" if auth else None,
                     )
@@ -443,7 +445,7 @@ def plan_single_skill(
                         desired_representation="copy",
                         expected_fingerprint=r_fp,
                         desired_fingerprint=c_fp,
-                        expected_generation=exp_gen,
+                        expected_revision=expected_revision,
                         next_state_lifecycle="active",
                         next_baseline_origin="reconcile",
                         is_authorized=True,
@@ -464,7 +466,7 @@ def plan_single_skill(
                             desired_representation="copy",
                             expected_fingerprint=r_fp,
                             desired_fingerprint=c_fp,
-                            expected_generation=exp_gen,
+                            expected_revision=expected_revision,
                             next_state_lifecycle="active",
                             next_baseline_origin="reactivate",
                         )
@@ -480,7 +482,7 @@ def plan_single_skill(
                         desired_representation="copy",
                         expected_fingerprint=r_fp,
                         desired_fingerprint=c_fp,
-                        expected_generation=exp_gen,
+                        expected_revision=expected_revision,
                     )
                 auth = force
                 return SkillOperation(
@@ -500,7 +502,7 @@ def plan_single_skill(
                     desired_representation="copy",
                     expected_fingerprint=r_fp,
                     desired_fingerprint=c_fp,
-                    expected_generation=exp_gen,
+                    expected_revision=expected_revision,
                     next_state_lifecycle="active" if auth else None,
                     next_baseline_origin="write" if auth else None,
                 )
@@ -520,7 +522,7 @@ def plan_single_skill(
                         desired_representation="copy",
                         expected_fingerprint=r_fp,
                         desired_fingerprint=c_fp,
-                        expected_generation=exp_gen,
+                        expected_revision=expected_revision,
                         next_state_lifecycle="active",
                         next_baseline_origin="claim",
                     )
@@ -536,7 +538,7 @@ def plan_single_skill(
                     desired_representation="copy",
                     expected_fingerprint=r_fp,
                     desired_fingerprint=c_fp,
-                    expected_generation=exp_gen,
+                    expected_revision=expected_revision,
                 )
             auth = force
             return SkillOperation(
@@ -556,7 +558,7 @@ def plan_single_skill(
                 desired_representation="copy",
                 expected_fingerprint=r_fp,
                 desired_fingerprint=c_fp,
-                expected_generation=exp_gen,
+                expected_revision=expected_revision,
                 next_state_lifecycle="active" if auth else None,
                 next_baseline_origin="write" if auth else None,
             )
@@ -591,7 +593,7 @@ def plan_single_skill(
             desired_mode="absent",
             resource_name=target.skill_name,
         )
-        return _skill_op_from_link_op(link_op, target, exp_gen)
+        return _skill_op_from_link_op(link_op, target, expected_revision)
     if observed.entry_type == "dir":
         state = observed.state_record
         if state and state.lifecycle == "active":
@@ -603,7 +605,7 @@ def plan_single_skill(
                 expected_representation="copy",
                 desired_representation="absent",
                 expected_fingerprint=observed.runtime_fingerprint,
-                expected_generation=exp_gen,
+                expected_revision=expected_revision,
                 next_state_lifecycle="inactive",
                 is_authorized=True,
             )
@@ -626,7 +628,7 @@ def plan_single_skill(
             reason=f"Deactivate state record for absent deselected skill '{target.skill_name}'",
             expected_representation="missing",
             desired_representation="absent",
-            expected_generation=exp_gen,
+            expected_revision=expected_revision,
             next_state_lifecycle="inactive",
             is_authorized=True,
         )
@@ -648,7 +650,7 @@ def format_authorization_item(op: SkillOperation) -> str:
     des_fp = op.desired_fingerprint or "-"
     exp_rep = op.expected_representation
     des_rep = op.desired_representation
-    gen = op.expected_generation if op.expected_generation is not None else "-"
+    revision = op.expected_revision if op.expected_revision is not None else "-"
     next_lc = op.next_state_lifecycle or "-"
     return (
         f"AUTH: [{op.action}/{op.force_type or 'default'}] "
@@ -656,7 +658,7 @@ def format_authorization_item(op: SkillOperation) -> str:
         f"path='{t.target_path.as_posix()}' "
         f"rep='{exp_rep}->{des_rep}' "
         f"fp='{exp_fp}->{des_fp}' "
-        f"state_gen='{gen}->{next_lc}'"
+        f"state_revision='{revision}->{next_lc}'"
     )
 
 

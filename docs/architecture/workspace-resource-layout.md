@@ -188,7 +188,7 @@ which path is available locally.
 The resource center is an initially empty directory, not another workspace.
 It stores canonical resource content and a manifest at
 `.local/state/aikito/workspace-reconcile/remote.json`. The manifest contains
-`sync_id`, a monotonic `generation`, and fingerprints and references keyed by
+`sync_id`, a monotonic `revision`, and fingerprints and references keyed by
 logical resource ID. Version 2 also stores typed TOML field payloads, retaining
 actual key components and values through a TOML encoding. Shared config and
 project files are not copied to the center: only accepted fields and collection
@@ -199,7 +199,7 @@ content location does not need to match a workspace layout. Physical storage pat
 implementation details rather than persisted comparison identities.
 
 Each replica keeps `.local/state/aikito/workspace-reconcile/replica.json` with
-its `sync_id`, `replica_id`, confirmed generation, and a per-resource base.
+its `sync_id`, `replica_id`, confirmed revision, and a per-resource base.
 Replica and center root locations are not comparison identities; project path
 candidates remain logical resource data. Completed replicas and centers may be
 moved without changing identity. Moving an unfinished transaction is
@@ -238,8 +238,8 @@ its `agent.toml`; empty managed memory directories left behind are ignored.
 Unmanaged entries and unsafe paths still produce findings.
 
 Center writers share a cross-process lock. A batch is accepted only if its
-expected center identity, generation, and resource snapshot still match.
-All resource replacements, deletions, and the incremented generation use one
+expected center identity, revision, and resource snapshot still match.
+All resource replacements, deletions, and the incremented revision use one
 transaction, verified before confirmation. Possible plaintext credentials are
 blocked per logical payload before upload, including content supplied outside
 a workspace. A secret in one shared field does not prevent safe fields in the
@@ -252,7 +252,7 @@ batch and the replica retains its previous base. Recovery rolls back each
 unfinished batch; the next round recognizes converged uploads and retries any
 remaining downloads. This protocol does not claim an atomic transaction across
 both stores. Conflicting resources never advance their base, and an unchanged
-round does not increment the center generation.
+round does not increment the center revision.
 
 
 The end-to-end acceptance scenario lives in

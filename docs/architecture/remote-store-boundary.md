@@ -11,19 +11,19 @@ The implemented data interface is `read() -> RemoteSnapshot`,
 `fetch(expected, ids) -> Mapping[str, ResourcePayload]`,
 `commit(expected, mutations) -> RemoteSnapshot`, and `recover() -> bool`.
 The first implementation retains no historical content: a changed center
-identity or generation makes fetch fail with `SnapshotExpired`, including an
+identity or revision makes fetch fail with `SnapshotExpired`, including an
 empty fetch. Clients discard staging and replan. Operations either return a
 result from one coherent snapshot or fail; a newer payload cannot be labeled
 as content from an older snapshot.
 
 | Value | Required semantics |
 | --- | --- |
-| Snapshot | Opaque `sync_id`, nonnegative generation, resource descriptors indexed by opaque ID; no physical `ResourcePart` or paths. Descriptors carry a logical fingerprint, transport hash, and an optional opaque content version. |
+| Snapshot | Opaque `sync_id`, nonnegative revision, resource descriptors indexed by opaque ID; no physical `ResourcePart` or paths. Descriptors carry a logical fingerprint, transport hash, and an optional opaque content version. |
 | Payload | Versioned, deterministic, portable content with no disk paths, handles, or shared directory requirements. The backend verifies the transport hash without interpreting the content. |
 | Mutation | Opaque resource ID, expected before descriptor or absence, and replacement descriptor plus payload, or an explicit delete with no payload. An empty fingerprint denotes presence and differs from absence. Duplicate IDs are invalid. |
 | Ownership | Snapshots, descriptors, mutations, and returned payloads are immutable or defensively copied at each boundary, including nested typed values. Caller mutation cannot affect stored or previously read state. |
-| Commit | Check expected identity and generation even for an empty batch; check every before descriptor, hash, and mutation before publishing the complete batch atomically. Rejection leaves content and generation unchanged. |
-| Generation | A nonempty accepted mutation batch advances generation exactly once; an empty accepted batch leaves it unchanged. Clients omit semantic NOOP mutations. |
+| Commit | Check expected identity and revision even for an empty batch; check every before descriptor, hash, and mutation before publishing the complete batch atomically. Rejection leaves content and revision unchanged. |
+| Revision | A nonempty accepted mutation batch advances revision exactly once; an empty accepted batch leaves it unchanged. Clients omit semantic NOOP mutations. |
 | Fetch | All requested IDs must be present and have intact content. No partial success or implicit missing values; duplicates in the requested collection are treated as a set. |
 | Recovery | Read and fetch never recover or create state. Pending transactions raise `RecoveryRequired`; explicit backend recovery owns locking and journals. Successful recovery requires replanning. A backend without recovery work returns false. |
 
@@ -54,9 +54,22 @@ and reproduce these fingerprints after decoding on another platform.
 
 ## Responsibility boundary
 
+`revision` names the center's batch commit version within one `sync_id`, separate
+from an individual descriptor's `content_version`. Replica revision records the
+confirmed remote progress; its per-resource Base may retain older values for
+conflicts and blocked resources and does not assert complete convergence.
+
+Center and replica state require a nonnegative integer `revision`. Missing,
+boolean, negative, or noninteger values are rejected. State versions and journal
+recovery rules remain unchanged; there is no legacy field fallback or migration.
+Skill copy state, plans, authorization summaries, and journals also use
+`revision`, independently of the remote counter. Local skill copy state alone
+accepts a legacy `generation` when `revision` is absent; reads leave the file
+unchanged, and successful saves emit only `revision`.
+
 | Store contract | Client / reconciliation engine | Optional plaintext backend defense |
 | --- | --- | --- |
-| Identity/generation compare-and-swap, complete batch publication, transport hashes, snapshot-bound fetch, immutable boundary values | Logical ID decoding, semantic fingerprints, references, credentials, selected resource policy, target path safety, post-write verification | Decode logical IDs for physical layout, parse plaintext, recompute fingerprints, reject invalid references or credentials |
+| Identity/revision compare-and-swap, complete batch publication, transport hashes, snapshot-bound fetch, immutable boundary values | Logical ID decoding, semantic fingerprints, references, credentials, selected resource policy, target path safety, post-write verification | Decode logical IDs for physical layout, parse plaintext, recompute fingerprints, reject invalid references or credentials |
 
 Resource IDs, `sync_id`, `replica_id`, and logical fingerprints are opaque
 strings to the store; it must not validate their logical meaning or require a
@@ -193,7 +206,7 @@ or staging files and never recover. Fetch compares the complete expected
 snapshot before returning any content, including for empty requests. Commit
 owns its cross-process lock, validates and stages the whole batch, and publishes
 through the existing recoverable center transaction. Empty commits still check
-the snapshot but do not advance generation. Recovery is explicit and requires
+the snapshot but do not advance revision. Recovery is explicit and requires
 replanning when it repaired a transaction.
 
 The existing version-1/version-2 center schema, identity, layout, and journal
@@ -210,7 +223,7 @@ portable mutation commit; Import keeps its independent local path adapter.
 `tests/workspace_memory_remote.py` implements `InMemoryRemote`, outside the
 installed product package. It stores only canonical encoded payload bytes and
 immutable descriptors, with an in-process mutex protecting snapshot comparison,
-full-batch validation, and one generation publication. It has no root, Path,
+full-batch validation, and one revision publication. It has no root, Path,
 center manifest, journal, staging directory, or filesystem attachment constraint.
 `recover()` returns false and claims no persistent recovery capability.
 
@@ -250,7 +263,7 @@ live in `test_workspace_reconcile_filesystem.py`. Existing legacy filesystem
 regressions remain useful as backend-specific checks alongside the shared suites.
 
 The acceptance script deliberately fails local download and Base writes after
-a simultaneous upload has been accepted by the center. The accepted generation
+a simultaneous upload has been accepted by the center. The accepted revision
 and uploaded content remain at the center; the local resources and old Base
 roll back together, and replanning converges without another semantic upload.
 The separate KeyboardInterrupt scenario verifies explicit local journal recovery.

@@ -1,6 +1,6 @@
 """Test-only content-blind store with atomic in-memory publication.
 
-Encoded payload bytes and immutable descriptors belong to one generation.
+Encoded payload bytes and immutable descriptors belong to one revision.
 There is no physical center, journal, or semantic resource/path decoding.
 """
 
@@ -46,13 +46,13 @@ class InMemoryRemote:
 
     def _copy_snapshot(self) -> RemoteSnapshot:
         return RemoteSnapshot(
-            self._snapshot.sync_id, self._snapshot.generation, self._snapshot.resources
+            self._snapshot.sync_id, self._snapshot.revision, self._snapshot.resources
         )
 
     def _expect(self, expected: RemoteSnapshot) -> None:
         if expected != self._snapshot:
             raise SnapshotExpired(
-                "Resource center identity or generation changed; replan"
+                "Resource center identity or revision changed; replan"
             )
 
     def read(self) -> RemoteSnapshot:
@@ -115,7 +115,7 @@ class InMemoryRemote:
                     descriptors[mutation.id] = mutation.after
                     payloads[mutation.id] = encoded
             snapshot = RemoteSnapshot(
-                self._snapshot.sync_id, self._snapshot.generation + 1, descriptors
+                self._snapshot.sync_id, self._snapshot.revision + 1, descriptors
             )
             self._snapshot, self._payloads = snapshot, payloads
             return self._copy_snapshot()

@@ -20,7 +20,7 @@ class StoreError(ValueError):
 
 
 class SnapshotExpired(StoreError):
-    """The expected center identity or generation is no longer current."""
+    """The expected center identity or revision is no longer current."""
 
 
 class InvalidContent(StoreError):
@@ -38,17 +38,17 @@ class StoreUnavailable(StoreError):
 @dataclass(frozen=True)
 class RemoteSnapshot:
     sync_id: str
-    generation: int
+    revision: int
     resources: Mapping[str, ResourceDescriptor]
 
     def __post_init__(self):
         if (
             type(self.sync_id) is not str
             or not self.sync_id
-            or type(self.generation) is not int
-            or self.generation < 0
+            or type(self.revision) is not int
+            or self.revision < 0
         ):
-            raise InvalidContent("Invalid remote snapshot identity or generation")
+            raise InvalidContent("Invalid remote snapshot identity or revision")
         if any(
             type(key) is not str or not key or not isinstance(value, ResourceDescriptor)
             for key, value in self.resources.items()

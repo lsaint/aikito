@@ -33,6 +33,7 @@ from .resource_state import (
     REPLICA_STATE,
     SYNC_KINDS,
     decode_resources,
+    decode_revision,
     encode_resources,
     LOCAL_CONFIG,
     state_path,
@@ -77,7 +78,7 @@ class WorkspaceReconcileError(WorkspaceCoreError):
 class ReplicaState:
     sync_id: str
     replica_id: str
-    generation: int
+    revision: int
     base: dict[str, Resource]
 
     def encode(self) -> str:
@@ -87,7 +88,7 @@ class ReplicaState:
                 "skill_fingerprint": SKILL_FINGERPRINT_SCHEME,
                 "sync_id": self.sync_id,
                 "replica_id": self.replica_id,
-                "generation": self.generation,
+                "revision": self.revision,
                 "base": encode_resources(self.base),
             },
             sort_keys=True,
@@ -116,8 +117,8 @@ class ReconcilePlan:
     resolutions: tuple[tuple[str, str], ...] = ()
 
     @property
-    def generation(self) -> int:
-        return self.remote_snapshot.generation
+    def revision(self) -> int:
+        return self.remote_snapshot.revision
 
     @property
     def base(self) -> dict[str, Resource]:
@@ -183,12 +184,12 @@ def _read_state(
         raise WorkspaceReconcileError("Invalid replica state") from exc
     if not isinstance(raw, dict) or raw.get("version") != 2:
         raise WorkspaceReconcileError("Unsupported replica state version")
+    revision = decode_revision(raw)
     if (
         not isinstance(raw.get("sync_id"), str)
         or not raw.get("sync_id")
         or not valid_identity(raw.get("replica_id"))
-        or type(raw.get("generation")) is not int
-        or not 0 <= raw["generation"] <= remote.generation
+        or revision > remote.revision
     ):
         raise WorkspaceReconcileError("Invalid replica state")
     if raw["sync_id"] != remote.sync_id:
@@ -198,7 +199,7 @@ def _read_state(
     return ReplicaState(
         raw["sync_id"],
         raw["replica_id"],
-        raw["generation"],
+        revision,
         base,
     ), text
 
@@ -597,7 +598,7 @@ def apply_reconcile_plan(
             )
             if fresh != plan:
                 raise WorkspaceReconcileError(
-                    "Resources or generation changed after planning; run again"
+                    "Resources or revision changed after planning; run again"
                 )
             if plan.blocked:
                 raise WorkspaceReconcileError(
@@ -662,7 +663,7 @@ def apply_reconcile_plan(
                 state = ReplicaState(
                     center.sync_id,
                     plan.state.replica_id if plan.state else uuid.uuid4().hex,
-                    center.generation,
+                    center.revision,
                     base,
                 )
                 if not local_changes and state == plan.state:

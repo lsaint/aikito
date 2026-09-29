@@ -77,7 +77,7 @@ def test_center_change_between_read_and_download_rejects_local_application(
     original = backend.remote.fetch
 
     def fetch(expected, ids):
-        # A second accepted upload changes only the center generation after the
+        # A second accepted upload changes only the center revision after the
         # applying client read it, before it obtains planned download content.
         (b / "memory/notes/concurrent.md").write_text("concurrent", encoding="utf-8")
         monkeypatch.setattr(backend.remote, "fetch", original)
@@ -88,7 +88,7 @@ def test_center_change_between_read_and_download_rejects_local_application(
         return original(expected, ids)
 
     monkeypatch.setattr(backend.remote, "fetch", fetch)
-    with pytest.raises(WorkspaceReconcileError, match="generation changed"):
+    with pytest.raises(WorkspaceReconcileError, match="revision changed"):
         backend.apply(plan, home)
     assert files(a) == before
-    assert backend.generation() == plan.generation + 1
+    assert backend.revision() == plan.revision + 1

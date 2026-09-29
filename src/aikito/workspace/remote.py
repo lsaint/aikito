@@ -1,7 +1,7 @@
 """Filesystem resource center with conditional, recoverable batch commits.
 
 The center is a resource store, not a workspace. Its manifest names logical
-resources and a monotonically increasing generation; consumers obtain content
+resources and a monotonically increasing revision; consumers obtain content
 by resource ID instead of depending on a workspace directory layout.
 """
 
@@ -73,6 +73,7 @@ from .resource_state import (
     state_path,
     local_resource_for_id,
     decode_resources,
+    decode_revision,
     encode_resources,
     validate_skill_fingerprint_scheme,
     valid_identity,
@@ -108,14 +109,14 @@ def resource_for_id(identity: str, fingerprint: str) -> Resource:
 @dataclass(frozen=True)
 class _CenterState:
     sync_id: str
-    generation: int
+    revision: int
     resources: dict[str, Resource]
     values: dict[str, TomlValue] = field(default_factory=dict)
     payload_hashes: dict[str, str] | None = field(default_factory=dict)
 
 
 class FilesystemRemote:
-    """Read by ID and commit a complete batch against one expected generation."""
+    """Read by ID and commit a complete batch against one expected revision."""
 
     _mutex = threading.RLock()
 
@@ -195,7 +196,7 @@ class FilesystemRemote:
                 "version": 2,
                 "skill_fingerprint": SKILL_FINGERPRINT_SCHEME,
                 "sync_id": snapshot.sync_id,
-                "generation": snapshot.generation,
+                "revision": snapshot.revision,
                 "resources": {
                     key: {
                         "fingerprint": resource.fingerprint,
@@ -349,10 +350,9 @@ class FilesystemRemote:
             or type(raw.get("version")) is not int
             or raw.get("version") not in (1, 2)
             or not valid_identity(raw.get("sync_id"))
-            or type(raw.get("generation")) is not int
-            or raw["generation"] < 0
         ):
             raise WorkspaceCoreError("Invalid resource center state")
+        revision = decode_revision(raw)
         resources = decode_resources(raw.get("resources"))
         validate_skill_fingerprint_scheme(raw.get("skill_fingerprint"), resources)
         try:
@@ -367,7 +367,7 @@ class FilesystemRemote:
             raise WorkspaceCoreError("Resource center changed during read; run again")
         return _CenterState(
             raw["sync_id"],
-            raw["generation"],
+            revision,
             resources,
             values,
             raw.get("payload_hashes"),
@@ -406,7 +406,7 @@ class FilesystemRemote:
             )
             if path.read_bytes() != before:
                 raise SnapshotExpired(
-                    "Resource center generation changed during read; replan"
+                    "Resource center revision changed during read; replan"
                 )
             if has_pending((self.root,), policy=RECONCILE_POLICY):
                 raise RecoveryRequired("Pending center transaction needs recovery")
@@ -415,7 +415,7 @@ class FilesystemRemote:
                 raise InvalidContent("Resource center payload integrity mismatch")
             snapshot = RemoteSnapshot(
                 state.sync_id,
-                state.generation,
+                state.revision,
                 {
                     key: ResourceDescriptor(
                         resource.fingerprint, hashes[key], resource.references
@@ -437,7 +437,7 @@ class FilesystemRemote:
     ) -> Mapping[str, ResourcePayload]:
         _, current, payloads = self._load()
         if current != expected:
-            raise SnapshotExpired("Resource center generation changed; replan")
+            raise SnapshotExpired("Resource center revision changed; replan")
         if any(identity not in current.resources for identity in ids):
             raise InvalidContent("Missing requested resource content")
         return MappingProxyType({identity: payloads[identity] for identity in ids})
@@ -449,7 +449,7 @@ class FilesystemRemote:
             with self.lock():
                 state, current, _ = self._load()
                 if current != expected:
-                    raise SnapshotExpired("Resource center generation changed; replan")
+                    raise SnapshotExpired("Resource center revision changed; replan")
                 if len(mutations) != len({m.id for m in mutations}):
                     raise InvalidContent("Duplicate resource mutation ID")
                 if not mutations:
@@ -511,11 +511,11 @@ class FilesystemRemote:
         *,
         payload_hashes: Mapping[str, str],
     ) -> _CenterState:
-        """Commit all accepted writes and generation together, or none of them."""
+        """Commit all accepted writes and revision together, or none of them."""
         with self.lock():
             current = self._read_state()
             if current != expected:
-                raise WorkspaceCoreError("Resource center generation changed; replan")
+                raise WorkspaceCoreError("Resource center revision changed; replan")
             if not writes:
                 return current
             resources = dict(current.resources)
@@ -607,7 +607,7 @@ class FilesystemRemote:
                     raise WorkspaceCoreError("Invalid center resource batch")
                 new = _CenterState(
                     current.sync_id,
-                    current.generation + 1,
+                    current.revision + 1,
                     resources,
                     values,
                     dict(payload_hashes),

@@ -82,6 +82,36 @@ class SkillStateFingerprintTests(TestCase):
 
 
 class SkillStateStoreTests(TestCase):
+    def test_revision_or_legacy_generation_is_required_and_validated(self) -> None:
+        state = {
+            "version": 1,
+            "workspace_root": "/workspace",
+            "project_name": "demo",
+            "physical_checkout": "/checkout",
+            "records": {},
+        }
+        with self.assertRaises(KeyError):
+            ProjectSkillStateDocument.from_dict(state)
+        for field in ("revision", "generation"):
+            for value in (None, True, -1, "0"):
+                with (
+                    self.subTest(field=field, value=value),
+                    self.assertRaises(ValueError),
+                ):
+                    ProjectSkillStateDocument.from_dict({**state, field: value})
+        legacy = ProjectSkillStateDocument.from_dict({**state, "generation": 7})
+        self.assertEqual(legacy.revision, 7)
+        self.assertEqual(legacy.to_dict()["revision"], 7)
+        self.assertNotIn("generation", legacy.to_dict())
+        current = ProjectSkillStateDocument.from_dict(
+            {**state, "revision": 9, "generation": 7}
+        )
+        self.assertEqual(current.revision, 9)
+        with self.assertRaises(ValueError):
+            ProjectSkillStateDocument.from_dict(
+                {**state, "revision": None, "generation": 7}
+            )
+
     def test_load_nonexistent_returns_none(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             home = Path(td)
@@ -106,7 +136,7 @@ class SkillStateStoreTests(TestCase):
             )
             doc = ProjectSkillStateDocument(
                 version=1,
-                generation=0,
+                revision=0,
                 workspace_root=ws.as_posix(),
                 project_name="demo",
                 physical_checkout=co.as_posix(),
@@ -119,21 +149,21 @@ class SkillStateStoreTests(TestCase):
             loaded_doc, load_err = load_project_skill_state(home, ws, "demo", co)
             self.assertIsNone(load_err)
             self.assertIsNotNone(loaded_doc)
-            self.assertEqual(loaded_doc.generation, 1)
+            self.assertEqual(loaded_doc.revision, 1)
             self.assertEqual(loaded_doc.project_name, "demo")
             self.assertIn("test-skill", loaded_doc.records)
             self.assertEqual(
                 loaded_doc.records["test-skill"].baseline_fingerprint, "v1:abc123hash"
             )
 
-    def test_generation_mismatch_fails_save(self) -> None:
+    def test_revision_mismatch_fails_save(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             home = Path(td)
             ws = home / "workspace"
             co = home / "checkout"
             doc = ProjectSkillStateDocument(
                 version=1,
-                generation=5,
+                revision=5,
                 workspace_root=ws.as_posix(),
                 project_name="demo",
                 physical_checkout=co.as_posix(),
@@ -143,10 +173,10 @@ class SkillStateStoreTests(TestCase):
             )
             save_project_skill_state(home, doc)
 
-            # Saving with wrong expected generation must fail
-            ok, err = save_project_skill_state(home, doc, expected_generation=999)
+            # Saving with wrong expected revision must fail
+            ok, err = save_project_skill_state(home, doc, expected_revision=999)
             self.assertFalse(ok)
-            self.assertIn("generation mismatch", err or "")
+            self.assertIn("revision mismatch", err or "")
 
     def test_empty_records_removes_state_file(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -155,7 +185,7 @@ class SkillStateStoreTests(TestCase):
             co = home / "checkout"
             doc = ProjectSkillStateDocument(
                 version=1,
-                generation=0,
+                revision=0,
                 workspace_root=ws.as_posix(),
                 project_name="demo",
                 physical_checkout=co.as_posix(),
@@ -663,18 +693,18 @@ class SkillTransactionRecoveryTests(TestCase):
             st_file = get_skill_state_dir(home) / f"{b_hash}.json"
             st_file.parent.mkdir(parents=True, exist_ok=True)
 
-            # Initial state doc before transaction had generation 1
+            # Initial state doc before transaction had revision 1
             orig_doc = {
                 "version": 1,
-                "generation": 1,
+                "revision": 1,
                 "workspace_root": ws.as_posix(),
                 "project_name": "demo",
                 "physical_checkout": co.as_posix(),
                 "records": {},
             }
-            # Transaction applied 2 skills before crashing, bumping generation to 3
+            # Transaction applied 2 skills before crashing, bumping revision to 3
             crashed_doc = dict(orig_doc)
-            crashed_doc["generation"] = 3
+            crashed_doc["revision"] = 3
             st_file.write_text(json.dumps(crashed_doc), encoding="utf-8")
 
             tx_id = "tx-multi-skill-crash"
@@ -693,7 +723,7 @@ class SkillTransactionRecoveryTests(TestCase):
                         "project_name": "demo",
                         "physical_checkout": co.as_posix(),
                         "pre_doc": orig_doc,
-                        "pre_generation": 1,
+                        "pre_revision": 1,
                         "post_docs": [crashed_doc],
                     }
                 ],
@@ -703,7 +733,7 @@ class SkillTransactionRecoveryTests(TestCase):
             recovered, msg = run_recovery_pass(home, ws, affected_projects=["demo"])
             self.assertTrue(recovered, f"Recovery failed: {msg}")
             restored = json.loads(st_file.read_text(encoding="utf-8"))
-            self.assertEqual(restored["generation"], 1)
+            self.assertEqual(restored["revision"], 1)
 
     def test_state_transition_missing_identity_metadata_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -734,7 +764,7 @@ class SkillTransactionRecoveryTests(TestCase):
                         "binding_hash": b_hash,
                         # Missing workspace_root, project_name, physical_checkout
                         "pre_doc": None,
-                        "pre_generation": 0,
+                        "pre_revision": 0,
                     }
                 ],
             )
@@ -950,7 +980,7 @@ class SkillTransactionRecoveryTests(TestCase):
                         "project_name": "demo",
                         "physical_checkout": co2.as_posix(),
                         "pre_doc": None,
-                        "pre_generation": 0,
+                        "pre_revision": 0,
                         "post_docs": [],
                     }
                 ],
@@ -1096,12 +1126,12 @@ class SkillTransactionRecoveryTests(TestCase):
             b_hash = get_binding_hash(ws, "demo", co)
             st_file = get_skill_state_dir(home) / f"{b_hash}.json"
             st_file.parent.mkdir(parents=True, exist_ok=True)
-            # An external writer reused the transaction's expected generation.
+            # An external writer reused the transaction's expected revision.
             st_file.write_text(
                 json.dumps(
                     {
                         "version": 1,
-                        "generation": 2,
+                        "revision": 2,
                         "records": {},
                         "external": True,
                     }
@@ -1124,9 +1154,9 @@ class SkillTransactionRecoveryTests(TestCase):
                         "workspace_root": ws.as_posix(),
                         "project_name": "demo",
                         "physical_checkout": co.as_posix(),
-                        "pre_doc": {"version": 1, "generation": 1, "records": {}},
-                        "pre_generation": 1,
-                        "post_docs": [{"version": 1, "generation": 2, "records": {}}],
+                        "pre_doc": {"version": 1, "revision": 1, "records": {}},
+                        "pre_revision": 1,
+                        "post_docs": [{"version": 1, "revision": 2, "records": {}}],
                     }
                 ],
             )
@@ -1154,9 +1184,9 @@ class SkillTransactionRecoveryTests(TestCase):
             b_hash = get_binding_hash(ws, "demo", co)
             st_file = get_skill_state_dir(home) / f"{b_hash}.json"
             st_file.parent.mkdir(parents=True, exist_ok=True)
-            # Transaction wrote generation 1
+            # Transaction wrote revision 1
             st_file.write_text(
-                json.dumps({"version": 1, "generation": 1, "records": {}}),
+                json.dumps({"version": 1, "revision": 1, "records": {}}),
                 encoding="utf-8",
             )
 
@@ -1176,8 +1206,8 @@ class SkillTransactionRecoveryTests(TestCase):
                         "project_name": "demo",
                         "physical_checkout": co.as_posix(),
                         "pre_doc": None,
-                        "pre_generation": 0,
-                        "post_docs": [{"version": 1, "generation": 1, "records": {}}],
+                        "pre_revision": 0,
+                        "post_docs": [{"version": 1, "revision": 1, "records": {}}],
                     }
                 ],
             )

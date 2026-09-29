@@ -88,9 +88,9 @@ def main() -> None:
     apply(right)
 
     for local in (left, right):
-        generation = remote.read().generation
+        revision = remote.read().revision
         assert not apply(local).changes
-        assert remote.read().generation == generation
+        assert remote.read().revision == revision
 
     for relative in (
         Path("memory/notes/deleted.md"),

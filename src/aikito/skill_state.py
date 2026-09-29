@@ -1,6 +1,6 @@
 """Project skill local state storage, locking, content fingerprinting, and transactions.
 
-This module implements host-local copy state records, monotonic generation tracking,
+This module implements host-local copy state records, monotonic revision tracking,
 cross-platform writer locks, whole-tree directory fingerprinting, and recovery journals
 governed by Aikito engineering invariants.
 """
@@ -81,7 +81,7 @@ class ProjectSkillStateDocument:
     """Document holding all skill copy records for one workspace + project + checkout binding."""
 
     version: int
-    generation: int
+    revision: int
     workspace_root: str
     project_name: str
     physical_checkout: str
@@ -90,7 +90,7 @@ class ProjectSkillStateDocument:
     def to_dict(self) -> dict[str, Any]:
         return {
             "version": self.version,
-            "generation": self.generation,
+            "revision": self.revision,
             "workspace_root": self.workspace_root,
             "project_name": self.project_name,
             "physical_checkout": self.physical_checkout,
@@ -100,7 +100,9 @@ class ProjectSkillStateDocument:
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> ProjectSkillStateDocument:
         version = int(data.get("version", 1))
-        generation = int(data.get("generation", 0))
+        revision = data["revision"] if "revision" in data else data["generation"]
+        if type(revision) is not int or revision < 0:
+            raise ValueError("Invalid skill state revision")
         workspace_root = str(data["workspace_root"])
         project_name = str(data["project_name"])
         physical_checkout = str(data["physical_checkout"])
@@ -110,7 +112,7 @@ class ProjectSkillStateDocument:
         }
         return cls(
             version=version,
-            generation=generation,
+            revision=revision,
             workspace_root=workspace_root,
             project_name=project_name,
             physical_checkout=physical_checkout,
@@ -310,9 +312,9 @@ def load_project_skill_state(
 def save_project_skill_state(
     home: Path,
     doc: ProjectSkillStateDocument,
-    expected_generation: int | None = None,
+    expected_revision: int | None = None,
 ) -> tuple[bool, str | None]:
-    """Atomically commit an updated state document with generation guard."""
+    """Atomically commit an updated state document with revision guard."""
     state_dir, error = validate_state_store_root(home, create_if_missing=True)
     if error:
         return False, error
@@ -331,22 +333,22 @@ def save_project_skill_state(
                 return False, f"Failed to remove empty state file {state_file}: {exc}"
         return True, None
 
-    # Verify generation if expected_generation provided
-    if expected_generation is not None:
+    # Verify revision if expected_revision provided
+    if expected_revision is not None:
         if state_file.exists():
             current_doc, load_err = load_project_skill_state(
                 home, workspace_root, doc.project_name, checkout_path
             )
             if load_err:
-                return False, f"Cannot verify generation: {load_err}"
-            if current_doc and current_doc.generation != expected_generation:
+                return False, f"Cannot verify revision: {load_err}"
+            if current_doc and current_doc.revision != expected_revision:
                 return (
                     False,
-                    f"State generation mismatch for {state_file}: "
-                    f"expected {expected_generation}, found {current_doc.generation}",
+                    f"State revision mismatch for {state_file}: "
+                    f"expected {expected_revision}, found {current_doc.revision}",
                 )
 
-    doc.generation += 1
+    doc.revision += 1
     content = json.dumps(doc.to_dict(), indent=2, sort_keys=True)
 
     tmp_fd, tmp_path_str = tempfile.mkstemp(
@@ -1153,7 +1155,7 @@ def run_recovery_pass(
                         f"Journal state file path validation failed: {st_file} outside state root",
                     )
 
-                pre_gen = st.get("pre_generation", 0)
+                pre_revision = st.get("pre_revision", 0)
                 post_docs = st.get("post_docs")
                 if not isinstance(post_docs, list):
                     return (
@@ -1190,7 +1192,7 @@ def run_recovery_pass(
                         else:
                             return (
                                 False,
-                                f"Concurrent modification detected in state file {st_file} (generation {curr_data.get('generation', 0)} is not a recorded transaction post-image after {pre_gen}); recovery aborted to preserve pending journal {journal.tx_id}",
+                                f"Concurrent modification detected in state file {st_file} (revision {curr_data.get('revision', 0)} is not a recorded transaction post-image after {pre_revision}); recovery aborted to preserve pending journal {journal.tx_id}",
                             )
                 except Exception as exc:
                     return (

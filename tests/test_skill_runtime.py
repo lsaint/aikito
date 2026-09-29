@@ -378,7 +378,7 @@ class SkillRuntimeExecutionTests(TestCase):
             )
             self.assertEqual(target_path.read_text(encoding="utf-8"), "rogue file")
 
-    def test_executor_verifies_expected_generation_precondition(self) -> None:
+    def test_executor_verifies_expected_revision_precondition(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             home = root / "home"
@@ -398,10 +398,10 @@ class SkillRuntimeExecutionTests(TestCase):
             (target_path / "SKILL.md").write_text("# Initial\n", encoding="utf-8")
             r_fp, _ = calculate_directory_fingerprint(target_path)
 
-            # Seed state doc at generation 1
+            # Seed state doc at revision 1
             init_doc = ProjectSkillStateDocument(
                 version=1,
-                generation=1,
+                revision=1,
                 workspace_root=ws.as_posix(),
                 project_name="demo",
                 physical_checkout=co.as_posix(),
@@ -419,12 +419,12 @@ class SkillRuntimeExecutionTests(TestCase):
                 desired_representation="copy",
                 expected_fingerprint=r_fp,
                 desired_fingerprint=c_fp,
-                expected_generation=1,
+                expected_revision=1,
             )
             plan = build_skill_plan(ws, "demo", [op])
 
-            # Concurrently advance generation to 2
-            init_doc.generation = 2
+            # Concurrently advance revision to 2
+            init_doc.revision = 2
             save_project_skill_state(home, init_doc)
 
             res = execute_skill_plan(plan, home, dry_run=False)
@@ -667,7 +667,7 @@ class SelectionMutationTransactionTests(TestCase):
             # Seed an active state record for some-skill
             init_doc = ProjectSkillStateDocument(
                 version=1,
-                generation=1,
+                revision=1,
                 workspace_root=ws.as_posix(),
                 project_name="p1",
                 physical_checkout=repo.as_posix(),
@@ -752,7 +752,7 @@ class SelectionMutationTransactionTests(TestCase):
             # Seed an active state record for some-skill
             init_doc = ProjectSkillStateDocument(
                 version=1,
-                generation=1,
+                revision=1,
                 workspace_root=ws.as_posix(),
                 project_name="p1",
                 physical_checkout=repo.as_posix(),
@@ -792,7 +792,7 @@ class SelectionMutationTransactionTests(TestCase):
                     p1.read_text(encoding="utf-8"), "p1-concurrently-written"
                 )
 
-    def test_multiple_copy_ops_same_plan_sequential_generation(self) -> None:
+    def test_multiple_copy_ops_same_plan_sequential_revision(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             home = root / "home"
@@ -828,7 +828,7 @@ class SelectionMutationTransactionTests(TestCase):
                 expected_representation="missing",
                 desired_representation="copy",
                 desired_fingerprint=s1_fp,
-                expected_generation=0,
+                expected_revision=0,
             )
 
             t2 = SkillTarget(
@@ -847,7 +847,7 @@ class SelectionMutationTransactionTests(TestCase):
                 expected_representation="missing",
                 desired_representation="copy",
                 desired_fingerprint=s2_fp,
-                expected_generation=0,
+                expected_revision=0,
             )
 
             plan = build_skill_plan(ws, "demo", [op1, op2])
@@ -857,7 +857,7 @@ class SelectionMutationTransactionTests(TestCase):
 
             doc, _ = load_project_skill_state(home, ws, "demo", co)
             self.assertIsNotNone(doc)
-            self.assertEqual(doc.generation, 2)
+            self.assertEqual(doc.revision, 2)
             self.assertIn("skill-one", doc.records)
             self.assertIn("skill-two", doc.records)
 
@@ -1109,10 +1109,10 @@ class SelectionMutationTransactionTests(TestCase):
             orig_toml = f'name = "p1"\npath = "{repo.as_posix()}"\n'
             p1.write_text(orig_toml, encoding="utf-8")
 
-            # Seed state document with generation 2 (save increments generation by 1)
+            # Seed state document with revision 2 (save increments revision by 1)
             init_doc = ProjectSkillStateDocument(
                 version=1,
-                generation=1,
+                revision=1,
                 workspace_root=ws.as_posix(),
                 project_name="p1",
                 physical_checkout=repo.as_posix(),
@@ -1161,19 +1161,19 @@ class SelectionMutationTransactionTests(TestCase):
             self.assertEqual(
                 st["physical_checkout"], repo.resolve(strict=False).as_posix()
             )
-            self.assertEqual(st["pre_generation"], 2)
+            self.assertEqual(st["pre_revision"], 2)
             self.assertEqual(len(st["post_docs"]), 1)
-            self.assertEqual(st["post_docs"][0]["generation"], 3)
+            self.assertEqual(st["post_docs"][0]["revision"], 3)
             self.assertEqual(
                 st["post_docs"][0]["records"]["some-skill"]["lifecycle"],
                 "inactive",
             )
 
             # Now simulate crash of an interrupted selection transaction:
-            # Re-write state with deactivated state (generation 3) and re-create pending journal
+            # Re-write state with deactivated state (revision 3) and re-create pending journal
             doc_after, _ = load_project_skill_state(home, ws, "p1", repo)
             self.assertIsNotNone(doc_after)
-            self.assertEqual(doc_after.generation, 3)
+            self.assertEqual(doc_after.revision, 3)
             self.assertEqual(doc_after.records["some-skill"].lifecycle, "inactive")
 
             crash_tx_id = "tx-selection-crash"
@@ -1185,10 +1185,10 @@ class SelectionMutationTransactionTests(TestCase):
             recovered, msg = run_recovery_pass(home, ws, affected_projects=["p1"])
             self.assertTrue(recovered, f"Recovery failed: {msg}")
 
-            # State document should be restored to generation 2 and active lifecycle
+            # State document should be restored to revision 2 and active lifecycle
             doc_restored, _ = load_project_skill_state(home, ws, "p1", repo)
             self.assertIsNotNone(doc_restored)
-            self.assertEqual(doc_restored.generation, 2)
+            self.assertEqual(doc_restored.revision, 2)
             self.assertEqual(doc_restored.records["some-skill"].lifecycle, "active")
 
     def test_run_skill_plan_committed_cleanup_failure_reports_error(self) -> None:
@@ -1217,7 +1217,7 @@ class SelectionMutationTransactionTests(TestCase):
                 expected_representation="missing",
                 desired_representation="copy",
                 desired_fingerprint=s1_fp,
-                expected_generation=0,
+                expected_revision=0,
             )
             plan = build_skill_plan(ws, "demo", [op1])
 

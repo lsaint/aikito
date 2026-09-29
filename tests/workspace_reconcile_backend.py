@@ -36,7 +36,7 @@ class ReconciliationBackend(Protocol):
 
     def fingerprints(self) -> dict[str, str]: ...
 
-    def generation(self) -> int: ...
+    def revision(self) -> int: ...
 
     def checkpoint(self) -> object:
         """Capture storage state to detect unintended writes."""
@@ -62,8 +62,8 @@ class StoreBackend:
             for key, value in self.remote.read().resources.items()
         }
 
-    def generation(self) -> int:
-        return self.remote.read().generation
+    def revision(self) -> int:
+        return self.remote.read().revision
 
 
 class FilesystemBackend(StoreBackend):

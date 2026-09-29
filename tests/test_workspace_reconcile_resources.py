@@ -624,10 +624,10 @@ def test_reference_resolution_preview_is_stale_after_provider_edit(tmp_path, rep
         b, remote, resolutions={"project-skill:demo/x": "local"}
     )
     write(b, "skills/x/SKILL.md", "# Edited after preview\n")
-    generation = remote.read().generation
+    revision = remote.read().revision
     with pytest.raises(WorkspaceReconcileError, match="changed after planning"):
         apply_reconcile_plan(plan, home, remote=remote)
-    assert remote.read().generation == generation
+    assert remote.read().revision == revision
     assert "skill:x" not in remote.read().resources
     assert (b / "skills/x/SKILL.md").read_text() == "# Edited after preview\n"
 

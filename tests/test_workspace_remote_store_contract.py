@@ -48,16 +48,16 @@ def checkpoint(store):
     return snapshot, store.fetch(snapshot, snapshot.resources)
 
 
-def test_generation_presence_update_delete_and_empty_batch(store):
+def test_revision_presence_update_delete_and_empty_batch(store):
     initial = store.read()
     assert store.commit(initial, []) == initial
     one, two = mutation(), mutation("two")
     snapshot = store.commit(initial, [one, two])
-    assert snapshot.generation == initial.generation + 1
+    assert snapshot.revision == initial.revision + 1
     updated = mutation(data=b"changed", before=one.after)
     deleted = ResourceMutation(two.id, two.after, None, None)
     final = store.commit(snapshot, [updated, deleted])
-    assert final.generation == snapshot.generation + 1
+    assert final.revision == snapshot.revision + 1
     assert store.fetch(final, [one.id]) == {one.id: updated.payload}
     assert two.id not in final.resources
     assert initial.resources == {}
@@ -65,10 +65,10 @@ def test_generation_presence_update_delete_and_empty_batch(store):
 
 
 @pytest.mark.parametrize("operation", ["fetch", "commit"])
-@pytest.mark.parametrize("mismatch", ["generation", "identity", "descriptor"])
+@pytest.mark.parametrize("mismatch", ["revision", "identity", "descriptor"])
 def test_stale_empty_requests_do_not_change_state(store, operation, mismatch):
     expected = store.read()
-    if mismatch == "generation":
+    if mismatch == "revision":
         store.commit(expected, [mutation()])
     elif mismatch == "identity":
         expected = replace(expected, sync_id="unrelated opaque identity")
@@ -94,7 +94,7 @@ def test_stale_nonempty_fetch_and_missing_batch_have_no_partial_success(store):
 
 
 @pytest.mark.parametrize("invalid", ["duplicate", "before", "hash"])
-def test_invalid_whole_batch_preserves_generation_and_payloads(store, invalid):
+def test_invalid_whole_batch_preserves_revision_and_payloads(store, invalid):
     snapshot = store.read()
     first, second = mutation(), mutation("two")
     if invalid == "duplicate":
@@ -110,7 +110,7 @@ def test_invalid_whole_batch_preserves_generation_and_payloads(store, invalid):
     assert checkpoint(store) == before
 
 
-def test_two_writers_cannot_publish_the_same_generation(store):
+def test_two_writers_cannot_publish_the_same_revision(store):
     snapshot = store.read()
     ready = threading.Barrier(2)
 
@@ -125,7 +125,7 @@ def test_two_writers_cannot_publish_the_same_generation(store):
         results = list(executor.map(submit, ("one", "two")))
     assert sum(result is not None for result in results) == 1
     final = store.read()
-    assert final.generation == snapshot.generation + 1
+    assert final.revision == snapshot.revision + 1
     assert len(final.resources) == 1
     assert len(store.fetch(final, final.resources)) == 1
 

@@ -47,11 +47,13 @@ def test_legacy_center_reads_then_upgrades_on_commit(tmp_path):
     }
     state.pop("values")
     state_path.write_text(json.dumps(state))
-    assert remote.read().generation == state["generation"]
+    assert remote.read().revision == state["revision"]
     assert json.loads(state_path.read_text())["version"] == 1
     write(a, "config.toml", "[update]\ncheck = false\n")
     round_trip(a, remote, home)
-    assert json.loads(state_path.read_text())["version"] == 2
+    updated = json.loads(state_path.read_text())
+    assert updated["version"] == 2
+    assert updated["revision"] == state["revision"] + 1
 
 
 def test_center_rejects_tampered_field_payload_and_references(tmp_path):
@@ -66,7 +68,7 @@ def test_center_rejects_tampered_field_payload_and_references(tmp_path):
         build_reconcile_plan(b, remote)
 
 
-def test_shared_center_manifest_interruption_recovers_values_and_generation(tmp_path):
+def test_shared_center_manifest_interruption_recovers_values_and_revision(tmp_path):
     a, b, remote, home = pair(tmp_path)
     write(a, "config.toml", "[memory]\nstale_days = 10\n")
     round_trip(a, remote, home)

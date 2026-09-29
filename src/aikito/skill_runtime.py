@@ -203,9 +203,9 @@ def inspect_skill_target(
         home, target.workspace_root, target.project_name, target.physical_checkout
     )
     state_record: SkillStateRecord | None = None
-    state_generation: int = 0
+    state_revision: int = 0
     if state_doc:
-        state_generation = state_doc.generation
+        state_revision = state_doc.revision
         if target.skill_name in state_doc.records:
             state_record = state_doc.records[target.skill_name]
 
@@ -223,7 +223,7 @@ def inspect_skill_target(
         state_record=state_record,
         state_error=state_err,
         target_lstat=target_lstat,
-        state_generation=state_generation,
+        state_revision=state_revision,
     )
 
     desired = DesiredSkill(
@@ -346,7 +346,7 @@ def execute_skill_plan(
             if doc is None:
                 doc = ProjectSkillStateDocument(
                     version=1,
-                    generation=0,
+                    revision=0,
                     workspace_root=plan.workspace_root.as_posix(),
                     project_name=plan.project_name,
                     physical_checkout=checkout_path.as_posix(),
@@ -391,15 +391,15 @@ def execute_skill_plan(
         # 4. Pre-validate all operations across all checkouts before mutating anything
         for checkout_path, ops in ops_by_checkout.items():
             doc = initial_docs[checkout_path]
-            initial_checkout_generation = doc.generation
+            initial_checkout_revision = doc.revision
 
             for op in ops:
                 if op.action == "NOOP":
                     continue
 
                 if (
-                    op.expected_generation is not None
-                    and initial_checkout_generation != op.expected_generation
+                    op.expected_revision is not None
+                    and initial_checkout_revision != op.expected_revision
                 ):
                     return SkillExecutionResult(
                         applied_ops=(),
@@ -411,8 +411,8 @@ def execute_skill_plan(
                         state_only_changes=0,
                         error_message=(
                             f"State document changed since plan for skill '{op.target.skill_name}': "
-                            f"expected generation {op.expected_generation}, "
-                            f"found {initial_checkout_generation}. Plan invalidated; please re-run."
+                            f"expected revision {op.expected_revision}, "
+                            f"found {initial_checkout_revision}. Plan invalidated; please re-run."
                         ),
                     )
 
@@ -662,7 +662,7 @@ def execute_skill_plan(
         journal_state_transitions: list[dict[str, Any]] = []
         for checkout_path in ops_by_checkout:
             raw_orig = initial_raw_docs[checkout_path]
-            pre_gen = raw_orig.generation if raw_orig is not None else 0
+            pre_revision = raw_orig.revision if raw_orig is not None else 0
             journal_state_transitions.append(
                 {
                     "binding_hash": get_binding_hash(
@@ -672,7 +672,7 @@ def execute_skill_plan(
                     "project_name": plan.project_name,
                     "physical_checkout": checkout_path.as_posix(),
                     "pre_doc": raw_orig.to_dict() if raw_orig is not None else None,
-                    "pre_generation": pre_gen,
+                    "pre_revision": pre_revision,
                     "post_docs": [],
                 }
             )
@@ -710,7 +710,7 @@ def execute_skill_plan(
             checkout_path: Path, doc: ProjectSkillStateDocument
         ) -> str | None:
             anticipated = doc.to_dict()
-            anticipated["generation"] = doc.generation + 1
+            anticipated["revision"] = doc.revision + 1
             binding_hash = get_binding_hash(
                 plan.workspace_root, plan.project_name, checkout_path
             )
@@ -743,7 +743,7 @@ def execute_skill_plan(
             for transition in journal.state_transitions:
                 if transition.get("binding_hash") == binding_hash:
                     transition["pre_doc"] = doc.to_dict() if doc.records else None
-                    transition["pre_generation"] = doc.generation
+                    transition["pre_revision"] = doc.revision
                     transition["post_docs"] = []
                     break
             if config_applied:
@@ -888,7 +888,7 @@ def execute_skill_plan(
                             "Source changed during staging; apply aborted.",
                         )
 
-                    prev_generation = doc.generation
+                    prev_revision = doc.revision
                     target_had_entry = (
                         target.target_path.is_symlink() or target.target_path.exists()
                     )
@@ -918,7 +918,7 @@ def execute_skill_plan(
                             f"Failed to journal state for skill '{target.skill_name}': {journal_error}",
                         )
                     state_ok, state_err = save_project_skill_state(
-                        home, doc, expected_generation=prev_generation
+                        home, doc, expected_revision=prev_revision
                     )
                     if not state_ok:
                         return rollback_current(
@@ -937,7 +937,7 @@ def execute_skill_plan(
                     continue
 
                 if op.action in ("RECONCILE_STATE", "CLAIM_STATE", "REACTIVATE_STATE"):
-                    prev_generation = doc.generation
+                    prev_revision = doc.revision
                     doc.records[target.skill_name] = SkillStateRecord(
                         skill_name=target.skill_name,
                         representation="copy",
@@ -953,7 +953,7 @@ def execute_skill_plan(
                             f"Failed to journal state transition for '{target.skill_name}': {journal_error}",
                         )
                     state_ok, state_err = save_project_skill_state(
-                        home, doc, expected_generation=prev_generation
+                        home, doc, expected_revision=prev_revision
                     )
                     if not state_ok:
                         return rollback_current(
@@ -973,7 +973,7 @@ def execute_skill_plan(
                 if op.action == "DEACTIVATE_STATE":
                     if target.skill_name in doc.records:
                         old = doc.records[target.skill_name]
-                        prev_generation = doc.generation
+                        prev_revision = doc.revision
                         doc.records[target.skill_name] = SkillStateRecord(
                             skill_name=target.skill_name,
                             representation=old.representation,
@@ -989,7 +989,7 @@ def execute_skill_plan(
                                 f"Failed to journal state deactivation for '{target.skill_name}': {journal_error}",
                             )
                         state_ok, state_err = save_project_skill_state(
-                            home, doc, expected_generation=prev_generation
+                            home, doc, expected_revision=prev_revision
                         )
                         if not state_ok:
                             return rollback_current(
@@ -1035,7 +1035,7 @@ def execute_skill_plan(
 
                     if target.skill_name in doc.records:
                         old = doc.records[target.skill_name]
-                        prev_generation = doc.generation
+                        prev_revision = doc.revision
                         doc.records[target.skill_name] = SkillStateRecord(
                             skill_name=target.skill_name,
                             representation="copy",
@@ -1051,7 +1051,7 @@ def execute_skill_plan(
                                 f"Failed to journal copy→link state for '{target.skill_name}': {journal_error}",
                             )
                         state_ok, state_err = save_project_skill_state(
-                            home, doc, expected_generation=prev_generation
+                            home, doc, expected_revision=prev_revision
                         )
                         if not state_ok:
                             return rollback_current(
@@ -1281,7 +1281,7 @@ def execute_selection_transaction(
                                     f"Cannot load state for pre-image snapshot: {load_err}",
                                 )
                             b_hash = get_binding_hash(workspace_root, proj, co_path)
-                            pre_gen = doc.generation if doc else 0
+                            pre_revision = doc.revision if doc else 0
                             post_docs: list[dict[str, Any]] = []
                             if doc is not None:
                                 anticipated = copy.deepcopy(doc)
@@ -1298,7 +1298,7 @@ def execute_selection_transaction(
                                                 last_observed_selected=False,
                                             )
                                         )
-                                anticipated.generation += 1
+                                anticipated.revision += 1
                                 post_docs.append(anticipated.to_dict())
                             state_transitions.append(
                                 {
@@ -1307,7 +1307,7 @@ def execute_selection_transaction(
                                     "project_name": proj,
                                     "physical_checkout": co_path.as_posix(),
                                     "pre_doc": doc.to_dict() if doc else None,
-                                    "pre_generation": pre_gen,
+                                    "pre_revision": pre_revision,
                                     "post_docs": post_docs,
                                 }
                             )

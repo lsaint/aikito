@@ -20,6 +20,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Bare `aikito diff` is decoupled from cwd project scoping so that global drift is always visible regardless of the current working directory.
 - `aikito diff --all` preserves full unified diff output for all drifted resources across the workspace.
 - `aikito doctor` recommendations and project runtime details update copied skill drift fix actions from generic `aikito diff` to precise `aikito diff project <name>`.
+- State version counters use `revision` consistently across RemoteStore, reconciliation, skill copy plans, persisted state, and transaction journals. Existing local skill copy state accepts the legacy `generation` field on read and writes `revision` on the next successful save.
 
 ## [1.56.0] - 2026-09-29
 
@@ -28,7 +29,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `aikito show projects` and project status details display estimated context token footprints across project instructions, project memory notes, and selected skill definitions, with summary notices and token-count formatting.
 
 - Internal portable resource payloads and mutations support byte files, typed TOML fields, skill trees, and logical membership, with deterministic transport hashes and validated local staging.
-- Internal resource reconciliation now connects independent workspace replicas through a filesystem resource center with conditional generation commits, per-resource conflict choices, and recoverable deletion.
+- Internal resource reconciliation now connects independent workspace replicas through a filesystem resource center with conditional revision commits, per-resource conflict choices, and recoverable deletion.
 
 ### Changed
 
@@ -274,7 +275,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - Implemented project skill synchronization engine supporting both symlink (`link`) and directory snapshot (`copy`) deployment modes.
-- Introduced transactional skill state management with atomic staging, generation tracking, compare-and-swap (CAS) verification, and crash recovery journals.
+- Introduced transactional skill state management with atomic staging, revision tracking, compare-and-swap (CAS) verification, and crash recovery journals.
 - Added platform-specific path compatibility and atomic replacement primitives across macOS, Linux, and Windows.
 - Expanded CI test matrix with cross-platform smoke test assertions for project skill synchronization.
 

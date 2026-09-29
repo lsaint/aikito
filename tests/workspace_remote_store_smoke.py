@@ -67,9 +67,9 @@ def exercise(base: Path):
     assert (right / "memory/notes/portable-store.md").read_bytes() == (
         left / "memory/notes/portable-store.md"
     ).read_bytes()
-    generation = store.read().generation
+    revision = store.read().revision
     assert not run_reconciliation(right, store, home, dry_run=False).changes
-    assert store.read().generation == generation
+    assert store.read().revision == revision
 
 
 if __name__ == "__main__":

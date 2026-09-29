@@ -167,6 +167,14 @@ def encode_resources(resources: dict[str, Resource]) -> dict[str, str]:
     return {key: resource.fingerprint for key, resource in sorted(resources.items())}
 
 
+def decode_revision(state: dict[str, object]) -> int:
+    """Read the required nonnegative revision without rewriting state."""
+    revision = state.get("revision")
+    if type(revision) is not int or revision < 0:
+        raise WorkspaceCoreError("Invalid resource state revision")
+    return revision
+
+
 def validate_skill_fingerprint_scheme(
     scheme: object, resources: dict[str, Resource]
 ) -> None:

@@ -131,9 +131,9 @@ def test_add_update_delete_and_repeat_across_two_replicas(tmp_path):
     ] == [("memory:notes/a.md", "CREATE", "remote")]
     _round(a, remote, home)
     _round(b, remote, home)
-    generation, state = remote.read().generation, _state(b)
+    revision, state = remote.read().revision, _state(b)
     _round(b, remote, home)
-    assert remote.read().generation == generation and _state(b) == state
+    assert remote.read().revision == revision and _state(b) == state
     _write(b, "second")
     assert build_reconcile_plan(b, remote).changes[0].action == "UPDATE"
     _round(b, remote, home)
@@ -204,10 +204,10 @@ def test_matching_concurrent_edits_advance_base_without_center_write(tmp_path):
     for root in (a, b):
         _write(root, "same")
     _round(b, remote, home)
-    generation = remote.read().generation
+    revision = remote.read().revision
     assert build_reconcile_plan(a, remote).items[0].action == "NOOP"
     _round(a, remote, home)
-    assert remote.read().generation == generation
+    assert remote.read().revision == revision
     assert "memory:notes/a.md" in _state(a)["base"]
     (a / "memory/notes/a.md").unlink()
     _round(a, remote, home)
@@ -316,7 +316,7 @@ def test_credentials_block_only_upload_and_do_not_advance_base(tmp_path):
     assert (remote.root / "memory/notes/private.md").read_text() == "no secret"
 
 
-def test_conditional_commit_rejects_stale_generation_before_writes(tmp_path):
+def test_conditional_commit_rejects_stale_revision_before_writes(tmp_path):
     a, remote, home = _pair(tmp_path)
     stale = remote.read()
     _write(a, "new")
@@ -326,12 +326,12 @@ def test_conditional_commit_rejects_stale_generation_before_writes(tmp_path):
     write = ResourceWrite(
         Path(resource.parts[0].path), resource.kind, resource.fingerprint, resource.name
     )
-    with pytest.raises(SnapshotExpired, match="generation changed"):
+    with pytest.raises(SnapshotExpired, match="revision changed"):
         _commit(remote, stale, ResourceContent.from_workspace(snapshot), (write,))
-    assert remote.read().generation == 1
+    assert remote.read().revision == 1
 
 
-def test_competing_center_writers_cannot_commit_same_generation(tmp_path):
+def test_competing_center_writers_cannot_commit_same_revision(tmp_path):
     a, remote, _ = _pair(tmp_path)
     b = _workspace(tmp_path / "b")
     expected = remote.read()
@@ -357,15 +357,15 @@ def test_competing_center_writers_cannot_commit_same_generation(tmp_path):
         try:
             return _commit(
                 FilesystemRemote(remote.root), expected, content, (write,)
-            ).generation
+            ).revision
         except SnapshotExpired as exc:
-            assert "generation changed" in str(exc)
+            assert "revision changed" in str(exc)
             return None
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(commit, batches))
     assert results.count(1) == 1 and results.count(None) == 1
-    assert remote.read().generation == 1
+    assert remote.read().revision == 1
     assert len(remote.read().resources) == 1
 
 
@@ -376,7 +376,7 @@ def test_plan_rejects_stale_local_or_center_changes(tmp_path):
     _write(a, "later", "b")
     with pytest.raises(WorkspaceReconcileError, match="changed after planning"):
         apply_reconcile_plan(plan, home, remote=remote)
-    assert remote.read().generation == 0
+    assert remote.read().revision == 0
     plan = build_reconcile_plan(a, remote)
     b = _workspace(tmp_path / "b")
     _write(b, "other replica", "c")
@@ -425,14 +425,14 @@ def test_failure_does_not_advance_replica_base(tmp_path, failure):
             _round(a, remote, home)
     assert _state(a) == before
     if failure == "replica-state":
-        assert remote.read().generation == 1
+        assert remote.read().revision == 1
         assert (remote.root / "memory/notes/a.md").read_text() == "a"
     else:
-        assert remote.read().generation == 0
+        assert remote.read().revision == 0
         assert not (remote.root / "memory/notes/a.md").exists()
         assert not (remote.root / "memory/notes/b.md").exists()
     _round(a, remote, home)
-    assert _state(a)["generation"] == remote.read().generation
+    assert _state(a)["revision"] == remote.read().revision
 
 
 @pytest.mark.parametrize("target", ("local", "remote"))
@@ -507,7 +507,7 @@ def test_center_accepts_layout_independent_content_and_scans_credentials(
     if secret:
         with pytest.raises(InvalidContent, match="credential"):
             _commit(remote, remote.read(), content, (write,))
-        assert remote.read().generation == 0
+        assert remote.read().revision == 0
     else:
         _commit(remote, remote.read(), content, (write,))
         b = _workspace(tmp_path / "b")
@@ -561,7 +561,7 @@ def test_managed_area_findings_block_entire_round(tmp_path):
     _write(a, "safe")
     (a / "agents/broken.toml").write_text("invalid = [")
     plan = _round(a, remote, home)
-    assert plan.blocked and remote.read().generation == 0
+    assert plan.blocked and remote.read().revision == 0
     assert not (remote.root / "memory/notes/a.md").exists()
 
 
@@ -599,7 +599,7 @@ def test_center_rejects_failed_or_changed_staging_before_confirmation(
     with replacement:
         with pytest.raises((OSError, WorkspaceReconcileError)):
             _round(a, remote, home)
-    assert remote.read().generation == 0
+    assert remote.read().revision == 0
     assert not (remote.root / "memory/notes/a.md").exists()
     assert not (
         remote.root / ".local/state/aikito/workspace-transactions/pending.json"
@@ -619,7 +619,7 @@ def test_unmanaged_center_content_is_rejected_during_preview(tmp_path):
 
 @pytest.mark.parametrize(
     "case",
-    ("boolean-version", "boolean-generation", "escape", "bundled", "wrong-fingerprint"),
+    ("boolean-version", "boolean-revision", "escape", "bundled", "wrong-fingerprint"),
 )
 def test_invalid_center_manifest_is_rejected(tmp_path, case):
     a, remote, _ = _pair(tmp_path)
@@ -627,8 +627,8 @@ def test_invalid_center_manifest_is_rejected(tmp_path, case):
     state = json.loads(path.read_text())
     if case == "boolean-version":
         state["version"] = True
-    elif case == "boolean-generation":
-        state["generation"] = True
+    elif case == "boolean-revision":
+        state["revision"] = True
     elif case == "escape":
         state["resources"] = {"memory:../../escape.md": "0" * 64}
     elif case == "bundled":
@@ -651,7 +651,7 @@ def test_center_rejects_skill_payload_without_skill_definition(tmp_path):
     )
     with pytest.raises(PayloadError, match="SKILL.md"):
         _commit(remote, remote.read(), content, (write,))
-    assert remote.read().generation == 0
+    assert remote.read().revision == 0
     assert not (remote.root / "skills/invalid").exists()
 
 

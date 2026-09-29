@@ -127,10 +127,10 @@ def exercise_behavior(base: Path, backend: ReconciliationBackend) -> None:
         (a / area).mkdir(parents=True)
     write(a, "config.toml", '[inbox]\npath = "capture-a"\n')
     write(a, "skills.toml", "skills = []\n")
-    generation = backend.generation()
+    revision = backend.revision()
     deleted = apply(a)
     assert {item.id.partition(":")[0] for item in deleted.changes} == SYNC_KINDS
-    assert backend.generation() == generation + 1
+    assert backend.revision() == revision + 1
     converge()
     assert not backend.fingerprints()
     for relative, content in preserved.items():
@@ -164,13 +164,13 @@ def exercise_behavior(base: Path, backend: ReconciliationBackend) -> None:
         text = (local / "config.toml").read_text(encoding="utf-8")
         write(local, "config.toml", text.replace("true", "false"))
     apply(b)
-    generation = backend.generation()
+    revision = backend.revision()
     plan = apply(a)
     assert (
         next(item for item in plan.items if item.id == "config:update.check").action
         == "NOOP"
     )
-    assert backend.generation() == generation
+    assert backend.revision() == revision
     converge()
 
     # Conflicts retain their old base while independent additions still converge.
@@ -196,7 +196,7 @@ def exercise_behavior(base: Path, backend: ReconciliationBackend) -> None:
     assert not apply(a, resolutions={"config:memory.stale_days": "local"}).conflicts
     converge()
 
-    # A stale local plan and a stale center generation both fail without any writes.
+    # A stale local plan and a stale center revision both fail without any writes.
     write(a, "memory/notes/pending.md", "pending")
     plan = backend.plan(a)
     write(a, "projects/demo/AGENTS.md", "after preview")
@@ -209,7 +209,7 @@ def exercise_behavior(base: Path, backend: ReconciliationBackend) -> None:
         raise AssertionError("A stale local plan was accepted")
     assert before == (_files(a), _files(b), backend.checkpoint())
     plan = backend.plan(a)
-    write(b, "global/AGENTS.md", "new generation")
+    write(b, "global/AGENTS.md", "new revision")
     apply(b)
     before = _files(a), _files(b), backend.checkpoint()
     try:
@@ -258,7 +258,7 @@ def exercise_behavior(base: Path, backend: ReconciliationBackend) -> None:
         write(a, f"memory/notes/accepted-{failure}.md", "accepted upload")
         before = _files(a)
         state_before = (a / REPLICA_STATE).read_bytes()
-        generation = backend.generation()
+        revision = backend.revision()
         original_replace = os.replace
         original_text = transactions.atomic_text
         failed = False
@@ -297,11 +297,11 @@ def exercise_behavior(base: Path, backend: ReconciliationBackend) -> None:
         else:
             raise AssertionError("Expected local application failure")
         assert failed
-        assert backend.generation() == generation + 1
+        assert backend.revision() == revision + 1
         assert f"memory:notes/accepted-{failure}.md" in backend.fingerprints()
         assert _files(a) == before and (a / REPLICA_STATE).read_bytes() == state_before
         converge()
-        assert backend.generation() == generation + 1
+        assert backend.revision() == revision + 1
         assert (a / "capture-a/accepted-before-local.md").read_text() == failure
 
     # Removal and local relocation preserve pairing and host-local paths.

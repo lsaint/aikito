@@ -57,14 +57,14 @@ def exercise(base: Path, identity: str, side: str) -> None:
     assert (remote.root / "skills/x/SKILL.md").exists() == (side == "local")
 
     write(b, "memory/notes/rejected.md", "new")
-    generation = remote.read().generation
+    revision = remote.read().revision
     try:
         apply(b, resolutions={"memory:notes/rejected.md": "remote"})
     except WorkspaceReconcileError as exc:
         assert "requires a conflicting resource" in str(exc)
     else:
         raise AssertionError("Non-conflicting choice was silently accepted")
-    assert remote.read().generation == generation
+    assert remote.read().revision == revision
     assert not (remote.root / "memory/notes/rejected.md").exists()
     assert (b / "memory/notes/rejected.md").read_text(encoding="utf-8") == "new"
 

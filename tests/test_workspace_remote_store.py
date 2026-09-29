@@ -81,11 +81,11 @@ def test_snapshot_and_fetch_are_immutable_and_readonly(tmp_path):
 
 
 @pytest.mark.parametrize("operation", ["fetch", "commit"])
-@pytest.mark.parametrize("mismatch", ["generation", "identity"])
+@pytest.mark.parametrize("mismatch", ["revision", "identity"])
 def test_empty_requests_validate_the_snapshot(tmp_path, operation, mismatch):
     remote = FilesystemRemote.create(tmp_path / "center")
     old = remote.read()
-    if mismatch == "generation":
+    if mismatch == "revision":
         remote.commit(old, [mutation()])
     else:
         old = replace(old, sync_id="another opaque center")
@@ -98,9 +98,7 @@ def test_empty_requests_validate_the_snapshot(tmp_path, operation, mismatch):
 @pytest.mark.parametrize(
     "invalid", ["before", "duplicate", "fingerprint", "references", "credential"]
 )
-def test_entire_invalid_batch_leaves_content_and_generation_unchanged(
-    tmp_path, invalid
-):
+def test_entire_invalid_batch_leaves_content_and_revision_unchanged(tmp_path, invalid):
     remote = FilesystemRemote.create(tmp_path / "center")
     old = remote.read()
     first, second = mutation(), mutation("two")
@@ -266,7 +264,7 @@ def test_center_change_between_read_and_fetch_preserves_local_base(
             protocol_store.commit(protocol_store.read(), [mutation("concurrent")])
             return super().fetch(expected, ids)
 
-    with pytest.raises(WorkspaceReconcileError, match="generation changed"):
+    with pytest.raises(WorkspaceReconcileError, match="revision changed"):
         apply_reconcile_plan(plan, home, remote=RacingStore(protocol_store))
     assert files(local) == before
-    assert protocol_store.read().generation == plan.generation + 1
+    assert protocol_store.read().revision == plan.revision + 1
