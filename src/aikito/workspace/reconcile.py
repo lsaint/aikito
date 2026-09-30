@@ -156,6 +156,8 @@ def _center_resources(center: RemoteSnapshot) -> dict[str, Resource]:
 def _fetch_validated(
     remote: RemoteStore, center: RemoteSnapshot, resources: Mapping[str, Resource]
 ) -> Mapping[str, ResourcePayload]:
+    if not resources:
+        return {}
     payloads = remote.fetch(center, tuple(resources))
     if set(payloads) != set(resources):
         raise PayloadError("Incomplete remote payload batch")
@@ -164,6 +166,48 @@ def _fetch_validated(
             raise PayloadError("Downloaded payload transport hash mismatch")
         validate_payload(resource, payloads[identity])
     return payloads
+
+
+def _plan_payloads(
+    remote: RemoteStore,
+    center: RemoteSnapshot,
+    resources: Mapping[str, Resource],
+    items: list[ReconcileItem],
+    captured: Mapping[str, ResourcePayload] | None = None,
+) -> dict[str, ResourcePayload]:
+    """Fetch candidate downloads and fields needed to merge shared config."""
+    needed = {
+        item.id for item in items if item.target == "local" and item.after is not None
+    }
+    if any(
+        item.target is not None
+        and item.action in {"CREATE", "UPDATE"}
+        and item.id.startswith("config:")
+        for item in items
+    ):
+        # Literal dotted keys and nested keys cannot be distinguished from
+        # descriptor IDs, so merge validation needs the paths of all fields.
+        needed.update(
+            key for key, resource in resources.items() if resource.kind == "config"
+        )
+    result = dict(captured or {})
+    missing = {key: resources[key] for key in sorted(needed - result.keys())}
+    result.update(_fetch_validated(remote, center, missing))
+    return result
+
+
+def _remote_plan_content(
+    resources: dict[str, Resource], payloads: Mapping[str, ResourcePayload]
+) -> ResourceContent:
+    return ResourceContent(
+        resources,
+        {},
+        values={
+            key: payload.field()
+            for key, payload in payloads.items()
+            if isinstance(payload, TomlPayload)
+        },
+    )
 
 
 def _read_state(
@@ -522,16 +566,8 @@ def build_reconcile_plan(
         local_content = (
             ResourceContent.from_workspace(snapshot) if not snapshot.findings else None
         )
-        remote_payloads = _fetch_validated(remote, center, b)
-        remote_content = ResourceContent(
-            b,
-            {},
-            values={
-                key: payload.field()
-                for key, payload in remote_payloads.items()
-                if isinstance(payload, TomlPayload)
-            },
-        )
+        remote_payloads = _plan_payloads(remote, center, b, items)
+        remote_content = _remote_plan_content(b, remote_payloads)
         checked, findings = _check_items(
             items, snapshot, b, local_content, remote_content, remote_payloads
         )
@@ -543,6 +579,10 @@ def build_reconcile_plan(
                 )
         if choices:
             proposed = _resolve_items(items, choices, a, b)
+            remote_payloads = _plan_payloads(
+                remote, center, b, proposed, remote_payloads
+            )
+            remote_content = _remote_plan_content(b, remote_payloads)
             checked, findings = _check_items(
                 proposed, snapshot, b, local_content, remote_content, remote_payloads
             )

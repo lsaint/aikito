@@ -36,10 +36,21 @@ class StoreFacade:
         return self.__backend.recover()
 
 
+class NoopGuard(StoreFacade):
+    def __init__(self, backend):
+        super().__init__(backend)
+        self.reject_fetch = False
+
+    def fetch(self, expected, ids):
+        if self.reject_fetch:
+            raise AssertionError("NOOP rounds must not fetch content")
+        return super().fetch(expected, ids)
+
+
 def exercise(base: Path):
     left, right = _workspace(base / "left"), _workspace(base / "right")
     backend = FilesystemRemote.create(base / "center")
-    store = StoreFacade(backend)
+    store = NoopGuard(backend)
     home = base / "home"
     assert not any(hasattr(store, name) for name in ("root", "lock", "content"))
     run_reconciliation(left, store, home, dry_run=False)
@@ -70,6 +81,10 @@ def exercise(base: Path):
     revision = store.read().revision
     assert not run_reconciliation(right, store, home, dry_run=False).changes
     assert store.read().revision == revision
+
+    store.reject_fetch = True
+    assert not build_reconcile_plan(right, store).changes
+    assert not run_reconciliation(right, store, home, dry_run=False).changes
 
 
 if __name__ == "__main__":

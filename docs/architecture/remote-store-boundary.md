@@ -92,7 +92,12 @@ The protocol therefore permits opaque encrypted content in a later transport.
 
 ## Application sequence
 
-1. Read the center, scan the local workspace, and plan the safe subset.
+1. Read descriptors, scan the local workspace, and plan the safe subset. The
+   preview fetches only candidate local downloads and remote config fields
+   required to check a shared TOML merge. Conflict choices may add a second,
+   incremental fetch. A NOOP preview makes no fetch request. Config field IDs
+   do not distinguish literal dotted keys from nested keys, so a config change
+   requires the paths of all remote config fields in that shared file.
 2. With no center lock exposed to the engine, fetch all planned downloads
    against that snapshot. Validate and stage them locally. Verify selected
    upload content still matches the plan; preserve shared TOML field isolation.
@@ -199,6 +204,11 @@ protocol methods through a facade: the engine can access no root, lock, content
 path, or journal. The script runs on Ubuntu, macOS, and Windows with local file
 assertions and separate filesystem center assertions. The facade still delegates
 to the real filesystem store; it is not the stage-three in-memory backend.
+`test_workspace_reconcile_fetch_scope.py` verifies 60-resource NOOP previews
+and applications issue zero fetch calls on both backends. A single changed
+memory note fetches only that note, config changes fetch only that shared
+file's fields, and conflict resolution fetches only the newly chosen download.
+The real RemoteStore smoke also fails if a final NOOP fetches content.
 
 Filesystem read/fetch optimistically capture manifest and payload content,
 checking the manifest again and refusing pending journals; they create no lock
