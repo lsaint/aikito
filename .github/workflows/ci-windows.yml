@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: ["core", "workspace", "reconcile-resources", "reconcile-resolution"]
+        group: ["core", "workspace", "workspace-reconcile", "reconcile-resources", "reconcile-resolution"]
 
     steps:
       - uses: actions/checkout@v4
@@ -48,7 +48,12 @@ jobs:
       - name: Run workspace unit tests
         if: matrix.group == 'workspace'
         shell: pwsh
-        run: python -m pytest -n 2 --basetemp="$env:RUNNER_TEMP\pytest" -o 'python_files=test_workspace*.py' '--ignore=tests/test_workspace_reconcile_resources.py' '--ignore=tests/test_workspace_reconcile_resolution.py'
+        run: python -m pytest -n 2 --basetemp="$env:RUNNER_TEMP\pytest" -o 'python_files=test_workspace*.py' '--ignore-glob=tests/test_workspace_reconcile*.py'
+
+      - name: Run workspace reconcile core unit tests
+        if: matrix.group == 'workspace-reconcile'
+        shell: pwsh
+        run: python -m pytest -n 2 --basetemp="$env:RUNNER_TEMP\pytest" tests/test_workspace_reconcile.py tests/test_workspace_reconcile_boundary.py tests/test_workspace_reconcile_fetch_scope.py tests/test_workspace_reconcile_filesystem.py
 
       - name: Run reconcile resources unit tests
         if: matrix.group == 'reconcile-resources'
@@ -982,7 +987,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Workspace Reconcile and Import Smoke on Windows
+      - name: Workspace Reconcile Smoke on Windows
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
@@ -1082,6 +1087,34 @@ jobs:
           if (-not (Test-Path (Join-Path $reconcileBase "right\memory\notes\reconcile-smoke.md"))) {
             throw "Workspace reconcile did not create the note"
           }
+
+  windows-import-smoke:
+    runs-on: windows-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Optimize Windows Defender for CI
+        shell: pwsh
+        run: |
+          try {
+            Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+          } catch {}
+          try {
+            Add-MpPreference -ExclusionPath $env:RUNNER_TEMP, $env:GITHUB_WORKSPACE, $env:TEMP, $env:TMP, $HOME, "C:\hostedtoolcache\windows\Python" -ErrorAction SilentlyContinue
+            Add-MpPreference -ExclusionProcess @("python.exe", "git.exe") -ErrorAction SilentlyContinue
+          } catch {}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Workspace Import Smoke on Windows
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
           $importBase = Join-Path $env:RUNNER_TEMP "import-smoke"
           python tests/workspace_import_smoke.py "$importBase" --prepare-only
           $env:AIKITO_DIR = Join-Path $importBase "target"

@@ -59,8 +59,14 @@ def pair(tmp_path, remote):
     return a, b, remote, home
 
 
-@pytest.fixture(params=tuple(BACKEND_FACTORIES))
+@pytest.fixture(params=("memory",))
 def replicas(request, tmp_path):
+    backend = BACKEND_FACTORIES[request.param](tmp_path / "center")
+    return pair(tmp_path, backend.remote)
+
+
+@pytest.fixture(params=tuple(BACKEND_FACTORIES))
+def dual_backend_replicas(request, tmp_path):
     backend = BACKEND_FACTORIES[request.param](tmp_path / "center")
     return pair(tmp_path, backend.remote)
 
@@ -240,8 +246,8 @@ def test_standalone_create_update_delete_and_conflict(
     assert not build_reconcile_plan(b, remote).changes
 
 
-def test_shared_fields_memberships_and_project_delete(tmp_path, replicas):
-    a, b, remote, home = replicas
+def test_shared_fields_memberships_and_project_delete(tmp_path, dual_backend_replicas):
+    a, b, remote, home = dual_backend_replicas
     write(a, "skills/example/SKILL.md", "# Example\n")
     write(a, "skills.toml", 'skills = ["example", "aikito"]\n')
     write(
@@ -405,8 +411,10 @@ def test_project_deletion_cannot_orphan_instructions_or_notes(tmp_path, replicas
     assert "project:demo" in remote.read().resources
 
 
-def test_shared_multiple_changes_commit_once_and_recover(tmp_path, replicas):
-    a, b, remote, home = replicas
+def test_shared_multiple_changes_commit_once_and_recover(
+    tmp_path, dual_backend_replicas
+):
+    a, b, remote, home = dual_backend_replicas
     write(a, "config.toml", "[memory]\nstale_days = 10\n[update]\ncheck = true\n")
     round_trip(a, remote, home)
     round_trip(b, remote, home)

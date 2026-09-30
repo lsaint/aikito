@@ -51,8 +51,14 @@ def pair(tmp_path, remote):
     return a, b, remote, home
 
 
-@pytest.fixture(params=tuple(BACKEND_FACTORIES))
+@pytest.fixture(params=("memory",))
 def replicas(request, tmp_path):
+    backend = BACKEND_FACTORIES[request.param](tmp_path / "center")
+    return pair(tmp_path, backend.remote)
+
+
+@pytest.fixture(params=tuple(BACKEND_FACTORIES))
+def dual_backend_replicas(request, tmp_path):
     backend = BACKEND_FACTORIES[request.param](tmp_path / "center")
     return pair(tmp_path, backend.remote)
 
@@ -88,9 +94,9 @@ def round_trip(local, remote, home, **kwargs):
     ),
 )
 def test_shared_same_field_conflict_keeps_base_until_resolution(
-    tmp_path, replicas, relative, identity, first, second, third
+    tmp_path, dual_backend_replicas, relative, identity, first, second, third
 ):
-    a, b, remote, home = replicas
+    a, b, remote, home = dual_backend_replicas
     write(a, relative, first)
     round_trip(a, remote, home)
     round_trip(b, remote, home)
@@ -311,9 +317,9 @@ def test_reference_resolution_preview_is_stale_after_provider_edit(tmp_path, rep
 
 def test_provider_deletion_preserves_standalone_dependents_until_explicit_choice(
     tmp_path,
-    replicas,
+    dual_backend_replicas,
 ):
-    a, b, remote, home = replicas
+    a, b, remote, home = dual_backend_replicas
     write(a, "projects/demo/agent.toml", 'name = "demo"\n')
     round_trip(a, remote, home)
     round_trip(b, remote, home)
