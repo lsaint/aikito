@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.57.1] - 2026-09-30
+
 ### Changed
 
 - Internal reconciliation fetches only payloads needed for planned downloads and shared configuration checks; NOOP rounds avoid payload fetches.
@@ -1051,7 +1053,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.57.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.57.1...HEAD
+[1.57.1]: https://github.com/lsaint/aikito/compare/v1.57.0...v1.57.1
 [1.57.0]: https://github.com/lsaint/aikito/compare/v1.56.0...v1.57.0
 [1.56.0]: https://github.com/lsaint/aikito/compare/v1.55.0...v1.56.0
 [1.55.0]: https://github.com/lsaint/aikito/compare/v1.54.0...v1.55.0
