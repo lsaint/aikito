@@ -9,6 +9,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol
 
+from workspace_loopback_remote import LoopbackTransport
+from workspace_memory_remote import InMemoryRemote
+
 from aikito.workspace.reconcile import (
     ReconcilePlan,
     apply_reconcile_plan,
@@ -16,7 +19,7 @@ from aikito.workspace.reconcile import (
     run_reconciliation,
 )
 from aikito.workspace.remote import FilesystemRemote
-from workspace_memory_remote import InMemoryRemote
+from aikito.workspace.serialized_remote import SerializedRemoteStore
 
 
 def files(root: Path) -> dict[str, bytes]:
@@ -83,7 +86,33 @@ class InMemoryBackend(StoreBackend):
         return snapshot, self.remote.fetch(snapshot, tuple(snapshot.resources))
 
 
+class SerializedFilesystemBackend(StoreBackend):
+    """Filesystem center reached only through real protocol bytes."""
+
+    def __init__(self, root: Path):
+        backend = FilesystemRemote.create(root)
+        super().__init__(SerializedRemoteStore(LoopbackTransport(backend).exchange))
+
+    def checkpoint(self) -> object:
+        snapshot = self.remote.read()
+        return snapshot, self.remote.fetch(snapshot, tuple(snapshot.resources))
+
+
+class SerializedInMemoryBackend(StoreBackend):
+    """Memory center reached only through real protocol bytes."""
+
+    def __init__(self):
+        backend = InMemoryRemote()
+        super().__init__(SerializedRemoteStore(LoopbackTransport(backend).exchange))
+
+    def checkpoint(self) -> object:
+        snapshot = self.remote.read()
+        return snapshot, self.remote.fetch(snapshot, tuple(snapshot.resources))
+
+
 BACKEND_FACTORIES = {
     "filesystem": FilesystemBackend,
     "memory": lambda root: InMemoryBackend(),
+    "serialized-filesystem": SerializedFilesystemBackend,
+    "serialized-memory": lambda root: SerializedInMemoryBackend(),
 }
