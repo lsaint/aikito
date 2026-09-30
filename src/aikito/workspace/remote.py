@@ -206,7 +206,9 @@ class FilesystemRemote:
                 "skill_fingerprint": SKILL_FINGERPRINT_SCHEME,
                 "sync_id": snapshot.sync_id,
                 "revision": snapshot.revision,
-                "receipts": (snapshot.receipts or ReceiptHistory(snapshot.sync_id)).encode(),
+                "receipts": (
+                    snapshot.receipts or ReceiptHistory(snapshot.sync_id)
+                ).encode(),
                 "resources": {
                     key: {
                         "fingerprint": resource.fingerprint,
@@ -395,7 +397,11 @@ class FilesystemRemote:
             resources,
             values,
             raw.get("payload_hashes"),
-            ReceiptHistory.decode(raw["sync_id"], revision, raw.get("receipts", {"version": 1, "latest": {}})),
+            ReceiptHistory.decode(
+                raw["sync_id"],
+                revision,
+                raw.get("receipts", {"version": 1, "latest": {}}),
+            ),
         )
 
     def _content(self, snapshot: _CenterState) -> ResourceContent:
@@ -756,12 +762,23 @@ class FilesystemRemote:
                     apply(
                         (self.root,),
                         changes,
-                        states=(StateUpdate(0, REMOTE_STATE, path.read_text(encoding="utf-8"), self.encode(new)),),
-                        verify=lambda: verify_resource_snapshot(self.verify_contents(resources, values), resources),
+                        states=(
+                            StateUpdate(
+                                0,
+                                REMOTE_STATE,
+                                path.read_text(encoding="utf-8"),
+                                self.encode(new),
+                            ),
+                        ),
+                        verify=lambda: verify_resource_snapshot(
+                            self.verify_contents(resources, values), resources
+                        ),
                         policy=RECONCILE_POLICY,
                     )
             except Exception as exc:
                 if publication_started:
-                    raise CommitOutcomeUnknown("Center publication outcome must be resolved") from exc
+                    raise CommitOutcomeUnknown(
+                        "Center publication outcome must be resolved"
+                    ) from exc
                 raise
             return new

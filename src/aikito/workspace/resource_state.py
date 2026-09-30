@@ -50,7 +50,9 @@ REMOTE_STATE = ".local/state/aikito/workspace-reconcile/remote.json"
 REPLICA_STATE = ".local/state/aikito/workspace-reconcile/replica.json"
 PENDING_COMMIT_STATE = ".local/state/aikito/workspace-reconcile/pending.json"
 RECONCILE_POLICY = PathPolicy(
-    states=(REMOTE_STATE, REPLICA_STATE, PENDING_COMMIT_STATE), create_parents=True, inbox_prefix="inbox"
+    states=(REMOTE_STATE, REPLICA_STATE, PENDING_COMMIT_STATE),
+    create_parents=True,
+    inbox_prefix="inbox",
 )
 
 
@@ -220,5 +222,7 @@ def valid_identity(value: object) -> bool:
 
 
 REPLICA_POLICY = PathPolicy(
-    states=(REPLICA_STATE, PENDING_COMMIT_STATE), create_parents=True, inbox_prefix="inbox"
+    states=(REPLICA_STATE, PENDING_COMMIT_STATE),
+    create_parents=True,
+    inbox_prefix="inbox",
 )

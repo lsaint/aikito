@@ -692,7 +692,9 @@ def apply_reconcile_plan(
                     plan.remote_snapshot.resources,
                 )
                 if snapshot_workspace(plan.local) != plan.local_snapshot:
-                    raise WorkspaceReconcileError("Local resources changed before sending")
+                    raise WorkspaceReconcileError(
+                        "Local resources changed before sending"
+                    )
                 pending = result = None
                 replica_id = plan.state.replica_id if plan.state else uuid.uuid4().hex
                 if mutations:
