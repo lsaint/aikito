@@ -1,4 +1,4 @@
-"""Storage guarantees shared by filesystem and test-only memory stores."""
+"""Storage guarantees shared by filesystem, memory and serialized loopback stores."""
 
 from __future__ import annotations
 
@@ -8,6 +8,9 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
 import pytest
+from workspace_loopback_remote import LoopbackTransport
+from workspace_memory_remote import InMemoryRemote
+from workspace_store_setup import publish_batch
 
 from aikito.workspace.payload import (
     FilePayload,
@@ -17,21 +20,27 @@ from aikito.workspace.payload import (
     TomlPayload,
     payload_hash,
 )
-from aikito.workspace.resources import value_fingerprint
 from aikito.workspace.remote import FilesystemRemote
 from aikito.workspace.remote_store import InvalidContent, SnapshotExpired
+from aikito.workspace.resources import value_fingerprint
+from aikito.workspace.serialized_remote import SerializedRemoteStore
 from aikito.workspace.toml_render import TomlValue
-from workspace_memory_remote import InMemoryRemote
-from workspace_store_setup import publish_batch
 
 
-@pytest.fixture(params=["filesystem", "memory"])
+@pytest.fixture(
+    params=["filesystem", "memory", "serialized-filesystem", "serialized-memory"]
+)
 def store(request, tmp_path):
-    return (
+    if request.param == "filesystem":
+        return FilesystemRemote.create(tmp_path / "center")
+    if request.param == "memory":
+        return InMemoryRemote()
+    backend = (
         FilesystemRemote.create(tmp_path / "center")
-        if request.param == "filesystem"
+        if request.param == "serialized-filesystem"
         else InMemoryRemote()
     )
+    return SerializedRemoteStore(LoopbackTransport(backend).exchange)
 
 
 def mutation(name="one", data=b"one", before=None):
