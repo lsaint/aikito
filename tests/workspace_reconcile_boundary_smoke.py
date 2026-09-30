@@ -1,14 +1,11 @@
-"""Exercise portable skill fingerprints and explicit legacy-state refusal."""
+"""Exercise portable skill mode sync and explicit legacy-state refusal."""
 
 from __future__ import annotations
 
 import json
 import os
-import stat
 import sys
-from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import patch
 
 from aikito.workspace.reconcile import (
     WorkspaceReconcileError,
@@ -17,32 +14,14 @@ from aikito.workspace.reconcile import (
 )
 from aikito.workspace.remote import FilesystemRemote, REMOTE_STATE, REPLICA_STATE
 from aikito.workspace.resources import SKILL_FINGERPRINT_SCHEME, snapshot_workspace
+from aikito.workspace.skill_metadata import (
+    read_executable_metadata,
+    write_executable_metadata,
+)
 from aikito.workspace.remote_store import InvalidContent
 from workspace_reconcile_backend import files
 from workspace_reconcile_resources_smoke import write
 from workspace_reconcile_smoke import _workspace
-
-
-@contextmanager
-def executable_view(enabled: bool):
-    """Simulate POSIX/Windows permission views on every CI operating system."""
-    original = Path.lstat
-
-    def lstat(path, *args, **kwargs):
-        result = original(path, *args, **kwargs)
-        if (
-            "center" in path.parts
-            or path.name != "run.sh"
-            or not stat.S_ISREG(result.st_mode)
-        ):
-            return result
-        fields = list(result)
-        mask = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
-        fields[0] = result.st_mode | mask if enabled else result.st_mode & ~mask
-        return os.stat_result(fields)
-
-    with patch.object(Path, "lstat", lstat):
-        yield
 
 
 def exercise(base: Path) -> None:
@@ -58,27 +37,35 @@ def exercise(base: Path) -> None:
         assert not plan.blocked and not plan.conflicts
         return plan
 
-    with executable_view(True):
-        fingerprint = snapshot_workspace(a).resources["skill:portable"].fingerprint
-        run(a)
-    with executable_view(False):
-        assert (
-            snapshot_workspace(a).resources["skill:portable"].fingerprint == fingerprint
-        )
-        run(b)
-        assert (
-            snapshot_workspace(b).resources["skill:portable"].fingerprint == fingerprint
-        )
-        revision = remote.read().revision
-        assert not run(b).changes
-        assert remote.read().revision == revision
-        write(b, "skills/portable/run.sh", "echo changed\n")
-        run(b)
-    with executable_view(True):
-        run(a)
-        revision = remote.read().revision
-        assert not run(a).changes
-        assert remote.read().revision == revision
+    fingerprint = snapshot_workspace(a).resources["skill:portable"].fingerprint
+    run(a)
+    run(b)
+    script = a / "skills/portable/run.sh"
+    if os.name == "nt":
+        write_executable_metadata(script.parent / ".aikito-executable.json", ["run.sh"])
+    else:
+        script.chmod(script.stat().st_mode | 0o111)
+    updated = snapshot_workspace(a).resources["skill:portable"]
+    assert updated.fingerprint == fingerprint
+    assert (
+        updated.mode_fingerprint
+        != snapshot_workspace(b).resources["skill:portable"].mode_fingerprint
+    )
+    assert [item.id for item in build_reconcile_plan(a, remote).changes] == [
+        "skill:portable"
+    ]
+    run(a)
+    run(b)
+    assert (
+        snapshot_workspace(b).resources["skill:portable"].mode_fingerprint
+        == updated.mode_fingerprint
+    )
+    write(b, "skills/portable/run.sh", "echo changed\n")
+    run(b)
+    run(a)
+    revision = remote.read().revision
+    assert not run(a).changes
+    assert remote.read().revision == revision
     assert (a / "skills/portable/run.sh").read_bytes() == b"echo changed\n"
     assert (b / "skills/portable/empty").is_dir()
 
@@ -106,8 +93,17 @@ def exercise(base: Path) -> None:
         path.write_bytes(original)
     run(a)
     run(b)
+    if os.name == "nt":
+        (b / "skills/portable/run.sh").unlink()
+        assert not build_reconcile_plan(b, remote).blocked
+        run(b)
+        run(a)
+        assert not (a / "skills/portable/run.sh").exists()
+        assert not read_executable_metadata(
+            a / "skills/portable/.aikito-executable.json"
+        )
 
 
 if __name__ == "__main__":
     exercise(Path(sys.argv[1]).resolve())
-    print("[SUCCESS] Remote Store Boundary fingerprint checks passed")
+    print("[SUCCESS] Remote Store Boundary mode checks passed")

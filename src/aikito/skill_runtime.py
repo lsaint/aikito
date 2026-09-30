@@ -50,6 +50,7 @@ from .skill_state import (
     save_project_skill_state,
     write_transaction_journal,
 )
+from .skill_artifacts import SKILL_EXECUTABLE_METADATA
 
 
 @dataclass(frozen=True)
@@ -865,7 +866,11 @@ def execute_skill_plan(
 
                     try:
                         staging_dir.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copytree(canonical_source, staging_dir)
+                        shutil.copytree(
+                            canonical_source,
+                            staging_dir,
+                            ignore=shutil.ignore_patterns(SKILL_EXECUTABLE_METADATA),
+                        )
                     except Exception as exc:
                         return rollback_current(
                             op,

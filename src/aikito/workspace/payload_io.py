@@ -26,6 +26,7 @@ from .payload import (
     TreePayload,
     credential_payload,
     payload_hash,
+    tree_mode_fingerprint,
     validate_payload,
     validate_tree_path,
 )
@@ -180,7 +181,12 @@ def capture_mutations(
                 raise PayloadError("Mutation source changed after planning")
             payload = payloads[write.id]
             descriptor = ResourceDescriptor(
-                resource.fingerprint, payload_hash(payload), resource.references
+                resource.fingerprint,
+                payload_hash(payload),
+                resource.references,
+                tree_mode_fingerprint(payload)
+                if isinstance(payload, TreePayload)
+                else None,
             )
             mutations.append(ResourceMutation(write.id, previous, descriptor, payload))
     return tuple(mutations)

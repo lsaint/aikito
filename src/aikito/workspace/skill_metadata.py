@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import stat
 from pathlib import Path
 
 from ..compat import is_reparse_point
+from ..skill_artifacts import SKILL_EXECUTABLE_METADATA
 
-SKILL_EXECUTABLE_METADATA = ".aikito-executable.json"
+
+def executable_fingerprint(paths) -> str:
+    """Hash only executable relative paths; all other files are implicit false."""
+    return hashlib.sha256(
+        json.dumps(sorted(paths), ensure_ascii=False, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    ).hexdigest()
 
 
 def _unique_fields(pairs):

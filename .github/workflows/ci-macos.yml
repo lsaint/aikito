@@ -146,6 +146,7 @@ jobs:
           test -f "$PAYLOAD/target/projects/demo/agent.toml"
           test -f "$BOUNDARY/left/skills/portable/run.sh"
           test -f "$BOUNDARY/right/skills/portable/run.sh"
+          test -x "$BOUNDARY/right/skills/portable/run.sh"
           test -d "$BOUNDARY/right/skills/portable/empty"
           test -f "$BOUNDARY/center/.local/state/aikito/workspace-reconcile/remote.json"
           test -f "$BOUNDARY/left/.local/state/aikito/workspace-reconcile/replica.json"
@@ -397,11 +398,14 @@ jobs:
           content = p.read_text().replace('sync_mode = \"link\"', 'sync_mode = \"copy\"').replace('skills = []', 'skills = [\"test-copy-skill\"]')
           p.write_text(content)
           "
+          printf '{"version":1,"executable":[]}\n' > "$WS/skills/test-copy-skill/.aikito-executable.json"
           AIKITO_DIR=$WS python3 -m aikito sync project demo-copy
           test -d "$PROJ_COPY/.agents/skills/test-copy-skill"
           test -f "$PROJ_COPY/.agents/skills/test-copy-skill/SKILL.md"
           test -f "$PROJ_COPY/.agents/skills/test-copy-skill/extra.txt"
+          test ! -e "$PROJ_COPY/.agents/skills/test-copy-skill/.aikito-executable.json"
           ! test -L "$PROJ_COPY/.agents/skills/test-copy-skill"
+          rm "$WS/skills/test-copy-skill/.aikito-executable.json"
           diff -r "$WS/skills/test-copy-skill" "$PROJ_COPY/.agents/skills/test-copy-skill"
 
       - name: macOS CLI smoke - Broken Symlink Handling

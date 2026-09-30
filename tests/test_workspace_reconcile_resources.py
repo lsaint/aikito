@@ -11,6 +11,8 @@ from unittest.mock import patch
 
 import pytest
 
+import aikito.workspace.payload_io as payload_io
+import aikito.workspace.resources as resources
 from aikito.workspace.reconcile import (
     WorkspaceReconcileError,
     apply_reconcile_plan,
@@ -20,6 +22,10 @@ from aikito.workspace.reconcile import (
 from aikito.workspace.resource_state import REPLICA_STATE
 from workspace_reconcile_backend import BACKEND_FACTORIES
 from aikito.workspace.resources import snapshot_workspace
+from aikito.workspace.skill_metadata import (
+    read_executable_metadata,
+    write_executable_metadata,
+)
 
 
 def workspace(root: Path) -> Path:
@@ -68,6 +74,116 @@ def round_trip(local, remote, home, **kwargs):
     plan = run_reconciliation(local, remote, home, dry_run=False, **kwargs)
     assert not plan.blocked
     return plan
+
+
+@pytest.mark.parametrize("backend", tuple(BACKEND_FACTORIES))
+def test_windows_deleted_executable_does_not_block_and_cleans_on_download(
+    tmp_path, monkeypatch, backend
+):
+    monkeypatch.setattr(resources, "is_windows", lambda: True)
+    monkeypatch.setattr(payload_io, "is_windows", lambda: True)
+    a, b = workspace(tmp_path / "a"), workspace(tmp_path / "b")
+    remote, home = (
+        BACKEND_FACTORIES[backend](tmp_path / "center").remote,
+        tmp_path / "home",
+    )
+    write(a, "skills/tool/SKILL.md", "# Tool\n")
+    write(a, "skills/tool/bin/run.sh", "echo one\n")
+    metadata = a / "skills/tool/.aikito-executable.json"
+    write_executable_metadata(metadata, ["bin/run.sh"])
+    round_trip(a, remote, home)
+    round_trip(b, remote, home)
+
+    (a / "skills/tool/bin/run.sh").unlink()
+    plan = build_reconcile_plan(a, remote)
+    assert not plan.blocked
+    assert [(item.id, item.target) for item in plan.changes] == [
+        ("skill:tool", "remote")
+    ]
+    round_trip(a, remote, home)
+    assert read_executable_metadata(metadata) == {"bin/run.sh"}
+    round_trip(b, remote, home)
+    assert not (b / "skills/tool/bin/run.sh").exists()
+    assert not read_executable_metadata(b / "skills/tool/.aikito-executable.json")
+
+    write(b, "skills/tool/SKILL.md", "# Tool updated\n")
+    round_trip(b, remote, home)
+    round_trip(a, remote, home)
+    assert not read_executable_metadata(metadata)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX chmod semantics")
+def test_skill_executable_only_change_syncs_and_survives_content_upload(replicas):
+    a, b, remote, home = replicas
+    write(a, "skills/tool/SKILL.md", "# Tool\n")
+    write(a, "skills/tool/run.sh", "echo one\n")
+    round_trip(a, remote, home)
+    round_trip(b, remote, home)
+    script = a / "skills/tool/run.sh"
+    script.chmod(script.stat().st_mode | 0o111)
+    assert [
+        (item.id, item.target) for item in build_reconcile_plan(a, remote).changes
+    ] == [("skill:tool", "remote")]
+    round_trip(a, remote, home)
+    round_trip(b, remote, home)
+    assert (b / "skills/tool/run.sh").stat().st_mode & 0o111
+    write(b, "skills/tool/run.sh", "echo two\n")
+    round_trip(b, remote, home)
+    round_trip(a, remote, home)
+    assert script.stat().st_mode & 0o111
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX chmod semantics")
+def test_old_skill_base_uses_current_mode_or_conflicts(replicas):
+    a, b, remote, home = replicas
+    write(a, "skills/tool/SKILL.md", "# Tool\n")
+    write(a, "skills/tool/run.sh", "echo one\n")
+    round_trip(a, remote, home)
+    round_trip(b, remote, home)
+
+    def strip_mode(local):
+        path = local / REPLICA_STATE
+        raw = json.loads(path.read_text())
+        raw["base"]["skill:tool"].pop("mode_fingerprint")
+        path.write_text(json.dumps(raw), encoding="utf-8")
+
+    strip_mode(a)
+    assert not build_reconcile_plan(a, remote).changes
+    round_trip(a, remote, home)
+    assert (
+        "mode_fingerprint"
+        in json.loads((a / REPLICA_STATE).read_text())["base"]["skill:tool"]
+    )
+
+    strip_mode(b)
+    script = a / "skills/tool/run.sh"
+    script.chmod(script.stat().st_mode | 0o111)
+    round_trip(a, remote, home)
+    assert [item.id for item in build_reconcile_plan(b, remote).conflicts] == [
+        "skill:tool"
+    ]
+    round_trip(b, remote, home, resolutions={"skill:tool": "remote"})
+    assert (b / "skills/tool/run.sh").stat().st_mode & 0o111
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX chmod semantics")
+def test_skill_mode_and_remote_content_edits_conflict(replicas):
+    a, b, remote, home = replicas
+    write(a, "skills/tool/SKILL.md", "# Tool\n")
+    write(a, "skills/tool/run.sh", "echo one\n")
+    round_trip(a, remote, home)
+    round_trip(b, remote, home)
+    script = a / "skills/tool/run.sh"
+    script.chmod(script.stat().st_mode | 0o111)
+    write(b, "skills/tool/run.sh", "echo two\n")
+    round_trip(b, remote, home)
+    assert [item.id for item in build_reconcile_plan(a, remote).conflicts] == [
+        "skill:tool"
+    ]
+    round_trip(a, remote, home, resolutions={"skill:tool": "local"})
+    round_trip(b, remote, home)
+    assert (b / "skills/tool/run.sh").stat().st_mode & 0o111
+    assert (b / "skills/tool/run.sh").read_text() == "echo one\n"
 
 
 STANDALONE = (

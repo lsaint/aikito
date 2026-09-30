@@ -149,8 +149,20 @@ def _center_resources(center: RemoteSnapshot) -> dict[str, Resource]:
             and descriptor.references != canonical.references
         ):
             raise PayloadError("Invalid remote resource references")
-        result[identity] = replace(canonical, references=descriptor.references)
+        result[identity] = replace(
+            canonical,
+            references=descriptor.references,
+            mode_fingerprint=descriptor.mode_fingerprint,
+        )
     return result
+
+
+def _resource_version(resource: Resource | None) -> str | None:
+    if resource is None:
+        return None
+    if resource.kind == "skill" and resource.mode_fingerprint is not None:
+        return f"{resource.fingerprint}:{resource.mode_fingerprint}"
+    return resource.fingerprint
 
 
 def _fetch_validated(
@@ -424,7 +436,15 @@ def _select_version(
     after = source[identity].fingerprint if identity in source else None
     action = (
         "NOOP"
-        if before == after
+        if (
+            before == after
+            and (source[identity].mode_fingerprint if identity in source else None)
+            == (
+                destination[identity].mode_fingerprint
+                if identity in destination
+                else None
+            )
+        )
         else "DELETE"
         if after is None
         else "CREATE"
@@ -547,14 +567,35 @@ def build_reconcile_plan(
                 left.fingerprint if left else None,
                 right.fingerprint if right else None,
             )
+            ambiguous_mode = False
+            if (
+                ancestor
+                and ancestor.kind == "skill"
+                and ancestor.mode_fingerprint is None
+            ):
+                # An old Base has no executable ancestor. Equal live modes can
+                # seed it; disagreement must be resolved explicitly.
+                modes = {
+                    resource.mode_fingerprint
+                    for resource in (left, right)
+                    if resource is not None
+                }
+                if len(modes) == 1:
+                    ancestor = replace(ancestor, mode_fingerprint=modes.pop())
+                else:
+                    ambiguous_mode = True
             reference = (
-                frozenset({ancestor.fingerprint})
+                frozenset()
+                if ambiguous_mode
+                else frozenset({_resource_version(ancestor)})
                 if ancestor
                 else template_fingerprints(identity)
                 if state is None
                 else frozenset()
             )
-            outcome = compare(reference, local_fp, remote_fp)
+            outcome = compare(
+                reference, _resource_version(left), _resource_version(right)
+            )
             action, target, reason = outcome.action, outcome.target, outcome.reason
             if state is None and action == "DELETE":
                 action = "CREATE"
@@ -698,7 +739,12 @@ def apply_reconcile_plan(
                     left, right = expected.get(item.id), center_resources.get(item.id)
                     if left is None and right is None:
                         base.pop(item.id, None)
-                    elif left and right and left.fingerprint == right.fingerprint:
+                    elif (
+                        left
+                        and right
+                        and (left.fingerprint, left.mode_fingerprint)
+                        == (right.fingerprint, right.mode_fingerprint)
+                    ):
                         base[item.id] = right
                 state = ReplicaState(
                     center.sync_id,

@@ -236,6 +236,7 @@ jobs:
           test -f "$PAYLOAD/target/projects/demo/agent.toml"
           test -f "$BOUNDARY/left/skills/portable/run.sh"
           test -f "$BOUNDARY/right/skills/portable/run.sh"
+          test -x "$BOUNDARY/right/skills/portable/run.sh"
           test -d "$BOUNDARY/right/skills/portable/empty"
           test -f "$BOUNDARY/center/.local/state/aikito/workspace-reconcile/remote.json"
           test -f "$BOUNDARY/left/.local/state/aikito/workspace-reconcile/replica.json"
@@ -1362,6 +1363,7 @@ jobs:
           # 1. Add skill and first-time sync
           AIKITO_DIR=$WS python3 -m aikito add skill copy-test-skill --description "Copy test skill" --project copy-proj
           printf "canonical v1\n" > "$WS/skills/copy-test-skill/SKILL.md"
+          printf '{"version":1,"executable":[]}\n' > "$WS/skills/copy-test-skill/.aikito-executable.json"
 
           # Dry run preview check
           AIKITO_DIR=$WS python3 -m aikito sync project copy-proj --dry-run | tee ${{ runner.temp }}/copy-dryrun.out
@@ -1373,10 +1375,12 @@ jobs:
           test -d "$PROJ/.agents/skills/copy-test-skill"
           test ! -L "$PROJ/.agents/skills/copy-test-skill"
           test -f "$PROJ/.agents/skills/copy-test-skill/SKILL.md"
+          test ! -e "$PROJ/.agents/skills/copy-test-skill/.aikito-executable.json"
           grep -F "canonical v1" "$PROJ/.agents/skills/copy-test-skill/SKILL.md"
 
           # 2. Idempotent repeated sync (zero mutations)
           mtime_before=$(stat -c %Y "$PROJ/.agents/skills/copy-test-skill/SKILL.md" 2>/dev/null || stat -f %m "$PROJ/.agents/skills/copy-test-skill/SKILL.md")
+          printf '{"version":1,"executable":["SKILL.md"]}\n' > "$WS/skills/copy-test-skill/.aikito-executable.json"
           AIKITO_DIR=$WS python3 -m aikito sync project copy-proj
           mtime_after=$(stat -c %Y "$PROJ/.agents/skills/copy-test-skill/SKILL.md" 2>/dev/null || stat -f %m "$PROJ/.agents/skills/copy-test-skill/SKILL.md")
           [ "$mtime_before" = "$mtime_after" ]

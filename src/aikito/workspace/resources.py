@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from ..add import validate_resource_name
-from ..compat import is_reparse_point
+from ..compat import is_reparse_point, is_windows
 from ..config import LEGACY_DEFAULT_INBOX_PATH, get_inbox_path, load_workspace_config
 from ..diagnostics import Finding
 from ..init import _validate_project_name, is_recognized_workspace
@@ -36,7 +36,11 @@ from .layout import (
     parse_subagent_text,
     require_current_layout,
 )
-from .skill_metadata import SKILL_EXECUTABLE_METADATA
+from .skill_metadata import (
+    SKILL_EXECUTABLE_METADATA,
+    executable_fingerprint,
+    read_executable_metadata,
+)
 
 # Operating-system and interpreter artifacts that never carry resource content.
 IGNORED_NAMES = frozenset(
@@ -120,6 +124,7 @@ class Resource:
     fingerprint: str
     parts: tuple[ResourcePart, ...]
     references: tuple[str, ...] = ()
+    mode_fingerprint: str | None = None
 
     @property
     def id(self) -> str:
@@ -253,6 +258,16 @@ def fingerprint_resource(path: Path, kind: str) -> str:
     return result
 
 
+def skill_mode_fingerprint(path: Path) -> str:
+    scanner = _Scanner(path.parent)
+    result = scanner.skill_mode_digest(path)
+    if result is None or scanner.findings:
+        raise WorkspaceResourceError(
+            f"Cannot fingerprint skill executable state: {path}"
+        )
+    return result
+
+
 def inspect_resource_content(
     resource: Resource, path: Path
 ) -> tuple[str, tuple[str, ...]]:
@@ -359,6 +374,7 @@ class _Scanner:
         fingerprint: str,
         parts: tuple[ResourcePart, ...],
         references: tuple[str, ...] = (),
+        mode_fingerprint: str | None = None,
     ) -> None:
         physical = physical_kind(kind) if kind in RESOURCE_STORAGE else None
         if (
@@ -375,7 +391,9 @@ class _Scanner:
                 self.root / parts[0].path,
             )
             return
-        resource = Resource(kind, name, fingerprint, parts, references)
+        resource = Resource(
+            kind, name, fingerprint, parts, references, mode_fingerprint
+        )
         if resource.id in self.resources:
             self.error(
                 "duplicate-resource", "Ambiguous resource ID", self.root / parts[0].path
@@ -437,6 +455,40 @@ class _Scanner:
             return None
         raw = "\n".join(sorted(entries)).encode("utf-8")
         return hashlib.sha256(raw).hexdigest()
+
+    def skill_mode_digest(self, directory: Path) -> str | None:
+        files = {}
+
+        def visit(parent: Path) -> None:
+            for child in self.children(parent):
+                kind = _entry_type(child)
+                if kind == "directory":
+                    visit(child)
+                elif kind == "file":
+                    files[child.relative_to(directory).as_posix()] = child
+
+        visit(directory)
+        try:
+            if is_windows():
+                executable = (
+                    read_executable_metadata(directory / SKILL_EXECUTABLE_METADATA)
+                    & files.keys()
+                )
+            else:
+                executable = {
+                    name
+                    for name, path in files.items()
+                    if path.lstat().st_mode
+                    & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+                }
+        except (OSError, ValueError) as exc:
+            self.error(
+                "invalid-skill-mode",
+                f"Invalid skill executable state: {exc}",
+                directory,
+            )
+            return None
+        return executable_fingerprint(executable)
 
     def _collect_tree(self, base: Path, directory: Path, entries: list[str]) -> None:
         children = self.children(directory)
@@ -608,8 +660,15 @@ def _scan_skills(scanner: _Scanner, skills: Path) -> None:
             continue
         digest = scanner.tree_digest(skill)
         if digest is not None:
+            mode = scanner.skill_mode_digest(skill)
+            if mode is None:
+                continue
             scanner.add(
-                "skill", skill.name, digest, (ResourcePart(scanner.rel(skill)),)
+                "skill",
+                skill.name,
+                digest,
+                (ResourcePart(scanner.rel(skill)),),
+                mode_fingerprint=mode,
             )
 
 

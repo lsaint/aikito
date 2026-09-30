@@ -26,6 +26,7 @@ from .resources import (
     is_ignored_name,
     value_fingerprint,
 )
+from .skill_metadata import executable_fingerprint
 from .toml_render import TomlValue, _toml_value
 
 
@@ -146,6 +147,12 @@ class TreePayload:
                 raise PayloadError("File or empty directory has descendants")
         if not any(e.path == "SKILL.md" and e.data is not None for e in self.entries):
             raise PayloadError("Skill payload lacks a regular SKILL.md")
+
+
+def tree_mode_fingerprint(payload: TreePayload) -> str:
+    return executable_fingerprint(
+        entry.path for entry in payload.entries if entry.executable
+    )
 
 
 @dataclass(frozen=True)
@@ -302,6 +309,13 @@ def validate_payload(resource: Resource, payload: ResourcePayload) -> None:
         resource.references,
     ):
         raise PayloadError("Payload semantic fingerprint or references changed")
+    if (
+        resource.kind == "skill"
+        and resource.mode_fingerprint is not None
+        and isinstance(payload, TreePayload)
+        and tree_mode_fingerprint(payload) != resource.mode_fingerprint
+    ):
+        raise PayloadError("Payload executable state changed")
 
 
 def credential_payload(payload: ResourcePayload) -> bool:
@@ -325,6 +339,7 @@ class ResourceDescriptor:
     fingerprint: str
     content_hash: str
     references: tuple[str, ...] = ()
+    mode_fingerprint: str | None = None
 
     def __post_init__(self):
         object.__setattr__(self, "references", tuple(self.references))
@@ -333,6 +348,13 @@ class ResourceDescriptor:
             or type(self.content_hash) is not str
             or not re.fullmatch(r"[0-9a-f]{64}", self.content_hash)
             or any(type(r) is not str for r in self.references)
+            or (
+                self.mode_fingerprint is not None
+                and (
+                    type(self.mode_fingerprint) is not str
+                    or not re.fullmatch(r"[0-9a-f]{64}", self.mode_fingerprint)
+                )
+            )
         ):
             raise PayloadError("Invalid resource descriptor")
 
@@ -366,3 +388,8 @@ class ResourceMutation:
             or payload_hash(self.payload) != self.after.content_hash
         ):
             raise PayloadError("Mutation payload hash mismatch")
+        if self.after is not None and self.id.startswith("skill:"):
+            if not isinstance(
+                self.payload, TreePayload
+            ) or self.after.mode_fingerprint != tree_mode_fingerprint(self.payload):
+                raise PayloadError("Mutation executable state mismatch")

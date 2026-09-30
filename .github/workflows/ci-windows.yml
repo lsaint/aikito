@@ -207,7 +207,7 @@ jobs:
           if (!(Get-ChildItem "$localStateBase/home/.local/state/aikito/project-skills" -Filter "*.json" -File)) { throw "Missing preserved local skill state" }
           $boundaryBase = Join-Path $env:RUNNER_TEMP "reconcile-boundary"
           python tests/workspace_reconcile_boundary_smoke.py "$boundaryBase"
-          if ($LASTEXITCODE -ne 0) { throw "Remote Store Boundary fingerprint smoke failed" }
+          if ($LASTEXITCODE -ne 0) { throw "Remote Store Boundary mode smoke failed" }
           $payloadBase = Join-Path $env:RUNNER_TEMP "workspace-payload"
           python tests/workspace_payload_smoke.py "$payloadBase"
           if ($LASTEXITCODE -ne 0) { throw "Portable resource payload smoke failed" }
@@ -215,10 +215,13 @@ jobs:
             if (!(Test-Path (Join-Path $payloadBase $relative) -PathType Leaf)) { throw "Missing payload resource: $relative" }
           }
           if (!(Test-Path "$payloadBase/target/skills/portable/empty" -PathType Container)) { throw "Missing payload empty directory" }
-          foreach ($relative in @("left/skills/portable/run.sh", "right/skills/portable/run.sh", "center/.local/state/aikito/workspace-reconcile/remote.json", "left/.local/state/aikito/workspace-reconcile/replica.json")) {
+          foreach ($relative in @("left/skills/portable/SKILL.md", "right/skills/portable/SKILL.md", "center/.local/state/aikito/workspace-reconcile/remote.json", "left/.local/state/aikito/workspace-reconcile/replica.json")) {
             if (!(Test-Path (Join-Path $boundaryBase $relative) -PathType Leaf)) { throw "Missing boundary resource: $relative" }
           }
+          if (Test-Path "$boundaryBase/left/skills/portable/run.sh" -PathType Leaf) { throw "Deleted executable returned after sync" }
+          if (Test-Path "$boundaryBase/right/skills/portable/run.sh" -PathType Leaf) { throw "Deleted executable remained in source replica" }
           if (!(Test-Path "$boundaryBase/right/skills/portable/empty" -PathType Container)) { throw "Missing portable empty directory" }
+          if (!(Test-Path "$boundaryBase/right/skills/portable/.aikito-executable.json" -PathType Leaf)) { throw "Missing executable metadata" }
           $resolutionBase = Join-Path $env:RUNNER_TEMP "reconcile-resolutions"
           python tests/workspace_reconcile_resolution_smoke.py "$resolutionBase"
           if ($LASTEXITCODE -ne 0) { throw "Reference conflict resolution smoke failed" }
@@ -794,6 +797,7 @@ jobs:
           python -m aikito add skill win-copy-skill --description "Windows Copy Skill" --project win-copy
           $canonicalSkill = Join-Path $wsDir "skills\win-copy-skill"
           @("canonical v1") | Set-Content (Join-Path $canonicalSkill "SKILL.md")
+          '{"version":1,"executable":[]}' | Set-Content (Join-Path $canonicalSkill ".aikito-executable.json")
 
           # Dry run preview check
           $dryOutput = python -m aikito sync project win-copy --dry-run | Out-String
@@ -814,6 +818,9 @@ jobs:
           if (-not (Test-Path $runtimeSkillMd)) {
             throw "Runtime SKILL.md missing after first sync"
           }
+          if (Test-Path (Join-Path $runtimeSkill ".aikito-executable.json")) {
+            throw "Private executable metadata leaked into runtime skill"
+          }
           $content = Get-Content $runtimeSkillMd -Raw
           if ($content -notmatch "canonical v1") {
             throw "Runtime SKILL.md content mismatch"
@@ -821,6 +828,7 @@ jobs:
 
           # 2. Idempotent repeated sync (zero writes / mtime invariance)
           $mtimeBefore = (Get-Item $runtimeSkillMd).LastWriteTimeUtc.Ticks
+          '{"version":1,"executable":["SKILL.md"]}' | Set-Content (Join-Path $canonicalSkill ".aikito-executable.json")
           python -m aikito sync project win-copy
           $mtimeAfter = (Get-Item $runtimeSkillMd).LastWriteTimeUtc.Ticks
           if ($mtimeBefore -ne $mtimeAfter) {

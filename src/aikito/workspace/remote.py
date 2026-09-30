@@ -43,6 +43,7 @@ from .resources import (
     is_ignored_name,
     is_shared_resource,
     inspect_resource_content,
+    skill_mode_fingerprint,
     value_fingerprint,
     SKILL_FINGERPRINT_SCHEME,
 )
@@ -54,6 +55,8 @@ from .payload import (
     ResourcePayload,
     PayloadError,
     payload_hash,
+    tree_mode_fingerprint,
+    TreePayload,
 )
 from .payload_io import capture_resources, materialize_resources
 from .remote_store import (
@@ -201,6 +204,12 @@ class FilesystemRemote:
                     key: {
                         "fingerprint": resource.fingerprint,
                         "references": list(resource.references),
+                        **(
+                            {"mode_fingerprint": resource.mode_fingerprint}
+                            if resource.kind == "skill"
+                            and resource.mode_fingerprint is not None
+                            else {}
+                        ),
                     }
                     for key, resource in sorted(snapshot.resources.items())
                 },
@@ -320,6 +329,14 @@ class FilesystemRemote:
                 raise WorkspaceCoreError(
                     f"Resource center content changed: {resource.id}"
                 )
+            if resource.kind == "skill" and resource.mode_fingerprint is not None:
+                if (
+                    skill_mode_fingerprint(self.root / resource.parts[0].path)
+                    != resource.mode_fingerprint
+                ):
+                    raise WorkspaceCoreError(
+                        f"Resource center executable state changed: {resource.id}"
+                    )
         external = (
             frozenset(
                 ref
@@ -418,7 +435,12 @@ class FilesystemRemote:
                 state.revision,
                 {
                     key: ResourceDescriptor(
-                        resource.fingerprint, hashes[key], resource.references
+                        resource.fingerprint,
+                        hashes[key],
+                        resource.references,
+                        tree_mode_fingerprint(payloads[key])
+                        if isinstance(payloads[key], TreePayload)
+                        else None,
                     )
                     for key, resource in state.resources.items()
                 },
@@ -461,7 +483,11 @@ class FilesystemRemote:
                         raise SnapshotExpired("Target changed before writing")
                     descriptor = mutation.after or mutation.before
                     resource = resource_for_id(mutation.id, descriptor.fingerprint)
-                    resource = replace(resource, references=descriptor.references)
+                    resource = replace(
+                        resource,
+                        references=descriptor.references,
+                        mode_fingerprint=descriptor.mode_fingerprint,
+                    )
                     if mutation.after is None:
                         descriptors.pop(mutation.id)
                     else:
@@ -559,7 +585,11 @@ class FilesystemRemote:
                         raise WorkspaceCoreError(
                             f"Invalid resource content metadata: {write.id}"
                         )
-                    canonical = replace(canonical, references=source.references)
+                    canonical = replace(
+                        canonical,
+                        references=source.references,
+                        mode_fingerprint=source.mode_fingerprint,
+                    )
                     canonical_content[write.id] = canonical
                     resources[write.id] = canonical
                     if write.kind in {"config", "project-field"}:

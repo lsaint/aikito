@@ -115,14 +115,13 @@ safe independent resources advance, and local-only fields remain local.
 
 Stage zero chooses **content-only** skill fingerprints on all platforms. A tree
 hash is SHA-256 of sorted newline-separated records `f <path> <byte hash>` and
-`d <path>` for explicit empty directories. POSIX execute bits are no longer
-included. A permission-only edit is not a resource edit and cannot trigger
-synchronization. Native copies still preserve permissions where supported.
-Portable payloads carry executable flags separately, outside the logical
-fingerprint; round-trip tests verify them independently of semantic equality.
+`d <path>` for explicit empty directories. Execute bits stay outside that hash.
+Skill resources carry a separate mode fingerprint over the sorted paths of
+executable files; all other files are implicitly nonexecutable. A mode-only edit
+syncs as a skill update. Portable payloads carry and validate those flags.
 
 New center and replica state records include `skill_fingerprint: "content-v1"`.
-State version remains 2 because the resource/value schema is unchanged. A
+State version remains 2 because the content fingerprint scheme is unchanged. A
 historical record without the marker and with skill resources is refused,
 even if those particular skills have no scripts: its old Base cannot establish
 which permission view originally produced the hash. No Base is reset and no
@@ -130,10 +129,15 @@ manifest is rewritten. Preserve both, then explicitly create a new center and
 pair fresh replicas after reviewing resources; copying old Base into a new
 pair is not a migration. Historical records with no skills remain readable and
 gain the marker on the next state write. Unknown schemes are always refused.
+An existing `content-v1` skill Base without a mode fingerprint is seeded from
+the live mode when both sides agree. When they differ, reconciliation reports a
+resource conflict instead of guessing which side changed first; resolution
+records the chosen mode in Base.
 
-Reconciliation is internal and has no public CLI, so no automatic user-state
-migration is introduced. `workspace_reconcile_boundary_smoke.py` simulates both
-permission views on each OS, exercises upload/download/reverse edits and NOOP,
+Reconciliation is internal and has no public CLI. The mode Base can be filled
+from agreeing current states without a separate migration command.
+`workspace_reconcile_boundary_smoke.py` exercises
+mode-only upload, cross-platform download, reverse content edits and NOOP,
 and verifies legacy refusal is read-only. It does not merely compare separate
 native CI runs.
 
@@ -174,9 +178,11 @@ it is excluded from logical fingerprints and portable tree entries. The local
 transaction copies only its validated canonical metadata, rejecting extra
 fields and unsafe nodes. Windows recapture reads these logical flags; POSIX
 materialization applies them as native modes and writes no metadata artifact.
-Missing paths left after a local deletion are ignored during recapture, so a
-stale metadata entry cannot recreate a deleted file. Permissions alone still do
-not trigger reconciliation.
+Missing paths left after a local deletion are ignored during mode scanning and
+recapture, so a stale metadata entry cannot block sync or recreate a deleted
+file. The next local write of that skill regenerates metadata from the actual
+payload. A permission-only edit changes the skill mode fingerprint and triggers
+reconciliation.
 
 `workspace_payload_smoke.py` exchanges all admitted resource kinds through
 encoded payloads and writes a distinct local workspace, retaining its inbox

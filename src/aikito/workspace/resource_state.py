@@ -148,6 +148,16 @@ def decode_resources(raw: object) -> dict[str, Resource]:
             key, value.get("fingerprint") if isinstance(value, dict) else value
         )
         if isinstance(value, dict):
+            mode = value.get("mode_fingerprint")
+            if mode is not None:
+                if (
+                    resource.kind != "skill"
+                    or type(mode) is not str
+                    or len(mode) != 64
+                    or any(char not in "0123456789abcdef" for char in mode)
+                ):
+                    raise WorkspaceCoreError("Invalid skill mode fingerprint")
+                resource = replace(resource, mode_fingerprint=mode)
             references = value.get("references")
             if not isinstance(references, list) or any(
                 not isinstance(ref, str) for ref in references
@@ -163,8 +173,19 @@ def decode_resources(raw: object) -> dict[str, Resource]:
     return resources
 
 
-def encode_resources(resources: dict[str, Resource]) -> dict[str, str]:
-    return {key: resource.fingerprint for key, resource in sorted(resources.items())}
+def encode_resources(resources: dict[str, Resource]) -> dict[str, object]:
+    return {
+        key: (
+            {
+                "fingerprint": resource.fingerprint,
+                "references": list(resource.references),
+                "mode_fingerprint": resource.mode_fingerprint,
+            }
+            if resource.kind == "skill" and resource.mode_fingerprint is not None
+            else resource.fingerprint
+        )
+        for key, resource in sorted(resources.items())
+    }
 
 
 def decode_revision(state: dict[str, object]) -> int:

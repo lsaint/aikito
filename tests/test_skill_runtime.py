@@ -32,6 +32,7 @@ from aikito.skill_state import (
     save_project_skill_state,
     write_transaction_journal,
 )
+from aikito.skill_artifacts import SKILL_EXECUTABLE_METADATA
 
 
 class SkillRuntimeExecutionTests(TestCase):
@@ -92,6 +93,7 @@ class SkillRuntimeExecutionTests(TestCase):
             skill_canon = ws / "skills" / "copied-skill"
             skill_canon.mkdir(parents=True)
             (skill_canon / "SKILL.md").write_text("# Copied\n", encoding="utf-8")
+            (skill_canon / SKILL_EXECUTABLE_METADATA).write_text("metadata v1")
             c_fp, _ = calculate_directory_fingerprint(skill_canon)
 
             target_path = co / ".agents" / "skills" / "copied-skill"
@@ -113,6 +115,7 @@ class SkillRuntimeExecutionTests(TestCase):
             self.assertTrue(res.is_success)
             self.assertTrue(target_path.is_dir())
             self.assertFalse(target_path.is_symlink())
+            self.assertFalse((target_path / SKILL_EXECUTABLE_METADATA).exists())
             self.assertEqual(
                 (target_path / "SKILL.md").read_text(encoding="utf-8"), "# Copied\n"
             )
@@ -126,6 +129,11 @@ class SkillRuntimeExecutionTests(TestCase):
             self.assertEqual(rec.lifecycle, "active")
             self.assertEqual(rec.baseline_fingerprint, c_fp)
             self.assertEqual(rec.baseline_origin, "write")
+            (skill_canon / SKILL_EXECUTABLE_METADATA).write_text("metadata v2")
+            (target_path / SKILL_EXECUTABLE_METADATA).write_text("old runtime metadata")
+            observed, _ = inspect_skill_target(target, "copy", home)
+            self.assertEqual(observed.canonical_fingerprint, c_fp)
+            self.assertEqual(observed.runtime_fingerprint, c_fp)
 
     def test_staging_detects_canonical_modification_and_aborts(self) -> None:
         with tempfile.TemporaryDirectory() as td:

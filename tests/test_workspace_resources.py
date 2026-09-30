@@ -201,7 +201,9 @@ def test_skill_fingerprint_ignores_executable_bit(workspace: Path) -> None:
     _write(script, "echo\n")
     before = snapshot_workspace(workspace).resources["skill:demo"]
     script.chmod(0o755)
-    assert snapshot_workspace(workspace).resources["skill:demo"] == before
+    after = snapshot_workspace(workspace).resources["skill:demo"]
+    assert after.fingerprint == before.fingerprint
+    assert after.mode_fingerprint != before.mode_fingerprint
 
 
 def test_inbox_follows_configured_path(workspace: Path) -> None:

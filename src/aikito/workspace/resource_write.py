@@ -264,8 +264,16 @@ def verify_resource_snapshot(
     findings = missing_references(actual.resources, external=external)
     if findings:
         raise WorkspaceCoreError("Invalid resulting references: " + "; ".join(findings))
-    fingerprints = {key: r.fingerprint for key, r in actual.resources.items()}
-    intended = {key: r.fingerprint for key, r in expected.items()}
+    fingerprints = {
+        key: (
+            r.fingerprint,
+            r.mode_fingerprint
+            if expected.get(key) and expected[key].mode_fingerprint is not None
+            else None,
+        )
+        for key, r in actual.resources.items()
+    }
+    intended = {key: (r.fingerprint, r.mode_fingerprint) for key, r in expected.items()}
     if fingerprints != intended:
         changed = sorted(
             key

@@ -24,9 +24,26 @@ from aikito.skill_state import (
     save_project_skill_state,
     write_transaction_journal,
 )
+from aikito.skill_artifacts import SKILL_EXECUTABLE_METADATA
 
 
 class SkillStateFingerprintTests(TestCase):
+    def test_private_executable_metadata_does_not_change_runtime_fingerprint(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            skill = Path(td) / "skill"
+            empty = skill / "empty"
+            empty.mkdir(parents=True)
+            (skill / "SKILL.md").write_text("# Skill\n", encoding="utf-8")
+            original, error = calculate_directory_fingerprint(skill)
+            self.assertIsNone(error)
+            (skill / SKILL_EXECUTABLE_METADATA).write_text("root metadata")
+            (empty / SKILL_EXECUTABLE_METADATA).write_text("nested metadata")
+            updated, error = calculate_directory_fingerprint(skill)
+            self.assertIsNone(error)
+            self.assertEqual(original, updated)
+
     def test_fingerprint_deterministic_and_empty_dirs(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

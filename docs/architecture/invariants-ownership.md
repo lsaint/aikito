@@ -45,7 +45,7 @@ Copy management records follow an explicit two-state lifecycle (`active` vs. `in
 
 ### INV-OWN-05: Directory Fingerprint Specification `[current]` {: #inv-own-05 }
 
-Directory fingerprints must capture the complete directory tree: file relative paths, file types (regular file, symlink, directory), byte contents, empty directories, and POSIX executable permission bits. File timestamps (`mtime`) and filesystem inode numbers are excluded from content equality comparisons, but may be used during preflight to detect concurrent entry replacement.
+Directory fingerprints capture the managed directory tree: file relative paths, file types (regular file, symlink, directory), byte contents, empty directories, and POSIX executable permission bits. The private `.aikito-executable.json` artifact is excluded from both runtime copies and fingerprints, including when it is the only entry in a directory. File timestamps (`mtime`) and filesystem inode numbers are excluded from content equality comparisons, but may be used during preflight to detect concurrent entry replacement.
 
 This rule governs runtime copy ownership. Workspace import and resource
 reconciliation use separate, portable content-only skill fingerprints; see

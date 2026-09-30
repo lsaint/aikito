@@ -41,6 +41,7 @@ from .compat import (
     secure_directory_permissions,
     secure_file_permissions,
 )
+from .skill_artifacts import SKILL_EXECUTABLE_METADATA
 
 
 @dataclass(frozen=True)
@@ -125,7 +126,8 @@ def calculate_directory_fingerprint(dir_path: Path) -> tuple[str | None, str | N
 
     Returns (fingerprint, error).
     Fingerprint captures file relative paths, byte hashes, empty directories, and
-    POSIX executable permissions. Excludes mtime and inodes.
+    POSIX executable permissions. Excludes mtime, inodes, and private skill
+    executable metadata that never belongs in a runtime copy.
     Rejects internal symlinks, sockets, FIFOs, and devices.
     """
     if not dir_path.exists():
@@ -142,6 +144,12 @@ def calculate_directory_fingerprint(dir_path: Path) -> tuple[str | None, str | N
     try:
         for root_str, dir_names, file_names in os.walk(dir_path, followlinks=False):
             current_root = Path(root_str)
+            dir_names[:] = [
+                name for name in dir_names if name != SKILL_EXECUTABLE_METADATA
+            ]
+            file_names = [
+                name for name in file_names if name != SKILL_EXECUTABLE_METADATA
+            ]
             if not dir_names and not file_names and current_root != dir_path:
                 rel = current_root.relative_to(dir_path).as_posix()
                 entries.append(f"d {rel}")
