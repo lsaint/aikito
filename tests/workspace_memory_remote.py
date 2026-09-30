@@ -11,7 +11,6 @@ import threading
 import uuid
 from collections.abc import Collection, Mapping, Sequence
 from types import MappingProxyType
-from typing import overload
 
 from aikito.workspace.payload import (
     PayloadError,
@@ -88,23 +87,7 @@ class InMemoryRemote:
             except PayloadError as exc:
                 raise InvalidContent("Invalid stored payload encoding") from exc
 
-    @overload
-    def commit(self, request: CommitRequest) -> CommitResult: ...
-
-    @overload
-    def commit(
-        self, request: RemoteSnapshot, mutations: Sequence[ResourceMutation]
-    ) -> RemoteSnapshot: ...
-
-    def commit(
-        self,
-        request: CommitRequest | RemoteSnapshot,
-        mutations: Sequence[ResourceMutation] | None = None,
-    ) -> CommitResult | RemoteSnapshot:
-        if isinstance(request, RemoteSnapshot) and mutations is not None:
-            return self._commit_batch(request, mutations)
-        if mutations is not None:
-            raise InvalidContent("Commit request cannot include a separate batch")
+    def commit(self, request: CommitRequest) -> CommitResult:
         validate_commit_request(request)
         with self._mutex:
             self._verify()
@@ -142,16 +125,14 @@ class InMemoryRemote:
         expected: RemoteSnapshot,
         mutations: Sequence[ResourceMutation],
         *,
-        receipt: CommitResult | None = None,
-    ) -> RemoteSnapshot | CommitResult:
+        receipt: CommitResult,
+    ) -> CommitResult:
         batch = tuple(mutations)
         with self._mutex:
             self._expect(expected)
             self._verify()
             if len(batch) != len({mutation.id for mutation in batch}):
                 raise InvalidContent("Duplicate resource mutation ID")
-            if not batch:
-                return self._copy_snapshot()
             descriptors, payloads = dict(self._snapshot.resources), dict(self._payloads)
             for mutation in batch:
                 if self._snapshot.resources.get(mutation.id) != mutation.before:
@@ -176,17 +157,13 @@ class InMemoryRemote:
             snapshot = RemoteSnapshot(
                 self._snapshot.sync_id, self._snapshot.revision + 1, descriptors
             )
-            receipts = (
-                self._receipts.accepted(receipt)
-                if receipt is not None
-                else self._receipts
-            )
+            receipts = self._receipts.accepted(receipt)
             self._snapshot, self._payloads, self._receipts = (
                 snapshot,
                 payloads,
                 receipts,
             )
-            return receipt if receipt is not None else self._copy_snapshot()
+            return receipt
 
     def recover(self) -> bool:
         """No durable transaction exists to recover."""

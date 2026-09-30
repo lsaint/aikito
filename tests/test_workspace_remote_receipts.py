@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+
 import hashlib
 import json
 import threading
@@ -189,10 +190,15 @@ def test_historical_receipt_does_not_need_historical_payload(store):
     assert store.commit(req) == resolve(store, req) == first
 
 
-def test_legacy_batch_preserves_receipts_without_creating_new_ones(store):
+def test_legacy_commit_api_is_refused_without_changing_resources_or_receipts(store):
     req = request(store)
     receipt = store.commit(req)
-    store.commit(store.read(), (mutation("legacy"),))
+    before = store.read(), store.fetch(store.read(), store.read().resources)
+    with pytest.raises(TypeError):
+        store.commit(store.read(), (mutation("unsafe"),))
+    with pytest.raises(InvalidContent):
+        store.commit(store.read())
+    assert (store.read(), store.fetch(store.read(), store.read().resources)) == before
     assert resolve(store, req) == receipt
     assert store.commit(req) == receipt
 

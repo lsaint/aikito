@@ -36,6 +36,7 @@ from aikito.workspace.payload import (
 )
 from aikito.workspace.payload_io import capture_resources
 from aikito.workspace.remote_store import SnapshotExpired, InvalidContent
+from workspace_store_setup import publish_batch
 
 
 def _commit(remote, expected, content, writes):
@@ -59,7 +60,7 @@ def _commit(remote, expected, content, writes):
         )
         for w in writes
     )
-    return remote.commit(expected, mutations)
+    return publish_batch(remote, expected, mutations)
 
 
 def _workspace(root: Path) -> Path:

@@ -37,6 +37,7 @@ from aikito.workspace.remote_wire import (
     validate_commit_request,
     validate_commit_result,
 )
+from workspace_store_setup import publish_batch
 
 
 def mutation(identity="opaque-resource", payload=None, before=None):
@@ -137,7 +138,7 @@ def test_plaintext_filesystem_keeps_skill_executable_defense(tmp_path):
     fingerprint, _ = inspect_payload(local_resource_for_id(item.id, "0" * 64), tree)
     item = replace(item, after=replace(item.after, fingerprint=fingerprint))
     with pytest.raises(InvalidContent, match="Mutation executable state mismatch"):
-        remote.commit(snapshot, (item,))
+        publish_batch(remote, snapshot, (item,))
     assert remote.read() == snapshot
 
 

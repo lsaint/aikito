@@ -17,7 +17,9 @@ from aikito.workspace.payload import (
     payload_hash,
 )
 from aikito.workspace.remote_store import InvalidContent
+from aikito.workspace.remote_wire import build_commit_request
 from workspace_memory_remote import InMemoryRemote
+from workspace_store_setup import publish_batch
 
 
 def opaque_mutation(identity="opaque/ID:../does-not-name-a-path"):
@@ -56,10 +58,13 @@ def test_store_operations_never_access_disk_or_make_staging(monkeypatch):
     remote.validate_replica(Path("unused-local"))
     initial = remote.read()
     item = opaque_mutation()
-    snapshot = remote.commit(initial, [item])
+    snapshot = publish_batch(remote, initial, [item])
     assert remote.fetch(snapshot, [item.id]) == {item.id: item.payload}
-    assert remote.commit(snapshot, []) == snapshot
-    final = remote.commit(snapshot, [ResourceMutation(item.id, item.after, None, None)])
+    with pytest.raises(InvalidContent):
+        publish_batch(remote, snapshot, [])
+    final = publish_batch(
+        remote, snapshot, [ResourceMutation(item.id, item.after, None, None)]
+    )
     assert final.resources == {} and remote.recover() is False
     assert not hasattr(remote, "root")
     assert all(type(data) is bytes for data in remote._payloads.values())
@@ -70,7 +75,7 @@ def test_store_operations_never_access_disk_or_make_staging(monkeypatch):
 def test_corrupt_stored_content_is_rejected_without_state_change(operation, corruption):
     remote = InMemoryRemote()
     item = opaque_mutation()
-    snapshot = remote.commit(remote.read(), [item])
+    snapshot = publish_batch(remote, remote.read(), [item])
     if corruption == "missing":
         remote._payloads.pop(item.id)
     else:
@@ -79,20 +84,25 @@ def test_corrupt_stored_content_is_rejected_without_state_change(operation, corr
     with pytest.raises(InvalidContent, match="integrity"):
         if operation == "read":
             remote.read()
+        elif operation == "fetch":
+            remote.fetch(snapshot, [])
         else:
-            getattr(remote, operation)(snapshot, [])
+            change = ResourceMutation(item.id, item.after, None, None)
+            remote.commit(build_commit_request("client", "delete", snapshot, (change,)))
     assert remote._snapshot == snapshot and remote._payloads == before
 
 
 def test_old_payload_and_snapshot_remain_independent_after_publication():
     remote = InMemoryRemote()
     item = opaque_mutation()
-    snapshot = remote.commit(remote.read(), [item])
+    snapshot = publish_batch(remote, remote.read(), [item])
     old_payloads = remote.fetch(snapshot, [item.id])
     replacement = FilePayload(b"new opaque content")
     descriptor = replace(item.after, content_hash=payload_hash(replacement))
-    remote.commit(
-        snapshot, [ResourceMutation(item.id, item.after, descriptor, replacement)]
+    publish_batch(
+        remote,
+        snapshot,
+        [ResourceMutation(item.id, item.after, descriptor, replacement)],
     )
     assert old_payloads[item.id] == item.payload
     assert snapshot.resources[item.id] == item.after

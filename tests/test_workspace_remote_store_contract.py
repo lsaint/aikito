@@ -22,6 +22,7 @@ from aikito.workspace.remote import FilesystemRemote
 from aikito.workspace.remote_store import InvalidContent, SnapshotExpired
 from aikito.workspace.toml_render import TomlValue
 from workspace_memory_remote import InMemoryRemote
+from workspace_store_setup import publish_batch
 
 
 @pytest.fixture(params=["filesystem", "memory"])
@@ -50,13 +51,14 @@ def checkpoint(store):
 
 def test_revision_presence_update_delete_and_empty_batch(store):
     initial = store.read()
-    assert store.commit(initial, []) == initial
+    with pytest.raises(InvalidContent):
+        publish_batch(store, initial, [])
     one, two = mutation(), mutation("two")
-    snapshot = store.commit(initial, [one, two])
+    snapshot = publish_batch(store, initial, [one, two])
     assert snapshot.revision == initial.revision + 1
     updated = mutation(data=b"changed", before=one.after)
     deleted = ResourceMutation(two.id, two.after, None, None)
-    final = store.commit(snapshot, [updated, deleted])
+    final = publish_batch(store, snapshot, [updated, deleted])
     assert final.revision == snapshot.revision + 1
     assert store.fetch(final, [one.id]) == {one.id: updated.payload}
     assert two.id not in final.resources
@@ -64,26 +66,25 @@ def test_revision_presence_update_delete_and_empty_batch(store):
     assert snapshot.resources[one.id] == one.after
 
 
-@pytest.mark.parametrize("operation", ["fetch", "commit"])
 @pytest.mark.parametrize("mismatch", ["revision", "identity", "descriptor"])
-def test_stale_empty_requests_do_not_change_state(store, operation, mismatch):
+def test_stale_empty_fetch_does_not_change_state(store, mismatch):
     expected = store.read()
     if mismatch == "revision":
-        store.commit(expected, [mutation()])
+        publish_batch(store, expected, [mutation()])
     elif mismatch == "identity":
         expected = replace(expected, sync_id="unrelated opaque identity")
     else:
         expected = replace(expected, resources={mutation().id: mutation().after})
     before = checkpoint(store)
     with pytest.raises(SnapshotExpired):
-        getattr(store, operation)(expected, [])
+        store.fetch(expected, [])
     assert checkpoint(store) == before
 
 
 def test_stale_nonempty_fetch_and_missing_batch_have_no_partial_success(store):
     initial = store.read()
     one = mutation()
-    snapshot = store.commit(initial, [one])
+    snapshot = publish_batch(store, initial, [one])
     before = checkpoint(store)
     with pytest.raises(SnapshotExpired):
         store.fetch(initial, [one.id])
@@ -106,7 +107,7 @@ def test_invalid_whole_batch_preserves_revision_and_payloads(store, invalid):
         object.__setattr__(second, "payload", FilePayload(b"corrupted"))
     before = checkpoint(store)
     with pytest.raises((InvalidContent, SnapshotExpired)):
-        store.commit(snapshot, [first, second])
+        publish_batch(store, snapshot, [first, second])
     assert checkpoint(store) == before
 
 
@@ -117,7 +118,7 @@ def test_two_writers_cannot_publish_the_same_revision(store):
     def submit(name):
         ready.wait(timeout=10)
         try:
-            return store.commit(snapshot, [mutation(name)])
+            return publish_batch(store, snapshot, [mutation(name)])
         except SnapshotExpired:
             return None
 
@@ -137,7 +138,7 @@ def test_caller_and_returned_values_cannot_mutate_storage(store):
         value_fingerprint(field.value), payload_hash(payload)
     )
     batch = [ResourceMutation("config:feature", None, descriptor, payload)]
-    snapshot = store.commit(store.read(), batch)
+    snapshot = publish_batch(store, store.read(), batch)
     batch.clear()
     field.value[1]["nested"].clear()
     fetched = store.fetch(snapshot, ["config:feature"])
@@ -157,13 +158,17 @@ def test_empty_fingerprint_is_presence_not_absence(store):
     payload = MemberPayload()
     descriptor = ResourceDescriptor("", payload_hash(payload))
     identity = "project:demo"
-    snapshot = store.commit(
-        store.read(), [ResourceMutation(identity, None, descriptor, payload)]
+    snapshot = publish_batch(
+        store, store.read(), [ResourceMutation(identity, None, descriptor, payload)]
     )
     assert store.fetch(snapshot, [identity]) == {identity: payload}
     before = checkpoint(store)
-    with pytest.raises(SnapshotExpired):
-        store.commit(snapshot, [ResourceMutation(identity, None, descriptor, payload)])
+    with pytest.raises(InvalidContent):
+        publish_batch(
+            store, snapshot, [ResourceMutation(identity, None, descriptor, payload)]
+        )
     assert checkpoint(store) == before
-    final = store.commit(snapshot, [ResourceMutation(identity, descriptor, None, None)])
+    final = publish_batch(
+        store, snapshot, [ResourceMutation(identity, descriptor, None, None)]
+    )
     assert identity not in final.resources

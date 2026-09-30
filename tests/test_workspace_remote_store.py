@@ -32,6 +32,7 @@ from workspace_memory_remote import InMemoryRemote
 from workspace_reconcile_backend import files
 from workspace_reconcile_smoke import _workspace
 from workspace_remote_store_smoke import StoreFacade, exercise
+from workspace_store_setup import publish_batch
 
 
 @pytest.fixture(params=["filesystem", "memory"])
@@ -63,7 +64,7 @@ def test_engine_uses_only_portable_interface(tmp_path):
 def test_snapshot_and_fetch_are_immutable_and_readonly(tmp_path):
     remote = FilesystemRemote.create(tmp_path / "center")
     m = mutation()
-    remote.commit(remote.read(), (m,))
+    publish_batch(remote, remote.read(), (m,))
     lock = (remote.root / REMOTE_STATE).parent / "remote.lock"
     lock.unlink()
     before = files(remote.root)
@@ -81,18 +82,17 @@ def test_snapshot_and_fetch_are_immutable_and_readonly(tmp_path):
     assert copied.resources == snapshot.resources
 
 
-@pytest.mark.parametrize("operation", ["fetch", "commit"])
 @pytest.mark.parametrize("mismatch", ["revision", "identity"])
-def test_empty_requests_validate_the_snapshot(tmp_path, operation, mismatch):
+def test_empty_fetch_validates_the_snapshot(tmp_path, mismatch):
     remote = FilesystemRemote.create(tmp_path / "center")
     old = remote.read()
     if mismatch == "revision":
-        remote.commit(old, [mutation()])
+        publish_batch(remote, old, [mutation()])
     else:
         old = replace(old, sync_id="another opaque center")
     before = files(remote.root)
     with pytest.raises(SnapshotExpired):
-        getattr(remote, operation)(old, [])
+        remote.fetch(old, [])
     assert files(remote.root) == before
 
 
@@ -117,14 +117,14 @@ def test_entire_invalid_batch_leaves_content_and_revision_unchanged(tmp_path, in
         second = mutation("two", b'api_key = "abcdefghijklmnopqrstuv"\n')
     before = files(remote.root)
     with pytest.raises((InvalidContent, SnapshotExpired)):
-        remote.commit(old, [first, second])
+        publish_batch(remote, old, [first, second])
     assert files(remote.root) == before
     assert remote.read() == old
 
 
 def test_fetch_missing_content_and_corrupt_manifest_fail_without_writes(tmp_path):
     remote = FilesystemRemote.create(tmp_path / "center")
-    snapshot = remote.commit(remote.read(), [mutation()])
+    snapshot = publish_batch(remote, remote.read(), [mutation()])
     before = files(remote.root)
     with pytest.raises(InvalidContent, match="Missing requested"):
         remote.fetch(snapshot, ["memory:notes/missing.md"])
@@ -149,7 +149,7 @@ def test_legacy_manifest_gains_hashes_only_on_commit(tmp_path):
     snapshot = remote.read()
     remote.fetch(snapshot, [])
     assert before == files(remote.root)
-    remote.commit(snapshot, [mutation()])
+    publish_batch(remote, snapshot, [mutation()])
     assert json.loads(manifest.read_text())["payload_hashes"]
 
 
@@ -167,7 +167,7 @@ def test_backend_attachment_preserves_overlap_guard(tmp_path, relation):
 def test_client_rejects_corrupt_fetch_from_protocol_backend(tmp_path, protocol_store):
     local = _workspace(tmp_path / "local")
     remote = protocol_store
-    remote.commit(remote.read(), [mutation()])
+    publish_batch(remote, remote.read(), [mutation()])
 
     class CorruptStore(StoreFacade):
         def fetch(self, expected, ids):
@@ -211,7 +211,7 @@ def test_download_is_staged_before_conditional_commit_and_local_base(
     local = _workspace(tmp_path / "local")
     remote = protocol_store
     run_reconciliation(local, remote, tmp_path / "home", dry_run=False)
-    remote.commit(remote.read(), [mutation()])
+    publish_batch(remote, remote.read(), [mutation()])
     (local / "memory/notes/upload.md").write_text("upload")
     before = files(local)
 
@@ -260,13 +260,15 @@ def test_center_change_between_read_and_fetch_preserves_local_base(
     local = _workspace(tmp_path / "local")
     home = tmp_path / "home"
     run_reconciliation(local, protocol_store, home, dry_run=False)
-    protocol_store.commit(protocol_store.read(), [mutation()])
+    publish_batch(protocol_store, protocol_store.read(), [mutation()])
     plan = build_reconcile_plan(local, protocol_store)
     before = files(local)
 
     class RacingStore(StoreFacade):
         def fetch(self, expected, ids):
-            protocol_store.commit(protocol_store.read(), [mutation("concurrent")])
+            publish_batch(
+                protocol_store, protocol_store.read(), [mutation("concurrent")]
+            )
             return super().fetch(expected, ids)
 
     with pytest.raises(WorkspaceReconcileError, match="revision changed"):

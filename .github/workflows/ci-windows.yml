@@ -259,7 +259,7 @@ jobs:
           $revisionBase = Join-Path $env:RUNNER_TEMP "revision-state"
           python tests/workspace_revision_smoke.py "$revisionBase"
           if ($LASTEXITCODE -ne 0) { throw "Revision state persistence smoke failed" }
-          foreach ($relative in @("right/memory/notes/revision.md", "right/.local/state/aikito/workspace-reconcile/replica.json", "center/.local/state/aikito/workspace-reconcile/remote.json")) {
+          foreach ($relative in @("contract-cleanup.json", "right/memory/notes/revision.md", "right/.local/state/aikito/workspace-reconcile/replica.json", "center/.local/state/aikito/workspace-reconcile/remote.json")) {
             if (!(Test-Path (Join-Path $revisionBase $relative) -PathType Leaf)) { throw "Missing revision resource: $relative" }
           }
           if (!(Get-ChildItem "$revisionBase/home/.local/state/aikito/project-skills" -Filter "*.json" -File)) { throw "Missing revision skill state" }

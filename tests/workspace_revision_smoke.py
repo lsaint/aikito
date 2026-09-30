@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+
 import json
 import sys
 from pathlib import Path
@@ -17,6 +18,7 @@ from aikito.skill_state import (
 )
 from aikito.workspace.reconcile import build_reconcile_plan, run_reconciliation
 from aikito.workspace.remote import FilesystemRemote
+from aikito.workspace.remote_store import InvalidContent
 from aikito.workspace.resource_state import REMOTE_STATE, REPLICA_STATE
 from workspace_remote_store_smoke import exercise as exercise_portable_store
 
@@ -35,7 +37,16 @@ def exercise(base: Path):
         before[path] = path.read_bytes()
     assert remote.read().revision == before_revision
     assert remote.fetch(remote.read(), ()) == {}
-    assert remote.commit(remote.read(), ()).revision == before_revision
+    for args, error in (
+        ((remote.read(), ()), TypeError),
+        ((remote.read(),), InvalidContent),
+    ):
+        try:
+            remote.commit(*args)
+        except error:
+            pass
+        else:
+            raise AssertionError("Legacy commit API unexpectedly accepted")
     plan = build_reconcile_plan(right, remote)
     assert plan.revision == before_revision
     assert plan.state.revision == before_revision
@@ -94,6 +105,11 @@ def exercise(base: Path):
         assert ok, error
         persisted = json.loads(state_path.read_text(encoding="utf-8"))
         assert persisted["revision"] == 2 and "generation" not in persisted
+
+    (base / "contract-cleanup.json").write_text(
+        json.dumps({"legacy_commit_refused": True, "noop_revision_unchanged": True}),
+        encoding="utf-8",
+    )
 
 
 if __name__ == "__main__":

@@ -264,6 +264,7 @@ jobs:
           done
           REVISION=${{ runner.temp }}/revision-state
           python3 tests/workspace_revision_smoke.py "$REVISION"
+          test -f "$REVISION/contract-cleanup.json"
           test -f "$REVISION/right/memory/notes/revision.md"
           test -f "$REVISION/right/.local/state/aikito/workspace-reconcile/replica.json"
           test -f "$REVISION/center/.local/state/aikito/workspace-reconcile/remote.json"

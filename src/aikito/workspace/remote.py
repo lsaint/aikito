@@ -16,7 +16,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from collections.abc import Collection, Mapping, Sequence
 from types import MappingProxyType
-from typing import Iterator, overload
+from typing import Iterator
 
 from ..compat import is_windows, secure_file_permissions
 from .transactions import (
@@ -472,24 +472,7 @@ class FilesystemRemote:
             raise InvalidContent("Missing requested resource content")
         return MappingProxyType({identity: payloads[identity] for identity in ids})
 
-    @overload
-    def commit(self, request: CommitRequest) -> CommitResult: ...
-
-    @overload
-    def commit(
-        self, request: RemoteSnapshot, mutations: Sequence[ResourceMutation]
-    ) -> RemoteSnapshot: ...
-
-    def commit(
-        self,
-        request: CommitRequest | RemoteSnapshot,
-        mutations: Sequence[ResourceMutation] | None = None,
-    ) -> CommitResult | RemoteSnapshot:
-        # This dispatch is temporary until reconciliation adopts persistent pending.
-        if isinstance(request, RemoteSnapshot) and mutations is not None:
-            return self._commit_batch(request, mutations)
-        if mutations is not None:
-            raise InvalidContent("Commit request cannot include a separate batch")
+    def commit(self, request: CommitRequest) -> CommitResult:
         validate_commit_request(request)
         published = False
         try:
@@ -559,8 +542,8 @@ class FilesystemRemote:
         expected: RemoteSnapshot,
         mutations: Sequence[ResourceMutation],
         *,
-        receipt: CommitResult | None = None,
-    ) -> RemoteSnapshot | CommitResult:
+        receipt: CommitResult,
+    ) -> CommitResult:
         published = False
         try:
             with self.lock():
@@ -569,8 +552,6 @@ class FilesystemRemote:
                     raise SnapshotExpired("Resource center revision changed; replan")
                 if len(mutations) != len({m.id for m in mutations}):
                     raise InvalidContent("Duplicate resource mutation ID")
-                if not mutations:
-                    return current
                 resources, payloads, writes = {}, {}, []
                 descriptors = dict(current.resources)
                 for mutation in mutations:
@@ -633,21 +614,21 @@ class FilesystemRemote:
                         receipt=receipt,
                     )
                     published = True
-                return receipt if receipt is not None else self.read()
+                return receipt
         except (WorkspaceCoreError, WorkspaceResourceError, PayloadError) as exc:
-            if receipt is not None and published:
+            if published:
                 raise CommitOutcomeUnknown(
                     "Commit published but completion unavailable"
                 ) from exc
             raise InvalidContent(str(exc)) from exc
         except OSError as exc:
-            if receipt is not None and published:
+            if published:
                 raise CommitOutcomeUnknown(
                     "Commit published but completion unavailable"
                 ) from exc
             raise StoreUnavailable("Resource center commit unavailable") from exc
         except Exception as exc:
-            if receipt is not None and published:
+            if published:
                 raise CommitOutcomeUnknown(
                     "Commit published but completion invalid"
                 ) from exc
@@ -660,15 +641,13 @@ class FilesystemRemote:
         writes: tuple[ResourceWrite, ...],
         *,
         payload_hashes: Mapping[str, str],
-        receipt: CommitResult | None = None,
+        receipt: CommitResult,
     ) -> _CenterState:
         """Commit all accepted writes and revision together, or none of them."""
         with self.lock():
             current = self._read_state()
             if current != expected:
                 raise WorkspaceCoreError("Resource center revision changed; replan")
-            if not writes:
-                return current
             resources = dict(current.resources)
             values = dict(current.values)
             canonical_content = {}
@@ -770,7 +749,7 @@ class FilesystemRemote:
                         resources,
                         values,
                         dict(payload_hashes),
-                        current.receipts.accepted(receipt) if receipt is not None else current.receipts,
+                        current.receipts.accepted(receipt),
                     )
                     path = state_path(self.root, REMOTE_STATE)
                     publication_started = True
@@ -782,7 +761,7 @@ class FilesystemRemote:
                         policy=RECONCILE_POLICY,
                     )
             except Exception as exc:
-                if receipt is not None and publication_started:
+                if publication_started:
                     raise CommitOutcomeUnknown("Center publication outcome must be resolved") from exc
                 raise
             return new

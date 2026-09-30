@@ -1,22 +1,19 @@
 # Remote Store Boundary
 
-The internal reconciliation engine currently uses the temporary
-`workspace.remote_store.LegacyRemoteStore` protocol and portable payloads.
-`FilesystemRemote` implements that interface;
-there is no public reconciliation CLI or service. The acceptance driver remains
-test orchestration, separate from the production store contract.
+The internal reconciliation engine uses `workspace.remote_store.RemoteStore`
+and portable payloads. `FilesystemRemote` and the test-only `InMemoryRemote`
+implement the same contract. There is no public reconciliation CLI or service;
+the acceptance driver is test orchestration.
 
 ## Commit identity contract
 
 `RemoteStore` defines `commit(request: CommitRequest) -> CommitResult` and
 `resolve_commit(sync_id, client_id, request_id, mutation_digest) -> CommitResult | None`,
-alongside the existing read, fetch, attachment and recovery operations. This is
-the contract for the staged network safety work. `FilesystemRemote` and the
-test-only `InMemoryRemote` implement it. Reconciliation uses this receipt-aware
-contract; backend dispatch retains `commit(expected, mutations)` for older
-contract tests during migration. These legacy calls preserve receipt history but
-do not create receipts. The compatibility path will be removed after the
-receipt-aware reconciliation flow is integrated.
+alongside read, fetch, attachment and recovery operations. The former
+`commit(expected, mutations)` interface is removed: every accepted batch must
+publish a receipt. A result is a historical confirmation, not a snapshot to use
+for subsequent planning. Clients validate it against the request and read the
+store again when they need its current state.
 
 `CommitRequest` carries an opaque client ID, stable request ID, optional
 `ReceiptCursor`, complete expected snapshot, nonempty mutation tuple and
@@ -215,12 +212,12 @@ Already-cleared pending resumes the normal lifecycle, which may need the remote.
 These tests complement `workspace_remote_receipts_smoke.py`, which separately
 kills the backend at five resource/manifest/receipt journal boundaries.
 
-## Legacy backend contract
+## Snapshot and payload contract
 
 The implemented data interface is `read() -> RemoteSnapshot`,
 `fetch(expected, ids) -> Mapping[str, ResourcePayload]`,
-`commit(expected, mutations) -> RemoteSnapshot`, and `recover() -> bool`.
-The first implementation retains no historical content: a changed center
+`commit(request) -> CommitResult`, and `recover() -> bool`.
+The reference backends retain no historical payload content: a changed center
 identity or revision makes fetch fail with `SnapshotExpired`, including an
 empty fetch. Clients discard staging and replan. Operations either return a
 result from one coherent snapshot or fail; a newer payload cannot be labeled
@@ -232,14 +229,14 @@ as content from an older snapshot.
 | Payload | Versioned, deterministic, portable content with no disk paths, handles, or shared directory requirements. The backend verifies the transport hash without interpreting the content. |
 | Mutation | Opaque resource ID, expected before descriptor or absence, and replacement descriptor plus payload, or an explicit delete with no payload. An empty fingerprint denotes presence and differs from absence. Duplicate IDs are invalid. |
 | Ownership | Snapshots, descriptors, mutations, and returned payloads are immutable or defensively copied at each boundary, including nested typed values. Caller mutation cannot affect stored or previously read state. |
-| Commit | Check expected identity and revision even for an empty batch; check every before descriptor, hash, and mutation before publishing the complete batch atomically. Rejection leaves content and revision unchanged. |
-| Revision | A nonempty accepted mutation batch advances revision exactly once; an empty accepted batch leaves it unchanged. Clients omit semantic NOOP mutations. |
+| Commit | Validate the request, center identity, latest receipt, CAS and previous cursor; check the whole nonempty batch before atomically publishing resources, revision and receipt. Definite rejection leaves all three unchanged. |
+| Revision | A nonempty accepted batch advances revision exactly once; matching retries return the original receipt without advancing. Empty batches are invalid. Clients omit semantic NOOP mutations. |
 | Fetch | All requested IDs must be present and have intact content. No partial success or implicit missing values; duplicates in the requested collection are treated as a set. |
 | Recovery | Read and fetch never recover or create state. Pending transactions raise `RecoveryRequired`; explicit backend recovery owns locking and journals. Successful recovery requires replanning. A backend without recovery work returns false. |
 
 Errors distinguish `SnapshotExpired` (definite conditional rejection),
 `InvalidContent` (bad mutation, missing or corrupt payload), `RecoveryRequired`,
-and `StoreUnavailable`. The new commit contract adds
+and `StoreUnavailable`. Commit also distinguishes
 `CommitOutcomeUnknown`: an uncertain response is not proof that the center
 rejected the batch, and clients must resolve the result before retrying.
 Filesystem errors map to these store categories. The reconciliation entrypoints
@@ -284,9 +281,8 @@ unchanged, and successful saves emit only `revision`.
 Resource IDs, `sync_id`, `replica_id`, and logical fingerprints are opaque
 strings to the store; it must not validate their logical meaning or require a
 particular naming syntax. A backend can require consistency with previously
-stored identity but not a client-specific ID format. The new commit contract
-uses the replica ID as an opaque client ID for receipt retention; the legacy
-backend interface does not transmit replica identity. A filesystem backend keeps
+stored identity but not a client-specific ID format. The contract uses the
+replica ID as an opaque client ID for receipt retention. A filesystem backend keeps
 its own path mapping, writer lock, manifest, and journal. It must also enforce
 workspace/center non-overlap at its attachment boundary. The local lifecycle
 hook `validate_replica(local)` checks this without exposing a center path to the
@@ -312,11 +308,15 @@ The protocol therefore permits opaque encrypted content in a later transport.
 2. With no center lock exposed to the engine, fetch all planned downloads
    against that snapshot. Validate and stage them locally. Verify selected
    upload content still matches the plan; preserve shared TOML field isolation.
-3. Conditionally commit uploads/deletes to the center. A stale fetch or rejected
-   commit discards staging and leaves local resources and Base untouched.
-4. Commit local resources and Base together under the local writer lock. If
-   this fails after the center accepted the batch, preserve the old Base and
-   use explicit local recovery followed by replanning.
+3. For uploads/deletes, persist stable replica identity and the complete pending
+   request before sending. Commit and verify the receipt. Stale fetch or explicit
+   CAS rejection discards staging; uncertainty retains pending and old Base.
+   Rounds without uploads skip pending and commit entirely.
+4. Commit local resources, Base, cursor and completion marker together under the
+   local writer lock, then durably clear pending. A local rollback after remote
+   acceptance preserves old Base and pending. On restart, recover the local journal,
+   resolve pending conservatively, and replan against current content as described
+   in [Receipt-aware reconciliation](#receipt-aware-reconciliation).
 
 These are two separate transactions, not a distributed atomic commit. Center
 address changes do not change identity. Conflict/blocked resources retain Base,
@@ -433,15 +433,14 @@ or staging files and never recover. Fetch compares the complete expected
 snapshot before returning any content, including for empty requests. Commit
 owns its cross-process lock, validates and stages the whole batch, and publishes
 through the existing recoverable center transaction. Receipt-aware commits
-reject empty batches; temporary legacy empty calls check the snapshot without
-advancing revision. Recovery is explicit and requires
+reject empty batches and all accepted batches publish receipts. Recovery is explicit and requires
 replanning when it repaired a transaction.
 
 The existing version-1/version-2 center schema, identity, layout, and journal
 remain supported under the skill compatibility rules above. New manifests also
 record `payload_hashes`, protecting executable metadata as well as content.
 Legacy manifests without hashes are verified semantically and captured read-only;
-a later nonempty commit records hashes. An empty commit does not rewrite them.
+a later nonempty commit records hashes. An empty commit is invalid and does not rewrite them.
 Stored hash mismatch is refused without resetting state or Base. The historical
 path-based `content()` and three-argument commit are replaced by fetch and
 portable mutation commit; Import keeps its independent local path adapter.
@@ -465,7 +464,7 @@ implementation of encryption or a hosted service.
 
 `test_workspace_remote_store_contract.py` runs the same storage guarantees on
 filesystem and memory stores: atomic batches, concurrent writers, stale/identity
-rejection including empty requests, corruption, deletion versus empty-fingerprint
+rejection, invalid empty commits and stale empty fetches, corruption, deletion versus empty-fingerprint
 presence, independent immutable reads, and typed-value ownership. Additional
 memory tests prohibit filesystem calls and temporary staging during store
 operations and inject corrupted stored bytes or missing payloads. Filesystem
@@ -504,10 +503,40 @@ Filesystem center assertions remain separate; the memory script asserts no
 center directory exists. Local verification does not imply those remote CI
 jobs have run. Release and push are independent actions, not part of validation.
 
-Remote Store Boundary stages zero through four are implemented. This internal
+The network-safe request, receipt, pending recovery and fault-injection contract
+is implemented for both reference backends. This internal
 boundary introduces no public reconciliation CLI, hosted service, account,
-network transport, or encryption. The memory store remains test-only. A future
-HTTP implementation must adopt the new request/result identity contract and
-implement uncertain-commit resolution and retries before production network use;
-E2EE and authorized
-readable scopes need their own key and privacy design.
+network transport, or encryption. The memory store remains test-only. A future HTTP implementation must run the shared store and reconciliation
+acceptance suites. HTTP message encoding and wire v1 remain unfrozen; E2EE and
+authorized readable scopes need their own key and privacy design.
+
+## Network safety invariants
+
+These permanent Rule IDs are registered in [Engineering Invariants](invariants.md).
+All rules below are `[current]` and apply to the shared reconciliation contract.
+
+| Rule ID | Invariant |
+| --- | --- |
+| `INV-SYNC-01` | Base advances per resource only after confirmation: uploads use accepted after descriptors, downloads require successful local application, and conflict/blocked resources retain their old Base. Replica revision records confirmed progress, not complete convergence. |
+| `INV-SYNC-02` | Every new logical commit uses a fresh request ID scoped by center and client. Retry and restart reuse the exact persisted request, including its original ID and digest. |
+| `INV-SYNC-03` | The latest matching request returns its first accepted result before CAS, without reapplying mutations or incrementing revision. A different digest for that ID is an identity error. An identical old request whose receipt was replaced fails CAS. |
+| `INV-SYNC-04` | An unresolved pending request prevents new mutation commits. Delivery uncertainty, unavailable resolution, invalid responses and corrupt state retain pending and do not advance Base. |
+| `INV-SYNC-05` | NOT FOUND reports only the absence of an accepted latest receipt. It permits a bounded resend of the same request; it never permits a new identity or pending removal. Delayed delivery and retry accept at most once. |
+| `INV-SYNC-06` | Remote resources, revision and latest receipt publish in one transaction. Resolution serializes with publication and refuses unresolved backend journals rather than reporting false NOT FOUND. |
+| `INV-SYNC-07` | Local resources, per-resource Base, receipt cursor and completion marker commit in one local transaction. Pending is durable before send and is cleared durably after completion or explicit CAS rejection. These are independent transactions, not distributed ACID. |
+| `INV-SYNC-08` | Recovery restores the local journal first. A matching completion marker permits cleanup without contacting the remote or reapplying writes. Otherwise confirmation advances only uploaded Base entries, then current files and the current remote are replanned. |
+| `INV-SYNC-09` | A historical receipt is not a current snapshot and does not promise downloadable historical payloads. Recovery does not replay old downloads, depend on old staging, or overwrite intervening local edits. An accepted upload advances Base to its after descriptor even when local content has since changed. |
+| `INV-SYNC-10` | Each client retains only its latest receipt. A new commit must supply the matching previous cursor; stale or missing client history blocks replacement. Other clients cannot replace that receipt. A client identity has one active owner, and center restoration requires a new sync ID. |
+| `INV-SYNC-11` | Clients and backends independently validate versioned canonical request/result digests. Digests bind all commit semantics and the complete predicted descriptor map. Invalid encoding, identities or history block without erasing durable state. |
+| `INV-SYNC-12` | Empty commit batches are invalid and cannot publish resources, revision or receipts. Rounds without uploads create no request or pending and call no commit; local progress uses the planned remote revision. First upload pairing persists stable replica identity with pending before send. |
+| `INV-SYNC-13` | Commit and resolution use opaque identities, descriptors and payloads without center paths or client-held center locks. Local attachment checks and filesystem journals belong to backend lifecycle. The contract adds no public cloud, authentication, daemon, database or HTTP surface. |
+
+Verification is shared between filesystem and memory backends in
+`test_workspace_remote_receipts.py`, `test_workspace_remote_store_contract.py`,
+`test_workspace_reconcile_pending.py` and `test_workspace_unreliable_remote.py`.
+`test_workspace_remote_receipt_crashes.py` adds filesystem transaction checkpoints;
+`test_workspace_commit_encoding.py` checks canonical integrity. Independent-process
+smokes exercise remote and local crash recovery, receipt persistence, and encoding
+reload on all three OS workflows. `workspace_revision_smoke.py` also verifies that
+legacy batch calls and bare snapshots are refused and NOOP preserves revision; its
+`contract-cleanup.json` artifact is asserted by each workflow.

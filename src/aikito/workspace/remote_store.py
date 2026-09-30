@@ -6,7 +6,7 @@ Attachment validation is local backend lifecycle, never serialized transport.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 import re
@@ -21,9 +21,9 @@ class StoreError(ValueError):
 
 
 class SnapshotExpired(StoreError):
-    """Snapshot preconditions failed; legacy stores also use this for identity.
+    """Snapshot preconditions failed; re-read and replan after definite rejection.
 
-    Receipt-aware commit must use StoreIdentityMismatch for a changed center.
+    Commit must use StoreIdentityMismatch for a changed center.
     """
 
 
@@ -149,7 +149,16 @@ class CommitResult:
             raise InvalidContent("Invalid accepted revision")
 
 
-class _RemoteAccess(Protocol):
+class RemoteStore(Protocol):
+    """Publish resources, revision and the client's latest receipt atomically.
+
+    Validate the center, then check a matching latest receipt before CAS;
+    a match returns its original result, with mismatched digests rejected.
+    Otherwise check CAS and the previous receipt before publishing. Replaced
+    historical requests are rejected by CAS, not resolved as current results.
+    Each client identity must have one owner; cursors cannot detect full clones.
+    """
+
     def validate_replica(self, local: Path) -> None:
         """Validate local attachment constraints; do not mutate or transmit paths."""
         ...
@@ -161,17 +170,6 @@ class _RemoteAccess(Protocol):
     ) -> Mapping[str, ResourcePayload]: ...
 
     def recover(self) -> bool: ...
-
-
-class RemoteStore(_RemoteAccess, Protocol):
-    """Publish resources, revision and the client's latest receipt atomically.
-
-    Validate the center, then check a matching latest receipt before CAS;
-    a match returns its original result, with mismatched digests rejected.
-    Otherwise check CAS and the previous receipt before publishing. Replaced
-    historical requests are rejected by CAS, not resolved as current results.
-    Each client identity must have one owner; cursors cannot detect full clones.
-    """
 
     def commit(self, request: CommitRequest) -> CommitResult: ...
 
@@ -185,11 +183,3 @@ class RemoteStore(_RemoteAccess, Protocol):
         store errors. Lookup must serialize with atomic commit publication.
         """
         ...
-
-
-class LegacyRemoteStore(_RemoteAccess, Protocol):
-    """Temporary compatibility interface for older backend contract tests."""
-
-    def commit(
-        self, expected: RemoteSnapshot, mutations: Sequence[ResourceMutation]
-    ) -> RemoteSnapshot: ...
