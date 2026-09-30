@@ -6,18 +6,30 @@ on:
 
 jobs:
   test:
+    name: test (${{ matrix.group }})
     runs-on: windows-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.12"]
+        group: ["core", "workspace"]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Optimize Windows Defender for CI
+        shell: pwsh
+        run: |
+          try {
+            Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+          } catch {}
+          try {
+            Add-MpPreference -ExclusionPath $env:RUNNER_TEMP, $env:GITHUB_WORKSPACE, "C:\hostedtoolcache\windows\Python" -ErrorAction SilentlyContinue
+          } catch {}
+
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
@@ -27,8 +39,15 @@ jobs:
       - name: Install test dependencies
         run: uv pip install --system pytest pytest-xdist
 
-      - name: Run unit tests
-        run: python -m pytest -n auto
+      - name: Run core unit tests
+        if: matrix.group == 'core'
+        shell: pwsh
+        run: python -m pytest -n auto --dist loadfile '--ignore-glob=tests/test_workspace*.py'
+
+      - name: Run workspace unit tests
+        if: matrix.group == 'workspace'
+        shell: pwsh
+        run: python -m pytest -n auto --dist loadfile -o 'python_files=test_workspace*.py'
 
   windows-smoke-test:
     runs-on: windows-latest
@@ -36,6 +55,16 @@ jobs:
       PYTHONPATH: ${{ github.workspace }}/src
     steps:
       - uses: actions/checkout@v4
+
+      - name: Optimize Windows Defender for CI
+        shell: pwsh
+        run: |
+          try {
+            Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+          } catch {}
+          try {
+            Add-MpPreference -ExclusionPath $env:RUNNER_TEMP, $env:GITHUB_WORKSPACE, "C:\hostedtoolcache\windows\Python" -ErrorAction SilentlyContinue
+          } catch {}
 
       - name: Set up Python
         uses: actions/setup-python@v5
