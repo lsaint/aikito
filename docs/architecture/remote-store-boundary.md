@@ -507,8 +507,46 @@ The network-safe request, receipt, pending recovery and fault-injection contract
 is implemented for both reference backends. This internal
 boundary introduces no public reconciliation CLI, hosted service, account,
 network transport, or encryption. The memory store remains test-only. A future HTTP implementation must run the shared store and reconciliation
-acceptance suites. HTTP message encoding and wire v1 remain unfrozen; E2EE and
-authorized readable scopes need their own key and privacy design.
+acceptance suites. Remote Protocol v1 is frozen as an internal compatibility
+contract while the HTTP transport and E2EE remain open; authorized readable
+scopes need their own key and privacy design.
+
+## Remote Protocol boundary
+
+The Remote Protocol is the serialized operation contract between a client
+adapter and a backend. It is a distinct layer from the domain contract, from
+byte delivery, and from any particular backend:
+
+| Layer | Responsibility |
+| --- | --- |
+| `RemoteStore` | Content-blind domain contract: identity/revision CAS, complete batch publication, snapshot-bound fetch, receipts and recovery. |
+| Remote Protocol | Serialized operation contract: canonical envelope, operation bodies, versioning, error codes and strict validation. |
+| Transport | Byte delivery only: `exchange(bytes) -> bytes`, no resource, revision, path or commit semantics. |
+| `FilesystemRemote` | One local backend implementation with its own path mapping, lock and journal. |
+
+The envelope carries its own `protocol` version and names one operation. Each
+operation body may carry an independent `version`; commit bodies carry
+`COMMIT_ENCODING_VERSION`. The decoder dispatches on `operation` before reading
+any body version, so the two version domains stay independent and a later
+protocol revision can still carry commit encoding v1.
+
+The protocol is content-blind. It validates envelope structure, canonical
+encoding, digests and transport integrity, but it does not interpret resource
+IDs, recompute semantic fingerprints, inspect references, or read plaintext
+TOML, Markdown or credentials. `FilesystemRemote` may add plaintext defenses as
+a backend implementation; those never become a general protocol requirement.
+
+The protocol never carries a local workspace path. `validate_replica(local)` is
+a client-side attachment check; a backend with no local constraint implements it
+as a no-op, and the local assembly keeps any same-machine non-overlap check
+without sending the path over the wire.
+
+Committed response loss, a malformed response, an operation mismatch, an
+unknown message version or an unconfirmable commit receipt are all treated as an
+unknown commit outcome by the client adapter, never as a definite rejection.
+Only a transport that proves non-delivery, or a decoded backend `StoreError`,
+selects a specific result. See [Remote Protocol](remote-protocol.md) for the
+frozen operation and error contract.
 
 ## Network safety invariants
 

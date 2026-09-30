@@ -11,6 +11,7 @@ from typing import Protocol
 
 from workspace_loopback_remote import LoopbackTransport
 from workspace_memory_remote import InMemoryRemote
+from workspace_serialized_attachment import FilesystemSerializedRemote
 
 from aikito.workspace.reconcile import (
     ReconcilePlan,
@@ -91,7 +92,11 @@ class SerializedFilesystemBackend(StoreBackend):
 
     def __init__(self, root: Path):
         backend = FilesystemRemote.create(root)
-        super().__init__(SerializedRemoteStore(LoopbackTransport(backend).exchange))
+        super().__init__(
+            FilesystemSerializedRemote(
+                LoopbackTransport(backend).exchange, backend.root
+            )
+        )
 
     def checkpoint(self) -> object:
         snapshot = self.remote.read()

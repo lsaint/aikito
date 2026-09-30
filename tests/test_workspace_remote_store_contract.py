@@ -10,6 +10,7 @@ from dataclasses import replace
 import pytest
 from workspace_loopback_remote import LoopbackTransport
 from workspace_memory_remote import InMemoryRemote
+from workspace_serialized_attachment import FilesystemSerializedRemote
 from workspace_store_setup import publish_batch
 
 from aikito.workspace.payload import (
@@ -40,7 +41,10 @@ def store(request, tmp_path):
         if request.param == "serialized-filesystem"
         else InMemoryRemote()
     )
-    return SerializedRemoteStore(LoopbackTransport(backend).exchange)
+    exchange = LoopbackTransport(backend).exchange
+    if request.param == "serialized-filesystem":
+        return FilesystemSerializedRemote(exchange, backend.root)
+    return SerializedRemoteStore(exchange)
 
 
 def mutation(name="one", data=b"one", before=None):

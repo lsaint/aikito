@@ -54,7 +54,9 @@ def test_commit_payload_crosses_as_encoded_bytes():
     adapter.commit(request)
     body = json.loads(transport.requests[-1])["body"]
     assert body["version"] == 1
-    assert isinstance(body["mutations"][0]["payload"], str)
+    payload = body["mutations"][0]["payload"]
+    assert set(payload) == {"content_hash", "data"}
+    assert payload["content_hash"] == body["mutations"][0]["after"]["content_hash"]
     assert "FilePayload" not in transport.requests[-1].decode("utf-8")
 
 

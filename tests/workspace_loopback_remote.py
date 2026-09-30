@@ -7,9 +7,16 @@ the only thing exchanged is bytes.
 
 from __future__ import annotations
 
+import json
 from collections import deque
 
-from aikito.workspace.remote_protocol import RemoteProtocolHandler
+from aikito.workspace.remote_protocol import (
+    Operation,
+    RemoteProtocolHandler,
+    encode_read_response,
+)
+from aikito.workspace.remote_store import RemoteSnapshot
+from aikito.workspace.serialized_remote import TransportNotDelivered
 
 
 class LoopbackTransport:
@@ -39,3 +46,41 @@ class LoopbackTransport:
         if type(response) is not bytes:
             raise AssertionError("Injected response must be bytes")
         self._injected.append(response)
+
+
+class FaultyLoopback(LoopbackTransport):
+    """Deliver (or withhold) one commit, then lose or corrupt its response.
+
+    Disarmed by default so pairing and setup can run cleanly; call ``arm``
+    immediately before the commit whose outcome should be uncertain.
+    """
+
+    def __init__(self, store, fault: str):
+        super().__init__(store)
+        self._fault = fault
+        self._armed = False
+
+    def arm(self) -> None:
+        self._armed = True
+
+    def exchange(self, request: bytes) -> bytes:
+        if not (self._armed and self._is_commit(request)):
+            return super().exchange(request)
+        self._armed = False
+        if self._fault == "not-delivered":
+            raise TransportNotDelivered("simulated non-delivery")
+        response = super().exchange(request)
+        if self._fault == "lost":
+            raise RuntimeError("simulated response loss")
+        if self._fault == "corrupted":
+            return b"garbage"
+        if self._fault == "mismatch":
+            return encode_read_response(RemoteSnapshot("mismatch", 0, {}))
+        return response
+
+    @staticmethod
+    def _is_commit(request: bytes) -> bool:
+        try:
+            return json.loads(request).get("operation") == Operation.COMMIT
+        except (ValueError, TypeError, AttributeError):
+            return False

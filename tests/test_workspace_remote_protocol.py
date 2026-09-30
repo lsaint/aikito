@@ -264,6 +264,26 @@ def test_invalid_base64_and_malformed_payload_rejected():
         decode_response(encode_success(Operation.FETCH, tampered))
 
 
+def test_fetch_and_commit_payloads_share_one_wire_shape():
+    fetched = json.loads(encode_fetch_response({"id": FilePayload(b"content")}))
+    raw = json.loads(encode_commit_request(request()))
+    shape = raw["body"]["mutations"][0]
+    assert set(shape["payload"]) == set(fetched["body"]["payloads"]["id"])
+    assert shape["payload"]["content_hash"] == shape["after"]["content_hash"]
+
+    # A payload hash that disagrees with its descriptor is rejected.
+    mismatched = json.loads(json.dumps(raw))
+    mismatched["body"]["mutations"][0]["payload"]["content_hash"] = "b" * 64
+    with pytest.raises(ProtocolError):
+        decode_request(canonical(mismatched))
+
+    # The pre-unification bare Base64 string is not a v1 payload.
+    legacy = json.loads(json.dumps(raw))
+    legacy["body"]["mutations"][0]["payload"] = shape["payload"]["data"]
+    with pytest.raises(ProtocolError):
+        decode_request(canonical(legacy))
+
+
 def test_forged_commit_digest_rejected():
     req = request()
     raw = json.loads(encode_commit_request(req))

@@ -1086,6 +1086,13 @@ jobs:
             if (!(Test-Path (Join-Path $memoryStoreBase $relative) -PathType Leaf)) { throw "Missing memory store resource: $relative" }
           }
           if (Test-Path "$memoryStoreBase/center") { throw "Memory store created a center directory" }
+          $serializedBase = Join-Path $env:RUNNER_TEMP "serialized-remote"
+          python tests/workspace_serialized_remote_smoke.py "$serializedBase"
+          if ($LASTEXITCODE -ne 0) { throw "Serialized RemoteStore smoke failed" }
+          foreach ($relative in @("right/memory/notes/serialized-smoke.md", "right/projects/demo/memory/notes/serialized-smoke.md", "right/memory/notes/serialized-recovery.md", "right/.local/state/aikito/workspace-reconcile/replica.json", "center/.local/state/aikito/workspace-reconcile/remote.json")) {
+            if (!(Test-Path (Join-Path $serializedBase $relative) -PathType Leaf)) { throw "Missing serialized resource: $relative" }
+          }
+          if (Test-Path "$serializedBase/left/.local/state/aikito/workspace-reconcile/pending.json") { throw "Serialized recovery left a pending commit" }
           $localStateBase = Join-Path $env:RUNNER_TEMP "local-state-doctor"
           python tests/local_state_doctor_smoke.py "$localStateBase"
           if ($LASTEXITCODE -ne 0) { throw "Local state doctor smoke failed" }

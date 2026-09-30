@@ -117,6 +117,14 @@ jobs:
           test -f "$MEMORY_STORE/moved-left/projects/demo/memory/notes/acceptance.md"
           test -f "$MEMORY_STORE/right/.local/state/aikito/workspace-reconcile/replica.json"
           test ! -e "$MEMORY_STORE/center"
+          SERIALIZED=${{ runner.temp }}/serialized-remote
+          python3 tests/workspace_serialized_remote_smoke.py "$SERIALIZED"
+          test -f "$SERIALIZED/right/memory/notes/serialized-smoke.md"
+          test -f "$SERIALIZED/right/projects/demo/memory/notes/serialized-smoke.md"
+          test -f "$SERIALIZED/right/memory/notes/serialized-recovery.md"
+          test -f "$SERIALIZED/right/.local/state/aikito/workspace-reconcile/replica.json"
+          test -f "$SERIALIZED/center/.local/state/aikito/workspace-reconcile/remote.json"
+          test ! -e "$SERIALIZED/left/.local/state/aikito/workspace-reconcile/pending.json"
           STORE=${{ runner.temp }}/remote-store
           python3 tests/workspace_remote_store_smoke.py "$STORE"
           test -f "$STORE/right/memory/notes/portable-store.md"

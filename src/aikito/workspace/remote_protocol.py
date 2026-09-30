@@ -15,13 +15,18 @@ from __future__ import annotations
 import base64
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
 from .payload import (
+    FilePayload,
+    MemberPayload,
     PayloadError,
     ResourceDescriptor,
     ResourceMutation,
+    TomlPayload,
+    TreePayload,
     decode_payload,
     encode_payload,
     payload_hash,
@@ -192,7 +197,7 @@ def _digest(value: object) -> str:
 
 
 def encode_request(operation: str, body: object) -> bytes:
-    if operation not in OPERATIONS:
+    if type(operation) is not str or operation not in OPERATIONS:
         raise ProtocolError("Unsupported protocol operation")
     return _canonical(
         {"protocol": REMOTE_PROTOCOL_VERSION, "operation": operation, "body": body}
@@ -200,7 +205,7 @@ def encode_request(operation: str, body: object) -> bytes:
 
 
 def encode_success(operation: str, body: object) -> bytes:
-    if operation not in OPERATIONS:
+    if type(operation) is not str or operation not in OPERATIONS:
         raise ProtocolError("Unsupported protocol operation")
     return _canonical(
         {
@@ -213,9 +218,11 @@ def encode_success(operation: str, body: object) -> bytes:
 
 
 def encode_error(operation: str | None, code: str) -> bytes:
-    if operation is not None and operation not in OPERATIONS:
+    if operation is not None and (
+        type(operation) is not str or operation not in OPERATIONS
+    ):
         raise ProtocolError("Unsupported protocol operation")
-    if code not in ERROR_CODES:
+    if type(code) is not str or code not in ERROR_CODES:
         raise ProtocolError("Unsupported protocol error code")
     return _canonical(
         {
@@ -296,18 +303,39 @@ def _decode_snapshot(raw: object) -> RemoteSnapshot:
 # ---------------------------------------------------------------------------
 
 
+_PAYLOAD_TYPES = (FilePayload, TomlPayload, TreePayload, MemberPayload)
+
+
 def _encode_wire_payload(payload) -> dict:
+    """One wire shape for every payload: fetch results and commit mutations."""
+    if not isinstance(payload, _PAYLOAD_TYPES):
+        raise ProtocolError("Invalid resource payload")
+    try:
+        encoded = encode_payload(payload)
+    except PayloadError as exc:
+        raise ProtocolError("Invalid resource payload") from exc
     return {
         "content_hash": payload_hash(payload),
-        "data": base64.b64encode(encode_payload(payload)).decode("ascii"),
+        "data": base64.b64encode(encoded).decode("ascii"),
     }
 
 
-def _decode_wire_payload(raw: object):
+def _decode_protocol_payload(encoded: bytes, expected_hash: str):
+    try:
+        # Base64 hides the payload JSON from the envelope's nesting check.
+        decode_state_json(encoded)
+        return decode_payload(encoded, expected_hash)
+    except (InvalidContent, PayloadError, RecursionError) as exc:
+        raise ProtocolError("Invalid protocol payload") from exc
+
+
+def _decode_wire_payload(raw: object, expected_hash: str | None = None):
     value = _object(raw, {"content_hash", "data"})
+    if expected_hash is not None and value["content_hash"] != expected_hash:
+        raise ProtocolError("Wire payload hash does not match its descriptor")
     try:
         encoded = decode_base64(value["data"])
-        return decode_payload(encoded, value["content_hash"])
+        return _decode_protocol_payload(encoded, value["content_hash"])
     except (InvalidContent, PayloadError) as exc:
         raise ProtocolError("Invalid wire payload") from exc
 
@@ -319,7 +347,7 @@ def _mutation(mutation: ResourceMutation) -> dict:
         "after": None if mutation.after is None else _descriptor(mutation.after),
         "payload": None
         if mutation.payload is None
-        else base64.b64encode(encode_payload(mutation.payload)).decode("ascii"),
+        else _encode_wire_payload(mutation.payload),
     }
 
 
@@ -329,14 +357,9 @@ def _decode_mutation(raw: object) -> ResourceMutation:
     after = _decode_descriptor(value["after"])
     payload = None
     if value["payload"] is not None:
-        if after is None or type(value["payload"]) is not str:
+        if after is None:
             raise ProtocolError("Invalid mutation payload presence")
-        try:
-            payload = decode_payload(
-                decode_base64(value["payload"]), after.content_hash
-            )
-        except (InvalidContent, PayloadError) as exc:
-            raise ProtocolError("Invalid mutation payload") from exc
+        payload = _decode_wire_payload(value["payload"], after.content_hash)
     try:
         return ResourceMutation(value["id"], before, after, payload)
     except PayloadError as exc:
@@ -362,10 +385,10 @@ def _request_body(operation: str, body: object) -> dict:
     if operation == Operation.RESOLVE_COMMIT:
         sync_id, client_id, request_id, mutation_digest = body
         return {
-            "sync_id": sync_id,
-            "client_id": client_id,
-            "request_id": request_id,
-            "mutation_digest": mutation_digest,
+            "sync_id": _identity(sync_id),
+            "client_id": _identity(client_id),
+            "request_id": _identity(request_id),
+            "mutation_digest": _digest(mutation_digest),
         }
     raise ProtocolError("Unsupported protocol operation")
 
@@ -393,16 +416,37 @@ def _decode_request_body(operation: str, raw: object) -> object:
     raise ProtocolError("Unsupported protocol operation")
 
 
+def _receipt(result: object) -> dict:
+    if not isinstance(result, CommitResult):
+        raise ProtocolError("Invalid commit result")
+    try:
+        return encode_receipt(result)
+    except InvalidContent as exc:
+        raise ProtocolError("Invalid commit result") from exc
+
+
 def _response_body(operation: str, body: object) -> dict:
+    """Encode a backend result, rejecting values outside the operation's shape."""
     if operation == Operation.READ:
+        if not isinstance(body, RemoteSnapshot):
+            raise ProtocolError("Invalid read result")
         return _snapshot(body)
     if operation == Operation.FETCH:
-        return {"payloads": {key: _encode_wire_payload(v) for key, v in body.items()}}
+        if not isinstance(body, Mapping):
+            raise ProtocolError("Invalid fetch result")
+        return {
+            "payloads": {
+                _identity(key): _encode_wire_payload(value)
+                for key, value in body.items()
+            }
+        }
     if operation == Operation.COMMIT:
-        return encode_receipt(body)
+        return _receipt(body)
     if operation == Operation.RESOLVE_COMMIT:
-        return {"result": None if body is None else encode_receipt(body)}
+        return {"result": None if body is None else _receipt(body)}
     if operation == Operation.RECOVER:
+        if type(body) is not bool:
+            raise ProtocolError("Invalid recover result")
         return {"recovered": body}
     raise ProtocolError("Unsupported protocol operation")
 
@@ -546,7 +590,7 @@ def encode_recover_request() -> bytes:
 
 
 def encode_read_response(snapshot: RemoteSnapshot) -> bytes:
-    return encode_success(Operation.READ, _snapshot(snapshot))
+    return encode_success(Operation.READ, _response_body(Operation.READ, snapshot))
 
 
 def encode_fetch_response(payloads) -> bytes:
@@ -554,7 +598,7 @@ def encode_fetch_response(payloads) -> bytes:
 
 
 def encode_commit_response(result: CommitResult) -> bytes:
-    return encode_success(Operation.COMMIT, encode_receipt(result))
+    return encode_success(Operation.COMMIT, _receipt(result))
 
 
 def encode_resolve_response(result: CommitResult | None) -> bytes:
@@ -564,9 +608,9 @@ def encode_resolve_response(result: CommitResult | None) -> bytes:
 
 
 def encode_recover_response(recovered: bool) -> bytes:
-    if type(recovered) is not bool:
-        raise ProtocolError("Invalid recover result")
-    return encode_success(Operation.RECOVER, {"recovered": recovered})
+    return encode_success(
+        Operation.RECOVER, _response_body(Operation.RECOVER, recovered)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -579,7 +623,7 @@ def decode_request(encoded: bytes) -> ProtocolRequest:
     value = _object(raw, {"protocol", "operation", "body"})
     _check_protocol(value)
     operation = value["operation"]
-    if operation not in OPERATIONS:
+    if type(operation) is not str or operation not in OPERATIONS:
         raise ProtocolError("Unsupported protocol operation")
     body = _decode_request_body(operation, value["body"])
     if encode_request(operation, _request_body(operation, body)) != encoded:
@@ -597,7 +641,7 @@ def decode_response(encoded: bytes) -> ProtocolResponse:
         value = _object(raw, {"protocol", "operation", "ok", "body"})
         _check_protocol(value)
         operation = value["operation"]
-        if operation not in OPERATIONS:
+        if type(operation) is not str or operation not in OPERATIONS:
             raise ProtocolError("Unsupported protocol operation")
         body = _decode_response_body(operation, value["body"])
         if encode_success(operation, _response_body(operation, body)) != encoded:
@@ -606,11 +650,17 @@ def decode_response(encoded: bytes) -> ProtocolResponse:
     value = _object(raw, {"protocol", "operation", "ok", "error"})
     _check_protocol(value)
     operation = value["operation"]
-    if operation is not None and operation not in OPERATIONS:
+    if operation is not None and (
+        type(operation) is not str or operation not in OPERATIONS
+    ):
         raise ProtocolError("Unsupported protocol operation")
     error = _object(value["error"], {"code", "message"})
     code = error["code"]
-    if code not in ERROR_CODES or type(error["message"]) is not str:
+    if (
+        type(code) is not str
+        or code not in ERROR_CODES
+        or type(error["message"]) is not str
+    ):
         raise ProtocolError("Invalid protocol error")
     if encode_error(operation, code) != encoded:
         raise ProtocolError("Noncanonical protocol error")
@@ -656,8 +706,10 @@ def _peek_operation(message: object) -> str | None:
         raw = decode_state_json(message)
     except InvalidContent:
         return None
-    if type(raw) is dict and raw.get("operation") in OPERATIONS:
-        return raw["operation"]
+    if type(raw) is dict:
+        operation = raw.get("operation")
+        if type(operation) is str and operation in OPERATIONS:
+            return operation
     return None
 
 
@@ -675,19 +727,19 @@ class RemoteProtocolHandler:
             request = decode_request(message)
         except ProtocolError:
             return encode_error(_peek_operation(message), PROTOCOL_ERROR)
+        operation = request.operation
         try:
             value = self._dispatch(request)
-            return encode_success(
-                request.operation, _response_body(request.operation, value)
-            )
         except StoreError as exc:
-            return encode_error(
-                request.operation, error_code_for(exc, request.operation)
-            )
+            return encode_error(operation, error_code_for(exc, operation))
         except Exception:  # noqa: BLE001 - never leak backend exceptions
-            return encode_error(
-                request.operation, error_code_for(None, request.operation)
-            )
+            return encode_error(operation, error_code_for(None, operation))
+        try:
+            return encode_success(operation, _response_body(operation, value))
+        except Exception:  # noqa: BLE001 - the backend call may already be durable
+            # An unencodable result is a server fault, never a malformed request:
+            # a commit may already be published, so its outcome is unknown.
+            return encode_error(operation, error_code_for(None, operation))
 
     def _dispatch(self, request: ProtocolRequest) -> object:
         operation, body = request.operation, request.body

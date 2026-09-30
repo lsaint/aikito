@@ -2,57 +2,16 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
-from workspace_loopback_remote import LoopbackTransport
+from workspace_loopback_remote import FaultyLoopback
 from workspace_memory_remote import InMemoryRemote
 from workspace_reconcile_resources_smoke import write
 from workspace_reconcile_smoke import _workspace
 
 from aikito.workspace.pending_commit import PendingCommitStore
 from aikito.workspace.reconcile import WorkspaceReconcileError, run_reconciliation
-from aikito.workspace.remote_protocol import Operation, encode_read_response
-from aikito.workspace.remote_store import RemoteSnapshot
 from aikito.workspace.replica_state import load_replica_state
-from aikito.workspace.serialized_remote import (
-    SerializedRemoteStore,
-    TransportNotDelivered,
-)
-
-
-class FaultyLoopback(LoopbackTransport):
-    """Deliver (or withhold) one commit, then corrupt its response."""
-
-    def __init__(self, store, fault: str):
-        super().__init__(store)
-        self._fault = fault
-        self._armed = False
-
-    def arm(self) -> None:
-        self._armed = True
-
-    def exchange(self, request: bytes) -> bytes:
-        if not (self._armed and self._is_commit(request)):
-            return super().exchange(request)
-        self._armed = False
-        if self._fault == "not-delivered":
-            raise TransportNotDelivered("simulated non-delivery")
-        response = super().exchange(request)
-        if self._fault == "lost":
-            raise RuntimeError("simulated response loss")
-        if self._fault == "corrupted":
-            return b"garbage"
-        if self._fault == "mismatch":
-            return encode_read_response(RemoteSnapshot("mismatch", 0, {}))
-        return response
-
-    @staticmethod
-    def _is_commit(request: bytes) -> bool:
-        try:
-            return json.loads(request).get("operation") == Operation.COMMIT
-        except (ValueError, TypeError, AttributeError):
-            return False
+from aikito.workspace.serialized_remote import SerializedRemoteStore
 
 
 def paired(tmp_path, fault):

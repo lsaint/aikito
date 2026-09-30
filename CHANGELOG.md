@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Added an internal, transport-neutral Remote Protocol v1 codec and handler for the reconciliation operations (read, fetch, commit, resolve and recover), with a canonical envelope, independent protocol and commit-encoding versions, a stable error envelope and strict fail-closed decoding.
+- Added a `SerializedRemoteStore` client adapter that exchanges only bytes, validates each response against its call context, and treats any unconfirmable commit outcome as `CommitOutcomeUnknown` rather than a definite rejection.
+- Added a test-only loopback transport and extended the shared RemoteStore contract, reconciliation acceptance suite and cross-platform smoke jobs to run through the serialized bytes boundary.
+
 ## [1.57.1] - 2026-09-30
 
 ### Changed
