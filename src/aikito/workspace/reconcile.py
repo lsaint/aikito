@@ -8,7 +8,6 @@ old base makes the next round safely recognize or repeat the accepted work.
 
 from __future__ import annotations
 
-import json
 import tempfile
 import uuid
 from collections.abc import Mapping
@@ -31,15 +30,11 @@ from .merge import compare
 from .resource_state import (
     REPLICA_POLICY as RECONCILE_POLICY,
     REPLICA_STATE,
+    PENDING_COMMIT_STATE,
     SYNC_KINDS,
-    decode_resources,
-    decode_revision,
-    encode_resources,
     LOCAL_CONFIG,
     state_path,
     local_resource_for_id,
-    valid_identity,
-    validate_skill_fingerprint_scheme,
 )
 from .resource_write import (
     ResourceContent,
@@ -55,7 +50,6 @@ from .resources import (
     WorkspaceResourceError,
     physical_kind,
     snapshot_workspace,
-    SKILL_FINGERPRINT_SCHEME,
 )
 from .remote_store import LegacyRemoteStore, RemoteSnapshot, StoreError
 from .payload import (
@@ -67,32 +61,12 @@ from .payload import (
     validate_payload,
 )
 from .payload_io import capture_mutations, prepare_payload_writes
+from .replica_state import ReplicaState, load_replica_state
 from .templates import template_fingerprints
 
 
 class WorkspaceReconcileError(WorkspaceCoreError):
     """A reconciliation round cannot be handled safely."""
-
-
-@dataclass(frozen=True)
-class ReplicaState:
-    sync_id: str
-    replica_id: str
-    revision: int
-    base: dict[str, Resource]
-
-    def encode(self) -> str:
-        return json.dumps(
-            {
-                "version": 2,
-                "skill_fingerprint": SKILL_FINGERPRINT_SCHEME,
-                "sync_id": self.sync_id,
-                "replica_id": self.replica_id,
-                "revision": self.revision,
-                "base": encode_resources(self.base),
-            },
-            sort_keys=True,
-        )
 
 
 @dataclass(frozen=True)
@@ -225,43 +199,17 @@ def _remote_plan_content(
 def _read_state(
     local: Path, remote: RemoteSnapshot
 ) -> tuple[ReplicaState | None, str | None]:
-    legacy = state_path(local, ".local/state/aikito/workspace-reconcile/baseline.json")
-    if entry_type(legacy) != "missing":
-        raise WorkspaceReconcileError(
-            "Unsupported baseline format; remove the old internal baseline and pair again"
-        )
-    path = state_path(local, REPLICA_STATE)
-    if entry_type(path) == "missing":
-        return None, None
-    text = path.read_text(encoding="utf-8")
-    try:
-        raw = json.loads(text)
-    except ValueError as exc:
-        raise WorkspaceReconcileError("Invalid replica state") from exc
-    if not isinstance(raw, dict) or raw.get("version") != 2:
-        raise WorkspaceReconcileError("Unsupported replica state version")
-    revision = decode_revision(raw)
-    if (
-        not isinstance(raw.get("sync_id"), str)
-        or not raw.get("sync_id")
-        or not valid_identity(raw.get("replica_id"))
-        or revision > remote.revision
-    ):
-        raise WorkspaceReconcileError("Invalid replica state")
-    if raw["sync_id"] != remote.sync_id:
-        raise WorkspaceReconcileError("Replica belongs to a different resource center")
-    base = decode_resources(raw.get("base"))
-    validate_skill_fingerprint_scheme(raw.get("skill_fingerprint"), base)
-    return ReplicaState(
-        raw["sync_id"],
-        raw["replica_id"],
-        revision,
-        base,
-    ), text
+    return load_replica_state(
+        local, sync_id=remote.sync_id, max_revision=remote.revision
+    )
 
 
 def _roots(local: Path, remote: LegacyRemoteStore) -> Path:
     local = local.expanduser().resolve()
+    if entry_type(state_path(local, PENDING_COMMIT_STATE)) != "missing":
+        raise WorkspaceReconcileError(
+            "Pending remote commit requires receipt-aware recovery"
+        )
     if not is_recognized_workspace(local):
         raise WorkspaceReconcileError("Local path must be an Aikito workspace")
     remote.validate_replica(local)
@@ -751,6 +699,8 @@ def apply_reconcile_plan(
                     plan.state.replica_id if plan.state else uuid.uuid4().hex,
                     center.revision,
                     base,
+                    plan.state.receipt_cursor if plan.state else None,
+                    plan.state.completion_marker if plan.state else None,
                 )
                 if not local_changes and state == plan.state:
                     return

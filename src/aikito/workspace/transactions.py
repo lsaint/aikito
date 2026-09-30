@@ -202,6 +202,14 @@ def atomic_text(path: Path, content: str) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def atomic_unlink(path: Path) -> None:
+    """Durably clear private state; callers validate the path and hold its lock."""
+    if entry_type(path) not in ("file", "missing"):
+        raise WorkspaceCoreError("Unsafe state file for removal")
+    path.unlink(missing_ok=True)
+    _fsync_dir(path.parent)
+
+
 def _copy_resource(source: Path, dest: Path, kind: str) -> None:
     if entry_type(source) != ("directory" if kind == "skill" else "file"):
         raise WorkspaceCoreError(f"Unsafe source: {source}")

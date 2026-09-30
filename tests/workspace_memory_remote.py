@@ -11,6 +11,7 @@ import threading
 import uuid
 from collections.abc import Collection, Mapping, Sequence
 from types import MappingProxyType
+from typing import overload
 
 from aikito.workspace.payload import (
     PayloadError,
@@ -20,10 +21,14 @@ from aikito.workspace.payload import (
     encode_payload,
 )
 from aikito.workspace.remote_store import (
+    CommitRequest,
+    CommitResult,
     InvalidContent,
     RemoteSnapshot,
     SnapshotExpired,
 )
+from aikito.workspace.remote_receipts import ReceiptHistory
+from aikito.workspace.remote_wire import build_commit_result, validate_commit_request
 
 
 class InMemoryRemote:
@@ -32,6 +37,7 @@ class InMemoryRemote:
             f"memory-center:{uuid.uuid4()}" if sync_id is None else sync_id, 0, {}
         )
         self._payloads: dict[str, bytes] = {}
+        self._receipts = ReceiptHistory(self._snapshot.sync_id)
         self._mutex = threading.RLock()
 
     def validate_replica(self, local: object) -> None:
@@ -82,9 +88,62 @@ class InMemoryRemote:
             except PayloadError as exc:
                 raise InvalidContent("Invalid stored payload encoding") from exc
 
+    @overload
+    def commit(self, request: CommitRequest) -> CommitResult: ...
+
+    @overload
     def commit(
-        self, expected: RemoteSnapshot, mutations: Sequence[ResourceMutation]
-    ) -> RemoteSnapshot:
+        self, request: RemoteSnapshot, mutations: Sequence[ResourceMutation]
+    ) -> RemoteSnapshot: ...
+
+    def commit(
+        self,
+        request: CommitRequest | RemoteSnapshot,
+        mutations: Sequence[ResourceMutation] | None = None,
+    ) -> CommitResult | RemoteSnapshot:
+        if isinstance(request, RemoteSnapshot) and mutations is not None:
+            return self._commit_batch(request, mutations)
+        if mutations is not None:
+            raise InvalidContent("Commit request cannot include a separate batch")
+        validate_commit_request(request)
+        with self._mutex:
+            self._verify()
+            receipt = self._receipts.resolve(
+                request.expected.sync_id,
+                request.client_id,
+                request.request_id,
+                request.mutation_digest,
+            )
+            if receipt is not None:
+                return receipt
+            self._expect(request.expected)
+            self._receipts.check_previous(request.client_id, request.previous_receipt)
+            return self._commit_batch(
+                request.expected,
+                request.mutations,
+                receipt=build_commit_result(request),
+            )
+
+    def resolve_commit(
+        self,
+        sync_id: str,
+        client_id: str,
+        request_id: str,
+        mutation_digest: str,
+    ) -> CommitResult | None:
+        with self._mutex:
+            self._verify()
+            return self._receipts.resolve(
+                sync_id, client_id, request_id, mutation_digest
+            )
+
+    def _commit_batch(
+        self,
+        expected: RemoteSnapshot,
+        mutations: Sequence[ResourceMutation],
+        *,
+        receipt: CommitResult | None = None,
+    ) -> RemoteSnapshot | CommitResult:
         batch = tuple(mutations)
         with self._mutex:
             self._expect(expected)
@@ -117,8 +176,17 @@ class InMemoryRemote:
             snapshot = RemoteSnapshot(
                 self._snapshot.sync_id, self._snapshot.revision + 1, descriptors
             )
-            self._snapshot, self._payloads = snapshot, payloads
-            return self._copy_snapshot()
+            receipts = (
+                self._receipts.accepted(receipt)
+                if receipt is not None
+                else self._receipts
+            )
+            self._snapshot, self._payloads, self._receipts = (
+                snapshot,
+                payloads,
+                receipts,
+            )
+            return receipt if receipt is not None else self._copy_snapshot()
 
     def recover(self) -> bool:
         """No durable transaction exists to recover."""

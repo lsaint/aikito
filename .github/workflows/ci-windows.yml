@@ -203,6 +203,29 @@ jobs:
           foreach ($relative in @("request.json", "result-digest.txt", "checked.json")) {
             if (!(Test-Path (Join-Path $commitCodecBase $relative) -PathType Leaf)) { throw "Missing commit codec artifact: $relative" }
           }
+          $receiptsBase = Join-Path $env:RUNNER_TEMP "remote-receipts"
+          python tests/workspace_remote_receipts_smoke.py "$receiptsBase"
+          if ($LASTEXITCODE -ne 0) { throw "Filesystem receipt recovery smoke failed" }
+          foreach ($checkpoint in @("journal", "resource", "manifest", "committed", "cleanup")) {
+            foreach ($relative in @("center/memory/notes/receipt.md", "center/.local/state/aikito/workspace-reconcile/remote.json", "checked.json")) {
+              if (!(Test-Path "$receiptsBase/$checkpoint/$relative" -PathType Leaf)) { throw "Missing receipt recovery artifact: $checkpoint/$relative" }
+            }
+          }
+          $pendingBase = Join-Path $env:RUNNER_TEMP "pending-commit"
+          python tests/workspace_pending_commit_smoke.py "$pendingBase" --stage prepare
+          if ($LASTEXITCODE -ne 0) { throw "Pending persistence smoke failed" }
+          if (!(Test-Path "$pendingBase/local/.local/state/aikito/workspace-reconcile/pending.json" -PathType Leaf)) { throw "Missing persistent pending" }
+          python tests/workspace_pending_commit_smoke.py "$pendingBase" --stage complete
+          if ($LASTEXITCODE -ne 0) { throw "Pending completion smoke failed" }
+          foreach ($relative in @("local/.local/state/aikito/workspace-reconcile/pending.json", "local/.local/state/aikito/workspace-reconcile/replica.json")) {
+            if (!(Test-Path "$pendingBase/$relative" -PathType Leaf)) { throw "Missing completed pending state: $relative" }
+          }
+          python tests/workspace_pending_commit_smoke.py "$pendingBase" --stage clear
+          if ($LASTEXITCODE -ne 0) { throw "Pending cleanup smoke failed" }
+          if (Test-Path "$pendingBase/local/.local/state/aikito/workspace-reconcile/pending.json") { throw "Completed pending was not cleared" }
+          foreach ($relative in @("local/memory/notes/pending.md", "clear-checked.json")) {
+            if (!(Test-Path "$pendingBase/$relative" -PathType Leaf)) { throw "Missing pending artifact: $relative" }
+          }
           $revisionBase = Join-Path $env:RUNNER_TEMP "revision-state"
           python tests/workspace_revision_smoke.py "$revisionBase"
           if ($LASTEXITCODE -ne 0) { throw "Revision state persistence smoke failed" }

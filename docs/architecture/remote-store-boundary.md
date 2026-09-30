@@ -11,9 +11,12 @@ test orchestration, separate from the production store contract.
 `RemoteStore` defines `commit(request: CommitRequest) -> CommitResult` and
 `resolve_commit(sync_id, client_id, request_id, mutation_digest) -> CommitResult | None`,
 alongside the existing read, fetch, attachment and recovery operations. This is
-the contract for the staged network safety work. Backends and reconciliation
-still use `LegacyRemoteStore`; they do not yet persist receipts or recover
-unknown outcomes. The legacy interface will be removed after migration.
+the contract for the staged network safety work. `FilesystemRemote` and the
+test-only `InMemoryRemote` implement it. Reconciliation still uses the temporary
+`LegacyRemoteStore` call shape; backend dispatch retains `commit(expected,
+mutations)` during migration. These legacy calls preserve receipt history but
+do not create receipts. The compatibility path will be removed after the
+receipt-aware reconciliation flow is integrated.
 
 `CommitRequest` carries an opaque client ID, stable request ID, optional
 `ReceiptCursor`, complete expected snapshot, nonempty mutation tuple and
@@ -75,7 +78,59 @@ a definite rejection. A backend rejecting a wrong center before publication
 raises `StoreIdentityMismatch`, and pairing remains blocked. Receipt validation
 helpers raise `InvalidContent` for invalid responses; callers must still retain
 pending because validation failure does not prove rejection. This contract alone
-does not add pending persistence, retries or network safety to the legacy engine.
+does not add automatic pending recovery or retries to the legacy engine.
+
+## Durable receipts and pending state
+
+`ReceiptHistory` holds an immutable latest-receipt map for one center. New
+requests check that history before CAS and validate the previous cursor only
+after CAS succeeds. Lookup of another request returns `None`; it does not
+compare that other request's digest. Receipt records have their own persistence
+version and bind center/client identity and accepted revision. Invalid or future
+receipt state blocks lookup rather than masquerading as a missing request.
+
+The filesystem manifest carries resources, payload hashes, revision and receipts
+in the same journaled state update. Ordinary read/fetch/resolve never recover
+a pending journal. Resolution takes the backend writer lock and raises
+`RecoveryRequired` until explicit recovery. Process interruption before the
+journal is committed rolls back resources and receipts together; interruption
+after the committed marker preserves both. Errors during publication or after
+publication/cleanup are `CommitOutcomeUnknown`, not definite rejection. The
+memory backend publishes its snapshot, payloads and receipt history together
+under its mutex and makes no durability promise across process restart.
+
+`replica_state.ReplicaState` retains version-2 read compatibility and adds an
+optional receipt cursor and completion marker. The marker binds sync ID,
+request ID and mutation digest; it must agree with the cursor. Existing state
+without these fields remains readable without being rewritten. Center identity
+and replica revision validation still belongs to the client.
+
+`pending_commit.PendingCommitStore` provides persist/load/complete/clear. Its
+versioned `pending.json` envelope stores the exact canonical request, original
+replica-state text and safe/excluded resource IDs, protected by an envelope
+checksum. It validates replica/client identity, previous cursor, original
+revision and mutation scope. Current files never reconstruct an old request.
+Downloads are not retained; the request itself contains upload after descriptors
+and payloads needed for exact retry. Corrupt, unsupported or mismatched pending
+state blocks further writes and remains available for repair.
+
+Every store operation holds `WorkspaceWriterLock` and recovers the local journal
+first. Local transactions use the configured inbox path; recovery restores the
+journal's saved path policy even if that configuration changes. First pairing
+writes replica identity and pending through one local
+journal before any caller may send the request. Persist refuses to replace an
+existing pending record. Completion validates the receipt and supplied Base,
+then commits caller-verified local changes, per-resource Base, cursor and marker
+together. It cannot advance excluded Base resources or substitute different
+upload descriptors. A matching completion marker prevents reapplying local
+writes after restart, even without a remote connection.
+
+Cleanup requires either the matching local completion marker or an explicit
+`SnapshotExpired` rejection supplied by the caller. `None` lookup and transport
+errors do not permit cleanup. Removal syncs the containing directory where
+supported. Completion and cleanup are deliberately separate durable steps.
+The legacy engine preserves optional replica fields and blocks when pending
+exists; automatic resolution and current-content replanning are the next stage.
 
 ## Legacy backend contract
 

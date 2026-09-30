@@ -128,6 +128,23 @@ jobs:
           test -f "$COMMIT_CODEC/request.json"
           test -f "$COMMIT_CODEC/result-digest.txt"
           test -f "$COMMIT_CODEC/checked.json"
+          RECEIPTS=${{ runner.temp }}/remote-receipts
+          python3 tests/workspace_remote_receipts_smoke.py "$RECEIPTS"
+          for CHECKPOINT in journal resource manifest committed cleanup; do
+            test -f "$RECEIPTS/$CHECKPOINT/center/memory/notes/receipt.md"
+            test -f "$RECEIPTS/$CHECKPOINT/center/.local/state/aikito/workspace-reconcile/remote.json"
+            test -f "$RECEIPTS/$CHECKPOINT/checked.json"
+          done
+          PENDING=${{ runner.temp }}/pending-commit
+          python3 tests/workspace_pending_commit_smoke.py "$PENDING" --stage prepare
+          test -f "$PENDING/local/.local/state/aikito/workspace-reconcile/pending.json"
+          python3 tests/workspace_pending_commit_smoke.py "$PENDING" --stage complete
+          test -f "$PENDING/local/.local/state/aikito/workspace-reconcile/pending.json"
+          test -f "$PENDING/local/.local/state/aikito/workspace-reconcile/replica.json"
+          python3 tests/workspace_pending_commit_smoke.py "$PENDING" --stage clear
+          test ! -e "$PENDING/local/.local/state/aikito/workspace-reconcile/pending.json"
+          test -f "$PENDING/local/memory/notes/pending.md"
+          test -f "$PENDING/clear-checked.json"
           REVISION=${{ runner.temp }}/revision-state
           python3 tests/workspace_revision_smoke.py "$REVISION"
           test -f "$REVISION/right/memory/notes/revision.md"

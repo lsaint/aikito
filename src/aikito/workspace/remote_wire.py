@@ -115,6 +115,14 @@ def validate_commit_request(request: CommitRequest) -> None:
     """Recompute the digest at each trust boundary, including backend receipt lookup."""
     if not isinstance(request, CommitRequest):
         raise InvalidContent("Invalid commit request type")
+    try:
+        checked = replace(
+            request, mutations=tuple(replace(m) for m in request.mutations)
+        )
+    except (PayloadError, TypeError, AttributeError) as exc:
+        raise InvalidContent("Invalid commit mutation structure or payload") from exc
+    if checked != request:
+        raise InvalidContent("Noncanonical commit mutation order")
     if commit_request_digest(request) != request.mutation_digest:
         raise InvalidContent("Commit request digest mismatch")
     for mutation in request.mutations:
@@ -287,3 +295,51 @@ def validate_commit_result(request: CommitRequest, result: CommitResult) -> None
     """An invalid receipt leaves the request unresolved; callers must retain pending."""
     if not isinstance(result, CommitResult) or result != build_commit_result(request):
         raise InvalidContent("Commit result identity, revision or digest mismatch")
+
+
+def encode_receipt(result: CommitResult) -> dict:
+    """Persist a historical receipt without retaining its snapshot or payloads."""
+    return {
+        "version": COMMIT_ENCODING_VERSION,
+        "sync_id": result.sync_id,
+        "client_id": result.client_id,
+        "request_id": result.request_id,
+        "mutation_digest": result.mutation_digest,
+        "accepted_revision": result.accepted_revision,
+        "result_digest": result.result_digest,
+    }
+
+
+def decode_receipt(raw: object) -> CommitResult:
+    value = _object(
+        raw,
+        {
+            "version",
+            "sync_id",
+            "client_id",
+            "request_id",
+            "mutation_digest",
+            "accepted_revision",
+            "result_digest",
+        },
+    )
+    if type(value["version"]) is not int or value["version"] != COMMIT_ENCODING_VERSION:
+        raise InvalidContent("Unsupported receipt encoding version")
+    return CommitResult(
+        value["sync_id"],
+        value["client_id"],
+        value["request_id"],
+        value["mutation_digest"],
+        value["accepted_revision"],
+        value["result_digest"],
+    )
+
+
+def decode_state_json(encoded: str | bytes) -> object:
+    """Reject duplicate fields in persistent commit state as well as requests."""
+    try:
+        return json.loads(encoded, object_pairs_hook=_unique_object)
+    except InvalidContent:
+        raise
+    except (ValueError, TypeError) as exc:
+        raise InvalidContent("Invalid commit state JSON") from exc

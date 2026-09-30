@@ -16,7 +16,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from collections.abc import Collection, Mapping, Sequence
 from types import MappingProxyType
-from typing import Iterator
+from typing import Iterator, overload
 
 from ..compat import is_windows, secure_file_permissions
 from .transactions import (
@@ -60,12 +60,17 @@ from .payload import (
 )
 from .payload_io import capture_resources, materialize_resources
 from .remote_store import (
+    CommitRequest,
+    CommitResult,
+    CommitOutcomeUnknown,
     RemoteSnapshot,
     SnapshotExpired,
     InvalidContent,
     RecoveryRequired,
     StoreUnavailable,
 )
+from .remote_receipts import ReceiptHistory
+from .remote_wire import build_commit_result, decode_state_json, validate_commit_request
 
 from .resource_state import (
     SYNC_KINDS,
@@ -116,6 +121,7 @@ class _CenterState:
     resources: dict[str, Resource]
     values: dict[str, TomlValue] = field(default_factory=dict)
     payload_hashes: dict[str, str] | None = field(default_factory=dict)
+    receipts: ReceiptHistory | None = None
 
 
 class FilesystemRemote:
@@ -200,6 +206,7 @@ class FilesystemRemote:
                 "skill_fingerprint": SKILL_FINGERPRINT_SCHEME,
                 "sync_id": snapshot.sync_id,
                 "revision": snapshot.revision,
+                "receipts": (snapshot.receipts or ReceiptHistory(snapshot.sync_id)).encode(),
                 "resources": {
                     key: {
                         "fingerprint": resource.fingerprint,
@@ -359,7 +366,7 @@ class FilesystemRemote:
             raise WorkspaceCoreError("Resource center is not initialized")
         before = path.read_text(encoding="utf-8")
         try:
-            raw = json.loads(before)
+            raw = decode_state_json(before)
         except ValueError as exc:
             raise WorkspaceCoreError("Invalid resource center state") from exc
         if (
@@ -388,6 +395,7 @@ class FilesystemRemote:
             resources,
             values,
             raw.get("payload_hashes"),
+            ReceiptHistory.decode(raw["sync_id"], revision, raw.get("receipts", {"version": 1, "latest": {}})),
         )
 
     def _content(self, snapshot: _CenterState) -> ResourceContent:
@@ -464,9 +472,96 @@ class FilesystemRemote:
             raise InvalidContent("Missing requested resource content")
         return MappingProxyType({identity: payloads[identity] for identity in ids})
 
+    @overload
+    def commit(self, request: CommitRequest) -> CommitResult: ...
+
+    @overload
     def commit(
-        self, expected: RemoteSnapshot, mutations: Sequence[ResourceMutation]
-    ) -> RemoteSnapshot:
+        self, request: RemoteSnapshot, mutations: Sequence[ResourceMutation]
+    ) -> RemoteSnapshot: ...
+
+    def commit(
+        self,
+        request: CommitRequest | RemoteSnapshot,
+        mutations: Sequence[ResourceMutation] | None = None,
+    ) -> CommitResult | RemoteSnapshot:
+        # This dispatch is temporary until reconciliation adopts persistent pending.
+        if isinstance(request, RemoteSnapshot) and mutations is not None:
+            return self._commit_batch(request, mutations)
+        if mutations is not None:
+            raise InvalidContent("Commit request cannot include a separate batch")
+        validate_commit_request(request)
+        published = False
+        try:
+            with self.lock():
+                state, current, _ = self._load()
+                receipt = state.receipts.resolve(
+                    request.expected.sync_id,
+                    request.client_id,
+                    request.request_id,
+                    request.mutation_digest,
+                )
+                if receipt is not None:
+                    published = True
+                    return receipt
+                if current != request.expected:
+                    raise SnapshotExpired("Resource center revision changed; replan")
+                state.receipts.check_previous(
+                    request.client_id, request.previous_receipt
+                )
+                receipt = build_commit_result(request)
+                result = self._commit_batch(
+                    request.expected, request.mutations, receipt=receipt
+                )
+                published = True
+                return result
+        except WorkspaceCoreError as exc:
+            if published:
+                raise CommitOutcomeUnknown(
+                    "Commit accepted but completion unavailable"
+                ) from exc
+            raise InvalidContent(str(exc)) from exc
+        except OSError as exc:
+            if published:
+                raise CommitOutcomeUnknown(
+                    "Commit accepted but response unavailable"
+                ) from exc
+            raise StoreUnavailable("Resource center commit unavailable") from exc
+        except Exception as exc:
+            if published:
+                raise CommitOutcomeUnknown(
+                    "Commit accepted but response invalid"
+                ) from exc
+            raise
+
+    def resolve_commit(
+        self,
+        sync_id: str,
+        client_id: str,
+        request_id: str,
+        mutation_digest: str,
+    ) -> CommitResult | None:
+        try:
+            with self.lock():
+                state = self._load()[0]
+                return state.receipts.resolve(
+                    sync_id, client_id, request_id, mutation_digest
+                )
+        except WorkspaceCoreError as exc:
+            raise InvalidContent(str(exc)) from exc
+        except OSError as exc:
+            raise StoreUnavailable(
+                "Resource center receipt lookup unavailable"
+            ) from exc
+
+    def _commit_batch(
+        self,
+        expected: RemoteSnapshot,
+        mutations: Sequence[ResourceMutation],
+        *,
+        receipt: CommitResult | None = None,
+    ) -> RemoteSnapshot | CommitResult:
+        published = False
         try:
             with self.lock():
                 state, current, _ = self._load()
@@ -491,6 +586,13 @@ class FilesystemRemote:
                     if mutation.after is None:
                         descriptors.pop(mutation.id)
                     else:
+                        if (
+                            resource.kind != "skill"
+                            and mutation.after.mode_fingerprint is not None
+                        ):
+                            raise InvalidContent(
+                                "Executable metadata requires a skill resource"
+                            )
                         if resource.kind == "skill" and (
                             not isinstance(mutation.payload, TreePayload)
                             or mutation.after.mode_fingerprint
@@ -528,12 +630,28 @@ class FilesystemRemote:
                             key: value.content_hash
                             for key, value in descriptors.items()
                         },
+                        receipt=receipt,
                     )
-                return self.read()
+                    published = True
+                return receipt if receipt is not None else self.read()
         except (WorkspaceCoreError, WorkspaceResourceError, PayloadError) as exc:
+            if receipt is not None and published:
+                raise CommitOutcomeUnknown(
+                    "Commit published but completion unavailable"
+                ) from exc
             raise InvalidContent(str(exc)) from exc
         except OSError as exc:
+            if receipt is not None and published:
+                raise CommitOutcomeUnknown(
+                    "Commit published but completion unavailable"
+                ) from exc
             raise StoreUnavailable("Resource center commit unavailable") from exc
+        except Exception as exc:
+            if receipt is not None and published:
+                raise CommitOutcomeUnknown(
+                    "Commit published but completion invalid"
+                ) from exc
+            raise
 
     def _commit_resources(
         self,
@@ -542,6 +660,7 @@ class FilesystemRemote:
         writes: tuple[ResourceWrite, ...],
         *,
         payload_hashes: Mapping[str, str],
+        receipt: CommitResult | None = None,
     ) -> _CenterState:
         """Commit all accepted writes and revision together, or none of them."""
         with self.lock():
@@ -631,39 +750,39 @@ class FilesystemRemote:
             source_content = ResourceContent(
                 canonical_content, content.paths, values=values
             )
-            with tempfile.TemporaryDirectory(prefix="aikito-center-write-") as staging:
-                changes, intended = prepare_resource_writes(
-                    source_content,
-                    target,
-                    tuple(standalone),
-                    Path(staging),
-                    policy=RECONCILE_POLICY,
-                )
-                if intended != resources:
-                    raise WorkspaceCoreError("Invalid center resource batch")
-                new = _CenterState(
-                    current.sync_id,
-                    current.revision + 1,
-                    resources,
-                    values,
-                    dict(payload_hashes),
-                )
-                path = state_path(self.root, REMOTE_STATE)
-                apply(
-                    (self.root,),
-                    changes,
-                    states=(
-                        StateUpdate(
-                            0,
-                            REMOTE_STATE,
-                            path.read_text(encoding="utf-8"),
-                            self.encode(new),
-                        ),
-                    ),
-                    verify=lambda: verify_resource_snapshot(
-                        self.verify_contents(resources, values),
+            publication_started = False
+            try:
+                with tempfile.TemporaryDirectory(
+                    prefix="aikito-center-write-"
+                ) as staging:
+                    changes, intended = prepare_resource_writes(
+                        source_content,
+                        target,
+                        tuple(standalone),
+                        Path(staging),
+                        policy=RECONCILE_POLICY,
+                    )
+                    if intended != resources:
+                        raise WorkspaceCoreError("Invalid center resource batch")
+                    new = _CenterState(
+                        current.sync_id,
+                        current.revision + 1,
                         resources,
-                    ),
-                    policy=RECONCILE_POLICY,
-                )
+                        values,
+                        dict(payload_hashes),
+                        current.receipts.accepted(receipt) if receipt is not None else current.receipts,
+                    )
+                    path = state_path(self.root, REMOTE_STATE)
+                    publication_started = True
+                    apply(
+                        (self.root,),
+                        changes,
+                        states=(StateUpdate(0, REMOTE_STATE, path.read_text(encoding="utf-8"), self.encode(new)),),
+                        verify=lambda: verify_resource_snapshot(self.verify_contents(resources, values), resources),
+                        policy=RECONCILE_POLICY,
+                    )
+            except Exception as exc:
+                if receipt is not None and publication_started:
+                    raise CommitOutcomeUnknown("Center publication outcome must be resolved") from exc
+                raise
             return new
