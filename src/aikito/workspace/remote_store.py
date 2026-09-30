@@ -6,10 +6,10 @@ Attachment validation is local backend lifecycle, never serialized transport.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-import re
 from types import MappingProxyType
 from typing import Protocol
 
@@ -53,6 +53,14 @@ class StoreIdentityMismatch(StoreError):
 
 class ReplicaHistoryMismatch(StoreError):
     """The previous receipt no longer matches this client's accepted history."""
+
+
+class ProtocolError(StoreError):
+    """A wire message was malformed, unknown, or violated the protocol contract.
+
+    This never proves a commit did or did not happen; callers must not treat it
+    as a definite rejection.
+    """
 
 
 def _identity(value: str) -> None:
