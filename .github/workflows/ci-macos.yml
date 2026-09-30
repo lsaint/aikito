@@ -153,6 +153,22 @@ jobs:
           test -f "$COMMIT_RECOVERY/center/memory/notes/upload.md"
           test -f "$COMMIT_RECOVERY/local/memory/notes/download.md"
           test -f "$COMMIT_RECOVERY/checked.json"
+          FAULTS=${{ runner.temp }}/unreliable-remote
+          for BACKEND in filesystem memory; do
+            python3 tests/workspace_unreliable_remote_smoke.py "$FAULTS/$BACKEND" --backend "$BACKEND"
+            test -f "$FAULTS/$BACKEND/checked.json"
+            for SCENARIO in before-send response-loss duplicate resolve-failure delayed-accepted delayed-cas historical; do
+              test -f "$FAULTS/$BACKEND/$SCENARIO/checked.json"
+              test -f "$FAULTS/$BACKEND/$SCENARIO/local/memory/notes/upload.md"
+              test ! -e "$FAULTS/$BACKEND/$SCENARIO/local/.local/state/aikito/workspace-reconcile/pending.json"
+            done
+          done
+          for CHECKPOINT in replica committed cleanup before-clear after-clear; do
+            test -f "$FAULTS/filesystem/local-crashes/$CHECKPOINT/checked.json"
+            test -f "$FAULTS/filesystem/local-crashes/$CHECKPOINT/center/memory/notes/upload.md"
+            test -f "$FAULTS/filesystem/local-crashes/$CHECKPOINT/local/.local/state/aikito/workspace-reconcile/replica.json"
+            test ! -e "$FAULTS/filesystem/local-crashes/$CHECKPOINT/local/.local/state/aikito/workspace-reconcile/pending.json"
+          done
           REVISION=${{ runner.temp }}/revision-state
           python3 tests/workspace_revision_smoke.py "$REVISION"
           test -f "$REVISION/right/memory/notes/revision.md"

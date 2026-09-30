@@ -236,6 +236,26 @@ jobs:
           foreach ($relative in @("center/memory/notes/upload.md", "local/memory/notes/download.md", "checked.json")) {
             if (-not (Test-Path (Join-Path $commitRecovery $relative))) { throw "Missing reconciliation recovery artifact: $relative" }
           }
+          $faultsBase = Join-Path $env:RUNNER_TEMP "unreliable-remote"
+          foreach ($backend in @("filesystem", "memory")) {
+            $faultRoot = Join-Path $faultsBase $backend
+            python tests/workspace_unreliable_remote_smoke.py $faultRoot --backend $backend
+            if ($LASTEXITCODE -ne 0) { throw "Unreliable remote smoke failed: $backend" }
+            if (-not (Test-Path "$faultRoot/checked.json" -PathType Leaf)) { throw "Missing fault report: $backend" }
+            foreach ($scenario in @("before-send", "response-loss", "duplicate", "resolve-failure", "delayed-accepted", "delayed-cas", "historical")) {
+              foreach ($relative in @("checked.json", "local/memory/notes/upload.md")) {
+                if (-not (Test-Path "$faultRoot/$scenario/$relative" -PathType Leaf)) { throw "Missing fault artifact: $backend/$scenario/$relative" }
+              }
+              if (Test-Path "$faultRoot/$scenario/local/.local/state/aikito/workspace-reconcile/pending.json") { throw "Unresolved fault pending: $backend/$scenario" }
+            }
+          }
+          foreach ($checkpoint in @("replica", "committed", "cleanup", "before-clear", "after-clear")) {
+            $crashRoot = Join-Path $faultsBase "filesystem/local-crashes/$checkpoint"
+            foreach ($relative in @("checked.json", "center/memory/notes/upload.md", "local/.local/state/aikito/workspace-reconcile/replica.json")) {
+              if (-not (Test-Path "$crashRoot/$relative" -PathType Leaf)) { throw "Missing local crash artifact: $checkpoint/$relative" }
+            }
+            if (Test-Path "$crashRoot/local/.local/state/aikito/workspace-reconcile/pending.json") { throw "Unresolved local crash pending: $checkpoint" }
+          }
           $revisionBase = Join-Path $env:RUNNER_TEMP "revision-state"
           python tests/workspace_revision_smoke.py "$revisionBase"
           if ($LASTEXITCODE -ne 0) { throw "Revision state persistence smoke failed" }

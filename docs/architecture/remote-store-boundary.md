@@ -159,6 +159,36 @@ available to that plan. A fresh CAS rejection permits one replan in the same
 invocation; further rejection stops. Standalone journals without pending still
 invalidate the old plan and require a new invocation.
 
+## Deterministic fault acceptance
+
+The test-only `workspace_unreliable_remote.UnreliableRemote` forwards the portable
+store interface and schedules one-shot faults. It retains delayed requests as
+canonical bytes and audits each commit and actual delivery separately. Gates
+control arrival and response release with bounded waits; no sleeps or random
+failure probabilities determine execution order. Concurrent duplicates enter
+the real backend critical section and must return the same receipt.
+
+`test_workspace_unreliable_remote.py` runs shared boundary tests on memory and
+filesystem stores: failure before send, accepted response loss, resolve failure,
+concurrent duplicate delivery, and delayed original/retry delivery after a
+missing receipt. The delayed cases cover both acceptance once and CAS rejection
+of both deliveries after another client advances revision. Further cases pause
+the accepted response while editing a download target or shared TOML file,
+confirm an old receipt after other clients delete historical payloads, and
+verify a stale replica cannot replace an unknown winner's recovery receipt.
+
+All three OS smoke workflows invoke `workspace_unreliable_remote_smoke.py` on
+both stores. Its historical round includes upload, deletion, download, NOOP
+and credential-blocked resources. Restart confirms only uploads, then replans
+against current content while preserving user edits and excluded Base entries.
+The filesystem run also kills real client subprocesses at five local boundaries:
+replica-state publication, journal committed marker, journal cleanup, and before
+and after durable pending removal. Recovery rolls back uncommitted local writes,
+or retains completion and permits pending cleanup with the remote offline.
+Already-cleared pending resumes the normal lifecycle, which may need the remote.
+These tests complement `workspace_remote_receipts_smoke.py`, which separately
+kills the backend at five resource/manifest/receipt journal boundaries.
+
 ## Legacy backend contract
 
 The implemented data interface is `read() -> RemoteSnapshot`,
