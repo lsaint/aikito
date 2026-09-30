@@ -188,7 +188,7 @@ class RemoteStore(_RemoteAccess, Protocol):
 
 
 class LegacyRemoteStore(_RemoteAccess, Protocol):
-    """Temporary interface until backends and reconciliation adopt receipts."""
+    """Temporary compatibility interface for older backend contract tests."""
 
     def commit(
         self, expected: RemoteSnapshot, mutations: Sequence[ResourceMutation]

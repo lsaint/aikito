@@ -29,8 +29,13 @@ class StoreFacade:
     def fetch(self, expected, ids):
         return self.__backend.fetch(expected, ids)
 
-    def commit(self, expected, mutations):
-        return self.__backend.commit(expected, mutations)
+    def commit(self, request):
+        return self.__backend.commit(request)
+
+    def resolve_commit(self, sync_id, client_id, request_id, mutation_digest):
+        return self.__backend.resolve_commit(
+            sync_id, client_id, request_id, mutation_digest
+        )
 
     def recover(self):
         return self.__backend.recover()

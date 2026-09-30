@@ -463,9 +463,14 @@ def test_interrupted_round_recovers_and_repeats(tmp_path, target):
     assert not destination.exists()
     with pytest.raises(WorkspaceReconcileError, match="Pending"):
         build_reconcile_plan(a, remote)
-    with pytest.raises(WorkspaceReconcileError, match="Recovered an interrupted"):
+    if target == "local":
+        with pytest.raises(WorkspaceReconcileError, match="Recovered an interrupted"):
+            _round(a, remote, home)
+        assert destination.read_text() == "base"
+    else:
+        # Pending upload identity can be retried and replanned in this invocation.
         _round(a, remote, home)
-    assert destination.read_text() == "base"
+        assert destination.read_text() == "changed"
     _round(a, remote, home)
     assert destination.read_text() == "changed"
 

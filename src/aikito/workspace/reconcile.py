@@ -3,7 +3,7 @@
 Each replica keeps its own per-resource base. Unresolved or blocked resources
 retain that base while the safe subset advances. Center and replica commits
 are separate atomic transactions: if the replica fails after an upload, its
-old base makes the next round safely recognize or repeat the accepted work.
+durable request and receipt confirm uploaded Base before the next plan.
 """
 
 from __future__ import annotations
@@ -51,7 +51,14 @@ from .resources import (
     physical_kind,
     snapshot_workspace,
 )
-from .remote_store import LegacyRemoteStore, RemoteSnapshot, StoreError
+from .remote_store import RemoteStore, RemoteSnapshot, SnapshotExpired, StoreError
+from .remote_wire import (
+    build_commit_request,
+    committed_snapshot,
+    validate_commit_result,
+)
+from .pending_commit import PendingCommitStore
+from .commit_recovery import recover_pending
 from .payload import (
     ResourcePayload,
     TomlPayload,
@@ -140,7 +147,7 @@ def _resource_version(resource: Resource | None) -> str | None:
 
 
 def _fetch_validated(
-    remote: LegacyRemoteStore, center: RemoteSnapshot, resources: Mapping[str, Resource]
+    remote: RemoteStore, center: RemoteSnapshot, resources: Mapping[str, Resource]
 ) -> Mapping[str, ResourcePayload]:
     if not resources:
         return {}
@@ -155,7 +162,7 @@ def _fetch_validated(
 
 
 def _plan_payloads(
-    remote: LegacyRemoteStore,
+    remote: RemoteStore,
     center: RemoteSnapshot,
     resources: Mapping[str, Resource],
     items: list[ReconcileItem],
@@ -204,11 +211,14 @@ def _read_state(
     )
 
 
-def _roots(local: Path, remote: LegacyRemoteStore) -> Path:
+def _roots(local: Path, remote: RemoteStore, *, allow_pending: bool = False) -> Path:
     local = local.expanduser().resolve()
-    if entry_type(state_path(local, PENDING_COMMIT_STATE)) != "missing":
+    if (
+        not allow_pending
+        and entry_type(state_path(local, PENDING_COMMIT_STATE)) != "missing"
+    ):
         raise WorkspaceReconcileError(
-            "Pending remote commit requires receipt-aware recovery"
+            "Pending remote commit needs recovery before preview"
         )
     if not is_recognized_workspace(local):
         raise WorkspaceReconcileError("Local path must be an Aikito workspace")
@@ -481,7 +491,7 @@ def _resolve_items(
 
 def build_reconcile_plan(
     local: Path,
-    remote: LegacyRemoteStore,
+    remote: RemoteStore,
     *,
     resolutions: Mapping[str, str] | None = None,
 ) -> ReconcilePlan:
@@ -596,13 +606,16 @@ def build_reconcile_plan(
         raise WorkspaceReconcileError(str(exc)) from exc
 
 
-def recover_reconciliation(local: Path, remote: LegacyRemoteStore) -> bool:
-    """Recover each pending batch, preserving externally changed resources."""
+def recover_reconciliation(local: Path, remote: RemoteStore, home: Path) -> bool:
+    """Recover pending identity first; standalone journals invalidate old plans."""
     try:
-        local = _roots(local, remote)
-        center = remote.recover()
-        replica = recover((local,), policy=RECONCILE_POLICY)
-        return center or replica
+        with WorkspaceWriterLock(home):
+            local = _roots(local, remote, allow_pending=True)
+            replica = recover((local,), policy=_local_policy(local))
+            if recover_pending(local, remote, home):
+                return False
+            center = remote.recover()
+            return center or replica
     except (
         WorkspaceCoreError,
         WorkspaceResourceError,
@@ -613,12 +626,12 @@ def recover_reconciliation(local: Path, remote: LegacyRemoteStore) -> bool:
 
 
 def apply_reconcile_plan(
-    plan: ReconcilePlan, home: Path, *, remote: LegacyRemoteStore
+    plan: ReconcilePlan, home: Path, *, remote: RemoteStore
 ) -> None:
     """Conditionally commit the safe subset, then confirm each converged resource."""
     try:
         with WorkspaceWriterLock(home):
-            if recover_reconciliation(plan.local, remote):
+            if recover_reconciliation(plan.local, remote, home):
                 raise WorkspaceReconcileError(
                     "Recovered an interrupted round; run again"
                 )
@@ -678,7 +691,45 @@ def apply_reconcile_plan(
                     uploads,
                     plan.remote_snapshot.resources,
                 )
-                center = remote.commit(plan.remote_snapshot, mutations)
+                if snapshot_workspace(plan.local) != plan.local_snapshot:
+                    raise WorkspaceReconcileError("Local resources changed before sending")
+                pending = result = None
+                replica_id = plan.state.replica_id if plan.state else uuid.uuid4().hex
+                if mutations:
+                    safe = tuple(
+                        item.id
+                        for item in plan.items
+                        if item.action not in {"CONFLICT", "BLOCKED"}
+                    )
+                    excluded = tuple(
+                        item.id
+                        for item in plan.items
+                        if item.action in {"CONFLICT", "BLOCKED"}
+                    )
+                    request = build_commit_request(
+                        replica_id,
+                        uuid.uuid4().hex,
+                        plan.remote_snapshot,
+                        mutations,
+                        previous_receipt=plan.state.receipt_cursor
+                        if plan.state
+                        else None,
+                    )
+                    pending_store = PendingCommitStore(plan.local, home)
+                    pending = pending_store.persist(
+                        request,
+                        safe_resource_ids=safe,
+                        excluded_resource_ids=excluded,
+                    )
+                    try:
+                        result = remote.commit(request)
+                    except SnapshotExpired as exc:
+                        pending_store.clear(pending, rejected=exc)
+                        raise
+                    validate_commit_result(request, result)
+                    center = committed_snapshot(request)
+                else:
+                    center = plan.remote_snapshot
                 center_resources = _center_resources(center)
                 base = dict(plan.base)
                 for item in plan.items:
@@ -696,13 +747,25 @@ def apply_reconcile_plan(
                         base[item.id] = right
                 state = ReplicaState(
                     center.sync_id,
-                    plan.state.replica_id if plan.state else uuid.uuid4().hex,
+                    replica_id,
                     center.revision,
                     base,
                     plan.state.receipt_cursor if plan.state else None,
                     plan.state.completion_marker if plan.state else None,
                 )
                 if not local_changes and state == plan.state:
+                    return
+                if pending is not None:
+                    pending_store.complete(
+                        pending,
+                        result,
+                        state,
+                        changes=local_changes,
+                        verify=lambda: verify_resource_snapshot(
+                            snapshot_workspace(plan.local), expected
+                        ),
+                    )
+                    pending_store.clear(pending)
                     return
                 state_path(plan.local, REPLICA_STATE, create=True)
                 apply(
@@ -729,20 +792,26 @@ def apply_reconcile_plan(
 
 def run_reconciliation(
     local: Path,
-    remote: LegacyRemoteStore,
+    remote: RemoteStore,
     home: Path,
     *,
     dry_run: bool,
     resolutions: Mapping[str, str] | None = None,
 ) -> ReconcilePlan:
     """Preview or apply safe work; conflicts and credential blocks remain visible."""
-    if not dry_run:
-        with WorkspaceWriterLock(home):
-            if recover_reconciliation(local, remote):
-                raise WorkspaceReconcileError(
-                    "Recovered an interrupted round; run again"
-                )
-    plan = build_reconcile_plan(local, remote, resolutions=resolutions)
-    if not dry_run and not plan.blocked:
-        apply_reconcile_plan(plan, home, remote=remote)
-    return plan
+    if dry_run:
+        return build_reconcile_plan(local, remote, resolutions=resolutions)
+    with WorkspaceWriterLock(home):
+        if recover_reconciliation(local, remote, home):
+            raise WorkspaceReconcileError("Recovered an interrupted round; run again")
+        for attempt in range(2):
+            plan = build_reconcile_plan(local, remote, resolutions=resolutions)
+            if plan.blocked:
+                return plan
+            try:
+                apply_reconcile_plan(plan, home, remote=remote)
+                return plan
+            except WorkspaceReconcileError as exc:
+                if not isinstance(exc.__cause__, SnapshotExpired) or attempt:
+                    raise
+        raise AssertionError("Reconciliation retry limit exceeded")

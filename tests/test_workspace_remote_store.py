@@ -27,6 +27,7 @@ from aikito.workspace.remote_store import (
     SnapshotExpired,
 )
 from aikito.workspace.resources import value_fingerprint
+from aikito.workspace.resource_state import PENDING_COMMIT_STATE
 from workspace_memory_remote import InMemoryRemote
 from workspace_reconcile_backend import files
 from workspace_reconcile_smoke import _workspace
@@ -209,12 +210,16 @@ def test_download_is_staged_before_conditional_commit_and_local_base(
 ):
     local = _workspace(tmp_path / "local")
     remote = protocol_store
+    run_reconciliation(local, remote, tmp_path / "home", dry_run=False)
     remote.commit(remote.read(), [mutation()])
+    (local / "memory/notes/upload.md").write_text("upload")
     before = files(local)
 
     class RefusingStore(StoreFacade):
-        def commit(self, expected, mutations):
-            assert files(local) == before
+        def commit(self, request):
+            current = files(local)
+            assert current.pop(PENDING_COMMIT_STATE)
+            assert current == before
             raise SnapshotExpired("Rejected staged application")
 
     with pytest.raises(WorkspaceReconcileError, match="Rejected staged"):

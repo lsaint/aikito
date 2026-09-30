@@ -19,6 +19,7 @@ from aikito.workspace.remote import (
 )
 from aikito.workspace.resource_state import (
     LOCAL_CONFIG,
+    PENDING_COMMIT_STATE,
     REPLICA_STATE,
     SYNC_KINDS,
 )
@@ -299,7 +300,9 @@ def exercise_behavior(base: Path, backend: ReconciliationBackend) -> None:
         assert failed
         assert backend.revision() == revision + 1
         assert f"memory:notes/accepted-{failure}.md" in backend.fingerprints()
-        assert _files(a) == before and (a / REPLICA_STATE).read_bytes() == state_before
+        after = _files(a)
+        assert after.pop(PENDING_COMMIT_STATE)
+        assert after == before and (a / REPLICA_STATE).read_bytes() == state_before
         converge()
         assert backend.revision() == revision + 1
         assert (a / "capture-a/accepted-before-local.md").read_text() == failure

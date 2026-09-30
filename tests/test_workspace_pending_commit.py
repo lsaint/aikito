@@ -215,9 +215,9 @@ def test_replica_identity_drift_blocks_without_deleting_pending(pending_case):
     assert (local / PENDING_COMMIT_STATE).exists()
 
 
-def test_legacy_engine_blocks_unresolved_pending(pending_case):
+def test_preview_blocks_unresolved_pending(pending_case):
     local, remote, _, _ = pending_case
-    with pytest.raises(WorkspaceReconcileError, match="receipt-aware"):
+    with pytest.raises(WorkspaceReconcileError, match="Pending"):
         build_reconcile_plan(local, remote)
 
 

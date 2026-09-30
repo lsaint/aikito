@@ -12,9 +12,9 @@ test orchestration, separate from the production store contract.
 `resolve_commit(sync_id, client_id, request_id, mutation_digest) -> CommitResult | None`,
 alongside the existing read, fetch, attachment and recovery operations. This is
 the contract for the staged network safety work. `FilesystemRemote` and the
-test-only `InMemoryRemote` implement it. Reconciliation still uses the temporary
-`LegacyRemoteStore` call shape; backend dispatch retains `commit(expected,
-mutations)` during migration. These legacy calls preserve receipt history but
+test-only `InMemoryRemote` implement it. Reconciliation uses this receipt-aware
+contract; backend dispatch retains `commit(expected, mutations)` for older
+contract tests during migration. These legacy calls preserve receipt history but
 do not create receipts. The compatibility path will be removed after the
 receipt-aware reconciliation flow is integrated.
 
@@ -78,7 +78,7 @@ a definite rejection. A backend rejecting a wrong center before publication
 raises `StoreIdentityMismatch`, and pairing remains blocked. Receipt validation
 helpers raise `InvalidContent` for invalid responses; callers must still retain
 pending because validation failure does not prove rejection. This contract alone
-does not add automatic pending recovery or retries to the legacy engine.
+requires durable client identity and pending recovery before new requests.
 
 ## Durable receipts and pending state
 
@@ -129,8 +129,35 @@ Cleanup requires either the matching local completion marker or an explicit
 `SnapshotExpired` rejection supplied by the caller. `None` lookup and transport
 errors do not permit cleanup. Removal syncs the containing directory where
 supported. Completion and cleanup are deliberately separate durable steps.
-The legacy engine preserves optional replica fields and blocks when pending
-exists; automatic resolution and current-content replanning are the next stage.
+Preview blocks when pending exists and does not modify it. Applying a round
+recovers the local journal first, then resolves pending before new planning.
+
+## Receipt-aware reconciliation
+
+Reconciliation stages and validates downloads and captures uploads before
+persisting the exact request. First pairing persists replica identity in that
+same step. Only a nonempty upload batch calls `commit`; pure downloads and NOOP
+rounds update local state against their fetched/planned revision without a
+request ID or pending record. Normal successful completion uses the predicted
+accepted snapshot after verifying the receipt, preserving the existing local
+write preconditions and final snapshot validation. Resources, Base, cursor and
+completion marker share one journal, followed by separate pending cleanup.
+
+Restart checks completion evidence before accessing the remote. A matching
+marker permits offline cleanup. Otherwise `commit_recovery.recover_pending`
+queries the stored identity and validates the returned receipt. `None` permits
+one exact resend per invocation. Definite CAS rejection clears pending without
+changing Base; unavailable, unknown or invalid results retain it and stop.
+Backend journal recovery is explicit when lookup raises `RecoveryRequired`.
+
+Accepted recovery updates only uploaded Base entries and the receipt cursor,
+revision and completion marker. It writes no local resources and does not fetch
+old payloads, replay downloads, or advance old NOOP/conflicting/blocked entries.
+Pending is then cleared, and the engine plans against current local resources
+and the latest remote snapshot. User edits made during the failed round remain
+available to that plan. A fresh CAS rejection permits one replan in the same
+invocation; further rejection stops. Standalone journals without pending still
+invalidate the old plan and require a new invocation.
 
 ## Legacy backend contract
 
@@ -349,8 +376,9 @@ checking the manifest again and refusing pending journals; they create no lock
 or staging files and never recover. Fetch compares the complete expected
 snapshot before returning any content, including for empty requests. Commit
 owns its cross-process lock, validates and stages the whole batch, and publishes
-through the existing recoverable center transaction. Empty commits still check
-the snapshot but do not advance revision. Recovery is explicit and requires
+through the existing recoverable center transaction. Receipt-aware commits
+reject empty batches; temporary legacy empty calls check the snapshot without
+advancing revision. Recovery is explicit and requires
 replanning when it repaired a transaction.
 
 The existing version-1/version-2 center schema, identity, layout, and journal

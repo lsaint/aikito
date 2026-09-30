@@ -226,6 +226,16 @@ jobs:
           foreach ($relative in @("local/memory/notes/pending.md", "clear-checked.json")) {
             if (!(Test-Path "$pendingBase/$relative" -PathType Leaf)) { throw "Missing pending artifact: $relative" }
           }
+          $commitRecovery = Join-Path $env:RUNNER_TEMP "commit-recovery"
+          python tests/workspace_commit_recovery_smoke.py $commitRecovery --stage send
+          if ($LASTEXITCODE -ne 0) { throw "Pending reconciliation send failed" }
+          if (-not (Test-Path (Join-Path $commitRecovery "local/.local/state/aikito/workspace-reconcile/pending.json"))) { throw "Missing reconciliation pending" }
+          python tests/workspace_commit_recovery_smoke.py $commitRecovery --stage resume
+          if ($LASTEXITCODE -ne 0) { throw "Pending reconciliation resume failed" }
+          if (Test-Path (Join-Path $commitRecovery "local/.local/state/aikito/workspace-reconcile/pending.json")) { throw "Reconciliation pending was not cleared" }
+          foreach ($relative in @("center/memory/notes/upload.md", "local/memory/notes/download.md", "checked.json")) {
+            if (-not (Test-Path (Join-Path $commitRecovery $relative))) { throw "Missing reconciliation recovery artifact: $relative" }
+          }
           $revisionBase = Join-Path $env:RUNNER_TEMP "revision-state"
           python tests/workspace_revision_smoke.py "$revisionBase"
           if ($LASTEXITCODE -ne 0) { throw "Revision state persistence smoke failed" }

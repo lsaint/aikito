@@ -89,9 +89,8 @@ def test_shared_center_manifest_interruption_recovers_values_and_revision(tmp_pa
     ):
         round_trip(a, remote, home)
     assert (a / REPLICA_STATE).read_bytes() == state
-    with pytest.raises(WorkspaceReconcileError, match="Recovered an interrupted"):
-        round_trip(a, remote, home)
-    assert (remote.root / REMOTE_STATE).read_bytes() == before
+    round_trip(a, remote, home)
+    assert remote.read().revision == json.loads(before)["revision"] + 1
     round_trip(a, remote, home)
     round_trip(b, remote, home)
     assert tomllib.loads((b / "config.toml").read_text()) == {

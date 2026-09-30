@@ -145,6 +145,14 @@ jobs:
           test ! -e "$PENDING/local/.local/state/aikito/workspace-reconcile/pending.json"
           test -f "$PENDING/local/memory/notes/pending.md"
           test -f "$PENDING/clear-checked.json"
+          COMMIT_RECOVERY=${{ runner.temp }}/commit-recovery
+          python3 tests/workspace_commit_recovery_smoke.py "$COMMIT_RECOVERY" --stage send
+          test -f "$COMMIT_RECOVERY/local/.local/state/aikito/workspace-reconcile/pending.json"
+          python3 tests/workspace_commit_recovery_smoke.py "$COMMIT_RECOVERY" --stage resume
+          test ! -e "$COMMIT_RECOVERY/local/.local/state/aikito/workspace-reconcile/pending.json"
+          test -f "$COMMIT_RECOVERY/center/memory/notes/upload.md"
+          test -f "$COMMIT_RECOVERY/local/memory/notes/download.md"
+          test -f "$COMMIT_RECOVERY/checked.json"
           REVISION=${{ runner.temp }}/revision-state
           python3 tests/workspace_revision_smoke.py "$REVISION"
           test -f "$REVISION/right/memory/notes/revision.md"
