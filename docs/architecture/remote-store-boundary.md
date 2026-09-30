@@ -1,11 +1,83 @@
 # Remote Store Boundary
 
-The internal reconciliation engine uses the `workspace.remote_store.RemoteStore`
-protocol and portable payloads. `FilesystemRemote` implements that protocol;
+The internal reconciliation engine currently uses the temporary
+`workspace.remote_store.LegacyRemoteStore` protocol and portable payloads.
+`FilesystemRemote` implements that interface;
 there is no public reconciliation CLI or service. The acceptance driver remains
 test orchestration, separate from the production store contract.
 
-## Contract
+## Commit identity contract
+
+`RemoteStore` defines `commit(request: CommitRequest) -> CommitResult` and
+`resolve_commit(sync_id, client_id, request_id, mutation_digest) -> CommitResult | None`,
+alongside the existing read, fetch, attachment and recovery operations. This is
+the contract for the staged network safety work. Backends and reconciliation
+still use `LegacyRemoteStore`; they do not yet persist receipts or recover
+unknown outcomes. The legacy interface will be removed after migration.
+
+`CommitRequest` carries an opaque client ID, stable request ID, optional
+`ReceiptCursor`, complete expected snapshot, nonempty mutation tuple and
+mutation digest. Mutations are sorted by opaque ID; duplicate IDs and empty
+batches are rejected. Snapshots and typed payloads remain immutable. IDs and
+fingerprints are not parsed for semantic meaning.
+
+`workspace.remote_wire` supplies `build_commit_request`, canonical request
+encoding/decoding, digest validation, accepted snapshot prediction and receipt
+construction/validation. Its internal version-1 encoding supports future
+pending persistence; it is not a frozen HTTP wire format. Request digests
+cover the encoding version and domain, client ID, previous receipt, complete
+expected snapshot, before/after descriptors and the exact existing canonical
+payload bytes. Request ID and the claimed digest are excluded. Descriptor
+encoding retains fingerprints, transport hashes, ordered references and the
+current optional opaque `mode_fingerprint`. Absence is `null` and
+differs from a present member with an empty fingerprint. Decoding rejects
+unknown fields/versions, duplicate JSON fields/IDs, invalid payload/hash pairs,
+noncanonical bytes and forged digests. Backend boundaries must independently
+recompute digests, including before returning a cached receipt.
+`ResourceMutation` does not interpret client-shaped IDs. The existing skill
+executable-state check belongs to the plaintext filesystem backend; client
+capture and materialization retain their semantic validation.
+
+`CommitResult` binds the center, client, request ID, mutation digest, accepted
+revision and result digest. The result digest covers a separate versioned domain,
+these identity fields and the complete accepted descriptor map. A client can
+derive that map from the persisted request without fetching historical payloads.
+The receipt records the first accepted result, not the current remote state;
+newer remote commits cannot invalidate a correctly bound historical receipt.
+
+Each client retains only its latest accepted receipt. The new backend contract
+requires one critical section: validate the center, return a matching latest
+receipt before CAS, otherwise check revision CAS, the previous receipt cursor
+and the batch, then publish resources/revision/receipt atomically. A matching
+request ID with a different digest raises `RequestIdentityMismatch`. Original
+requests whose receipts were replaced fail CAS rather than returning a historical
+result; detection of arbitrary historical request ID reuse is not promised.
+Clients must use fresh IDs for new logical commits.
+
+The cursor identifies the last receipt completed by the client. A new batch may
+replace its receipt only if the cursor matches. A missing receipt permits only
+a `None` cursor. A mismatch raises `ReplicaHistoryMismatch` and blocks automatic
+replanning or pairing. This detects divergent stale replica history; it cannot
+detect a complete clone carrying the same unresolved request. Each client ID
+must have one active owner. Center restoration must use a new sync ID rather
+than rolling back revision or receipts within the same identity.
+
+Resolution serializes with publication: a center mismatch raises
+`StoreIdentityMismatch`; an unavailable or unrecovered store raises a store
+error. Matching request ID with a different digest raises
+`RequestIdentityMismatch`. A matching identity/digest returns its original
+receipt. No receipt or a different latest request returns `None`, which says
+nothing about future delayed delivery and never authorizes discarding pending.
+
+`CommitOutcomeUnknown` means delivery may have committed. A lost or unverifiable
+response requires retention of the exact request and its identity; it is not
+a definite rejection. A backend rejecting a wrong center before publication
+raises `StoreIdentityMismatch`, and pairing remains blocked. Receipt validation
+helpers raise `InvalidContent` for invalid responses; callers must still retain
+pending because validation failure does not prove rejection. This contract alone
+does not add pending persistence, retries or network safety to the legacy engine.
+
+## Legacy backend contract
 
 The implemented data interface is `read() -> RemoteSnapshot`,
 `fetch(expected, ids) -> Mapping[str, ResourcePayload]`,
@@ -29,7 +101,7 @@ as content from an older snapshot.
 
 Errors distinguish `SnapshotExpired` (definite conditional rejection),
 `InvalidContent` (bad mutation, missing or corrupt payload), `RecoveryRequired`,
-and `StoreUnavailable`. A future network transport also needs
+and `StoreUnavailable`. The new commit contract adds
 `CommitOutcomeUnknown`: an uncertain response is not proof that the center
 rejected the batch, and clients must resolve the result before retrying.
 Filesystem errors map to these store categories. The reconciliation entrypoints
@@ -74,8 +146,9 @@ unchanged, and successful saves emit only `revision`.
 Resource IDs, `sync_id`, `replica_id`, and logical fingerprints are opaque
 strings to the store; it must not validate their logical meaning or require a
 particular naming syntax. A backend can require consistency with previously
-stored identity but not a client-specific ID format. Replica identity is local
-client state and need not appear in store requests. A filesystem backend keeps
+stored identity but not a client-specific ID format. The new commit contract
+uses the replica ID as an opaque client ID for receipt retention; the legacy
+backend interface does not transmit replica identity. A filesystem backend keeps
 its own path mapping, writer lock, manifest, and journal. It must also enforce
 workspace/center non-overlap at its attachment boundary. The local lifecycle
 hook `validate_replica(local)` checks this without exposing a center path to the
@@ -295,6 +368,7 @@ jobs have run. Release and push are independent actions, not part of validation.
 Remote Store Boundary stages zero through four are implemented. This internal
 boundary introduces no public reconciliation CLI, hosted service, account,
 network transport, or encryption. The memory store remains test-only. A future
-HTTP implementation must add uncertain-commit resolution, retries, and explicit
-request/result identity before production network use; E2EE and authorized
+HTTP implementation must adopt the new request/result identity contract and
+implement uncertain-commit resolution and retries before production network use;
+E2EE and authorized
 readable scopes need their own key and privacy design.

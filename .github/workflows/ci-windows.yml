@@ -195,6 +195,14 @@ jobs:
           foreach ($relative in @("right/memory/notes/portable-store.md", "right/.local/state/aikito/workspace-reconcile/replica.json", "center/.local/state/aikito/workspace-reconcile/remote.json")) {
             if (!(Test-Path (Join-Path $storeBase $relative) -PathType Leaf)) { throw "Missing store resource: $relative" }
           }
+          $commitCodecBase = Join-Path $env:RUNNER_TEMP "remote-commit-codec"
+          python tests/workspace_remote_commit_smoke.py "$commitCodecBase"
+          if ($LASTEXITCODE -ne 0) { throw "Canonical commit persistence smoke failed" }
+          python tests/workspace_remote_commit_smoke.py "$commitCodecBase" --verify-only
+          if ($LASTEXITCODE -ne 0) { throw "Canonical commit reload smoke failed" }
+          foreach ($relative in @("request.json", "result-digest.txt", "checked.json")) {
+            if (!(Test-Path (Join-Path $commitCodecBase $relative) -PathType Leaf)) { throw "Missing commit codec artifact: $relative" }
+          }
           $revisionBase = Join-Path $env:RUNNER_TEMP "revision-state"
           python tests/workspace_revision_smoke.py "$revisionBase"
           if ($LASTEXITCODE -ne 0) { throw "Revision state persistence smoke failed" }

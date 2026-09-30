@@ -491,6 +491,12 @@ class FilesystemRemote:
                     if mutation.after is None:
                         descriptors.pop(mutation.id)
                     else:
+                        if resource.kind == "skill" and (
+                            not isinstance(mutation.payload, TreePayload)
+                            or mutation.after.mode_fingerprint
+                            != tree_mode_fingerprint(mutation.payload)
+                        ):
+                            raise InvalidContent("Mutation executable state mismatch")
                         if (
                             payload_hash(mutation.payload)
                             != mutation.after.content_hash

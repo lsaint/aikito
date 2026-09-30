@@ -388,8 +388,3 @@ class ResourceMutation:
             or payload_hash(self.payload) != self.after.content_hash
         ):
             raise PayloadError("Mutation payload hash mismatch")
-        if self.after is not None and self.id.startswith("skill:"):
-            if not isinstance(
-                self.payload, TreePayload
-            ) or self.after.mode_fingerprint != tree_mode_fingerprint(self.payload):
-                raise PayloadError("Mutation executable state mismatch")

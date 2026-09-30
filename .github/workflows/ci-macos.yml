@@ -122,6 +122,12 @@ jobs:
           test -f "$STORE/right/memory/notes/portable-store.md"
           test -f "$STORE/right/.local/state/aikito/workspace-reconcile/replica.json"
           test -f "$STORE/center/.local/state/aikito/workspace-reconcile/remote.json"
+          COMMIT_CODEC=${{ runner.temp }}/remote-commit-codec
+          python3 tests/workspace_remote_commit_smoke.py "$COMMIT_CODEC"
+          python3 tests/workspace_remote_commit_smoke.py "$COMMIT_CODEC" --verify-only
+          test -f "$COMMIT_CODEC/request.json"
+          test -f "$COMMIT_CODEC/result-digest.txt"
+          test -f "$COMMIT_CODEC/checked.json"
           REVISION=${{ runner.temp }}/revision-state
           python3 tests/workspace_revision_smoke.py "$REVISION"
           test -f "$REVISION/right/memory/notes/revision.md"

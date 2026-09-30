@@ -57,7 +57,7 @@ from .resources import (
     snapshot_workspace,
     SKILL_FINGERPRINT_SCHEME,
 )
-from .remote_store import RemoteStore, RemoteSnapshot, StoreError
+from .remote_store import LegacyRemoteStore, RemoteSnapshot, StoreError
 from .payload import (
     ResourcePayload,
     TomlPayload,
@@ -166,7 +166,7 @@ def _resource_version(resource: Resource | None) -> str | None:
 
 
 def _fetch_validated(
-    remote: RemoteStore, center: RemoteSnapshot, resources: Mapping[str, Resource]
+    remote: LegacyRemoteStore, center: RemoteSnapshot, resources: Mapping[str, Resource]
 ) -> Mapping[str, ResourcePayload]:
     if not resources:
         return {}
@@ -181,7 +181,7 @@ def _fetch_validated(
 
 
 def _plan_payloads(
-    remote: RemoteStore,
+    remote: LegacyRemoteStore,
     center: RemoteSnapshot,
     resources: Mapping[str, Resource],
     items: list[ReconcileItem],
@@ -260,7 +260,7 @@ def _read_state(
     ), text
 
 
-def _roots(local: Path, remote: RemoteStore) -> Path:
+def _roots(local: Path, remote: LegacyRemoteStore) -> Path:
     local = local.expanduser().resolve()
     if not is_recognized_workspace(local):
         raise WorkspaceReconcileError("Local path must be an Aikito workspace")
@@ -533,7 +533,7 @@ def _resolve_items(
 
 def build_reconcile_plan(
     local: Path,
-    remote: RemoteStore,
+    remote: LegacyRemoteStore,
     *,
     resolutions: Mapping[str, str] | None = None,
 ) -> ReconcilePlan:
@@ -648,7 +648,7 @@ def build_reconcile_plan(
         raise WorkspaceReconcileError(str(exc)) from exc
 
 
-def recover_reconciliation(local: Path, remote: RemoteStore) -> bool:
+def recover_reconciliation(local: Path, remote: LegacyRemoteStore) -> bool:
     """Recover each pending batch, preserving externally changed resources."""
     try:
         local = _roots(local, remote)
@@ -665,7 +665,7 @@ def recover_reconciliation(local: Path, remote: RemoteStore) -> bool:
 
 
 def apply_reconcile_plan(
-    plan: ReconcilePlan, home: Path, *, remote: RemoteStore
+    plan: ReconcilePlan, home: Path, *, remote: LegacyRemoteStore
 ) -> None:
     """Conditionally commit the safe subset, then confirm each converged resource."""
     try:
@@ -779,7 +779,7 @@ def apply_reconcile_plan(
 
 def run_reconciliation(
     local: Path,
-    remote: RemoteStore,
+    remote: LegacyRemoteStore,
     home: Path,
     *,
     dry_run: bool,
