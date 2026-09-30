@@ -200,7 +200,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Canonical commit persistence smoke failed" }
           python tests/workspace_remote_commit_smoke.py "$commitCodecBase" --verify-only
           if ($LASTEXITCODE -ne 0) { throw "Canonical commit reload smoke failed" }
-          foreach ($relative in @("request.json", "result-digest.txt", "checked.json")) {
+          foreach ($relative in @("request.json", "result-digest.txt", "pending.json", "receipt.json", "rejected.json", "checked.json")) {
             if (!(Test-Path (Join-Path $commitCodecBase $relative) -PathType Leaf)) { throw "Missing commit codec artifact: $relative" }
           }
           $receiptsBase = Join-Path $env:RUNNER_TEMP "remote-receipts"

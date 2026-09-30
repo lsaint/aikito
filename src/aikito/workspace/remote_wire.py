@@ -1,4 +1,4 @@
-"""Versioned canonical commit encoding for digests and future pending state.
+"""Versioned canonical commit encoding for digests and durable pending state.
 
 This is an internal persistence encoding, not a frozen HTTP wire format.
 Payload bytes use the existing codec. IDs, fingerprints and references stay
@@ -16,6 +16,7 @@ from .payload import (
     PayloadError,
     ResourceDescriptor,
     ResourceMutation,
+    TreePayload,
     decode_payload,
     encode_payload,
 )
@@ -28,6 +29,7 @@ from .remote_store import (
 )
 
 COMMIT_ENCODING_VERSION = 1
+MAX_COMMIT_JSON_DEPTH = 64
 
 
 def _canonical(body: dict) -> bytes:
@@ -39,7 +41,7 @@ def _canonical(body: dict) -> bytes:
             separators=(",", ":"),
             allow_nan=False,
         ).encode("utf-8")
-    except (TypeError, ValueError, UnicodeError) as exc:
+    except (TypeError, ValueError, UnicodeError, RecursionError) as exc:
         raise InvalidContent("Invalid commit encoding") from exc
 
 
@@ -116,13 +118,43 @@ def validate_commit_request(request: CommitRequest) -> None:
     if not isinstance(request, CommitRequest):
         raise InvalidContent("Invalid commit request type")
     try:
+
+        def descriptor(value):
+            return None if value is None else replace(value)
+
+        def mutation(value):
+            payload = value.payload
+            if isinstance(payload, TreePayload):
+                payload = replace(
+                    payload, entries=tuple(replace(e) for e in payload.entries)
+                )
+            elif payload is not None:
+                payload = replace(payload)
+            return replace(
+                value,
+                before=descriptor(value.before),
+                after=descriptor(value.after),
+                payload=payload,
+            )
+
         checked = replace(
-            request, mutations=tuple(replace(m) for m in request.mutations)
+            request,
+            expected=replace(
+                request.expected,
+                resources={
+                    key: descriptor(value)
+                    for key, value in request.expected.resources.items()
+                },
+            ),
+            previous_receipt=None
+            if request.previous_receipt is None
+            else replace(request.previous_receipt),
+            mutations=tuple(mutation(m) for m in request.mutations),
         )
     except (PayloadError, TypeError, AttributeError) as exc:
         raise InvalidContent("Invalid commit mutation structure or payload") from exc
     if checked != request:
-        raise InvalidContent("Noncanonical commit mutation order")
+        raise InvalidContent("Noncanonical commit model")
     if commit_request_digest(request) != request.mutation_digest:
         raise InvalidContent("Commit request digest mismatch")
     for mutation in request.mutations:
@@ -148,6 +180,19 @@ def _unique_object(pairs) -> dict:
             raise InvalidContent("Duplicate commit field")
         result[key] = value
     return result
+
+
+def decode_base64(encoded: object) -> bytes:
+    """Accept one canonical ASCII representation, including zero pad bits."""
+    if type(encoded) is not str:
+        raise InvalidContent("Invalid commit Base64 type")
+    try:
+        decoded = base64.b64decode(encoded, validate=True)
+    except ValueError as exc:
+        raise InvalidContent("Invalid commit Base64") from exc
+    if base64.b64encode(decoded).decode("ascii") != encoded:
+        raise InvalidContent("Noncanonical commit Base64")
+    return decoded
 
 
 def _object(raw: object, fields: set[str]) -> dict:
@@ -201,9 +246,7 @@ def _decode_mutation(raw: object) -> ResourceMutation:
     if value["payload"] is not None:
         if after is None or type(value["payload"]) is not str:
             raise InvalidContent("Invalid mutation payload presence")
-        payload = decode_payload(
-            base64.b64decode(value["payload"], validate=True), after.content_hash
-        )
+        payload = decode_payload(decode_base64(value["payload"]), after.content_hash)
     return ResourceMutation(value["id"], before, after, payload)
 
 
@@ -213,7 +256,7 @@ def decode_commit_request(encoded: bytes) -> CommitRequest:
         raise InvalidContent("Commit encoding requires bytes")
     try:
         raw = _object(
-            json.loads(encoded, object_pairs_hook=_unique_object),
+            decode_state_json(encoded),
             {
                 "version",
                 "kind",
@@ -250,7 +293,14 @@ def decode_commit_request(encoded: bytes) -> CommitRequest:
         return request
     except InvalidContent:
         raise
-    except (PayloadError, ValueError, TypeError, KeyError, AttributeError) as exc:
+    except (
+        PayloadError,
+        ValueError,
+        TypeError,
+        KeyError,
+        AttributeError,
+        RecursionError,
+    ) as exc:
         raise InvalidContent("Invalid commit encoding") from exc
 
 
@@ -293,12 +343,17 @@ def build_commit_result(request: CommitRequest) -> CommitResult:
 
 def validate_commit_result(request: CommitRequest, result: CommitResult) -> None:
     """An invalid receipt leaves the request unresolved; callers must retain pending."""
-    if not isinstance(result, CommitResult) or result != build_commit_result(request):
+    if not isinstance(result, CommitResult) or replace(result) != build_commit_result(
+        request
+    ):
         raise InvalidContent("Commit result identity, revision or digest mismatch")
 
 
 def encode_receipt(result: CommitResult) -> dict:
     """Persist a historical receipt without retaining its snapshot or payloads."""
+    if not isinstance(result, CommitResult):
+        raise InvalidContent("Invalid receipt type")
+    result = replace(result)
     return {
         "version": COMMIT_ENCODING_VERSION,
         "sync_id": result.sync_id,
@@ -338,8 +393,32 @@ def decode_receipt(raw: object) -> CommitResult:
 def decode_state_json(encoded: str | bytes) -> object:
     """Reject duplicate fields in persistent commit state as well as requests."""
     try:
-        return json.loads(encoded, object_pairs_hook=_unique_object)
+        if type(encoded) is bytes:
+            encoded = encoded.decode("utf-8")
+        elif type(encoded) is not str:
+            raise InvalidContent("Commit state JSON requires text or UTF-8 bytes")
+
+        def invalid_constant(_):
+            raise InvalidContent("Nonfinite commit state JSON number")
+
+        raw = json.loads(
+            encoded, object_pairs_hook=_unique_object, parse_constant=invalid_constant
+        )
+        pending = [(raw, 1)]
+        while pending:
+            value, depth = pending.pop()
+            if isinstance(value, (dict, list)):
+                if depth > MAX_COMMIT_JSON_DEPTH:
+                    raise InvalidContent("Commit state JSON nesting limit exceeded")
+                if isinstance(value, dict):
+                    for key in value:
+                        key.encode("utf-8")
+                children = value.values() if isinstance(value, dict) else value
+                pending.extend((child, depth + 1) for child in children)
+            elif isinstance(value, str):
+                value.encode("utf-8")
+        return raw
     except InvalidContent:
         raise
-    except (ValueError, TypeError) as exc:
+    except (ValueError, TypeError, RecursionError) as exc:
         raise InvalidContent("Invalid commit state JSON") from exc

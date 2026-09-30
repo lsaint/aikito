@@ -26,7 +26,7 @@ fingerprints are not parsed for semantic meaning.
 
 `workspace.remote_wire` supplies `build_commit_request`, canonical request
 encoding/decoding, digest validation, accepted snapshot prediction and receipt
-construction/validation. Its internal version-1 encoding supports future
+construction/validation. Its internal version-1 encoding supports durable
 pending persistence; it is not a frozen HTTP wire format. Request digests
 cover the encoding version and domain, client ID, previous receipt, complete
 expected snapshot, before/after descriptors and the exact existing canonical
@@ -40,6 +40,32 @@ recompute digests, including before returning a cached receipt.
 `ResourceMutation` does not interpret client-shaped IDs. The existing skill
 executable-state check belongs to the plaintext filesystem backend; client
 capture and materialization retain their semantic validation.
+
+The durable JSON decoder accepts UTF-8 text/bytes, rejects duplicate fields at
+every level, nonfinite JSON numbers, unpaired Unicode surrogates and more than
+64 container levels. Opaque Unicode identities retain their exact codepoints;
+they are not normalized. Base64 fields require standard alphabet, padding and
+zero unused pad bits, with exactly one representation of each byte sequence.
+Request boundaries reconstruct nested snapshots, descriptors, cursors, payloads
+and tree entries to recheck their invariants even if constructors were bypassed.
+Booleans cannot satisfy numeric revision requirements by comparing equal to
+integers. Receipt validation and encoding also recheck model fields.
+
+Pending envelopes keep independently versioned schemas and checksums. Their
+safe/excluded scopes must be sorted, unique and disjoint, and the embedded
+request must have canonical encoding. Envelope JSON whitespace and field order
+are immaterial; the embedded original replica-state text is retained exactly
+for identity/history checks. Invalid pending or replica/center encoding
+blocks without erasing or rewriting state. Successful encoding bytes and
+encoding versions remain unchanged by this hardening. These are internal
+persistence requirements; HTTP message representation remains a later step.
+
+`test_workspace_commit_encoding.py` covers these boundaries and independently
+checks that result digests bind the version/domain and complete predicted
+snapshot, including unchanged descriptors. The three OS smoke jobs run
+`workspace_remote_commit_smoke.py` in generation and verification processes,
+checking durable request, receipt and pending records plus malformed-input
+rejection reports after restart.
 
 `CommitResult` binds the center, client, request ID, mutation digest, accepted
 revision and result digest. The result digest covers a separate versioned domain,

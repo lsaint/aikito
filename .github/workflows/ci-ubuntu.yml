@@ -217,6 +217,9 @@ jobs:
           python3 tests/workspace_remote_commit_smoke.py "$COMMIT_CODEC" --verify-only
           test -f "$COMMIT_CODEC/request.json"
           test -f "$COMMIT_CODEC/result-digest.txt"
+          test -f "$COMMIT_CODEC/pending.json"
+          test -f "$COMMIT_CODEC/receipt.json"
+          test -f "$COMMIT_CODEC/rejected.json"
           test -f "$COMMIT_CODEC/checked.json"
           RECEIPTS=${{ runner.temp }}/remote-receipts
           python3 tests/workspace_remote_receipts_smoke.py "$RECEIPTS"

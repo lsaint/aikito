@@ -178,7 +178,10 @@ def load_replica_state(
     path = state_path(local, REPLICA_STATE)
     if entry_type(path) == "missing":
         return None, None
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeError as exc:
+        raise WorkspaceCoreError("Invalid replica state text encoding") from exc
     state = ReplicaState.decode(text)
     if sync_id is not None and state.sync_id != sync_id:
         raise WorkspaceCoreError("Replica belongs to a different resource center")

@@ -364,7 +364,7 @@ class FilesystemRemote:
         path = state_path(self.root, REMOTE_STATE)
         if entry_type(path) != "file":
             raise WorkspaceCoreError("Resource center is not initialized")
-        before = path.read_text(encoding="utf-8")
+        before = path.read_bytes()
         try:
             raw = decode_state_json(before)
         except ValueError as exc:
@@ -387,7 +387,7 @@ class FilesystemRemote:
         except (ValueError, AttributeError, TypeError) as exc:
             raise WorkspaceCoreError("Invalid center field values") from exc
         self.verify_contents(resources, values, legacy=raw["version"] == 1)
-        if path.read_text(encoding="utf-8") != before:
+        if path.read_bytes() != before:
             raise WorkspaceCoreError("Resource center changed during read; run again")
         return _CenterState(
             raw["sync_id"],

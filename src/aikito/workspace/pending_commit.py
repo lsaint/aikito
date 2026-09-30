@@ -26,6 +26,7 @@ from .remote_store import (
     SnapshotExpired,
 )
 from .remote_wire import (
+    decode_base64,
     decode_commit_request,
     decode_state_json,
     encode_commit_request,
@@ -54,7 +55,18 @@ class PendingCommitError(WorkspaceCoreError):
 
 
 def _canonical(value: dict) -> str:
-    return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    try:
+        text = json.dumps(
+            value,
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        text.encode("utf-8")
+        return text
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise PendingCommitError("Invalid pending envelope encoding") from exc
 
 
 @dataclass(frozen=True)
@@ -111,7 +123,7 @@ class PendingCommit:
         )
 
     @classmethod
-    def decode(cls, text: str) -> PendingCommit:
+    def decode(cls, text: str | bytes) -> PendingCommit:
         try:
             raw = decode_state_json(text)
             if type(raw) is not dict or set(raw) != {
@@ -135,12 +147,18 @@ class PendingCommit:
                 or type(raw["excluded_resource_ids"]) is not list
             ):
                 raise PendingCommitError("Invalid pending resource scope")
-            return cls(
-                decode_commit_request(base64.b64decode(raw["request"], validate=True)),
+            pending = cls(
+                decode_commit_request(decode_base64(raw["request"])),
                 raw["replica_state"],
                 tuple(raw["safe_resource_ids"]),
                 tuple(raw["excluded_resource_ids"]),
             )
+            if (
+                list(pending.safe_resource_ids) != raw["safe_resource_ids"]
+                or list(pending.excluded_resource_ids) != raw["excluded_resource_ids"]
+            ):
+                raise PendingCommitError("Noncanonical pending resource scope")
+            return pending
         except PendingCommitError:
             raise
         except (
@@ -191,7 +209,7 @@ class PendingCommitStore:
         path = state_path(self.local, PENDING_COMMIT_STATE)
         if entry_type(path) == "missing":
             return None
-        pending = PendingCommit.decode(path.read_text(encoding="utf-8"))
+        pending = PendingCommit.decode(path.read_bytes())
         state, text = load_replica_state(self.local)
         if state is None or (
             text != pending.replica_state_text and not pending.completed_by(state)
