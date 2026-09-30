@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: ["core", "workspace"]
+        group: ["core", "workspace", "workspace-reconcile", "reconcile-resources", "reconcile-resolution"]
 
     steps:
       - uses: actions/checkout@v4
@@ -23,7 +23,7 @@ jobs:
             Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
           } catch {}
           try {
-            Add-MpPreference -ExclusionPath $env:RUNNER_TEMP, $env:GITHUB_WORKSPACE, $env:TEMP, $env:TMP, $HOME, "C:\hostedtoolcache\windows\Python" -ErrorAction SilentlyContinue
+            Add-MpPreference -ExclusionPath $env:RUNNER_TEMP, $env:GITHUB_WORKSPACE, $env:TEMP, $env:TMP, $HOME, "C:\hostedtoolcache" -ErrorAction SilentlyContinue
             Add-MpPreference -ExclusionProcess @("python.exe", "git.exe", "pytest.exe") -ErrorAction SilentlyContinue
           } catch {}
 
@@ -43,12 +43,27 @@ jobs:
       - name: Run core unit tests
         if: matrix.group == 'core'
         shell: pwsh
-        run: python -m pytest -n auto --basetemp="$env:RUNNER_TEMP\pytest" '--ignore-glob=tests/test_workspace*.py'
+        run: python -m pytest -n 2 --basetemp="$env:RUNNER_TEMP\pytest" '--ignore-glob=tests/test_workspace*.py'
 
       - name: Run workspace unit tests
         if: matrix.group == 'workspace'
         shell: pwsh
-        run: python -m pytest -n auto --basetemp="$env:RUNNER_TEMP\pytest" -o 'python_files=test_workspace*.py'
+        run: python -m pytest -n 2 --basetemp="$env:RUNNER_TEMP\pytest" -o 'python_files=test_workspace*.py' '--ignore-glob=tests/test_workspace_reconcile*.py'
+
+      - name: Run workspace reconcile core unit tests
+        if: matrix.group == 'workspace-reconcile'
+        shell: pwsh
+        run: python -m pytest -n 2 --basetemp="$env:RUNNER_TEMP\pytest" tests/test_workspace_reconcile.py tests/test_workspace_reconcile_boundary.py tests/test_workspace_reconcile_fetch_scope.py tests/test_workspace_reconcile_filesystem.py tests/test_workspace_reconcile_pending.py
+
+      - name: Run reconcile resources unit tests
+        if: matrix.group == 'reconcile-resources'
+        shell: pwsh
+        run: python -m pytest -n 2 --basetemp="$env:RUNNER_TEMP\pytest" tests/test_workspace_reconcile_resources.py
+
+      - name: Run reconcile resolution unit tests
+        if: matrix.group == 'reconcile-resolution'
+        shell: pwsh
+        run: python -m pytest -n 2 --basetemp="$env:RUNNER_TEMP\pytest" tests/test_workspace_reconcile_resolution.py
 
   windows-smoke-test:
     runs-on: windows-latest
@@ -64,7 +79,7 @@ jobs:
             Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
           } catch {}
           try {
-            Add-MpPreference -ExclusionPath $env:RUNNER_TEMP, $env:GITHUB_WORKSPACE, $env:TEMP, $env:TMP, $HOME, "C:\hostedtoolcache\windows\Python" -ErrorAction SilentlyContinue
+            Add-MpPreference -ExclusionPath $env:RUNNER_TEMP, $env:GITHUB_WORKSPACE, $env:TEMP, $env:TMP, $HOME, "C:\hostedtoolcache" -ErrorAction SilentlyContinue
             Add-MpPreference -ExclusionProcess @("python.exe", "git.exe") -ErrorAction SilentlyContinue
           } catch {}
 
@@ -170,255 +185,6 @@ jobs:
           $connectOutput | Write-Output
           $connectOutput | Select-String "\[CONNECTED\]"
           $connectOutput | Select-String "aikito doctor"
-          $reconcileBase = Join-Path $env:RUNNER_TEMP "reconcile-smoke"
-          python tests/workspace_reconcile_smoke.py "$reconcileBase"
-          if ($LASTEXITCODE -ne 0) { throw "Resource reconciliation smoke failed" }
-          $expandedBase = Join-Path $env:RUNNER_TEMP "expanded-reconcile-smoke"
-          python tests/workspace_reconcile_resources_smoke.py "$expandedBase"
-          if ($LASTEXITCODE -ne 0) { throw "Expanded resource reconciliation smoke failed" }
-          $acceptanceBase = Join-Path $env:RUNNER_TEMP "reconcile-acceptance"
-          python tests/workspace_reconcile_acceptance.py "$acceptanceBase"
-          if ($LASTEXITCODE -ne 0) { throw "Workspace reconciliation acceptance failed" }
-          foreach ($relative in @("moved-left/memory/notes/accepted-base.md", "right/capture-b/accepted-before-local.md")) {
-            if (!(Test-Path (Join-Path $acceptanceBase $relative) -PathType Leaf)) { throw "Missing acceptance recovery resource: $relative" }
-          }
-          $memoryStoreBase = Join-Path $env:RUNNER_TEMP "memory-remote-store"
-          python tests/workspace_memory_remote_smoke.py "$memoryStoreBase"
-          if ($LASTEXITCODE -ne 0) { throw "In-memory RemoteStore smoke failed" }
-          foreach ($relative in @("right/capture-b/relocated.md", "moved-left/projects/demo/memory/notes/acceptance.md", "right/.local/state/aikito/workspace-reconcile/replica.json", "moved-left/memory/notes/accepted-base.md", "right/capture-b/accepted-before-local.md")) {
-            if (!(Test-Path (Join-Path $memoryStoreBase $relative) -PathType Leaf)) { throw "Missing memory store resource: $relative" }
-          }
-          if (Test-Path "$memoryStoreBase/center") { throw "Memory store created a center directory" }
-          $storeBase = Join-Path $env:RUNNER_TEMP "remote-store"
-          python tests/workspace_remote_store_smoke.py "$storeBase"
-          if ($LASTEXITCODE -ne 0) { throw "Portable RemoteStore smoke failed" }
-          foreach ($relative in @("right/memory/notes/portable-store.md", "right/.local/state/aikito/workspace-reconcile/replica.json", "center/.local/state/aikito/workspace-reconcile/remote.json")) {
-            if (!(Test-Path (Join-Path $storeBase $relative) -PathType Leaf)) { throw "Missing store resource: $relative" }
-          }
-          $commitCodecBase = Join-Path $env:RUNNER_TEMP "remote-commit-codec"
-          python tests/workspace_remote_commit_smoke.py "$commitCodecBase"
-          if ($LASTEXITCODE -ne 0) { throw "Canonical commit persistence smoke failed" }
-          python tests/workspace_remote_commit_smoke.py "$commitCodecBase" --verify-only
-          if ($LASTEXITCODE -ne 0) { throw "Canonical commit reload smoke failed" }
-          foreach ($relative in @("request.json", "result-digest.txt", "pending.json", "receipt.json", "rejected.json", "checked.json")) {
-            if (!(Test-Path (Join-Path $commitCodecBase $relative) -PathType Leaf)) { throw "Missing commit codec artifact: $relative" }
-          }
-          $receiptsBase = Join-Path $env:RUNNER_TEMP "remote-receipts"
-          python tests/workspace_remote_receipts_smoke.py "$receiptsBase"
-          if ($LASTEXITCODE -ne 0) { throw "Filesystem receipt recovery smoke failed" }
-          foreach ($checkpoint in @("journal", "resource", "manifest", "committed", "cleanup")) {
-            foreach ($relative in @("center/memory/notes/receipt.md", "center/.local/state/aikito/workspace-reconcile/remote.json", "checked.json")) {
-              if (!(Test-Path "$receiptsBase/$checkpoint/$relative" -PathType Leaf)) { throw "Missing receipt recovery artifact: $checkpoint/$relative" }
-            }
-          }
-          $pendingBase = Join-Path $env:RUNNER_TEMP "pending-commit"
-          python tests/workspace_pending_commit_smoke.py "$pendingBase" --stage prepare
-          if ($LASTEXITCODE -ne 0) { throw "Pending persistence smoke failed" }
-          if (!(Test-Path "$pendingBase/local/.local/state/aikito/workspace-reconcile/pending.json" -PathType Leaf)) { throw "Missing persistent pending" }
-          python tests/workspace_pending_commit_smoke.py "$pendingBase" --stage complete
-          if ($LASTEXITCODE -ne 0) { throw "Pending completion smoke failed" }
-          foreach ($relative in @("local/.local/state/aikito/workspace-reconcile/pending.json", "local/.local/state/aikito/workspace-reconcile/replica.json")) {
-            if (!(Test-Path "$pendingBase/$relative" -PathType Leaf)) { throw "Missing completed pending state: $relative" }
-          }
-          python tests/workspace_pending_commit_smoke.py "$pendingBase" --stage clear
-          if ($LASTEXITCODE -ne 0) { throw "Pending cleanup smoke failed" }
-          if (Test-Path "$pendingBase/local/.local/state/aikito/workspace-reconcile/pending.json") { throw "Completed pending was not cleared" }
-          foreach ($relative in @("local/memory/notes/pending.md", "clear-checked.json")) {
-            if (!(Test-Path "$pendingBase/$relative" -PathType Leaf)) { throw "Missing pending artifact: $relative" }
-          }
-          $commitRecovery = Join-Path $env:RUNNER_TEMP "commit-recovery"
-          python tests/workspace_commit_recovery_smoke.py $commitRecovery --stage send
-          if ($LASTEXITCODE -ne 0) { throw "Pending reconciliation send failed" }
-          if (-not (Test-Path (Join-Path $commitRecovery "local/.local/state/aikito/workspace-reconcile/pending.json"))) { throw "Missing reconciliation pending" }
-          python tests/workspace_commit_recovery_smoke.py $commitRecovery --stage resume
-          if ($LASTEXITCODE -ne 0) { throw "Pending reconciliation resume failed" }
-          if (Test-Path (Join-Path $commitRecovery "local/.local/state/aikito/workspace-reconcile/pending.json")) { throw "Reconciliation pending was not cleared" }
-          foreach ($relative in @("center/memory/notes/upload.md", "local/memory/notes/download.md", "checked.json")) {
-            if (-not (Test-Path (Join-Path $commitRecovery $relative))) { throw "Missing reconciliation recovery artifact: $relative" }
-          }
-          $faultsBase = Join-Path $env:RUNNER_TEMP "unreliable-remote"
-          foreach ($backend in @("filesystem", "memory")) {
-            $faultRoot = Join-Path $faultsBase $backend
-            python tests/workspace_unreliable_remote_smoke.py $faultRoot --backend $backend
-            if ($LASTEXITCODE -ne 0) { throw "Unreliable remote smoke failed: $backend" }
-            if (-not (Test-Path "$faultRoot/checked.json" -PathType Leaf)) { throw "Missing fault report: $backend" }
-            foreach ($scenario in @("before-send", "response-loss", "duplicate", "resolve-failure", "delayed-accepted", "delayed-cas", "historical")) {
-              foreach ($relative in @("checked.json", "local/memory/notes/upload.md")) {
-                if (-not (Test-Path "$faultRoot/$scenario/$relative" -PathType Leaf)) { throw "Missing fault artifact: $backend/$scenario/$relative" }
-              }
-              if (Test-Path "$faultRoot/$scenario/local/.local/state/aikito/workspace-reconcile/pending.json") { throw "Unresolved fault pending: $backend/$scenario" }
-            }
-          }
-          foreach ($checkpoint in @("replica", "committed", "cleanup", "before-clear", "after-clear")) {
-            $crashRoot = Join-Path $faultsBase "filesystem/local-crashes/$checkpoint"
-            foreach ($relative in @("checked.json", "center/memory/notes/upload.md", "local/.local/state/aikito/workspace-reconcile/replica.json")) {
-              if (-not (Test-Path "$crashRoot/$relative" -PathType Leaf)) { throw "Missing local crash artifact: $checkpoint/$relative" }
-            }
-            if (Test-Path "$crashRoot/local/.local/state/aikito/workspace-reconcile/pending.json") { throw "Unresolved local crash pending: $checkpoint" }
-          }
-          $revisionBase = Join-Path $env:RUNNER_TEMP "revision-state"
-          python tests/workspace_revision_smoke.py "$revisionBase"
-          if ($LASTEXITCODE -ne 0) { throw "Revision state persistence smoke failed" }
-          foreach ($relative in @("contract-cleanup.json", "right/memory/notes/revision.md", "right/.local/state/aikito/workspace-reconcile/replica.json", "center/.local/state/aikito/workspace-reconcile/remote.json")) {
-            if (!(Test-Path (Join-Path $revisionBase $relative) -PathType Leaf)) { throw "Missing revision resource: $relative" }
-          }
-          if (!(Get-ChildItem "$revisionBase/home/.local/state/aikito/project-skills" -Filter "*.json" -File)) { throw "Missing revision skill state" }
-          $localStateBase = Join-Path $env:RUNNER_TEMP "local-state-doctor"
-          python tests/local_state_doctor_smoke.py "$localStateBase"
-          if ($LASTEXITCODE -ne 0) { throw "Local state doctor smoke failed" }
-          if (!(Test-Path "$localStateBase/checked.json" -PathType Leaf)) { throw "Missing local state doctor report" }
-          if (!(Get-ChildItem "$localStateBase/home/.local/state/aikito/project-skills" -Filter "*.json" -File)) { throw "Missing preserved local skill state" }
-          $boundaryBase = Join-Path $env:RUNNER_TEMP "reconcile-boundary"
-          python tests/workspace_reconcile_boundary_smoke.py "$boundaryBase"
-          if ($LASTEXITCODE -ne 0) { throw "Remote Store Boundary mode smoke failed" }
-          $payloadBase = Join-Path $env:RUNNER_TEMP "workspace-payload"
-          python tests/workspace_payload_smoke.py "$payloadBase"
-          if ($LASTEXITCODE -ne 0) { throw "Portable resource payload smoke failed" }
-          foreach ($relative in @("target/skills/portable/SKILL.md", "target/skills/portable/run.sh", "target/capture/payload.md", "target/config.toml", "target/projects/demo/agent.toml")) {
-            if (!(Test-Path (Join-Path $payloadBase $relative) -PathType Leaf)) { throw "Missing payload resource: $relative" }
-          }
-          if (!(Test-Path "$payloadBase/target/skills/portable/empty" -PathType Container)) { throw "Missing payload empty directory" }
-          foreach ($relative in @("left/skills/portable/SKILL.md", "right/skills/portable/SKILL.md", "center/.local/state/aikito/workspace-reconcile/remote.json", "left/.local/state/aikito/workspace-reconcile/replica.json")) {
-            if (!(Test-Path (Join-Path $boundaryBase $relative) -PathType Leaf)) { throw "Missing boundary resource: $relative" }
-          }
-          if (Test-Path "$boundaryBase/left/skills/portable/run.sh" -PathType Leaf) { throw "Deleted executable returned after sync" }
-          if (Test-Path "$boundaryBase/right/skills/portable/run.sh" -PathType Leaf) { throw "Deleted executable remained in source replica" }
-          if (!(Test-Path "$boundaryBase/right/skills/portable/empty" -PathType Container)) { throw "Missing portable empty directory" }
-          if (!(Test-Path "$boundaryBase/right/skills/portable/.aikito-executable.json" -PathType Leaf)) { throw "Missing executable metadata" }
-          $resolutionBase = Join-Path $env:RUNNER_TEMP "reconcile-resolutions"
-          python tests/workspace_reconcile_resolution_smoke.py "$resolutionBase"
-          if ($LASTEXITCODE -ne 0) { throw "Reference conflict resolution smoke failed" }
-          foreach ($case in @("skill-local", "project-skill-local")) {
-            foreach ($replica in @("left", "right", "center")) {
-              if (!(Test-Path "$resolutionBase/$case/$replica/skills/x/SKILL.md" -PathType Leaf)) { throw "Resolved skill missing" }
-            }
-          }
-          foreach ($case in @("skill-remote", "project-skill-remote")) {
-            foreach ($replica in @("left", "right", "center")) {
-              if (Test-Path "$resolutionBase/$case/$replica/skills/x") { throw "Deleted skill remains" }
-            }
-          }
-          foreach ($case in @("skill-local", "project-skill-local", "skill-remote", "project-skill-remote")) {
-            if (!(Test-Path "$resolutionBase/$case/right/projects/newcomer/agent.toml" -PathType Leaf)) { throw "Resolved project missing" }
-            if (!(Test-Path "$resolutionBase/$case/right/memory/notes/rejected.md" -PathType Leaf)) { throw "Local note missing" }
-            if (Test-Path "$resolutionBase/$case/center/memory/notes/rejected.md") { throw "Rejected resolution uploaded note" }
-          }
-          foreach ($relative in @("right/capture-b/relocated.md", "moved-left/capture-a/relocated.md", "right/projects/demo/memory/notes/acceptance.md", "moved-left/config.toml", "right/config.toml", "moved-center/.local/state/aikito/workspace-reconcile/remote.json")) {
-            if (-not (Test-Path (Join-Path $acceptanceBase $relative) -PathType Leaf)) { throw "Missing acceptance resource: $relative" }
-          }
-          foreach ($relative in @("right/capture-b/safe.md", "moved-left/capture-a/safe.md", "moved-left/.local/state/aikito/workspace-transactions/pending.json", "moved-center/.local/state/aikito/workspace-transactions/pending.json")) {
-            if (Test-Path (Join-Path $acceptanceBase $relative)) { throw "Unexpected acceptance artifact: $relative" }
-          }
-          foreach ($relative in @("right/capture-b/deep/note.md", "right/global/AGENTS.md", "right/projects/demo/AGENTS.md", "right/agents/custom.toml", "right/mcps/docs.toml", "right/subagents/review.md", "right/config.toml", "right/skills.toml", "right/projects/demo/agent.toml")) {
-            if (-not (Test-Path (Join-Path $expandedBase $relative) -PathType Leaf)) { throw "Missing expanded resource: $relative" }
-          }
-          foreach ($relative in @("right/capture-b/deleted.md", "right/agents/deleted.toml", "right/mcps/deleted.toml", "right/subagents/deleted.md", "right/projects/retired/agent.toml", "right/projects/retired/AGENTS.md", "center/config.toml", "center/projects/demo/agent.toml", "left/.local/state/aikito/workspace-transactions/pending.json")) {
-            if (Test-Path (Join-Path $expandedBase $relative)) { throw "Unexpected expanded resource: $relative" }
-          }
-          foreach ($relative in @("right\memory\notes\reconcile-smoke.md", "right\projects\demo\memory\notes\reconcile-smoke.md", "right\skills\reconcile-smoke\SKILL.md", "right\memory\notes\recovered.md", "right\memory\notes\relocated.md", "right\.local\state\aikito\workspace-reconcile\replica.json", "moved-left\.local\state\aikito\workspace-reconcile\replica.json", "moved-center\.local\state\aikito\workspace-reconcile\remote.json")) {
-            if (-not (Test-Path (Join-Path $reconcileBase $relative))) { throw "Missing reconciled resource: $relative" }
-          }
-          if (-not (Test-Path (Join-Path $reconcileBase "right\skills\reconcile-smoke\empty") -PathType Container)) { throw "Missing reconciled empty directory" }
-          if (-not (Select-String -Path (Join-Path $reconcileBase "right\projects\demo\memory\notes\reconcile-smoke.md") -SimpleMatch "# Updated project" -Quiet)) { throw "Project memory update was not reconciled" }
-          if (-not (Select-String -Path (Join-Path $reconcileBase "right\skills\reconcile-smoke\SKILL.md") -SimpleMatch "# Updated skill" -Quiet)) { throw "Skill update was not reconciled" }
-          foreach ($relative in @("right\memory\notes\deleted.md", "right\projects\demo\memory\notes\deleted.md", "right\skills\deleted", "moved-center\layout.toml", "right\.local\state\aikito\workspace-transactions\pending.json", "moved-center\.local\state\aikito\workspace-transactions\pending.json")) {
-            if (Test-Path (Join-Path $reconcileBase $relative)) { throw "Unexpected reconciliation artifact: $relative" }
-          }
-          if (-not (Test-Path (Join-Path $reconcileBase "right\memory\notes\reconcile-smoke.md"))) {
-            throw "Workspace reconcile did not create the note"
-          }
-          $importBase = Join-Path $env:RUNNER_TEMP "import-smoke"
-          python tests/workspace_import_smoke.py "$importBase" --prepare-only
-          $env:AIKITO_DIR = Join-Path $importBase "target"
-          python -m aikito import workspace (Join-Path $importBase "source") --dry-run
-          if ($LASTEXITCODE -ne 0) { throw "Workspace import dry run failed" }
-          $importVerbose = python -m aikito import workspace (Join-Path $importBase "source") --dry-run --verbose
-          if ($LASTEXITCODE -ne 0) { throw "Verbose workspace import dry run failed" }
-          $importVerbose | Select-String "\[SUMMARY\]"
-          if (-not ($importVerbose | Select-String -SimpleMatch "[UPDATE] skills.toml (skill-selection:import-smoke)")) { throw "Import did not group skills.toml" }
-          if ($importVerbose | Select-String -SimpleMatch "[MERGE]") { throw "Import still reports MERGE" }
-          if (Test-Path (Join-Path $importBase "target\inbox\deep\import-smoke.md")) { throw "Dry run wrote inbox note" }
-          python -m aikito import workspace (Join-Path $importBase "source")
-          if ($LASTEXITCODE -ne 0) { throw "Workspace import failed" }
-          $env:AIKITO_DIR = $wsDir
-          foreach ($resource in @(
-            "target\inbox\deep\import-smoke.md",
-            "target\skills\import-smoke\SKILL.md",
-            "target\subagents\import-smoke.md",
-            "target\mcps\import-smoke.toml",
-            "target\memory\index.md",
-            "target\projects\new-project\agent.toml",
-            "target\projects\new-project\memory\index.md"
-          )) {
-            if (-not (Test-Path (Join-Path $importBase $resource))) {
-              throw "Workspace import did not create $resource"
-            }
-          }
-          if (-not (Select-String -Path (Join-Path $importBase "target\agents\codex.toml") -Pattern "Imported Codex" -Quiet)) { throw "Agent import failed" }
-          if (-not (Select-String -Path (Join-Path $importBase "target\config.toml") -Pattern "stale_days = 90" -Quiet)) { throw "Config import failed" }
-          if (-not (Select-String -Path (Join-Path $importBase "target\global\AGENTS.md") -Pattern "Imported global instructions" -Quiet)) { throw "Global instructions import failed" }
-          $executionBase = "$importBase-execution"
-          python tests/workspace_import_smoke.py "$executionBase" --prepare-only --execution-case
-          if ($LASTEXITCODE -ne 0) { throw "Execution fixture preparation failed" }
-          $env:AIKITO_DIR = Join-Path $executionBase "target"
-          python -m aikito import workspace (Join-Path $executionBase "source")
-          if ($LASTEXITCODE -ne 0) { throw "Resource execution import failed" }
-          foreach ($resource in @("target\notes\inbox\deep\import-smoke.md", "target\config.toml")) {
-            if (-not (Test-Path (Join-Path $executionBase $resource))) { throw "Resource execution did not create $resource" }
-          }
-          if (-not (Select-String -Path (Join-Path $executionBase "target\config.toml") -Pattern "stale_days = 90" -Quiet)) { throw "Shared config field import failed" }
-          if (-not (Select-String -Path (Join-Path $executionBase "target\config.toml") -Pattern "check = false" -Quiet)) { throw "Shared config composition failed" }
-          python -m aikito import workspace (Join-Path $executionBase "source")
-          if ($LASTEXITCODE -ne 0) { throw "Repeated resource execution failed" }
-          if (Test-Path (Join-Path $executionBase "target\.local\state\aikito\workspace-transactions\pending.json")) { throw "Import left a transaction journal" }
-          $blockedBase = "$importBase-blocked-inbox"
-          python tests/workspace_import_smoke.py "$blockedBase" --prepare-only --blocked-inbox-case
-          if ($LASTEXITCODE -ne 0) { throw "Blocked inbox fixture preparation failed" }
-          $env:AIKITO_DIR = Join-Path $blockedBase "target"
-          $blockedPreview = python -m aikito import workspace (Join-Path $blockedBase "source") --dry-run 2>&1
-          if ($LASTEXITCODE -ne 1) { throw "Inbox relocation preview was not blocked" }
-          if (-not ($blockedPreview | Select-String -SimpleMatch "[BLOCKED] config.toml (config:inbox.path)")) { throw "Inbox relocation did not block the configuration field" }
-          if (-not ($blockedPreview | Select-String -SimpleMatch "1 note under inbox/")) { throw "Inbox relocation did not report existing notes" }
-          python -m aikito import workspace (Join-Path $blockedBase "source")
-          if ($LASTEXITCODE -ne 1) { throw "Inbox relocation application was not blocked" }
-          foreach ($resource in @("target\inbox\existing.md", "target\config.toml")) {
-            if (-not (Test-Path (Join-Path $blockedBase $resource))) { throw "Blocked import removed $resource" }
-          }
-          foreach ($resource in @("target\notes\inbox\deep\import-smoke.md", "target\skills\import-smoke\SKILL.md", "target\.local\state\aikito\workspace-transactions\pending.json")) {
-            if (Test-Path (Join-Path $blockedBase $resource)) { throw "Blocked import wrote $resource" }
-          }
-          if (-not (Select-String -Path (Join-Path $blockedBase "target\config.toml") -SimpleMatch 'path = "inbox"' -Quiet)) { throw "Blocked import changed the inbox path" }
-          $partialBase = "$importBase-partial"
-          python tests/workspace_import_smoke.py "$partialBase" --prepare-only --conflict-case
-          if ($LASTEXITCODE -ne 0) { throw "Partial import fixture preparation failed" }
-          $env:AIKITO_DIR = Join-Path $partialBase "target"
-          python -m aikito import workspace (Join-Path $partialBase "source") --dry-run
-          if ($LASTEXITCODE -ne 2) { throw "Partial preview did not report conflicts" }
-          if (Test-Path (Join-Path $partialBase "target\memory\notes\independent.md")) { throw "Partial preview wrote resources" }
-          python -m aikito import workspace (Join-Path $partialBase "source") --keep-target memory:notes/independent.md
-          if ($LASTEXITCODE -ne 2) { throw "Skip import did not report unresolved conflicts" }
-          if (Test-Path (Join-Path $partialBase "target\memory\notes\independent.md")) { throw "Skip import created a skipped resource" }
-          $partialOutput = python -m aikito import workspace (Join-Path $partialBase "source")
-          if ($LASTEXITCODE -ne 2) { throw "Partial import did not report unresolved conflicts" }
-          if (-not ($partialOutput | Select-String -SimpleMatch "[PARTIAL]")) { throw "Partial import did not report applied resources" }
-          foreach ($resource in @("target\memory\notes\independent.md", "target\memory\notes\keep.md")) {
-            if (-not (Test-Path (Join-Path $partialBase $resource))) { throw "Partial import did not preserve or create $resource" }
-          }
-          $choices = @("--keep-target", "memory:notes/keep.md", "--keep-target", "memory:notes/keep-again.md", "--take-source", "memory:notes/take.md", "--take-source", "memory:notes/take-again.md")
-          python -m aikito import workspace (Join-Path $partialBase "source") --dry-run @choices
-          if ($LASTEXITCODE -ne 0) { throw "Conflict resolution preview failed" }
-          if (-not (Select-String -Path (Join-Path $partialBase "target\memory\notes\take.md") -SimpleMatch "Target take" -Quiet)) { throw "Resolution preview wrote resources" }
-          python -m aikito import workspace (Join-Path $partialBase "source") @choices
-          if ($LASTEXITCODE -ne 0) { throw "Conflict resolution failed" }
-          foreach ($name in @("keep", "keep-again", "take", "take-again")) {
-            $side = if ($name.StartsWith("keep")) { "Target" } else { "Source" }
-            if (-not (Select-String -Path (Join-Path $partialBase "target\memory\notes\$name.md") -SimpleMatch "$side $name" -Quiet)) { throw "Incorrect conflict resolution for $name" }
-          }
-          $repeatOutput = python -m aikito import workspace (Join-Path $partialBase "source") @choices
-          if ($LASTEXITCODE -ne 0) { throw "Repeated conflict resolution failed" }
-          if (-not ($repeatOutput | Select-String -SimpleMatch "[SUMMARY] CREATE 0, UPDATE 0, CONFLICT 0, BLOCKED 0")) { throw "Repeated conflict resolution was not a no-op" }
-          if (Test-Path (Join-Path $partialBase "target\.local\state\aikito\workspace-transactions\pending.json")) { throw "Partial import left a transaction journal" }
-          $env:AIKITO_DIR = $wsDir
           $claudeAgents = Join-Path $claudeDir "agents"
           New-Item -ItemType Directory -Force -Path $claudeAgents | Out-Null
           $adoptSource = Join-Path $claudeAgents "ci-adopt.md"
@@ -1197,3 +963,334 @@ jobs:
             $path = Join-Path $env:AIKITO_DIR $checkout
             if (-not $globalOut.Contains("Checkout: $path")) { throw "Global index omitted checkout: $path" }
           }
+
+  windows-reconcile-smoke:
+    name: windows-reconcile-smoke (${{ matrix.group }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ["core", "acceptance", "auxiliary", "network-safety"]
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Optimize Windows Defender for CI
+        shell: pwsh
+        run: |
+          try {
+            Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+          } catch {}
+          try {
+            Add-MpPreference -ExclusionPath $env:RUNNER_TEMP, $env:GITHUB_WORKSPACE, $env:TEMP, $env:TMP, $HOME, "C:\hostedtoolcache" -ErrorAction SilentlyContinue
+            Add-MpPreference -ExclusionProcess @("python.exe", "git.exe") -ErrorAction SilentlyContinue
+          } catch {}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # group=core: workspace_reconcile_smoke + workspace_reconcile_resources_smoke + workspace_reconcile_resolution_smoke
+      - name: Reconcile core smoke
+        if: matrix.group == 'core'
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $reconcileBase = Join-Path $env:RUNNER_TEMP "reconcile-smoke"
+          python tests/workspace_reconcile_smoke.py "$reconcileBase"
+          if ($LASTEXITCODE -ne 0) { throw "Resource reconciliation smoke failed" }
+          $expandedBase = Join-Path $env:RUNNER_TEMP "expanded-reconcile-smoke"
+          python tests/workspace_reconcile_resources_smoke.py "$expandedBase"
+          if ($LASTEXITCODE -ne 0) { throw "Expanded resource reconciliation smoke failed" }
+          $resolutionBase = Join-Path $env:RUNNER_TEMP "reconcile-resolutions"
+          python tests/workspace_reconcile_resolution_smoke.py "$resolutionBase"
+          if ($LASTEXITCODE -ne 0) { throw "Reference conflict resolution smoke failed" }
+          foreach ($case in @("skill-local", "project-skill-local")) {
+            foreach ($replica in @("left", "right", "center")) {
+              if (!(Test-Path "$resolutionBase/$case/$replica/skills/x/SKILL.md" -PathType Leaf)) { throw "Resolved skill missing" }
+            }
+          }
+          foreach ($case in @("skill-remote", "project-skill-remote")) {
+            foreach ($replica in @("left", "right", "center")) {
+              if (Test-Path "$resolutionBase/$case/$replica/skills/x") { throw "Deleted skill remains" }
+            }
+          }
+          foreach ($case in @("skill-local", "project-skill-local", "skill-remote", "project-skill-remote")) {
+            if (!(Test-Path "$resolutionBase/$case/right/projects/newcomer/agent.toml" -PathType Leaf)) { throw "Resolved project missing" }
+            if (!(Test-Path "$resolutionBase/$case/right/memory/notes/rejected.md" -PathType Leaf)) { throw "Local note missing" }
+            if (Test-Path "$resolutionBase/$case/center/memory/notes/rejected.md") { throw "Rejected resolution uploaded note" }
+          }
+          foreach ($relative in @("right/capture-b/deep/note.md", "right/global/AGENTS.md", "right/projects/demo/AGENTS.md", "right/agents/custom.toml", "right/mcps/docs.toml", "right/subagents/review.md", "right/config.toml", "right/skills.toml", "right/projects/demo/agent.toml")) {
+            if (-not (Test-Path (Join-Path $expandedBase $relative) -PathType Leaf)) { throw "Missing expanded resource: $relative" }
+          }
+          foreach ($relative in @("right/capture-b/deleted.md", "right/agents/deleted.toml", "right/mcps/deleted.toml", "right/subagents/deleted.md", "right/projects/retired/agent.toml", "right/projects/retired/AGENTS.md", "center/config.toml", "center/projects/demo/agent.toml", "left/.local/state/aikito/workspace-transactions/pending.json")) {
+            if (Test-Path (Join-Path $expandedBase $relative)) { throw "Unexpected expanded resource: $relative" }
+          }
+          foreach ($relative in @("right\memory\notes\reconcile-smoke.md", "right\projects\demo\memory\notes\reconcile-smoke.md", "right\skills\reconcile-smoke\SKILL.md", "right\memory\notes\recovered.md", "right\memory\notes\relocated.md", "right\.local\state\aikito\workspace-reconcile\replica.json", "moved-left\.local\state\aikito\workspace-reconcile\replica.json", "moved-center\.local\state\aikito\workspace-reconcile\remote.json")) {
+            if (-not (Test-Path (Join-Path $reconcileBase $relative))) { throw "Missing reconciled resource: $relative" }
+          }
+          if (-not (Test-Path (Join-Path $reconcileBase "right\skills\reconcile-smoke\empty") -PathType Container)) { throw "Missing reconciled empty directory" }
+          if (-not (Select-String -Path (Join-Path $reconcileBase "right\projects\demo\memory\notes\reconcile-smoke.md") -SimpleMatch "# Updated project" -Quiet)) { throw "Project memory update was not reconciled" }
+          if (-not (Select-String -Path (Join-Path $reconcileBase "right\skills\reconcile-smoke\SKILL.md") -SimpleMatch "# Updated skill" -Quiet)) { throw "Skill update was not reconciled" }
+          foreach ($relative in @("right\memory\notes\deleted.md", "right\projects\demo\memory\notes\deleted.md", "right\skills\deleted", "moved-center\layout.toml", "right\.local\state\aikito\workspace-transactions\pending.json", "moved-center\.local\state\aikito\workspace-transactions\pending.json")) {
+            if (Test-Path (Join-Path $reconcileBase $relative)) { throw "Unexpected reconciliation artifact: $relative" }
+          }
+          if (-not (Test-Path (Join-Path $reconcileBase "right\memory\notes\reconcile-smoke.md"))) {
+            throw "Workspace reconcile did not create the note"
+          }
+
+      # group=acceptance: workspace_reconcile_acceptance + workspace_remote_store_smoke + workspace_revision_smoke
+      - name: Acceptance smoke
+        if: matrix.group == 'acceptance'
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $acceptanceBase = Join-Path $env:RUNNER_TEMP "reconcile-acceptance"
+          python tests/workspace_reconcile_acceptance.py "$acceptanceBase"
+          if ($LASTEXITCODE -ne 0) { throw "Workspace reconciliation acceptance failed" }
+          foreach ($relative in @("moved-left/memory/notes/accepted-base.md", "right/capture-b/accepted-before-local.md")) {
+            if (!(Test-Path (Join-Path $acceptanceBase $relative) -PathType Leaf)) { throw "Missing acceptance recovery resource: $relative" }
+          }
+          $storeBase = Join-Path $env:RUNNER_TEMP "remote-store"
+          python tests/workspace_remote_store_smoke.py "$storeBase"
+          if ($LASTEXITCODE -ne 0) { throw "Portable RemoteStore smoke failed" }
+          foreach ($relative in @("right/memory/notes/portable-store.md", "right/.local/state/aikito/workspace-reconcile/replica.json", "center/.local/state/aikito/workspace-reconcile/remote.json")) {
+            if (!(Test-Path (Join-Path $storeBase $relative) -PathType Leaf)) { throw "Missing store resource: $relative" }
+          }
+          $revisionBase = Join-Path $env:RUNNER_TEMP "revision-state"
+          python tests/workspace_revision_smoke.py "$revisionBase"
+          if ($LASTEXITCODE -ne 0) { throw "Revision state persistence smoke failed" }
+          foreach ($relative in @("contract-cleanup.json", "right/memory/notes/revision.md", "right/.local/state/aikito/workspace-reconcile/replica.json", "center/.local/state/aikito/workspace-reconcile/remote.json")) {
+            if (!(Test-Path (Join-Path $revisionBase $relative) -PathType Leaf)) { throw "Missing revision resource: $relative" }
+          }
+          if (!(Get-ChildItem "$revisionBase/home/.local/state/aikito/project-skills" -Filter "*.json" -File)) { throw "Missing revision skill state" }
+          foreach ($relative in @("right/capture-b/relocated.md", "moved-left/capture-a/relocated.md", "right/projects/demo/memory/notes/acceptance.md", "moved-left/config.toml", "right/config.toml", "moved-center/.local/state/aikito/workspace-reconcile/remote.json")) {
+            if (-not (Test-Path (Join-Path $acceptanceBase $relative) -PathType Leaf)) { throw "Missing acceptance resource: $relative" }
+          }
+          foreach ($relative in @("right/capture-b/safe.md", "moved-left/capture-a/safe.md", "moved-left/.local/state/aikito/workspace-transactions/pending.json", "moved-center/.local/state/aikito/workspace-transactions/pending.json")) {
+            if (Test-Path (Join-Path $acceptanceBase $relative)) { throw "Unexpected acceptance artifact: $relative" }
+          }
+
+      # group=auxiliary: workspace_memory_remote_smoke + local_state_doctor_smoke + workspace_reconcile_boundary_smoke + workspace_payload_smoke
+      - name: Auxiliary smoke
+        if: matrix.group == 'auxiliary'
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $memoryStoreBase = Join-Path $env:RUNNER_TEMP "memory-remote-store"
+          python tests/workspace_memory_remote_smoke.py "$memoryStoreBase"
+          if ($LASTEXITCODE -ne 0) { throw "In-memory RemoteStore smoke failed" }
+          foreach ($relative in @("right/capture-b/relocated.md", "moved-left/projects/demo/memory/notes/acceptance.md", "right/.local/state/aikito/workspace-reconcile/replica.json", "moved-left/memory/notes/accepted-base.md", "right/capture-b/accepted-before-local.md")) {
+            if (!(Test-Path (Join-Path $memoryStoreBase $relative) -PathType Leaf)) { throw "Missing memory store resource: $relative" }
+          }
+          if (Test-Path "$memoryStoreBase/center") { throw "Memory store created a center directory" }
+          $localStateBase = Join-Path $env:RUNNER_TEMP "local-state-doctor"
+          python tests/local_state_doctor_smoke.py "$localStateBase"
+          if ($LASTEXITCODE -ne 0) { throw "Local state doctor smoke failed" }
+          if (!(Test-Path "$localStateBase/checked.json" -PathType Leaf)) { throw "Missing local state doctor report" }
+          if (!(Get-ChildItem "$localStateBase/home/.local/state/aikito/project-skills" -Filter "*.json" -File)) { throw "Missing preserved local skill state" }
+          $boundaryBase = Join-Path $env:RUNNER_TEMP "reconcile-boundary"
+          python tests/workspace_reconcile_boundary_smoke.py "$boundaryBase"
+          if ($LASTEXITCODE -ne 0) { throw "Remote Store Boundary mode smoke failed" }
+          $payloadBase = Join-Path $env:RUNNER_TEMP "workspace-payload"
+          python tests/workspace_payload_smoke.py "$payloadBase"
+          if ($LASTEXITCODE -ne 0) { throw "Portable resource payload smoke failed" }
+          foreach ($relative in @("target/skills/portable/SKILL.md", "target/skills/portable/run.sh", "target/capture/payload.md", "target/config.toml", "target/projects/demo/agent.toml")) {
+            if (!(Test-Path (Join-Path $payloadBase $relative) -PathType Leaf)) { throw "Missing payload resource: $relative" }
+          }
+          if (!(Test-Path "$payloadBase/target/skills/portable/empty" -PathType Container)) { throw "Missing payload empty directory" }
+          foreach ($relative in @("left/skills/portable/SKILL.md", "right/skills/portable/SKILL.md", "center/.local/state/aikito/workspace-reconcile/remote.json", "left/.local/state/aikito/workspace-reconcile/replica.json")) {
+            if (!(Test-Path (Join-Path $boundaryBase $relative) -PathType Leaf)) { throw "Missing boundary resource: $relative" }
+          }
+          if (Test-Path "$boundaryBase/left/skills/portable/run.sh" -PathType Leaf) { throw "Deleted executable returned after sync" }
+          if (Test-Path "$boundaryBase/right/skills/portable/run.sh" -PathType Leaf) { throw "Deleted executable remained in source replica" }
+          if (!(Test-Path "$boundaryBase/right/skills/portable/empty" -PathType Container)) { throw "Missing portable empty directory" }
+          if (!(Test-Path "$boundaryBase/right/skills/portable/.aikito-executable.json" -PathType Leaf)) { throw "Missing executable metadata" }
+
+      - name: Network-safe Commit Recovery Smoke on Windows
+        if: matrix.group == 'network-safety'
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $commitCodecBase = Join-Path $env:RUNNER_TEMP "remote-commit-codec"
+          python tests/workspace_remote_commit_smoke.py "$commitCodecBase"
+          if ($LASTEXITCODE -ne 0) { throw "Canonical commit persistence smoke failed" }
+          python tests/workspace_remote_commit_smoke.py "$commitCodecBase" --verify-only
+          if ($LASTEXITCODE -ne 0) { throw "Canonical commit reload smoke failed" }
+          foreach ($relative in @("request.json", "result-digest.txt", "pending.json", "receipt.json", "rejected.json", "checked.json")) {
+            if (!(Test-Path (Join-Path $commitCodecBase $relative) -PathType Leaf)) { throw "Missing commit codec artifact: $relative" }
+          }
+          $receiptsBase = Join-Path $env:RUNNER_TEMP "remote-receipts"
+          python tests/workspace_remote_receipts_smoke.py "$receiptsBase"
+          if ($LASTEXITCODE -ne 0) { throw "Filesystem receipt recovery smoke failed" }
+          foreach ($checkpoint in @("journal", "resource", "manifest", "committed", "cleanup")) {
+            foreach ($relative in @("center/memory/notes/receipt.md", "center/.local/state/aikito/workspace-reconcile/remote.json", "checked.json")) {
+              if (!(Test-Path "$receiptsBase/$checkpoint/$relative" -PathType Leaf)) { throw "Missing receipt recovery artifact: $checkpoint/$relative" }
+            }
+          }
+          $pendingBase = Join-Path $env:RUNNER_TEMP "pending-commit"
+          python tests/workspace_pending_commit_smoke.py "$pendingBase" --stage prepare
+          if ($LASTEXITCODE -ne 0) { throw "Pending persistence smoke failed" }
+          if (!(Test-Path "$pendingBase/local/.local/state/aikito/workspace-reconcile/pending.json" -PathType Leaf)) { throw "Missing persistent pending" }
+          python tests/workspace_pending_commit_smoke.py "$pendingBase" --stage complete
+          if ($LASTEXITCODE -ne 0) { throw "Pending completion smoke failed" }
+          foreach ($relative in @("local/.local/state/aikito/workspace-reconcile/pending.json", "local/.local/state/aikito/workspace-reconcile/replica.json")) {
+            if (!(Test-Path "$pendingBase/$relative" -PathType Leaf)) { throw "Missing completed pending state: $relative" }
+          }
+          python tests/workspace_pending_commit_smoke.py "$pendingBase" --stage clear
+          if ($LASTEXITCODE -ne 0) { throw "Pending cleanup smoke failed" }
+          if (Test-Path "$pendingBase/local/.local/state/aikito/workspace-reconcile/pending.json") { throw "Completed pending was not cleared" }
+          foreach ($relative in @("local/memory/notes/pending.md", "clear-checked.json")) {
+            if (!(Test-Path "$pendingBase/$relative" -PathType Leaf)) { throw "Missing pending artifact: $relative" }
+          }
+          $commitRecovery = Join-Path $env:RUNNER_TEMP "commit-recovery"
+          python tests/workspace_commit_recovery_smoke.py $commitRecovery --stage send
+          if ($LASTEXITCODE -ne 0) { throw "Pending reconciliation send failed" }
+          if (-not (Test-Path (Join-Path $commitRecovery "local/.local/state/aikito/workspace-reconcile/pending.json"))) { throw "Missing reconciliation pending" }
+          python tests/workspace_commit_recovery_smoke.py $commitRecovery --stage resume
+          if ($LASTEXITCODE -ne 0) { throw "Pending reconciliation resume failed" }
+          if (Test-Path (Join-Path $commitRecovery "local/.local/state/aikito/workspace-reconcile/pending.json")) { throw "Reconciliation pending was not cleared" }
+          foreach ($relative in @("center/memory/notes/upload.md", "local/memory/notes/download.md", "checked.json")) {
+            if (-not (Test-Path (Join-Path $commitRecovery $relative))) { throw "Missing reconciliation recovery artifact: $relative" }
+          }
+          $faultsBase = Join-Path $env:RUNNER_TEMP "unreliable-remote"
+          foreach ($backend in @("filesystem", "memory")) {
+            $faultRoot = Join-Path $faultsBase $backend
+            python tests/workspace_unreliable_remote_smoke.py $faultRoot --backend $backend
+            if ($LASTEXITCODE -ne 0) { throw "Unreliable remote smoke failed: $backend" }
+            if (-not (Test-Path "$faultRoot/checked.json" -PathType Leaf)) { throw "Missing fault report: $backend" }
+            foreach ($scenario in @("before-send", "response-loss", "duplicate", "resolve-failure", "delayed-accepted", "delayed-cas", "historical")) {
+              foreach ($relative in @("checked.json", "local/memory/notes/upload.md")) {
+                if (-not (Test-Path "$faultRoot/$scenario/$relative" -PathType Leaf)) { throw "Missing fault artifact: $backend/$scenario/$relative" }
+              }
+              if (Test-Path "$faultRoot/$scenario/local/.local/state/aikito/workspace-reconcile/pending.json") { throw "Unresolved fault pending: $backend/$scenario" }
+            }
+          }
+          foreach ($checkpoint in @("replica", "committed", "cleanup", "before-clear", "after-clear")) {
+            $crashRoot = Join-Path $faultsBase "filesystem/local-crashes/$checkpoint"
+            foreach ($relative in @("checked.json", "center/memory/notes/upload.md", "local/.local/state/aikito/workspace-reconcile/replica.json")) {
+              if (-not (Test-Path "$crashRoot/$relative" -PathType Leaf)) { throw "Missing local crash artifact: $checkpoint/$relative" }
+            }
+            if (Test-Path "$crashRoot/local/.local/state/aikito/workspace-reconcile/pending.json") { throw "Unresolved local crash pending: $checkpoint" }
+          }
+
+  windows-import-smoke:
+    runs-on: windows-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Optimize Windows Defender for CI
+        shell: pwsh
+        run: |
+          try {
+            Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+          } catch {}
+          try {
+            Add-MpPreference -ExclusionPath $env:RUNNER_TEMP, $env:GITHUB_WORKSPACE, $env:TEMP, $env:TMP, $HOME, "C:\hostedtoolcache" -ErrorAction SilentlyContinue
+            Add-MpPreference -ExclusionProcess @("python.exe", "git.exe") -ErrorAction SilentlyContinue
+          } catch {}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Workspace Import Smoke on Windows
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $importBase = Join-Path $env:RUNNER_TEMP "import-smoke"
+          python tests/workspace_import_smoke.py "$importBase" --prepare-only
+          $env:AIKITO_DIR = Join-Path $importBase "target"
+          python -m aikito import workspace (Join-Path $importBase "source") --dry-run
+          if ($LASTEXITCODE -ne 0) { throw "Workspace import dry run failed" }
+          $importVerbose = python -m aikito import workspace (Join-Path $importBase "source") --dry-run --verbose
+          if ($LASTEXITCODE -ne 0) { throw "Verbose workspace import dry run failed" }
+          $importVerbose | Select-String "\[SUMMARY\]"
+          if (-not ($importVerbose | Select-String -SimpleMatch "[UPDATE] skills.toml (skill-selection:import-smoke)")) { throw "Import did not group skills.toml" }
+          if ($importVerbose | Select-String -SimpleMatch "[MERGE]") { throw "Import still reports MERGE" }
+          if (Test-Path (Join-Path $importBase "target\inbox\deep\import-smoke.md")) { throw "Dry run wrote inbox note" }
+          python -m aikito import workspace (Join-Path $importBase "source")
+          if ($LASTEXITCODE -ne 0) { throw "Workspace import failed" }
+          $env:AIKITO_DIR = $wsDir
+          foreach ($resource in @(
+            "target\inbox\deep\import-smoke.md",
+            "target\skills\import-smoke\SKILL.md",
+            "target\subagents\import-smoke.md",
+            "target\mcps\import-smoke.toml",
+            "target\memory\index.md",
+            "target\projects\new-project\agent.toml",
+            "target\projects\new-project\memory\index.md"
+          )) {
+            if (-not (Test-Path (Join-Path $importBase $resource))) {
+              throw "Workspace import did not create $resource"
+            }
+          }
+          if (-not (Select-String -Path (Join-Path $importBase "target\agents\codex.toml") -Pattern "Imported Codex" -Quiet)) { throw "Agent import failed" }
+          if (-not (Select-String -Path (Join-Path $importBase "target\config.toml") -Pattern "stale_days = 90" -Quiet)) { throw "Config import failed" }
+          if (-not (Select-String -Path (Join-Path $importBase "target\global\AGENTS.md") -Pattern "Imported global instructions" -Quiet)) { throw "Global instructions import failed" }
+          $executionBase = "$importBase-execution"
+          python tests/workspace_import_smoke.py "$executionBase" --prepare-only --execution-case
+          if ($LASTEXITCODE -ne 0) { throw "Execution fixture preparation failed" }
+          $env:AIKITO_DIR = Join-Path $executionBase "target"
+          python -m aikito import workspace (Join-Path $executionBase "source")
+          if ($LASTEXITCODE -ne 0) { throw "Resource execution import failed" }
+          foreach ($resource in @("target\notes\inbox\deep\import-smoke.md", "target\config.toml")) {
+            if (-not (Test-Path (Join-Path $executionBase $resource))) { throw "Resource execution did not create $resource" }
+          }
+          if (-not (Select-String -Path (Join-Path $executionBase "target\config.toml") -Pattern "stale_days = 90" -Quiet)) { throw "Shared config field import failed" }
+          if (-not (Select-String -Path (Join-Path $executionBase "target\config.toml") -Pattern "check = false" -Quiet)) { throw "Shared config composition failed" }
+          python -m aikito import workspace (Join-Path $executionBase "source")
+          if ($LASTEXITCODE -ne 0) { throw "Repeated resource execution failed" }
+          if (Test-Path (Join-Path $executionBase "target\.local\state\aikito\workspace-transactions\pending.json")) { throw "Import left a transaction journal" }
+          $blockedBase = "$importBase-blocked-inbox"
+          python tests/workspace_import_smoke.py "$blockedBase" --prepare-only --blocked-inbox-case
+          if ($LASTEXITCODE -ne 0) { throw "Blocked inbox fixture preparation failed" }
+          $env:AIKITO_DIR = Join-Path $blockedBase "target"
+          $blockedPreview = python -m aikito import workspace (Join-Path $blockedBase "source") --dry-run 2>&1
+          if ($LASTEXITCODE -ne 1) { throw "Inbox relocation preview was not blocked" }
+          if (-not ($blockedPreview | Select-String -SimpleMatch "[BLOCKED] config.toml (config:inbox.path)")) { throw "Inbox relocation did not block the configuration field" }
+          if (-not ($blockedPreview | Select-String -SimpleMatch "1 note under inbox/")) { throw "Inbox relocation did not report existing notes" }
+          python -m aikito import workspace (Join-Path $blockedBase "source")
+          if ($LASTEXITCODE -ne 1) { throw "Inbox relocation application was not blocked" }
+          foreach ($resource in @("target\inbox\existing.md", "target\config.toml")) {
+            if (-not (Test-Path (Join-Path $blockedBase $resource))) { throw "Blocked import removed $resource" }
+          }
+          foreach ($resource in @("target\notes\inbox\deep\import-smoke.md", "target\skills\import-smoke\SKILL.md", "target\.local\state\aikito\workspace-transactions\pending.json")) {
+            if (Test-Path (Join-Path $blockedBase $resource)) { throw "Blocked import wrote $resource" }
+          }
+          if (-not (Select-String -Path (Join-Path $blockedBase "target\config.toml") -SimpleMatch 'path = "inbox"' -Quiet)) { throw "Blocked import changed the inbox path" }
+          $partialBase = "$importBase-partial"
+          python tests/workspace_import_smoke.py "$partialBase" --prepare-only --conflict-case
+          if ($LASTEXITCODE -ne 0) { throw "Partial import fixture preparation failed" }
+          $env:AIKITO_DIR = Join-Path $partialBase "target"
+          python -m aikito import workspace (Join-Path $partialBase "source") --dry-run
+          if ($LASTEXITCODE -ne 2) { throw "Partial preview did not report conflicts" }
+          if (Test-Path (Join-Path $partialBase "target\memory\notes\independent.md")) { throw "Partial preview wrote resources" }
+          python -m aikito import workspace (Join-Path $partialBase "source") --keep-target memory:notes/independent.md
+          if ($LASTEXITCODE -ne 2) { throw "Skip import did not report unresolved conflicts" }
+          if (Test-Path (Join-Path $partialBase "target\memory\notes\independent.md")) { throw "Skip import created a skipped resource" }
+          $partialOutput = python -m aikito import workspace (Join-Path $partialBase "source")
+          if ($LASTEXITCODE -ne 2) { throw "Partial import did not report unresolved conflicts" }
+          if (-not ($partialOutput | Select-String -SimpleMatch "[PARTIAL]")) { throw "Partial import did not report applied resources" }
+          foreach ($resource in @("target\memory\notes\independent.md", "target\memory\notes\keep.md")) {
+            if (-not (Test-Path (Join-Path $partialBase $resource))) { throw "Partial import did not preserve or create $resource" }
+          }
+          $choices = @("--keep-target", "memory:notes/keep.md", "--keep-target", "memory:notes/keep-again.md", "--take-source", "memory:notes/take.md", "--take-source", "memory:notes/take-again.md")
+          python -m aikito import workspace (Join-Path $partialBase "source") --dry-run @choices
+          if ($LASTEXITCODE -ne 0) { throw "Conflict resolution preview failed" }
+          if (-not (Select-String -Path (Join-Path $partialBase "target\memory\notes\take.md") -SimpleMatch "Target take" -Quiet)) { throw "Resolution preview wrote resources" }
+          python -m aikito import workspace (Join-Path $partialBase "source") @choices
+          if ($LASTEXITCODE -ne 0) { throw "Conflict resolution failed" }
+          foreach ($name in @("keep", "keep-again", "take", "take-again")) {
+            $side = if ($name.StartsWith("keep")) { "Target" } else { "Source" }
+            if (-not (Select-String -Path (Join-Path $partialBase "target\memory\notes\$name.md") -SimpleMatch "$side $name" -Quiet)) { throw "Incorrect conflict resolution for $name" }
+          }
+          $repeatOutput = python -m aikito import workspace (Join-Path $partialBase "source") @choices
+          if ($LASTEXITCODE -ne 0) { throw "Repeated conflict resolution failed" }
+          if (-not ($repeatOutput | Select-String -SimpleMatch "[SUMMARY] CREATE 0, UPDATE 0, CONFLICT 0, BLOCKED 0")) { throw "Repeated conflict resolution was not a no-op" }
+          if (Test-Path (Join-Path $partialBase "target\.local\state\aikito\workspace-transactions\pending.json")) { throw "Partial import left a transaction journal" }
