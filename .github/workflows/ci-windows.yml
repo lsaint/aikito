@@ -23,7 +23,8 @@ jobs:
             Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
           } catch {}
           try {
-            Add-MpPreference -ExclusionPath $env:RUNNER_TEMP, $env:GITHUB_WORKSPACE, "C:\hostedtoolcache\windows\Python" -ErrorAction SilentlyContinue
+            Add-MpPreference -ExclusionPath $env:RUNNER_TEMP, $env:GITHUB_WORKSPACE, $env:TEMP, $env:TMP, $HOME, "C:\hostedtoolcache\windows\Python" -ErrorAction SilentlyContinue
+            Add-MpPreference -ExclusionProcess @("python.exe", "git.exe", "pytest.exe") -ErrorAction SilentlyContinue
           } catch {}
 
       - name: Set up Python 3.12
@@ -42,12 +43,12 @@ jobs:
       - name: Run core unit tests
         if: matrix.group == 'core'
         shell: pwsh
-        run: python -m pytest -n auto --dist loadfile '--ignore-glob=tests/test_workspace*.py'
+        run: python -m pytest -n auto --basetemp="$env:RUNNER_TEMP\pytest" '--ignore-glob=tests/test_workspace*.py'
 
       - name: Run workspace unit tests
         if: matrix.group == 'workspace'
         shell: pwsh
-        run: python -m pytest -n auto --dist loadfile -o 'python_files=test_workspace*.py'
+        run: python -m pytest -n auto --basetemp="$env:RUNNER_TEMP\pytest" -o 'python_files=test_workspace*.py'
 
   windows-smoke-test:
     runs-on: windows-latest
@@ -63,7 +64,8 @@ jobs:
             Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
           } catch {}
           try {
-            Add-MpPreference -ExclusionPath $env:RUNNER_TEMP, $env:GITHUB_WORKSPACE, "C:\hostedtoolcache\windows\Python" -ErrorAction SilentlyContinue
+            Add-MpPreference -ExclusionPath $env:RUNNER_TEMP, $env:GITHUB_WORKSPACE, $env:TEMP, $env:TMP, $HOME, "C:\hostedtoolcache\windows\Python" -ErrorAction SilentlyContinue
+            Add-MpPreference -ExclusionProcess @("python.exe", "git.exe") -ErrorAction SilentlyContinue
           } catch {}
 
       - name: Set up Python

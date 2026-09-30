@@ -315,12 +315,12 @@ def test_special_nodes_and_tree_symlinks_are_rejected(tmp_path):
 
 def test_metadata_cannot_smuggle_content_or_cross_symlinks(tmp_path):
     source = source_workspace(tmp_path / "source")
+    content = ResourceContent.from_workspace(snapshot_workspace(source))
     tree_path = source / "skills/portable"
     metadata = tree_path / SKILL_EXECUTABLE_METADATA
     metadata.write_text(
         '{"version":1,"executable":[],"password":"abcdefghijklmnopqrstuvwx"}'
     )
-    content = ResourceContent.from_workspace(snapshot_workspace(source))
     with pytest.raises(PayloadError, match="metadata"):
         capture_resources(content, ["skill:portable"])
     with pytest.raises(ValueError, match="metadata"):
