@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Internal reconciliation fetches only payloads needed for planned downloads and shared configuration checks; NOOP rounds avoid payload fetches.
+
+### Fixed
+
+- Internal reconciliation preserves pending request identity across lost responses and process restarts, resolves accepted commits without duplicate mutations, and advances only confirmed per-resource Base entries.
+- Resource centers publish mutations, revision and receipts atomically. Local completion records resources, Base and recovery markers together, preserving intervening edits and allowing completed pending cleanup while the center is unavailable.
+- Malformed request, receipt and pending encodings are rejected without resetting state, including duplicate JSON fields, invalid UTF-8, noncanonical Base64 and invalid revision types.
+- Skill executable-only changes participate in reconciliation independently of content changes, with executable state preserved across Windows and POSIX replicas.
+- Private skill executable metadata is excluded from runtime copies and copy fingerprints, preventing metadata leakage and false drift.
+
 ## [1.57.0] - 2026-09-29
 
 ### Added
