@@ -270,8 +270,9 @@ a center directory. Filesystem center relocation remains its own wrapper.
 
 ## Completed boundary and validation
 
-`test_workspace_reconcile_acceptance.py` parameterizes the same behavior scenario
-with both factories; filesystem center relocation is a separate test.
+The full two-replica behavior scenario runs once per backend in the CI smoke
+jobs. The filesystem smoke also checks center relocation. Pytest covers focused
+client and storage behavior without rerunning the full scenario.
 `test_workspace_reconcile_resources.py` uses the same two-backend fixture for
 client behavior and never accesses center paths. Manifest compatibility,
 unmanaged center files, shared-value layout, and center journal interruption

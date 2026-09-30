@@ -256,9 +256,9 @@ round does not increment the center revision.
 
 
 The end-to-end acceptance scenario lives in
-`tests/workspace_reconcile_acceptance.py`. It runs through the pytest version
-matrix and as a real Python invocation in Ubuntu, macOS, and Windows smoke
-jobs. The same two replicas exercise every admitted resource kind, matching
+`tests/workspace_reconcile_acceptance.py`. It runs as a real Python invocation
+in Ubuntu, macOS, and Windows smoke jobs; focused behavior remains in pytest.
+The same two replicas exercise every admitted resource kind, matching
 and conflicting shared-field edits, safe progress during conflicts, stale local
 and center plans with no-write assertions, shared-file recovery, repeated
 execution, and relocation of completed roots. Final snapshots match the center

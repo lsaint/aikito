@@ -18,7 +18,6 @@ from aikito.workspace.payload import (
 )
 from aikito.workspace.remote_store import InvalidContent
 from workspace_memory_remote import InMemoryRemote
-from workspace_memory_remote_smoke import exercise
 
 
 def opaque_mutation(identity="opaque/ID:../does-not-name-a-path"):
@@ -29,10 +28,6 @@ def opaque_mutation(identity="opaque/ID:../does-not-name-a-path"):
         ("opaque missing reference",),
     )
     return ResourceMutation(identity, None, descriptor, payload)
-
-
-def test_two_workspaces_use_memory_center_without_engine_special_cases(tmp_path):
-    exercise(tmp_path)
 
 
 def test_store_operations_never_access_disk_or_make_staging(monkeypatch):
