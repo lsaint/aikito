@@ -385,8 +385,8 @@ class WorkspaceWriterLock:
     _active_lock_path: Path | None = None
 
     def __init__(self, home: Path) -> None:
-        self.home = home
-        self.state_dir = get_skill_state_dir(home)
+        self.home = home.expanduser().resolve()
+        self.state_dir = get_skill_state_dir(self.home)
         self.lock_path = self.state_dir / "writer.lock"
         self._instance_depth = 0
 

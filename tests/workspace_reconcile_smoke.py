@@ -129,11 +129,11 @@ def main() -> None:
     else:
         raise AssertionError("Expected an interrupted center write")
     try:
-        apply(left)
+        run_reconciliation(left, remote, home, dry_run=True)
     except WorkspaceReconcileError as exc:
-        assert "Recovered an interrupted" in str(exc)
+        assert "Pending" in str(exc)
     else:
-        raise AssertionError("Expected recovery before replay")
+        raise AssertionError("Expected preview to require recovery")
     apply(left)
     apply(right)
     assert (right / "memory/notes/recovered.md").read_text(
