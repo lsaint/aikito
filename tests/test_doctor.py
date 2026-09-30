@@ -1653,7 +1653,7 @@ class DoctorFixesTest(unittest.TestCase):
         )
 
         original_index = self.index_file.read_text(encoding="utf-8")
-        result = run_doctor_fixes(self.aikito_dir)
+        result = run_doctor_fixes(self.aikito_dir, self.home)
 
         self.assertEqual(result, [])
         self.assertEqual(self.index_file.read_text(encoding="utf-8"), original_index)
