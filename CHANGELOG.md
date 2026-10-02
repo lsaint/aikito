@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.57.2] - 2026-10-02
+
 ### Added
 
 - Added an internal, transport-neutral Remote Protocol v1 codec and handler for the reconciliation operations (read, fetch, commit, resolve and recover), with a canonical envelope, independent protocol and commit-encoding versions, a stable error envelope and strict fail-closed decoding.
@@ -1059,7 +1061,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.57.1...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.57.2...HEAD
+[1.57.2]: https://github.com/lsaint/aikito/compare/v1.57.1...v1.57.2
 [1.57.1]: https://github.com/lsaint/aikito/compare/v1.57.0...v1.57.1
 [1.57.0]: https://github.com/lsaint/aikito/compare/v1.56.0...v1.57.0
 [1.56.0]: https://github.com/lsaint/aikito/compare/v1.55.0...v1.56.0
