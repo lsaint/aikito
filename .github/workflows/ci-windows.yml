@@ -53,7 +53,7 @@ jobs:
       - name: Run workspace remote and protocol unit tests
         if: matrix.group == 'workspace-remote'
         shell: pwsh
-        run: python -m pytest -n 2 --basetemp="$env:RUNNER_TEMP\pytest" tests/test_workspace_commit_encoding.py tests/test_workspace_loopback_remote.py tests/test_workspace_memory_remote.py tests/test_workspace_pending_commit.py tests/test_workspace_remote_commit.py tests/test_workspace_remote_protocol.py tests/test_workspace_remote_protocol_handler.py tests/test_workspace_remote_protocol_hardening.py tests/test_workspace_remote_protocol_regressions.py tests/test_workspace_remote_receipt_crashes.py tests/test_workspace_remote_receipts.py tests/test_workspace_remote_store.py tests/test_workspace_remote_store_contract.py tests/test_workspace_serialized_remote.py tests/test_workspace_serialized_remote_acceptance.py tests/test_workspace_serialized_remote_recovery.py tests/test_workspace_unreliable_remote.py
+        run: python -m pytest -n 2 --basetemp="$env:RUNNER_TEMP\pytest" tests/test_workspace_http_transport.py tests/test_workspace_http_remote_recovery.py tests/test_workspace_http_external.py tests/test_workspace_remote_protocol_vectors.py tests/test_workspace_commit_encoding.py tests/test_workspace_loopback_remote.py tests/test_workspace_memory_remote.py tests/test_workspace_pending_commit.py tests/test_workspace_remote_commit.py tests/test_workspace_remote_protocol.py tests/test_workspace_remote_protocol_handler.py tests/test_workspace_remote_protocol_hardening.py tests/test_workspace_remote_protocol_regressions.py tests/test_workspace_remote_receipt_crashes.py tests/test_workspace_remote_receipts.py tests/test_workspace_remote_store.py tests/test_workspace_remote_store_contract.py tests/test_workspace_serialized_remote.py tests/test_workspace_serialized_remote_acceptance.py tests/test_workspace_serialized_remote_recovery.py tests/test_workspace_unreliable_remote.py
 
       - name: Run workspace reconcile core unit tests
         if: matrix.group == 'workspace-reconcile'
@@ -1091,6 +1091,21 @@ jobs:
             if (!(Test-Path (Join-Path $memoryStoreBase $relative) -PathType Leaf)) { throw "Missing memory store resource: $relative" }
           }
           if (Test-Path "$memoryStoreBase/center") { throw "Memory store created a center directory" }
+          $httpBase = Join-Path $env:RUNNER_TEMP "http-remote"
+          python tests/workspace_http_remote_smoke.py "$httpBase"
+          if ($LASTEXITCODE -ne 0) { throw "HTTP RemoteStore smoke failed" }
+          foreach ($relative in @("moved-left/memory/notes/accepted-base.md", "right/capture-b/accepted-before-local.md", "right/memory/notes/http-recovery.md", "right/skills/example/run.sh", "checked.txt")) {
+            if (-not (Test-Path (Join-Path $httpBase $relative) -PathType Leaf)) { throw "Missing HTTP resource: $relative" }
+          }
+          if (Test-Path "$httpBase/moved-left/.local/state/aikito/workspace-reconcile/pending.json") { throw "HTTP recovery left pending state" }
+          $capacityBase = Join-Path $env:RUNNER_TEMP "commit-capacity"
+          python tests/workspace_commit_capacity_smoke.py "$capacityBase"
+          if ($LASTEXITCODE -ne 0) { throw "Commit capacity smoke failed" }
+          foreach ($relative in @("local/memory/notes/capacity.md", "center/memory/notes/capacity.md", "center/memory/notes/neighbor.md", "checked.txt")) {
+            if (-not (Test-Path (Join-Path $capacityBase $relative) -PathType Leaf)) { throw "Missing commit capacity artifact: $relative" }
+          }
+          if (Test-Path "$capacityBase/local/.local/state/aikito/workspace-reconcile/pending.json") { throw "Oversized commit left pending state" }
+          if (Test-Path "$capacityBase/center/memory/notes/oversized.md") { throw "Oversized resource was uploaded" }
           $serializedBase = Join-Path $env:RUNNER_TEMP "serialized-remote"
           python tests/workspace_serialized_remote_smoke.py "$serializedBase"
           if ($LASTEXITCODE -ne 0) { throw "Serialized RemoteStore smoke failed" }

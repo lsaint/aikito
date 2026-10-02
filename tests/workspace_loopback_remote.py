@@ -16,7 +16,7 @@ from aikito.workspace.remote_protocol import (
     encode_read_response,
 )
 from aikito.workspace.remote_store import RemoteSnapshot
-from aikito.workspace.serialized_remote import TransportNotDelivered
+from aikito.workspace.remote_transport import TransportNotDelivered
 
 
 class LoopbackTransport:

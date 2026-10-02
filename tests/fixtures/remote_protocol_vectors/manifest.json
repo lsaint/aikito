@@ -1,0 +1,159 @@
+{
+  "protocol": 1,
+  "description": "Byte-exact examples; operation pairs run in manifest order against the stated initial store.",
+  "initial_sync_id": "中心:<>&  ",
+  "operations": [
+    {
+      "name": "read-empty",
+      "description": "Read the initial empty store",
+      "request": "read-empty.request.bin",
+      "response": "read-empty.response.bin"
+    },
+    {
+      "name": "fetch-empty",
+      "description": "Empty fetch with snapshot validation",
+      "request": "fetch-empty.request.bin",
+      "response": "fetch-empty.response.bin"
+    },
+    {
+      "name": "resolve-missing",
+      "description": "Resolve before acceptance returns null",
+      "request": "resolve-missing.request.bin",
+      "response": "resolve-missing.response.bin"
+    },
+    {
+      "name": "commit",
+      "description": "Atomic batch with all payload kinds and non-ASCII identities",
+      "request": "commit.request.bin",
+      "response": "commit.response.bin"
+    },
+    {
+      "name": "read-populated",
+      "description": "Read the published descriptors",
+      "request": "read-populated.request.bin",
+      "response": "read-populated.response.bin"
+    },
+    {
+      "name": "fetch-populated",
+      "description": "Fetch all payload kinds",
+      "request": "fetch-populated.request.bin",
+      "response": "fetch-populated.response.bin"
+    },
+    {
+      "name": "resolve-accepted",
+      "description": "Resolve the original accepted request",
+      "request": "resolve-accepted.request.bin",
+      "response": "resolve-accepted.response.bin"
+    },
+    {
+      "name": "recover",
+      "description": "Recover a healthy backend returns false",
+      "request": "recover.request.bin",
+      "response": "recover.response.bin"
+    }
+  ],
+  "errors": [
+    {
+      "code": "commit_outcome_unknown",
+      "response": "error-commit_outcome_unknown.response.bin"
+    },
+    {
+      "code": "invalid_content",
+      "response": "error-invalid_content.response.bin"
+    },
+    {
+      "code": "protocol_error",
+      "response": "error-protocol_error.response.bin"
+    },
+    {
+      "code": "recovery_required",
+      "response": "error-recovery_required.response.bin"
+    },
+    {
+      "code": "replica_history_mismatch",
+      "response": "error-replica_history_mismatch.response.bin"
+    },
+    {
+      "code": "request_identity_mismatch",
+      "response": "error-request_identity_mismatch.response.bin"
+    },
+    {
+      "code": "snapshot_expired",
+      "response": "error-snapshot_expired.response.bin"
+    },
+    {
+      "code": "store_identity_mismatch",
+      "response": "error-store_identity_mismatch.response.bin"
+    },
+    {
+      "code": "store_unavailable",
+      "response": "error-store_unavailable.response.bin"
+    }
+  ],
+  "malformed": [
+    {
+      "name": "duplicate-field",
+      "description": "Duplicate object field",
+      "request": "duplicate-field.request.bin",
+      "response": "duplicate-field.response.bin"
+    },
+    {
+      "name": "noncanonical-whitespace",
+      "description": "Whitespace differs from canonical bytes",
+      "request": "noncanonical-whitespace.request.bin",
+      "response": "noncanonical-whitespace.response.bin"
+    },
+    {
+      "name": "noncanonical-order",
+      "description": "Object field order differs from canonical bytes",
+      "request": "noncanonical-order.request.bin",
+      "response": "noncanonical-order.response.bin"
+    },
+    {
+      "name": "unknown-version",
+      "description": "Unsupported protocol version",
+      "request": "unknown-version.request.bin",
+      "response": "unknown-version.response.bin"
+    },
+    {
+      "name": "unknown-operation",
+      "description": "Unsupported operation",
+      "request": "unknown-operation.request.bin",
+      "response": "unknown-operation.response.bin"
+    },
+    {
+      "name": "deep-nesting",
+      "description": "Nesting exceeds the strict decoder limit",
+      "request": "deep-nesting.request.bin",
+      "response": "deep-nesting.response.bin"
+    },
+    {
+      "name": "noncanonical-base64",
+      "description": "Extra Base64 padding is rejected",
+      "request": "noncanonical-base64.request.bin",
+      "response": "noncanonical-base64.response.bin"
+    },
+    {
+      "name": "invalid-utf8",
+      "description": "Invalid UTF-8",
+      "request": "invalid-utf8.request.bin",
+      "response": "invalid-utf8.response.bin"
+    }
+  ],
+  "digests": [
+    {
+      "name": "mutation",
+      "preimage": "mutation.preimage.bin",
+      "sha256": "026ebd6893e3c79b2a13be70feb37924d3be7b0da4bf70d327bdcc550fe17174",
+      "commit_request": "commit.request.bin",
+      "commit_response": "commit.response.bin"
+    },
+    {
+      "name": "result",
+      "preimage": "result.preimage.bin",
+      "sha256": "9d924b3ed4978b7c04fd97d2d87dd3639daa7c9eef6b29b2c59be7e36a3dd68d",
+      "commit_request": "commit.request.bin",
+      "commit_response": "commit.response.bin"
+    }
+  ]
+}

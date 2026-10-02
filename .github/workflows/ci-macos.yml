@@ -117,6 +117,22 @@ jobs:
           test -f "$MEMORY_STORE/moved-left/projects/demo/memory/notes/acceptance.md"
           test -f "$MEMORY_STORE/right/.local/state/aikito/workspace-reconcile/replica.json"
           test ! -e "$MEMORY_STORE/center"
+          HTTP_REMOTE=${{ runner.temp }}/http-remote
+          python3 tests/workspace_http_remote_smoke.py "$HTTP_REMOTE"
+          test -f "$HTTP_REMOTE/moved-left/memory/notes/accepted-base.md"
+          test -f "$HTTP_REMOTE/right/capture-b/accepted-before-local.md"
+          test -f "$HTTP_REMOTE/right/memory/notes/http-recovery.md"
+          test -f "$HTTP_REMOTE/right/skills/example/run.sh"
+          test -f "$HTTP_REMOTE/checked.txt"
+          test ! -e "$HTTP_REMOTE/moved-left/.local/state/aikito/workspace-reconcile/pending.json"
+          CAPACITY=${{ runner.temp }}/commit-capacity
+          python3 tests/workspace_commit_capacity_smoke.py "$CAPACITY"
+          test -f "$CAPACITY/local/memory/notes/capacity.md"
+          test -f "$CAPACITY/center/memory/notes/capacity.md"
+          test -f "$CAPACITY/center/memory/notes/neighbor.md"
+          test ! -e "$CAPACITY/center/memory/notes/oversized.md"
+          test -f "$CAPACITY/checked.txt"
+          test ! -e "$CAPACITY/local/.local/state/aikito/workspace-reconcile/pending.json"
           SERIALIZED=${{ runner.temp }}/serialized-remote
           python3 tests/workspace_serialized_remote_smoke.py "$SERIALIZED"
           test -f "$SERIALIZED/right/memory/notes/serialized-smoke.md"

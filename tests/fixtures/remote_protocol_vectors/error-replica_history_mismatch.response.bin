@@ -1,0 +1,1 @@
+{"error":{"code":"replica_history_mismatch","message":"Previous receipt does not match accepted history"},"ok":false,"operation":"commit","protocol":1}

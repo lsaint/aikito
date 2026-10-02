@@ -134,6 +134,10 @@ tracebacks, exception class names or `str(exc)`.
 
 ## Transport failure semantics
 
+`remote_transport.py` owns `Exchange` and `TransportNotDelivered` without
+depending on the protocol or store. `serialized_remote.py` retains these imports
+for compatibility.
+
 `exchange(bytes) -> bytes` describes byte delivery only. It must not encode
 resource or commit meaning in exceptions.
 
@@ -149,6 +153,21 @@ resource or commit meaning in exceptions.
   retry of the same complete request, even when the original delivery is unknown;
   it never permits creating a new request identity. Receipt lookup before CAS
   makes a matching replay return the original result without publishing twice.
+
+## Commit capacity preflight
+
+New reconciliation commits are limited to 67,108,864 bytes (64 MiB), measured
+using the complete Remote Protocol commit request, including its envelope and
+Base64 payload encoding. The internal policy lives in `remote_limits.py` and
+does not change either wire version. It applies to every reconciliation backend.
+
+Reconciliation checks capacity after building the request and before persisting
+pending state or calling commit. An oversized request raises
+`WorkspaceReconcileError`; local resources and Base remain unchanged, and no
+pending request is created. The user can reduce the batch and plan again.
+Existing pending requests retain their original recovery semantics and identity.
+Future transports and servers must use this same request limit; transport-only
+rejection after persistence cannot substitute for this preflight.
 
 ## Security boundary
 
@@ -170,5 +189,6 @@ resource or commit meaning in exceptions.
 Remote Protocol v1 does not define an HTTP server or client, a hosted service,
 accounts, login, API keys, OAuth, a cloud database, object storage, background
 daemons, network discovery or E2EE. It adds no public reconciliation API or CLI.
-HTTP transport, encryption and authorization are separate later layers built on
-top of this frozen internal contract.
+[HTTP transport](http-transport.md) is a separate internal layer beneath the
+adapter. Encryption and authorization remain separate future layers. A protocol
+handler is not a hosted server, and HTTP transport is not a cloud service.

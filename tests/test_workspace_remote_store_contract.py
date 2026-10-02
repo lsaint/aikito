@@ -12,6 +12,7 @@ from workspace_loopback_remote import LoopbackTransport
 from workspace_memory_remote import InMemoryRemote
 from workspace_serialized_attachment import FilesystemSerializedRemote
 from workspace_store_setup import publish_batch
+from workspace_http_remote import contract_backends, external_store, http_store
 
 from aikito.workspace.payload import (
     FilePayload,
@@ -29,13 +30,22 @@ from aikito.workspace.toml_render import TomlValue
 
 
 @pytest.fixture(
-    params=["filesystem", "memory", "serialized-filesystem", "serialized-memory"]
+    params=contract_backends(
+        "filesystem", "memory", "serialized-filesystem", "serialized-memory"
+    )
 )
 def store(request, tmp_path):
+    if request.param in {"http", "external-http"}:
+        factory = external_store if request.param == "external-http" else http_store
+        with factory(tmp_path / "center") as remote:
+            yield remote
+        return
     if request.param == "filesystem":
-        return FilesystemRemote.create(tmp_path / "center")
+        yield FilesystemRemote.create(tmp_path / "center")
+        return
     if request.param == "memory":
-        return InMemoryRemote()
+        yield InMemoryRemote()
+        return
     backend = (
         FilesystemRemote.create(tmp_path / "center")
         if request.param == "serialized-filesystem"
@@ -43,8 +53,9 @@ def store(request, tmp_path):
     )
     exchange = LoopbackTransport(backend).exchange
     if request.param == "serialized-filesystem":
-        return FilesystemSerializedRemote(exchange, backend.root)
-    return SerializedRemoteStore(exchange)
+        yield FilesystemSerializedRemote(exchange, backend.root)
+    else:
+        yield SerializedRemoteStore(exchange)
 
 
 def mutation(name="one", data=b"one", before=None):
@@ -60,6 +71,12 @@ def mutation(name="one", data=b"one", before=None):
 def checkpoint(store):
     snapshot = store.read()
     return snapshot, store.fetch(snapshot, snapshot.resources)
+
+
+def test_healthy_recovery_is_noop(store):
+    before = checkpoint(store)
+    assert store.recover() is False
+    assert checkpoint(store) == before
 
 
 def test_revision_presence_update_delete_and_empty_batch(store):

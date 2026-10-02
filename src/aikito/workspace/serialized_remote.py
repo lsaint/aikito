@@ -12,10 +12,14 @@ did not reach the backend.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Collection, Mapping
 from types import MappingProxyType
 
 from .payload import ResourcePayload, payload_hash
+from .remote_transport import (
+    Exchange as Exchange,
+    TransportNotDelivered as TransportNotDelivered,
+)
 from .remote_protocol import (
     ERROR_EXCEPTIONS,
     Operation,
@@ -37,12 +41,6 @@ from .remote_store import (
     StoreUnavailable,
 )
 from .remote_wire import validate_commit_result
-
-Exchange = Callable[[bytes], bytes]
-
-
-class TransportNotDelivered(Exception):
-    """The transport proves the request bytes were never delivered."""
 
 
 class SerializedRemoteStore:

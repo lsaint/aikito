@@ -8,6 +8,7 @@ durable request and receipt confirm uploaded Base before the next plan.
 
 from __future__ import annotations
 
+import os
 import tempfile
 import uuid
 from collections.abc import Mapping
@@ -17,6 +18,8 @@ from pathlib import Path
 from ..config import get_inbox_path
 from ..init import is_recognized_workspace
 from ..skill_state import WorkspaceWriterLock
+from . import remote_limits
+from .remote_protocol import encode_commit_request as encode_protocol_commit_request
 from .transactions import (
     StateUpdate,
     WorkspaceCoreError,
@@ -48,6 +51,7 @@ from .resources import (
     Resource,
     WorkspaceSnapshot,
     WorkspaceResourceError,
+    is_shared_resource,
     physical_kind,
     snapshot_workspace,
 )
@@ -64,10 +68,11 @@ from .payload import (
     TomlPayload,
     PayloadError,
     credential_payload,
+    encode_payload,
     payload_hash,
     validate_payload,
 )
-from .payload_io import capture_mutations, prepare_payload_writes
+from .payload_io import capture_mutations, capture_resources, prepare_payload_writes
 from .replica_state import ReplicaState, load_replica_state
 from .templates import template_fingerprints
 
@@ -316,6 +321,26 @@ def _check_items(
         else item
         for item in items
     ]
+    oversized = _oversized_uploads(
+        local_content,
+        {
+            item.id
+            for item in items
+            if item.target == "remote" and item.after is not None
+        },
+    )
+    items = [
+        replace(
+            item,
+            action="BLOCKED",
+            target=None,
+            reason="Resource exceeds the sync size limit of "
+            f"{remote_limits.MAX_RESOURCE_PAYLOAD_BYTES} bytes; resource is not uploaded",
+        )
+        if item.id in oversized
+        else item
+        for item in items
+    ]
     items = [
         replace(
             item,
@@ -384,6 +409,46 @@ def _check_items(
         ]
         findings.extend(f"{side}: {finding}" for finding in residual)
     return items, findings
+
+
+def _oversized_uploads(
+    content: ResourceContent | None, identities: set[str]
+) -> frozenset[str]:
+    """Block single resources that could never fit one request on their own.
+
+    Capture one payload at a time so planning memory stays bounded by the limit.
+    """
+    if content is None:
+        return frozenset()
+    limit = remote_limits.MAX_RESOURCE_PAYLOAD_BYTES
+    result = set()
+    for identity in sorted(identities):
+        path = content.paths.get(identity)
+        if path is None or is_shared_resource(content.resources[identity].kind):
+            continue  # Typed fields and membership markers stay small.
+        if _payload_upper_bound(path) <= limit:
+            continue
+        payload = capture_resources(content, [identity], check_credentials=False)
+        if len(encode_payload(payload[identity])) > limit:
+            result.add(identity)
+    return frozenset(result)
+
+
+def _payload_upper_bound(path: Path) -> int:
+    """Cheap encoded-size bound without following links; capture checks exactly.
+
+    Base64 grows data by 4/3; escaped JSON paths grow by at most 6x per byte.
+    """
+    if not path.is_dir():
+        return 2 * path.lstat().st_size + 64
+    total = 64
+    for directory, dirs, names in os.walk(path):
+        for name in (*dirs, *names):
+            child = Path(directory) / name
+            size = 0 if name in dirs else child.lstat().st_size
+            relative = child.relative_to(path).as_posix().encode("utf-8", "replace")
+            total += 2 * size + 6 * len(relative) + 64
+    return total
 
 
 def _select_version(
@@ -717,6 +782,16 @@ def apply_reconcile_plan(
                         if plan.state
                         else None,
                     )
+                    # Reject before persisting: recovery can only resend this exact
+                    # request, so an oversized pending request could never progress.
+                    if (
+                        len(encode_protocol_commit_request(request))
+                        > remote_limits.MAX_REMOTE_REQUEST_BYTES
+                    ):
+                        raise WorkspaceReconcileError(
+                            "Commit request exceeds the remote request size limit "
+                            f"of {remote_limits.MAX_REMOTE_REQUEST_BYTES} bytes"
+                        )
                     pending_store = PendingCommitStore(plan.local, home)
                     pending = pending_store.persist(
                         request,

@@ -5,6 +5,12 @@ from dataclasses import replace
 import pytest
 
 from aikito.workspace import reconcile
+from aikito.workspace import remote_limits
+from aikito.workspace.remote_protocol import (
+    encode_commit_request as encode_protocol_request,
+)
+from aikito.workspace.serialized_remote import SerializedRemoteStore
+from workspace_loopback_remote import LoopbackTransport
 from aikito.workspace.payload import ResourceMutation
 from aikito.workspace.commit_recovery import recover_pending
 from aikito.workspace.pending_commit import PendingCommitStore
@@ -29,6 +35,82 @@ def case(tmp_path):
 def run(case):
     local, remote, home, _ = case
     return reconcile.run_reconciliation(local, remote, home, dry_run=False)
+
+
+@pytest.mark.parametrize("serialized", [False, True])
+@pytest.mark.parametrize("headroom", [-1, 0, 1])
+def test_commit_capacity_before_pending(case, monkeypatch, serialized, headroom):
+    local, backend, home, store = case
+    remote = (
+        SerializedRemoteStore(LoopbackTransport(backend).exchange)
+        if serialized
+        else backend
+    )
+    case = local, remote, home, store
+    run(case)
+    state_before = load_replica_state(local)
+    snapshot_before = backend.read()
+    note = local / "memory/notes/upload.md"
+    note.write_text("容量检查" * 100, encoding="utf-8")
+    original_build = reconcile.build_commit_request
+    original_commit = remote.commit
+    sent = []
+
+    def build(*args, **kwargs):
+        req = original_build(*args, **kwargs)
+        encoded = encode_protocol_request(req)
+        assert len(encoded) > len(note.read_bytes())
+        monkeypatch.setattr(
+            remote_limits, "MAX_REMOTE_REQUEST_BYTES", len(encoded) + headroom
+        )
+        return req
+
+    def commit(req):
+        assert store.load().request == req
+        sent.append(req)
+        return original_commit(req)
+
+    monkeypatch.setattr(reconcile, "build_commit_request", build)
+    monkeypatch.setattr(remote, "commit", commit)
+    if headroom < 0:
+        with monkeypatch.context() as guard:
+
+            def forbidden(*args, **kwargs):
+                raise AssertionError("Oversized commit persisted pending")
+
+            guard.setattr(PendingCommitStore, "persist", forbidden)
+            with pytest.raises(reconcile.WorkspaceReconcileError, match="size limit"):
+                run(case)
+        assert sent == []
+        assert store.load() is None
+        assert load_replica_state(local) == state_before
+        assert backend.read() == snapshot_before
+        assert note.read_text(encoding="utf-8") == "容量检查" * 100
+        monkeypatch.setattr(reconcile, "build_commit_request", original_build)
+        note.write_text("smaller", encoding="utf-8")
+        run(case)
+    else:
+        run(case)
+    assert len(sent) == 1
+    assert store.load() is None
+    assert backend.read().revision == snapshot_before.revision + 1
+
+
+def test_oversized_first_commit_does_not_pair_replica(case, monkeypatch):
+    local, remote, _, store = case
+    (local / "memory/notes/upload.md").write_text("upload", encoding="utf-8")
+    monkeypatch.setattr(remote_limits, "MAX_REMOTE_REQUEST_BYTES", 1)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Oversized first commit persisted or sent")
+
+    monkeypatch.setattr(PendingCommitStore, "persist", forbidden)
+    monkeypatch.setattr(remote, "commit", forbidden)
+    with pytest.raises(reconcile.WorkspaceReconcileError, match="size limit"):
+        run(case)
+    assert store.load() is None
+    assert load_replica_state(local)[0] is None
+    assert remote.read().revision == 0
 
 
 def test_identity_and_exact_pending_are_durable_before_send(case, monkeypatch):

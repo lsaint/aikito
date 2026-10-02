@@ -12,6 +12,8 @@ from unittest.mock import patch
 import pytest
 
 import aikito.workspace.payload_io as payload_io
+import aikito.workspace.reconcile as reconcile
+import aikito.workspace.remote_limits as remote_limits
 import aikito.workspace.resources as resources
 from aikito.workspace.reconcile import (
     WorkspaceReconcileError,
@@ -513,3 +515,42 @@ def test_standalone_interruption_restores_content_and_base(
     assert ((b / relative).read_bytes(), (b / REPLICA_STATE).read_bytes()) == before
     round_trip(b, remote, home)
     assert (b / relative).read_text() == second
+
+
+@pytest.mark.parametrize("relative", ["memory/notes/large.md", "skills/large/SKILL.md"])
+def test_oversized_resource_blocks_only_its_upload(replicas, monkeypatch, relative):
+    a, b, remote, home = replicas
+    monkeypatch.setattr(remote_limits, "MAX_RESOURCE_PAYLOAD_BYTES", 4096)
+    write(a, relative, "x" * 4096)
+    write(a, "memory/notes/small.md", "small\n")
+    plan = run_reconciliation(a, remote, home, dry_run=False)
+    identity = (
+        "skill:large" if relative.startswith("skills/") else "memory:notes/large.md"
+    )
+    item = next(i for i in plan.items if i.id == identity)
+    assert item.action == "BLOCKED" and "size limit" in item.reason
+    assert not plan.blocked
+    assert identity not in remote.read().resources
+    round_trip(b, remote, home)
+    assert (b / "memory/notes/small.md").read_text(encoding="utf-8") == "small\n"
+    assert not (b / relative).exists()
+    write(a, relative, "fits\n")
+    round_trip(a, remote, home)
+    round_trip(b, remote, home)
+    assert (b / relative).read_text(encoding="utf-8") == "fits\n"
+
+
+def test_upload_size_bound_skips_capture_for_small_resources(replicas, monkeypatch):
+    a, _, remote, home = replicas
+    write(a, "memory/notes/small.md", "small\n")
+    calls = []
+    original = payload_io.capture_resources
+
+    def spy(content, identities, **kwargs):
+        if not kwargs.get("check_credentials", True):
+            calls.append(tuple(identities))
+        return original(content, identities, **kwargs)
+
+    monkeypatch.setattr(reconcile, "capture_resources", spy)
+    build_reconcile_plan(a, remote)
+    assert calls == []

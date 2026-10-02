@@ -36,6 +36,16 @@ from aikito.workspace.serialized_remote import (
     SerializedRemoteStore,
     TransportNotDelivered,
 )
+from aikito.workspace.remote_transport import (
+    Exchange,
+    TransportNotDelivered as DeliveryError,
+)
+from aikito.workspace import serialized_remote
+
+
+def test_transport_exports_remain_compatible():
+    assert serialized_remote.Exchange is Exchange
+    assert TransportNotDelivered is DeliveryError
 
 
 def seeded():

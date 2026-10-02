@@ -7,7 +7,8 @@ protocol handler never receive a replica path.
 from pathlib import Path
 
 from aikito.workspace.remote import FilesystemRemote
-from aikito.workspace.serialized_remote import Exchange, SerializedRemoteStore
+from aikito.workspace.remote_transport import Exchange
+from aikito.workspace.serialized_remote import SerializedRemoteStore
 
 
 class FilesystemSerializedRemote(SerializedRemoteStore):

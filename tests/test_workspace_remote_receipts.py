@@ -4,6 +4,7 @@ from __future__ import annotations
 
 
 import hashlib
+import os
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -32,11 +33,17 @@ from aikito.workspace.remote_wire import (
     validate_commit_result,
 )
 from workspace_memory_remote import InMemoryRemote
+from workspace_http_remote import contract_backends, external_store, http_store
 
 
-@pytest.fixture(params=["memory", "filesystem"])
+@pytest.fixture(params=contract_backends("memory", "filesystem"))
 def store(request, tmp_path):
-    return (
+    if request.param in {"http", "external-http"}:
+        factory = external_store if request.param == "external-http" else http_store
+        with factory(tmp_path / "center") as remote:
+            yield remote
+        return
+    yield (
         InMemoryRemote()
         if request.param == "memory"
         else FilesystemRemote.create(tmp_path / "center")
@@ -225,6 +232,10 @@ def test_untrusted_request_validation_precedes_receipt_lookup(store, corruption)
     assert checkpoint(store) == before
 
 
+@pytest.mark.skipif(
+    bool(os.environ.get("AIKITO_REMOTE_TEST_SERVER_CMD")),
+    reason="Backend-specific persistence check",
+)
 def test_filesystem_receipt_survives_new_instance(tmp_path):
     remote = FilesystemRemote.create(tmp_path / "center")
     req = request(remote)
@@ -237,6 +248,10 @@ def test_filesystem_receipt_survives_new_instance(tmp_path):
 
 
 @pytest.mark.parametrize("bad", ["version", "revision", "client", "sync", "null"])
+@pytest.mark.skipif(
+    bool(os.environ.get("AIKITO_REMOTE_TEST_SERVER_CMD")),
+    reason="Backend-specific corruption injection",
+)
 def test_filesystem_corrupt_receipt_blocks_resolution(tmp_path, bad):
     remote = FilesystemRemote.create(tmp_path / "center")
     req = request(remote)

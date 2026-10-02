@@ -6,6 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Added an internal standard-library HTTP byte transport with verified HTTPS, fresh connections, bounded request/response bodies, idle timeouts and conservative commit delivery semantics.
+- Added real-socket RemoteStore and receipt contracts, HTTP reconciliation acceptance and lost-response recovery, and cross-platform HTTP smoke coverage.
+- Added byte-exact protocol compatibility vectors and an external-server contract harness with isolated stores and bounded process startup/teardown.
+
+### Changed
+
+- Extracted the internal byte exchange and non-delivery exception into a transport-neutral module, preserving existing adapter imports.
+
+### Fixed
+
+- Reconciliation rejects new commits larger than 64 MiB in their full protocol encoding before persisting pending state, preventing requests that cannot be sent from blocking recovery.
+- Reconciliation blocks uploads of single resources whose portable payload exceeds 16 MiB, so other resources still sync and no resource alone can exceed a request.
+
 ## [1.57.2] - 2026-10-02
 
 ### Added

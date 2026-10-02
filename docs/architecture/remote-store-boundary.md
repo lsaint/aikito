@@ -1,5 +1,10 @@
 # Remote Store Boundary
 
+The [HTTP transport](http-transport.md) carries this internal contract through a
+real socket without changing reconciliation or storage semantics. Remote Protocol
+is independent of HTTP; neither HTTP transport nor `RemoteProtocolHandler`
+constitutes a cloud service or hosted production server.
+
 The internal reconciliation engine uses `workspace.remote_store.RemoteStore`
 and portable payloads. `FilesystemRemote` and the test-only `InMemoryRemote`
 implement the same contract. There is no public reconciliation CLI or service;
@@ -308,8 +313,12 @@ The protocol therefore permits opaque encrypted content in a later transport.
 2. With no center lock exposed to the engine, fetch all planned downloads
    against that snapshot. Validate and stage them locally. Verify selected
    upload content still matches the plan; preserve shared TOML field isolation.
-3. For uploads/deletes, persist stable replica identity and the complete pending
-   request before sending. Commit and verify the receipt. Stale fetch or explicit
+3. For uploads/deletes, check the complete protocol-encoded request against the
+   internal 64 MiB request limit before persisting anything. Oversized commits
+   fail without pending state or a commit call; see
+   [commit capacity preflight](remote-protocol.md#commit-capacity-preflight).
+   Persist stable replica identity and the complete pending request before
+   sending. Commit and verify the receipt. Stale fetch or explicit
    CAS rejection discards staging; uncertainty retains pending and old Base.
    Rounds without uploads skip pending and commit entirely.
 4. Commit local resources, Base, cursor and completion marker together under the
