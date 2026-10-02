@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: ["core", "workspace", "workspace-reconcile", "reconcile-resources", "reconcile-resolution"]
+        group: ["core", "workspace", "workspace-remote", "workspace-reconcile", "reconcile-resources", "reconcile-resolution"]
 
     steps:
       - uses: actions/checkout@v4
@@ -48,7 +48,12 @@ jobs:
       - name: Run workspace unit tests
         if: matrix.group == 'workspace'
         shell: pwsh
-        run: python -m pytest -n 2 --basetemp="$env:RUNNER_TEMP\pytest" -o 'python_files=test_workspace*.py' '--ignore-glob=tests/test_workspace_reconcile*.py'
+        run: python -m pytest -n 2 --basetemp="$env:RUNNER_TEMP\pytest" tests/test_workspace.py tests/test_workspace_characterization.py tests/test_workspace_import.py tests/test_workspace_import_conflicts.py tests/test_workspace_inspection_golden.py tests/test_workspace_layout.py tests/test_workspace_payload.py tests/test_workspace_resources.py tests/test_workspace_revision.py tests/test_workspace_sync_golden.py tests/test_workspace_sync_plan.py
+
+      - name: Run workspace remote and protocol unit tests
+        if: matrix.group == 'workspace-remote'
+        shell: pwsh
+        run: python -m pytest -n 2 --basetemp="$env:RUNNER_TEMP\pytest" tests/test_workspace_commit_encoding.py tests/test_workspace_loopback_remote.py tests/test_workspace_memory_remote.py tests/test_workspace_pending_commit.py tests/test_workspace_remote_commit.py tests/test_workspace_remote_protocol.py tests/test_workspace_remote_protocol_handler.py tests/test_workspace_remote_protocol_hardening.py tests/test_workspace_remote_protocol_regressions.py tests/test_workspace_remote_receipt_crashes.py tests/test_workspace_remote_receipts.py tests/test_workspace_remote_store.py tests/test_workspace_remote_store_contract.py tests/test_workspace_serialized_remote.py tests/test_workspace_serialized_remote_acceptance.py tests/test_workspace_serialized_remote_recovery.py tests/test_workspace_unreliable_remote.py
 
       - name: Run workspace reconcile core unit tests
         if: matrix.group == 'workspace-reconcile'
