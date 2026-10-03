@@ -78,7 +78,7 @@ jobs:
 
       - name: Build and verify public site
         run: |
-          uv pip install --system -r requirements-docs.txt
+          uv pip install --system -r requirements-docs.txt pytest
           mkdocs build --strict
           test -f site/index.html
           test -f site/guide/index.html
