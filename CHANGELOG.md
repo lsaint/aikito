@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.57.3] - 2026-10-03
+
 ### Added
 
 - Added bounded multi-round reconciliation with dependency ordering, restart-safe first pairing, payload-cache reuse, and cumulative `rounds`, `stop_reason` and `applied_items` results.
@@ -1081,7 +1083,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.57.2...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.57.3...HEAD
+[1.57.3]: https://github.com/lsaint/aikito/compare/v1.57.2...v1.57.3
 [1.57.2]: https://github.com/lsaint/aikito/compare/v1.57.1...v1.57.2
 [1.57.1]: https://github.com/lsaint/aikito/compare/v1.57.0...v1.57.1
 [1.57.0]: https://github.com/lsaint/aikito/compare/v1.56.0...v1.57.0
