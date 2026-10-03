@@ -255,7 +255,11 @@ def main():
     artifacts = generate_vectors()
     if args.check:
         existing = {
-            path.name: path.read_bytes()
+            path.name: (
+                path.read_bytes().replace(b"\r\n", b"\n")
+                if path.name == "manifest.json"
+                else path.read_bytes()
+            )
             for path in args.output.iterdir()
             if path.is_file()
         }

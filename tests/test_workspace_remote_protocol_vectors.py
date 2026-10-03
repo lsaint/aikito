@@ -15,7 +15,12 @@ from aikito.workspace.remote_protocol import (
 
 def test_vectors_match_regeneration():
     assert {
-        path.name: path.read_bytes() for path in DEFAULT_DIRECTORY.iterdir()
+        path.name: (
+            path.read_bytes().replace(b"\r\n", b"\n")
+            if path.name == "manifest.json"
+            else path.read_bytes()
+        )
+        for path in DEFAULT_DIRECTORY.iterdir()
     } == generate_vectors()
 
 
