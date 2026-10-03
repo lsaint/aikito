@@ -14,7 +14,7 @@ def command(*args):
 
 
 def test_external_server_round_trip_with_spaced_root(tmp_path, monkeypatch):
-    server = Path(__file__).with_name("http_remote_server.py")
+    server = Path(__file__).resolve().with_name("http_remote_server.py")
     monkeypatch.setenv(
         "AIKITO_REMOTE_TEST_SERVER_CMD", command(str(server), "--root", "{root}")
     )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import socket
+import socketserver
 import threading
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -12,6 +13,14 @@ from pathlib import Path
 from aikito.workspace import remote_limits
 from aikito.workspace.remote import FilesystemRemote
 from aikito.workspace.remote_protocol import RemoteProtocolHandler, decode_request
+
+
+class _FastThreadingHTTPServer(ThreadingHTTPServer):
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = host
+        self.server_port = port
 
 
 class HTTPRemoteServer:
@@ -24,7 +33,7 @@ class HTTPRemoteServer:
         self._lock = threading.Lock()
         self.response_body: bytes | None = None
         self.delay = 0.1
-        self._server = ThreadingHTTPServer(("127.0.0.1", 0), self._request_handler())
+        self._server = _FastThreadingHTTPServer(("127.0.0.1", 0), self._request_handler())
         self._server.daemon_threads = True
         self._thread = threading.Thread(
             target=self._server.serve_forever,
