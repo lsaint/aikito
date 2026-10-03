@@ -27,7 +27,7 @@ def http_store(root):
 
 
 @contextmanager
-def external_store(root, *, startup_timeout=10):
+def external_store(root, *, startup_timeout=30):
     """Read one endpoint line and always reap the independently started server.
 
     The command is an argv template, never a shell script. Format each token
@@ -62,11 +62,19 @@ def external_store(root, *, startup_timeout=10):
             try:
                 line = lines.get(timeout=startup_timeout)
             except queue.Empty as exc:
+                errors.seek(0)
+                err_text = errors.read().decode("utf-8", "replace").strip()
+                detail = f": {err_text}" if err_text else ""
                 raise RuntimeError(
-                    "External server did not announce an endpoint"
+                    f"External server did not announce an endpoint{detail}"
                 ) from exc
             if not line.endswith(b"\n"):
-                raise RuntimeError("External server did not announce an endpoint line")
+                errors.seek(0)
+                err_text = errors.read().decode("utf-8", "replace").strip()
+                detail = f": {err_text}" if err_text else ""
+                raise RuntimeError(
+                    f"External server did not announce an endpoint line{detail}"
+                )
             url = line.decode("utf-8").strip()
             transport = HTTPTransport(url)
             yield SerializedRemoteStore(transport.exchange)
