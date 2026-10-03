@@ -60,20 +60,34 @@ A single resource is limited to 16,777,216 bytes (16 MiB) of portable payload
 encoding (`MAX_RESOURCE_PAYLOAD_BYTES`), so one resource with Base64 and
 envelope overhead always fits a request or response. Planning marks an
 oversized local upload `BLOCKED` with a size reason; other resources still
-advance, matching credential blocking. Planning first uses a cheap file-size
-upper bound and captures a payload exactly only when that bound is exceeded.
+advance, matching credential blocking. Planning captures and encodes each upload
+once to measure its exact size, then releases its payload bytes.
 
-Fetch remains an all-or-nothing single batch. The response limit therefore bounds
-one download batch, including Base64/envelope overhead; it also bounds read
-snapshots and every other response. There is no pagination or automatic splitting.
-A capacity failure does not write partial downloaded resources or advance Base.
+Reconciliation selects a bounded round before any payload fetch. Download budgets
+include exact Base64 lengths, escaped IDs, JSON wrappers and envelopes; fetch
+requests include the complete expected descriptor snapshot. Upload selection sums
+the exact encoded mutation sizes and commas with the fixed
+commit envelope. Each upload is captured individually to retain only its
+size, transport hash and descriptor; its bytes are released before capturing
+the next resource. Application captures only the selected uploads and checks
+the complete protocol encoding before pending persistence.
+Shared TOML validation fields share the download budget. Verified payloads are
+cached by `(id, content_hash)` for revalidation and application, without duplicate
+fetches. A descriptor change invalidates the relevant cached content; semantic
+validation still runs against the current descriptor before writing.
 
-**Known limitation.** Uploads are bounded per round, but the center accumulates
-across rounds. A new replica's first round, or a long-offline replica, may need
-more than one response limit of downloads; every such round then fails until the
-pending download set shrinks. Effective center capacity is therefore about one
-download batch. Bounded multi-round reconciliation removes this limit and must
-land before a hosted backend.
+Dependency ordering permits a project to span multiple rounds: providers precede
+new references and reference removal precedes provider deletion. Only dependency
+cycles require an atomic group. Unselected work is `DEFERRED`; an individually
+unfit group is `BLOCKED`, while unrelated resources can advance. Each round keeps
+its own atomic remote commit and local transaction. The whole invocation is not
+atomic. There is no pagination, streaming or server-side staging.
+
+**Known limitation.** Center payload totals can exceed a single response limit,
+but resource counts remain bounded by the full descriptor manifest. Read responses,
+fetch requests and commit requests still carry that manifest. Manifest capacity
+is checked before payload fetch or partial writes, including the prospective
+accepted snapshot. Removing this restriction needs a separate protocol design.
 
 Reject an excessive declared `Content-Length` before reading the body. Reject
 invalid or repeated lengths, a length combined with transfer encoding, and

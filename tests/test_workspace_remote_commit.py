@@ -45,7 +45,9 @@ def mutation(identity="opaque-resource", payload=None, before=None):
     return ResourceMutation(
         identity,
         before,
-        ResourceDescriptor("opaque fingerprint", payload_hash(payload)),
+        ResourceDescriptor(
+            "opaque fingerprint", payload_hash(payload), len(encode_payload(payload))
+        ),
         payload,
     )
 

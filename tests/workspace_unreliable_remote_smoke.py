@@ -18,6 +18,7 @@ from pathlib import Path
 from aikito.skill_state import WorkspaceWriterLock
 from aikito.workspace import pending_commit, transactions
 from aikito.workspace.commit_recovery import recover_pending
+from aikito.workspace.payload import encode_payload
 from aikito.workspace.payload import (
     FilePayload,
     ResourceDescriptor,
@@ -47,7 +48,11 @@ def put(name, data=b"remote", before=None):
     return ResourceMutation(
         f"memory:notes/{name}.md",
         before,
-        ResourceDescriptor(hashlib.sha256(data).hexdigest(), payload_hash(payload)),
+        ResourceDescriptor(
+            hashlib.sha256(data).hexdigest(),
+            payload_hash(payload),
+            len(encode_payload(payload)),
+        ),
         payload,
     )
 

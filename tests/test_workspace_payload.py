@@ -262,7 +262,7 @@ def test_capture_detects_post_plan_changes_and_symlinks(tmp_path):
 
 def test_mutations_distinguish_empty_fingerprint_from_absence(tmp_path):
     payload = MemberPayload()
-    before = ResourceDescriptor("", payload_hash(payload))
+    before = ResourceDescriptor("", payload_hash(payload), len(encode_payload(payload)))
     deletion = ResourceMutation("opaque-id", before, None, None)
     assert deletion.before.fingerprint == ""
     with pytest.raises(PayloadError):
@@ -288,7 +288,10 @@ def test_member_deletion_and_duplicate_mutations(tmp_path):
     content = ResourceContent.from_workspace(snapshot_workspace(source))
     member = content.resources["skill-selection:portable"]
     descriptor = ResourceDescriptor(
-        "", payload_hash(MemberPayload()), member.references
+        "",
+        payload_hash(MemberPayload()),
+        len(encode_payload(MemberPayload())),
+        member.references,
     )
     delete = ResourceWrite(
         Path("skills.toml"), "skill-selection", None, "portable", before=""
@@ -329,3 +332,18 @@ def test_metadata_cannot_smuggle_content_or_cross_symlinks(tmp_path):
     metadata.symlink_to(source / "config.toml")
     with pytest.raises(PayloadError, match="metadata"):
         capture_resources(content, ["skill:portable"])
+
+
+@pytest.mark.parametrize("size", [-1, True, 1.0, "1", None])
+def test_descriptor_rejects_invalid_encoded_size(size):
+    with pytest.raises(PayloadError, match="descriptor"):
+        ResourceDescriptor("opaque", "a" * 64, size)
+
+
+def test_mutation_checks_size_independently_of_content_hash():
+    payload = FilePayload(b"content")
+    descriptor = ResourceDescriptor(
+        "opaque", payload_hash(payload), len(encode_payload(payload)) + 1
+    )
+    with pytest.raises(PayloadError, match="size mismatch"):
+        ResourceMutation("opaque", None, descriptor, payload)

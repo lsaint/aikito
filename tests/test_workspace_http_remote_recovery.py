@@ -68,10 +68,18 @@ def test_http_fetch_capacity_failure_preserves_local_and_base(tmp_path, monkeypa
         backend.commit(request(backend, mutation("large", b"x" * 8192)))
         previous_state = load_replica_state(local)
         monkeypatch.setattr(remote_limits, "MAX_REMOTE_RESPONSE_BYTES", 4096)
-        with pytest.raises(WorkspaceReconcileError):
-            run_reconciliation(local, remote, home, dry_run=False)
+        plan = run_reconciliation(local, remote, home, dry_run=False)
+        assert (
+            next(
+                item for item in plan.items if item.id == "memory:notes/large.md"
+            ).action
+            == "BLOCKED"
+        )
         assert not (local / "memory/notes/large.md").exists()
-        assert load_replica_state(local) == previous_state
+        current = load_replica_state(local)[0]
+        assert current.base == previous_state[0].base
+        assert current.receipt_cursor == previous_state[0].receipt_cursor
+        assert current.unpaired_ids == previous_state[0].unpaired_ids
         assert PendingCommitStore(local, home).load() is None
         monkeypatch.setattr(remote_limits, "MAX_REMOTE_RESPONSE_BYTES", 65536)
         run_reconciliation(local, remote, home, dry_run=False)
@@ -87,8 +95,13 @@ def test_oversized_http_commit_never_reaches_server_commit(tmp_path, monkeypatch
         server.requests.clear()
         (local / "memory/notes/large.md").write_bytes(b"x" * 8192)
         monkeypatch.setattr(remote_limits, "MAX_REMOTE_REQUEST_BYTES", 4096)
-        with pytest.raises(WorkspaceReconcileError, match="size limit"):
-            run_reconciliation(local, remote, home, dry_run=False)
+        plan = run_reconciliation(local, remote, home, dry_run=False)
+        assert (
+            next(
+                item for item in plan.items if item.id == "memory:notes/large.md"
+            ).action
+            == "BLOCKED"
+        )
         assert PendingCommitStore(local, home).load() is None
         assert not any(
             decode_request(value).operation == Operation.COMMIT

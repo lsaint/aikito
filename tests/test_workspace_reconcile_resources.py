@@ -540,7 +540,7 @@ def test_oversized_resource_blocks_only_its_upload(replicas, monkeypatch, relati
     assert (b / relative).read_text(encoding="utf-8") == "fits\n"
 
 
-def test_upload_size_bound_skips_capture_for_small_resources(replicas, monkeypatch):
+def test_upload_budget_captures_exact_size_for_small_resources(replicas, monkeypatch):
     a, _, remote, home = replicas
     write(a, "memory/notes/small.md", "small\n")
     calls = []
@@ -553,4 +553,4 @@ def test_upload_size_bound_skips_capture_for_small_resources(replicas, monkeypat
 
     monkeypatch.setattr(reconcile, "capture_resources", spy)
     build_reconcile_plan(a, remote)
-    assert calls == []
+    assert calls == [("memory:notes/small.md",)]

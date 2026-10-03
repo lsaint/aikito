@@ -54,6 +54,7 @@ from .payload import (
     ResourceMutation,
     ResourcePayload,
     PayloadError,
+    encode_payload,
     payload_hash,
     tree_mode_fingerprint,
     TreePayload,
@@ -451,6 +452,7 @@ class FilesystemRemote:
                     key: ResourceDescriptor(
                         resource.fingerprint,
                         hashes[key],
+                        len(encode_payload(payloads[key])),
                         resource.references,
                         tree_mode_fingerprint(payloads[key])
                         if isinstance(payloads[key], TreePayload)

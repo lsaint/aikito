@@ -12,6 +12,7 @@ from dataclasses import replace
 
 import pytest
 
+from aikito.workspace.payload import encode_payload
 from aikito.workspace.payload import (
     FilePayload,
     ResourceDescriptor,
@@ -55,7 +56,11 @@ def mutation(name="one", data=b"one", before=None):
     return ResourceMutation(
         f"memory:notes/{name}.md",
         before,
-        ResourceDescriptor(hashlib.sha256(data).hexdigest(), payload_hash(payload)),
+        ResourceDescriptor(
+            hashlib.sha256(data).hexdigest(),
+            payload_hash(payload),
+            len(encode_payload(payload)),
+        ),
         payload,
     )
 

@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping
 from types import MappingProxyType
 
-from .payload import ResourcePayload, payload_hash
+from .payload import ResourcePayload, encode_payload, payload_hash
 from .remote_transport import (
     Exchange as Exchange,
     TransportNotDelivered as TransportNotDelivered,
@@ -70,7 +70,11 @@ class SerializedRemoteStore:
             raise ProtocolError("Fetch response does not match the requested resources")
         for identity, payload in payloads.items():
             descriptor = expected.resources.get(identity)
-            if descriptor is None or descriptor.content_hash != payload_hash(payload):
+            if (
+                descriptor is None
+                or descriptor.content_hash != payload_hash(payload)
+                or descriptor.size != len(encode_payload(payload))
+            ):
                 raise ProtocolError(
                     "Fetch payload does not match the expected snapshot"
                 )

@@ -72,6 +72,7 @@ class ReplicaState:
     base: Mapping[str, Resource]
     receipt_cursor: ReceiptCursor | None = None
     completion_marker: CompletionMarker | None = None
+    unpaired_ids: frozenset[str] = frozenset()
 
     def __post_init__(self):
         if (
@@ -86,6 +87,10 @@ class ReplicaState:
             )
         ):
             raise WorkspaceCoreError("Invalid replica state")
+        if not isinstance(self.unpaired_ids, frozenset) or any(
+            type(key) is not str or not key for key in self.unpaired_ids
+        ):
+            raise WorkspaceCoreError("Invalid unpaired resource IDs")
         marker = self.completion_marker
         if marker is not None and (
             not isinstance(marker, CompletionMarker)
@@ -106,6 +111,7 @@ class ReplicaState:
                 "replica_id": self.replica_id,
                 "revision": self.revision,
                 "base": encode_resources(self.base),
+                "unpaired_ids": sorted(self.unpaired_ids),
                 **(
                     {"receipt_cursor": encode_cursor(self.receipt_cursor)}
                     if self.receipt_cursor is not None
@@ -150,6 +156,13 @@ class ReplicaState:
                 marker = CompletionMarker(
                     value["sync_id"], value["request_id"], value["mutation_digest"]
                 )
+            unpaired = raw.get("unpaired_ids", [])
+            if (
+                type(unpaired) is not list
+                or any(type(key) is not str or not key for key in unpaired)
+                or unpaired != sorted(set(unpaired))
+            ):
+                raise WorkspaceCoreError("Invalid unpaired resource IDs")
             return cls(
                 raw["sync_id"],
                 raw["replica_id"],
@@ -157,6 +170,7 @@ class ReplicaState:
                 base,
                 decode_cursor(raw.get("receipt_cursor")),
                 marker,
+                frozenset(unpaired),
             )
         except WorkspaceCoreError:
             raise

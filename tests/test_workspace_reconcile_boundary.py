@@ -74,20 +74,17 @@ def test_center_change_between_read_and_download_rejects_local_application(
     backend.run(b, home)
     plan = backend.plan(a)
     before = files(a)
-    original = backend.remote.fetch
+    original = backend.remote.read
 
-    def fetch(expected, ids):
-        # A second accepted upload changes only the center revision after the
-        # applying client read it, before it obtains planned download content.
+    def read():
+        # A cached payload is reusable, but a changed snapshot invalidates the
+        # preview before the local transaction can begin.
         (b / "memory/notes/concurrent.md").write_text("concurrent", encoding="utf-8")
-        monkeypatch.setattr(backend.remote, "fetch", original)
-        try:
-            backend.run(b, home)
-        finally:
-            monkeypatch.setattr(backend.remote, "fetch", fetch)
-        return original(expected, ids)
+        monkeypatch.setattr(backend.remote, "read", original)
+        backend.run(b, home)
+        return original()
 
-    monkeypatch.setattr(backend.remote, "fetch", fetch)
+    monkeypatch.setattr(backend.remote, "read", read)
     with pytest.raises(WorkspaceReconcileError, match="revision changed"):
         backend.apply(plan, home)
     assert files(a) == before

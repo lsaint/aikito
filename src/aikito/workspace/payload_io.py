@@ -25,6 +25,7 @@ from .payload import (
     TreeEntry,
     TreePayload,
     credential_payload,
+    encode_payload,
     payload_hash,
     tree_mode_fingerprint,
     validate_payload,
@@ -183,6 +184,7 @@ def capture_mutations(
             descriptor = ResourceDescriptor(
                 resource.fingerprint,
                 payload_hash(payload),
+                len(encode_payload(payload)),
                 resource.references,
                 tree_mode_fingerprint(payload)
                 if isinstance(payload, TreePayload)

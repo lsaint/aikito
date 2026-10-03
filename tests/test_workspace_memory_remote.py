@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from aikito.workspace.payload import encode_payload
 from aikito.workspace.payload import (
     FilePayload,
     ResourceDescriptor,
@@ -27,6 +28,7 @@ def opaque_mutation(identity="opaque/ID:../does-not-name-a-path"):
     descriptor = ResourceDescriptor(
         "opaque logical fingerprint",
         payload_hash(payload),
+        len(encode_payload(payload)),
         ("opaque missing reference",),
     )
     return ResourceMutation(identity, None, descriptor, payload)
@@ -98,7 +100,11 @@ def test_old_payload_and_snapshot_remain_independent_after_publication():
     snapshot = publish_batch(remote, remote.read(), [item])
     old_payloads = remote.fetch(snapshot, [item.id])
     replacement = FilePayload(b"new opaque content")
-    descriptor = replace(item.after, content_hash=payload_hash(replacement))
+    descriptor = replace(
+        item.after,
+        content_hash=payload_hash(replacement),
+        size=len(encode_payload(replacement)),
+    )
     publish_batch(
         remote,
         snapshot,

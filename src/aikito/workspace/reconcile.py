@@ -8,17 +8,25 @@ durable request and receipt confirm uploaded Base before the next plan.
 
 from __future__ import annotations
 
-import os
+import hashlib
 import tempfile
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from ..config import get_inbox_path
 from ..init import is_recognized_workspace
 from ..skill_state import WorkspaceWriterLock
 from . import remote_limits
+from .reconcile_budget import (
+    CHANGES,
+    check_manifest,
+    defer_dependents,
+    needed_downloads,
+    operation_dependencies,
+    select_round,
+)
 from .remote_protocol import encode_commit_request as encode_protocol_commit_request
 from .transactions import (
     StateUpdate,
@@ -51,7 +59,6 @@ from .resources import (
     Resource,
     WorkspaceSnapshot,
     WorkspaceResourceError,
-    is_shared_resource,
     physical_kind,
     snapshot_workspace,
 )
@@ -64,7 +71,10 @@ from .remote_wire import (
 from .pending_commit import PendingCommitStore
 from .commit_recovery import recover_pending
 from .payload import (
+    ResourceDescriptor,
     ResourcePayload,
+    TreePayload,
+    tree_mode_fingerprint,
     TomlPayload,
     PayloadError,
     credential_payload,
@@ -101,6 +111,12 @@ class ReconcilePlan:
     items: tuple[ReconcileItem, ...]
     findings: tuple[str, ...] = ()
     resolutions: tuple[tuple[str, str], ...] = ()
+    payload_cache: tuple[tuple[str, str, ResourcePayload], ...] = field(
+        default=(), compare=False, repr=False
+    )
+    applied_items: tuple[ReconcileItem, ...] = ()
+    rounds: int = 0
+    stop_reason: str | None = None
 
     @property
     def revision(self) -> int:
@@ -119,6 +135,10 @@ class ReconcilePlan:
         return tuple(
             item for item in self.items if item.action in {"CREATE", "UPDATE", "DELETE"}
         )
+
+    @property
+    def deferred(self) -> tuple[ReconcileItem, ...]:
+        return tuple(item for item in self.items if item.action == "DEFERRED")
 
     @property
     def blocked(self) -> bool:
@@ -160,7 +180,11 @@ def _fetch_validated(
     if set(payloads) != set(resources):
         raise PayloadError("Incomplete remote payload batch")
     for identity, resource in resources.items():
-        if payload_hash(payloads[identity]) != center.resources[identity].content_hash:
+        if (
+            payload_hash(payloads[identity]) != center.resources[identity].content_hash
+            or len(encode_payload(payloads[identity]))
+            != center.resources[identity].size
+        ):
             raise PayloadError("Downloaded payload transport hash mismatch")
         validate_payload(resource, payloads[identity])
     return payloads
@@ -174,20 +198,7 @@ def _plan_payloads(
     captured: Mapping[str, ResourcePayload] | None = None,
 ) -> dict[str, ResourcePayload]:
     """Fetch candidate downloads and fields needed to merge shared config."""
-    needed = {
-        item.id for item in items if item.target == "local" and item.after is not None
-    }
-    if any(
-        item.target is not None
-        and item.action in {"CREATE", "UPDATE"}
-        and item.id.startswith("config:")
-        for item in items
-    ):
-        # Literal dotted keys and nested keys cannot be distinguished from
-        # descriptor IDs, so merge validation needs the paths of all fields.
-        needed.update(
-            key for key, resource in resources.items() if resource.kind == "config"
-        )
+    needed = needed_downloads(items, resources)
     result = dict(captured or {})
     missing = {key: resources[key] for key in sorted(needed - result.keys())}
     result.update(_fetch_validated(remote, center, missing))
@@ -306,7 +317,9 @@ def _check_items(
             {
                 item.id
                 for item in items
-                if item.target == "remote" and item.after is not None
+                if item.action in CHANGES
+                and item.target == "remote"
+                and item.after is not None
             },
         )
     )
@@ -321,26 +334,6 @@ def _check_items(
         else item
         for item in items
     ]
-    oversized = _oversized_uploads(
-        local_content,
-        {
-            item.id
-            for item in items
-            if item.target == "remote" and item.after is not None
-        },
-    )
-    items = [
-        replace(
-            item,
-            action="BLOCKED",
-            target=None,
-            reason="Resource exceeds the sync size limit of "
-            f"{remote_limits.MAX_RESOURCE_PAYLOAD_BYTES} bytes; resource is not uploaded",
-        )
-        if item.id in oversized
-        else item
-        for item in items
-    ]
     items = [
         replace(
             item,
@@ -348,7 +341,8 @@ def _check_items(
             target=None,
             reason="Possible plaintext credential; resource is not downloaded",
         )
-        if item.target == "local"
+        if item.action in CHANGES
+        and item.target == "local"
         and item.after is not None
         and credential_payload(remote_payloads[item.id])
         else item
@@ -409,46 +403,6 @@ def _check_items(
         ]
         findings.extend(f"{side}: {finding}" for finding in residual)
     return items, findings
-
-
-def _oversized_uploads(
-    content: ResourceContent | None, identities: set[str]
-) -> frozenset[str]:
-    """Block single resources that could never fit one request on their own.
-
-    Capture one payload at a time so planning memory stays bounded by the limit.
-    """
-    if content is None:
-        return frozenset()
-    limit = remote_limits.MAX_RESOURCE_PAYLOAD_BYTES
-    result = set()
-    for identity in sorted(identities):
-        path = content.paths.get(identity)
-        if path is None or is_shared_resource(content.resources[identity].kind):
-            continue  # Typed fields and membership markers stay small.
-        if _payload_upper_bound(path) <= limit:
-            continue
-        payload = capture_resources(content, [identity], check_credentials=False)
-        if len(encode_payload(payload[identity])) > limit:
-            result.add(identity)
-    return frozenset(result)
-
-
-def _payload_upper_bound(path: Path) -> int:
-    """Cheap encoded-size bound without following links; capture checks exactly.
-
-    Base64 grows data by 4/3; escaped JSON paths grow by at most 6x per byte.
-    """
-    if not path.is_dir():
-        return 2 * path.lstat().st_size + 64
-    total = 64
-    for directory, dirs, names in os.walk(path):
-        for name in (*dirs, *names):
-            child = Path(directory) / name
-            size = 0 if name in dirs else child.lstat().st_size
-            relative = child.relative_to(path).as_posix().encode("utf-8", "replace")
-            total += 2 * size + 6 * len(relative) + 64
-    return total
 
 
 def _select_version(
@@ -554,11 +508,57 @@ def _resolve_items(
     return [items[key] for key in sorted(items)]
 
 
+def _budget_uploads(proposed, local_content, resources):
+    """Capture exact upload sizes before selection, blocking unfit resources."""
+    descriptors = {}
+    checked = []
+    for item in proposed:
+        if (
+            item.action not in CHANGES
+            or item.target != "remote"
+            or local_content is None
+        ):
+            checked.append(item)
+            continue
+        if item.after is None:
+            descriptors[item.id] = None
+        else:
+            payload = capture_resources(
+                local_content, [item.id], check_credentials=False
+            )[item.id]
+            encoded = encode_payload(payload)
+            descriptor = ResourceDescriptor(
+                resources[item.id].fingerprint,
+                hashlib.sha256(encoded).hexdigest(),
+                len(encoded),
+                resources[item.id].references,
+                tree_mode_fingerprint(payload)
+                if isinstance(payload, TreePayload)
+                else None,
+            )
+            # The next capture must never overlap with this resource's bytes.
+            del payload, encoded
+            if descriptor.size > remote_limits.MAX_RESOURCE_PAYLOAD_BYTES:
+                item = replace(
+                    item,
+                    action="BLOCKED",
+                    target=None,
+                    reason="Resource exceeds the sync size limit; resource is not uploaded",
+                )
+            else:
+                descriptors[item.id] = descriptor
+        checked.append(item)
+    return checked, descriptors
+
+
 def build_reconcile_plan(
     local: Path,
     remote: RemoteStore,
     *,
     resolutions: Mapping[str, str] | None = None,
+    _cached: tuple[tuple[str, str, ResourcePayload], ...] = (),
+    _expected: ReconcilePlan | None = None,
+    _inspect_payloads: bool = True,
 ) -> ReconcilePlan:
     """Preview a round without creating state, lock files, or resource files."""
     try:
@@ -568,6 +568,17 @@ def build_reconcile_plan(
         center = remote.read()
         state, state_text = _read_state(local, center)
         snapshot = snapshot_workspace(local)
+        check_manifest(center)
+        if _expected is not None and center != _expected.remote_snapshot:
+            raise SnapshotExpired(
+                "Remote identity or revision changed after planning; replan"
+            )
+        if _expected is not None and (
+            snapshot != _expected.local_snapshot or state_text != _expected.state_text
+        ):
+            raise WorkspaceReconcileError(
+                "Resources or revision changed after planning; run again"
+            )
         a = {
             key: resource
             for key, resource in snapshot.resources.items()
@@ -576,7 +587,12 @@ def build_reconcile_plan(
         }
         b = _center_resources(center)
         base = state.base if state else {}
-        identities = base.keys() | a.keys() | b.keys()
+        identities = (
+            base.keys()
+            | a.keys()
+            | b.keys()
+            | (state.unpaired_ids if state else frozenset())
+        )
         choices = dict(resolutions or {})
         for identity, side in choices.items():
             if identity not in identities or side not in {"local", "remote"}:
@@ -607,22 +623,25 @@ def build_reconcile_plan(
                     ancestor = replace(ancestor, mode_fingerprint=modes.pop())
                 else:
                     ambiguous_mode = True
+            first_pairing = state is None or identity in state.unpaired_ids
             reference = (
                 frozenset()
                 if ambiguous_mode
                 else frozenset({_resource_version(ancestor)})
                 if ancestor
                 else template_fingerprints(identity)
-                if state is None
+                if first_pairing
                 else frozenset()
             )
             outcome = compare(
                 reference, _resource_version(left), _resource_version(right)
             )
             action, target, reason = outcome.action, outcome.target, outcome.reason
-            if state is None and action == "DELETE":
+            if first_pairing and (left is None) != (right is None):
+                # Absence during initial pairing carries no deletion history,
+                # including when the existing resource has edited a template.
                 action = "CREATE"
-                target = "remote" if target == "local" else "local"
+                target = "local" if left is None else "remote"
                 reason = "First pairing preserves existing resources"
             before = (local_fp if target == "local" else remote_fp) if target else None
             after = (remote_fp if target == "local" else local_fp) if target else None
@@ -630,26 +649,112 @@ def build_reconcile_plan(
         local_content = (
             ResourceContent.from_workspace(snapshot) if not snapshot.findings else None
         )
-        remote_payloads = _plan_payloads(remote, center, b, items)
-        remote_content = _remote_plan_content(b, remote_payloads)
-        checked, findings = _check_items(
-            items, snapshot, b, local_content, remote_content, remote_payloads
-        )
-        conflicts = {item.id for item in checked if item.action == "CONFLICT"}
+        # Explicit choices are expanded at descriptor level, before any fetch.
+        # Payload-only conflicts are discovered later and may require a second
+        # budgeted selection, but can never download outside the selected scope.
+        declared_conflicts = {item.id for item in items if item.action == "CONFLICT"}
+        reference_rejections = {}
+        for side, source, target in (("local", b, a), ("remote", a, b)):
+            rejected, _ = reference_conflicts(
+                source,
+                target,
+                {
+                    item.id
+                    for item in items
+                    if item.target == side and item.action in {"CREATE", "UPDATE"}
+                },
+                deletions={
+                    item.id
+                    for item in items
+                    if item.target == side and item.action == "DELETE"
+                },
+            )
+            declared_conflicts.update(rejected)
+            reference_rejections.update(rejected)
         for identity in choices:
-            if identity not in conflicts:
+            if identity not in declared_conflicts and not identity.startswith(
+                "config:"
+            ):
                 raise WorkspaceReconcileError(
                     f"Resolution requires a conflicting resource: {identity}"
                 )
-        if choices:
-            proposed = _resolve_items(items, choices, a, b)
-            remote_payloads = _plan_payloads(
-                remote, center, b, proposed, remote_payloads
+        compared = [
+            replace(
+                item,
+                action="CONFLICT",
+                target=None,
+                before=None,
+                after=None,
+                reason=reference_rejections[item.id],
             )
-            remote_content = _remote_plan_content(b, remote_payloads)
-            checked, findings = _check_items(
-                proposed, snapshot, b, local_content, remote_content, remote_payloads
+            if item.id in reference_rejections
+            else item
+            for item in items
+        ]
+        proposed = _resolve_items(items, choices, a, b) if choices else compared
+        dependencies = operation_dependencies(proposed, a, b)
+        proposed, upload_descriptors = _budget_uploads(proposed, local_content, a)
+        selected = select_round(
+            proposed,
+            dependencies,
+            center,
+            upload_descriptors,
+            state.receipt_cursor if state else None,
+        )
+        if not _inspect_payloads:
+            return ReconcilePlan(
+                local,
+                snapshot,
+                center,
+                state,
+                state_text,
+                tuple(
+                    replace(item, action="DEFERRED", reason="Round limit reached")
+                    if item.action in CHANGES
+                    else item
+                    for item in selected
+                ),
+                resolutions=tuple(sorted(choices.items())),
             )
+        needed = needed_downloads(selected, b)
+        captured = {
+            key: payload
+            for key, digest, payload in _cached
+            if key in needed and center.resources[key].content_hash == digest
+        }
+        for key, payload in captured.items():
+            if (
+                payload_hash(payload) != center.resources[key].content_hash
+                or len(encode_payload(payload)) != center.resources[key].size
+            ):
+                raise PayloadError("Cached payload transport hash or size mismatch")
+            validate_payload(b[key], payload)
+        remote_payloads = _plan_payloads(remote, center, b, selected, captured)
+        remote_content = _remote_plan_content(b, remote_payloads)
+        checked, findings = _check_items(
+            selected, snapshot, b, local_content, remote_content, remote_payloads
+        )
+        for identity in choices.keys() - declared_conflicts:
+            chosen = next(item for item in checked if item.id == identity)
+            if chosen.action in {"DEFERRED", "BLOCKED"}:
+                continue
+            original = [
+                item
+                if item.id.startswith("config:")
+                else replace(item, action="NOOP", target=None)
+                for item in items
+            ]
+            original_checked, _ = _check_items(
+                original, snapshot, b, local_content, remote_content, remote_payloads
+            )
+            if (
+                next(item for item in original_checked if item.id == identity).action
+                != "CONFLICT"
+            ):
+                raise WorkspaceReconcileError(
+                    f"Resolution requires a conflicting resource: {identity}"
+                )
+        checked = defer_dependents(checked, dependencies)
         return ReconcilePlan(
             local,
             snapshot,
@@ -659,6 +764,10 @@ def build_reconcile_plan(
             tuple(checked),
             tuple(sorted(set(findings))),
             tuple(sorted(choices.items())),
+            tuple(
+                (key, center.resources[key].content_hash, payload)
+                for key, payload in sorted(remote_payloads.items())
+            ),
         )
     except (
         WorkspaceCoreError,
@@ -701,7 +810,11 @@ def apply_reconcile_plan(
                     "Recovered an interrupted round; run again"
                 )
             fresh = build_reconcile_plan(
-                plan.local, remote, resolutions=dict(plan.resolutions)
+                plan.local,
+                remote,
+                resolutions=dict(plan.resolutions),
+                _cached=plan.payload_cache,
+                _expected=plan,
             )
             if fresh != plan:
                 raise WorkspaceReconcileError(
@@ -711,12 +824,13 @@ def apply_reconcile_plan(
                 raise WorkspaceReconcileError(
                     "Reconciliation has blocking findings; no resources changed"
                 )
+            remote_resources = _center_resources(plan.remote_snapshot)
             uploads = tuple(
                 _write(
                     item,
                     plan.local_snapshot.resources
                     if item.after is not None
-                    else _center_resources(plan.remote_snapshot),
+                    else remote_resources,
                     "inbox",
                 )
                 for item in plan.changes
@@ -725,7 +839,7 @@ def apply_reconcile_plan(
             downloads = tuple(
                 _write(
                     item,
-                    _center_resources(plan.remote_snapshot)
+                    remote_resources
                     if item.after is not None
                     else plan.local_snapshot.resources,
                     _local_policy(plan.local).inbox_prefix,
@@ -734,15 +848,18 @@ def apply_reconcile_plan(
                 if item.target == "local"
             )
             with tempfile.TemporaryDirectory(prefix="aikito-reconcile-") as staging:
-                remote_resources = _center_resources(plan.remote_snapshot)
                 download_resources = {
                     write.id: remote_resources[write.id]
                     for write in downloads
                     if write.fingerprint is not None
                 }
-                payloads = _fetch_validated(
-                    remote, plan.remote_snapshot, download_resources
-                )
+                payloads = {
+                    key: payload
+                    for key, digest, payload in fresh.payload_cache
+                    if key in download_resources
+                }
+                for key, payload in payloads.items():
+                    validate_payload(download_resources[key], payload)
                 local_changes, expected = prepare_payload_writes(
                     download_resources,
                     payloads,
@@ -766,12 +883,12 @@ def apply_reconcile_plan(
                     safe = tuple(
                         item.id
                         for item in plan.items
-                        if item.action not in {"CONFLICT", "BLOCKED"}
+                        if item.action not in {"CONFLICT", "BLOCKED", "DEFERRED"}
                     )
                     excluded = tuple(
                         item.id
                         for item in plan.items
-                        if item.action in {"CONFLICT", "BLOCKED"}
+                        if item.action in {"CONFLICT", "BLOCKED", "DEFERRED"}
                     )
                     request = build_commit_request(
                         replica_id,
@@ -797,6 +914,9 @@ def apply_reconcile_plan(
                         request,
                         safe_resource_ids=safe,
                         excluded_resource_ids=excluded,
+                        unpaired_ids=frozenset(item.id for item in plan.items)
+                        if plan.state is None
+                        else plan.state.unpaired_ids,
                     )
                     try:
                         result = remote.commit(request)
@@ -809,12 +929,18 @@ def apply_reconcile_plan(
                     center = plan.remote_snapshot
                 center_resources = _center_resources(center)
                 base = dict(plan.base)
+                unpaired = (
+                    set(plan.state.unpaired_ids)
+                    if plan.state
+                    else {item.id for item in plan.items}
+                )
                 for item in plan.items:
-                    if item.action in {"CONFLICT", "BLOCKED"}:
+                    if item.action in {"CONFLICT", "BLOCKED", "DEFERRED"}:
                         continue
                     left, right = expected.get(item.id), center_resources.get(item.id)
                     if left is None and right is None:
                         base.pop(item.id, None)
+                        unpaired.discard(item.id)
                     elif (
                         left
                         and right
@@ -822,6 +948,7 @@ def apply_reconcile_plan(
                         == (right.fingerprint, right.mode_fingerprint)
                     ):
                         base[item.id] = right
+                        unpaired.discard(item.id)
                 state = ReplicaState(
                     center.sync_id,
                     replica_id,
@@ -829,6 +956,7 @@ def apply_reconcile_plan(
                     base,
                     plan.state.receipt_cursor if plan.state else None,
                     plan.state.completion_marker if plan.state else None,
+                    frozenset(unpaired),
                 )
                 if not local_changes and state == plan.state:
                     return
@@ -867,6 +995,9 @@ def apply_reconcile_plan(
         raise WorkspaceReconcileError(str(exc)) from exc
 
 
+MAX_RECONCILIATION_ROUNDS = 1024
+
+
 def run_reconciliation(
     local: Path,
     remote: RemoteStore,
@@ -875,20 +1006,77 @@ def run_reconciliation(
     dry_run: bool,
     resolutions: Mapping[str, str] | None = None,
 ) -> ReconcilePlan:
-    """Preview or apply safe work; conflicts and credential blocks remain visible."""
+    """Apply bounded rounds and report accumulated work plus remaining items.
+
+    Conflicts and blocked groups are partial success. A round or retry limit
+    stops with progress intact, so another invocation can continue safely.
+    """
     if dry_run:
         return build_reconcile_plan(local, remote, resolutions=resolutions)
+    choices = dict(resolutions or {})
+    applied = []
+    rounds = 0
     with WorkspaceWriterLock(home):
         if recover_reconciliation(local, remote, home):
             raise WorkspaceReconcileError("Recovered an interrupted round; run again")
-        for attempt in range(2):
-            plan = build_reconcile_plan(local, remote, resolutions=resolutions)
-            if plan.blocked:
-                return plan
-            try:
-                apply_reconcile_plan(plan, home, remote=remote)
-                return plan
-            except WorkspaceReconcileError as exc:
-                if not isinstance(exc.__cause__, SnapshotExpired) or attempt:
-                    raise
-        raise AssertionError("Reconciliation retry limit exceeded")
+        while True:
+            plan = None
+            for attempt in range(2):
+                try:
+                    plan = build_reconcile_plan(
+                        local,
+                        remote,
+                        resolutions=choices,
+                        _inspect_payloads=rounds < MAX_RECONCILIATION_ROUNDS,
+                    )
+                    if plan.blocked or rounds >= MAX_RECONCILIATION_ROUNDS:
+                        return replace(
+                            plan,
+                            applied_items=tuple(applied),
+                            rounds=rounds,
+                            stop_reason="Blocking findings"
+                            if plan.blocked
+                            else "Reconciliation round limit reached",
+                        )
+                    apply_reconcile_plan(plan, home, remote=remote)
+                    break
+                except WorkspaceReconcileError as exc:
+                    if not isinstance(exc.__cause__, SnapshotExpired):
+                        raise
+                    if attempt:
+                        if plan is None:
+                            plan = build_reconcile_plan(
+                                local,
+                                remote,
+                                resolutions=choices,
+                                _inspect_payloads=False,
+                            )
+                        return replace(
+                            plan,
+                            items=tuple(
+                                replace(
+                                    item,
+                                    action="DEFERRED",
+                                    reason="Snapshot retry limit reached",
+                                )
+                                if item.action in CHANGES
+                                else item
+                                for item in plan.items
+                            ),
+                            applied_items=tuple(applied),
+                            rounds=rounds,
+                            stop_reason="Snapshot retry limit reached",
+                        )
+            rounds += 1
+            applied.extend(plan.changes)
+            for item in plan.items:
+                if item.action not in {"CONFLICT", "BLOCKED", "DEFERRED"}:
+                    choices.pop(item.id, None)
+            result = replace(plan, applied_items=tuple(applied), rounds=rounds)
+            if not plan.deferred:
+                return result
+            if not plan.changes:
+                return replace(
+                    result,
+                    stop_reason="No reconciliation progress; deferred prerequisites remain unresolved",
+                )

@@ -178,6 +178,7 @@ def test_result_digest_binds_whole_predicted_snapshot_and_its_domain():
         return {
             "fingerprint": value.fingerprint,
             "content_hash": value.content_hash,
+            "size": value.size,
             "references": list(value.references),
             "mode_fingerprint": value.mode_fingerprint,
         }

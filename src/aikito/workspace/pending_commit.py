@@ -227,13 +227,20 @@ class PendingCommitStore:
         *,
         safe_resource_ids: tuple[str, ...],
         excluded_resource_ids: tuple[str, ...] = (),
+        unpaired_ids: frozenset[str] = frozenset(),
     ) -> PendingCommit:
         with self._locked():
             if self._load() is not None:
                 raise PendingCommitError("Unresolved pending commit already exists")
             state, before = load_replica_state(self.local)
             if state is None:
-                state = ReplicaState(request.expected.sync_id, request.client_id, 0, {})
+                state = ReplicaState(
+                    request.expected.sync_id,
+                    request.client_id,
+                    0,
+                    {},
+                    unpaired_ids=unpaired_ids,
+                )
             text = before if before is not None else state.encode()
             pending = PendingCommit(
                 request, text, safe_resource_ids, excluded_resource_ids
@@ -279,6 +286,12 @@ class PendingCommitStore:
             if not changed <= set(pending.safe_resource_ids):
                 raise PendingCommitError(
                     "Completion changed Base outside the safe resource scope"
+                )
+            if not state.unpaired_ids <= current.unpaired_ids or not (
+                current.unpaired_ids - state.unpaired_ids
+            ) <= set(pending.safe_resource_ids):
+                raise PendingCommitError(
+                    "Completion changed pairing outside the safe resource scope"
                 )
             for mutation in pending.request.mutations:
                 resource = state.base.get(mutation.id)

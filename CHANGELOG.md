@@ -8,16 +8,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Added bounded multi-round reconciliation with dependency ordering, restart-safe first pairing, payload-cache reuse, and cumulative `rounds`, `stop_reason` and `applied_items` results.
 - Added an internal standard-library HTTP byte transport with verified HTTPS, fresh connections, bounded request/response bodies, idle timeouts and conservative commit delivery semantics.
 - Added real-socket RemoteStore and receipt contracts, HTTP reconciliation acceptance and lost-response recovery, and cross-platform HTTP smoke coverage.
 - Added byte-exact protocol compatibility vectors and an external-server contract harness with isolated stores and bounded process startup/teardown.
 
 ### Changed
 
+- Internal resource descriptors now include the exact encoded payload `size`, validated with transport hashes and included in request/result digests. Unpublished protocol and commit encoding remain version 1 with regenerated vectors and no migration.
+- First pairing preserves a resource whenever only one side contains it, including locally edited templates that previously conflicted with remote absence.
 - Extracted the internal byte exchange and non-delivery exception into a transport-neutral module, preserving existing adapter imports.
 
 ### Fixed
 
+- Apply reuses the center resource map for all uploads and downloads in a round, avoiding repeated full-manifest conversion for each downloaded item.
+- Round selection accumulates exact wire-entry sizes without repeatedly encoding selected uploads; planning retains upload descriptors instead of all pending payload bytes.
 - Reconciliation rejects new commits larger than 64 MiB in their full protocol encoding before persisting pending state, preventing requests that cannot be sent from blocking recovery.
 - Reconciliation blocks uploads of single resources whose portable payload exceeds 16 MiB, so other resources still sync and no resource alone can exceed a request.
 

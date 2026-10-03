@@ -99,6 +99,13 @@ jobs:
           test -L "$HOME/.claude/CLAUDE.md"
           test -L "$HOME/.codex/AGENTS.md"
 
+      - name: Bounded multi-round reconciliation
+        run: |
+          BOUNDED=${{ runner.temp }}/bounded-reconcile
+          python3 tests/workspace_bounded_reconcile_smoke.py "$BOUNDED"
+          test -f "$BOUNDED/right/projects/demo/memory/notes/11.md"
+          test -f "$BOUNDED/checked.txt"
+
       - name: macOS workspace reconcile smoke
         run: |
           BASE=${{ runner.temp }}/macos-reconcile-smoke

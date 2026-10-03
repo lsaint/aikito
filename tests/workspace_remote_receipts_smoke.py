@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from aikito.workspace import transactions
+from aikito.workspace.payload import encode_payload
 from aikito.workspace.payload import (
     FilePayload,
     ResourceDescriptor,
@@ -74,7 +75,9 @@ def exercise(base: Path) -> None:
             "memory:notes/receipt.md",
             None,
             ResourceDescriptor(
-                hashlib.sha256(payload.data).hexdigest(), payload_hash(payload)
+                hashlib.sha256(payload.data).hexdigest(),
+                payload_hash(payload),
+                len(encode_payload(payload)),
             ),
             payload,
         )

@@ -248,6 +248,7 @@ def _descriptor(descriptor: ResourceDescriptor) -> dict:
     return {
         "fingerprint": descriptor.fingerprint,
         "content_hash": descriptor.content_hash,
+        "size": descriptor.size,
         "references": list(descriptor.references),
         "mode_fingerprint": descriptor.mode_fingerprint,
     }
@@ -257,7 +258,7 @@ def _decode_descriptor(raw: object) -> ResourceDescriptor | None:
     if raw is None:
         return None
     value = _object(
-        raw, {"fingerprint", "content_hash", "references", "mode_fingerprint"}
+        raw, {"fingerprint", "content_hash", "size", "references", "mode_fingerprint"}
     )
     if type(value["references"]) is not list:
         raise ProtocolError("Invalid descriptor references")
@@ -265,6 +266,7 @@ def _decode_descriptor(raw: object) -> ResourceDescriptor | None:
         return ResourceDescriptor(
             value["fingerprint"],
             value["content_hash"],
+            value["size"],
             tuple(value["references"]),
             value["mode_fingerprint"],
         )
@@ -487,21 +489,78 @@ def _commit_request_body(request: CommitRequest) -> dict:
         validate_commit_request(request)
     except InvalidContent as exc:
         raise ProtocolError("Invalid commit request") from exc
-    cursor = request.previous_receipt
+    return {
+        **_commit_metadata(
+            request.client_id,
+            request.request_id,
+            request.mutation_digest,
+            request.previous_receipt,
+            request.expected,
+        ),
+        "mutations": [_mutation(item) for item in request.mutations],
+    }
+
+
+def _commit_metadata(client_id, request_id, mutation_digest, cursor, expected):
     return {
         "version": COMMIT_ENCODING_VERSION,
-        "client_id": request.client_id,
-        "request_id": request.request_id,
-        "mutation_digest": request.mutation_digest,
+        "client_id": client_id,
+        "request_id": request_id,
+        "mutation_digest": mutation_digest,
         "previous_receipt": None
         if cursor is None
         else {
             "request_id": cursor.request_id,
             "mutation_digest": cursor.mutation_digest,
         },
-        "expected": _snapshot(request.expected),
-        "mutations": [_mutation(item) for item in request.mutations],
+        "expected": _snapshot(expected),
     }
+
+
+def commit_envelope_size(expected: RemoteSnapshot, cursor: ReceiptCursor | None) -> int:
+    """Measure fixed commit bytes without constructing or validating a batch.
+
+    Reconciliation generates 32-byte hex client/request identities and a
+    64-byte digest. Mutation entries and their commas are additive to this body.
+    """
+    return len(
+        encode_request(
+            Operation.COMMIT,
+            {
+                **_commit_metadata("0" * 32, "0" * 32, "0" * 64, cursor, expected),
+                "mutations": [],
+            },
+        )
+    )
+
+
+def json_string_size(value: str) -> int:
+    return len(_canonical(value))
+
+
+def descriptor_entry_size(identity: str, descriptor: ResourceDescriptor) -> int:
+    """Size of one manifest entry, excluding its comma and enclosing braces."""
+    return len(_canonical({identity: _descriptor(descriptor)})) - 2
+
+
+def fetch_entry_size(identity: str, descriptor: ResourceDescriptor) -> int:
+    entry = {identity: {"content_hash": descriptor.content_hash, "data": ""}}
+    return len(_canonical(entry)) - 2 + 4 * ((descriptor.size + 2) // 3)
+
+
+def mutation_size(
+    identity: str, before: ResourceDescriptor | None, after: ResourceDescriptor | None
+) -> int:
+    """Measure one mutation from descriptors, without retaining its payload."""
+    body = {
+        "id": identity,
+        "before": None if before is None else _descriptor(before),
+        "after": None if after is None else _descriptor(after),
+        "payload": None
+        if after is None
+        else {"content_hash": after.content_hash, "data": ""},
+    }
+    return len(_canonical(body)) + (0 if after is None else 4 * ((after.size + 2) // 3))
 
 
 def _decode_commit_request_body(raw: object) -> CommitRequest:

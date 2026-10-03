@@ -9,6 +9,7 @@ from pathlib import Path
 
 from workspace_memory_remote import InMemoryRemote
 
+from aikito.workspace.payload import encode_payload
 from aikito.workspace.payload import (
     FilePayload,
     MemberPayload,
@@ -112,7 +113,11 @@ def generate_vectors() -> dict[str, bytes]:
         ResourceMutation(
             identity,
             None,
-            ResourceDescriptor(f"opaque:{identity}", payload_hash(payload)),
+            ResourceDescriptor(
+                f"opaque:{identity}",
+                payload_hash(payload),
+                len(encode_payload(payload)),
+            ),
             payload,
         )
         for identity, payload in payloads

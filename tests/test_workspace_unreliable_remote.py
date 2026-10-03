@@ -8,6 +8,7 @@ import pytest
 
 from aikito.skill_state import WorkspaceWriterLock
 from aikito.workspace.commit_recovery import recover_pending
+from aikito.workspace.payload import encode_payload
 from aikito.workspace.payload import (
     ResourceDescriptor,
     ResourceMutation,
@@ -207,7 +208,11 @@ def test_wait_time_edits_block_local_write_and_recovery_only_confirms_upload(
         change = ResourceMutation(
             "config:feature.download",
             None,
-            ResourceDescriptor(value_fingerprint("remote"), payload_hash(payload)),
+            ResourceDescriptor(
+                value_fingerprint("remote"),
+                payload_hash(payload),
+                len(encode_payload(payload)),
+            ),
             payload,
         )
         edited = local / "config.toml"

@@ -9,6 +9,7 @@ import base64
 from dataclasses import replace
 from pathlib import Path
 
+from aikito.workspace.payload import encode_payload
 from aikito.workspace.payload import (
     FilePayload,
     MemberPayload,
@@ -158,6 +159,7 @@ def exercise(base: Path, *, verify_only: bool) -> None:
         key: ResourceDescriptor(
             "" if key == "opaque-member" else "opaque fingerprint",
             payload_hash(payload),
+            len(encode_payload(payload)),
             ("opaque reference",),
         )
         for key, payload in payloads.items()

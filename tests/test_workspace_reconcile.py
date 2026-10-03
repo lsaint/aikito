@@ -28,6 +28,7 @@ from aikito.workspace.remote import (
 from aikito.workspace.resource_write import ResourceContent, ResourceWrite
 from aikito.workspace.resources import fingerprint_resource, snapshot_workspace
 
+from aikito.workspace.payload import encode_payload
 from aikito.workspace.payload import (
     ResourceDescriptor,
     ResourceMutation,
@@ -52,6 +53,7 @@ def _commit(remote, expected, content, writes):
             ResourceDescriptor(
                 w.fingerprint,
                 payload_hash(payloads[w.id]),
+                len(encode_payload(payloads[w.id])),
                 content.resources[w.id].references,
             )
             if w.fingerprint is not None

@@ -8,6 +8,7 @@ from dataclasses import replace
 
 import pytest
 
+from aikito.workspace.payload import encode_payload
 from aikito.workspace.payload import (
     FilePayload,
     ResourceDescriptor,
@@ -52,7 +53,9 @@ def stored_content(remote):
 def mutation(name="one", data=b"one", before=None):
     payload = FilePayload(data)
     descriptor = ResourceDescriptor(
-        hashlib.sha256(data).hexdigest(), payload_hash(payload)
+        hashlib.sha256(data).hexdigest(),
+        payload_hash(payload),
+        len(encode_payload(payload)),
     )
     return ResourceMutation(f"memory:notes/{name}.md", before, descriptor, payload)
 
@@ -222,10 +225,11 @@ def test_download_is_staged_before_conditional_commit_and_local_base(
             assert current == before
             raise SnapshotExpired("Rejected staged application")
 
-    with pytest.raises(WorkspaceReconcileError, match="Rejected staged"):
-        run_reconciliation(
-            local, RefusingStore(remote), tmp_path / "home", dry_run=False
-        )
+    result = run_reconciliation(
+        local, RefusingStore(remote), tmp_path / "home", dry_run=False
+    )
+    assert result.stop_reason == "Snapshot retry limit reached"
+    assert not result.applied_items and result.rounds == 0
     assert files(local) == before
 
 
@@ -237,6 +241,7 @@ def test_client_rejects_invalid_download_references_on_both_stores(
     descriptor = ResourceDescriptor(
         value_fingerprint({"agents": ["missing"], "command": "tool"}),
         payload_hash(payload),
+        len(encode_payload(payload)),
         ("agent:missing",),
     )
 
@@ -265,11 +270,11 @@ def test_center_change_between_read_and_fetch_preserves_local_base(
     before = files(local)
 
     class RacingStore(StoreFacade):
-        def fetch(self, expected, ids):
+        def read(self):
             publish_batch(
                 protocol_store, protocol_store.read(), [mutation("concurrent")]
             )
-            return super().fetch(expected, ids)
+            return super().read()
 
     with pytest.raises(WorkspaceReconcileError, match="revision changed"):
         apply_reconcile_plan(plan, home, remote=RacingStore(protocol_store))

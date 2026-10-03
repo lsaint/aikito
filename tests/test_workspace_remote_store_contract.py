@@ -14,6 +14,7 @@ from workspace_serialized_attachment import FilesystemSerializedRemote
 from workspace_store_setup import publish_batch
 from workspace_http_remote import contract_backends, external_store, http_store
 
+from aikito.workspace.payload import encode_payload
 from aikito.workspace.payload import (
     FilePayload,
     MemberPayload,
@@ -63,7 +64,11 @@ def mutation(name="one", data=b"one", before=None):
     return ResourceMutation(
         f"memory:notes/{name}.md",
         before,
-        ResourceDescriptor(hashlib.sha256(data).hexdigest(), payload_hash(payload)),
+        ResourceDescriptor(
+            hashlib.sha256(data).hexdigest(),
+            payload_hash(payload),
+            len(encode_payload(payload)),
+        ),
         payload,
     )
 
@@ -165,7 +170,9 @@ def test_caller_and_returned_values_cannot_mutate_storage(store):
     field = TomlValue(("feature",), [1, {"nested": [True]}])
     payload = TomlPayload.from_value(field)
     descriptor = ResourceDescriptor(
-        value_fingerprint(field.value), payload_hash(payload)
+        value_fingerprint(field.value),
+        payload_hash(payload),
+        len(encode_payload(payload)),
     )
     batch = [ResourceMutation("config:feature", None, descriptor, payload)]
     snapshot = publish_batch(store, store.read(), batch)
@@ -186,7 +193,9 @@ def test_caller_and_returned_values_cannot_mutate_storage(store):
 
 def test_empty_fingerprint_is_presence_not_absence(store):
     payload = MemberPayload()
-    descriptor = ResourceDescriptor("", payload_hash(payload))
+    descriptor = ResourceDescriptor(
+        "", payload_hash(payload), len(encode_payload(payload))
+    )
     identity = "project:demo"
     snapshot = publish_batch(
         store, store.read(), [ResourceMutation(identity, None, descriptor, payload)]

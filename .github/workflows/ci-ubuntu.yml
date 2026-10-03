@@ -189,6 +189,13 @@ jobs:
           test ! -f "$LEGACY/subagents.toml"
           AIKITO_DIR="$LEGACY" python3 -m aikito migrate workspace-resources
 
+      - name: Bounded multi-round reconciliation
+        run: |
+          BOUNDED=${{ runner.temp }}/bounded-reconcile
+          python3 tests/workspace_bounded_reconcile_smoke.py "$BOUNDED"
+          test -f "$BOUNDED/right/projects/demo/memory/notes/11.md"
+          test -f "$BOUNDED/checked.txt"
+
       - name: Workspace reconcile smoke
         run: |
           BASE=${{ runner.temp }}/reconcile-smoke

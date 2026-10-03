@@ -428,8 +428,10 @@ def test_new_commit_cas_replanning_is_bounded_and_uses_fresh_identity(
         run(case)
         assert load_replica_state(local)[0].base
     else:
-        with pytest.raises(reconcile.WorkspaceReconcileError, match="changed"):
-            run(case)
+        result = run(case)
+        assert result.stop_reason == "Snapshot retry limit reached"
+        assert result.rounds == 0 and not result.applied_items
+        assert result.deferred
         assert load_replica_state(local)[0].base == {}
     assert len(sent) == 2
     assert sent[0].client_id == sent[1].client_id

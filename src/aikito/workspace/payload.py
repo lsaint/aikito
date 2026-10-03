@@ -338,13 +338,16 @@ def credential_payload(payload: ResourcePayload) -> bool:
 class ResourceDescriptor:
     fingerprint: str
     content_hash: str
+    size: int
     references: tuple[str, ...] = ()
     mode_fingerprint: str | None = None
 
     def __post_init__(self):
         object.__setattr__(self, "references", tuple(self.references))
         if (
-            type(self.fingerprint) is not str
+            type(self.size) is not int
+            or self.size < 0
+            or type(self.fingerprint) is not str
             or type(self.content_hash) is not str
             or not re.fullmatch(r"[0-9a-f]{64}", self.content_hash)
             or any(type(r) is not str for r in self.references)
@@ -386,5 +389,6 @@ class ResourceMutation:
         elif (
             self.payload is None
             or payload_hash(self.payload) != self.after.content_hash
+            or len(encode_payload(self.payload)) != self.after.size
         ):
-            raise PayloadError("Mutation payload hash mismatch")
+            raise PayloadError("Mutation payload hash or size mismatch")

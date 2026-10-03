@@ -8,6 +8,7 @@ from workspace_memory_remote import InMemoryRemote
 from workspace_reconcile_resources_smoke import write
 from workspace_reconcile_smoke import _workspace
 
+from aikito.workspace.payload import encode_payload
 from aikito.workspace.payload import (
     FilePayload,
     ResourceDescriptor,
@@ -39,7 +40,10 @@ def test_client_object_mutation_after_send_does_not_change_server():
     adapter = SerializedRemoteStore(LoopbackTransport(backend).exchange)
     payload = FilePayload(b"original")
     item = ResourceMutation(
-        "id", None, ResourceDescriptor("fp", payload_hash(payload)), payload
+        "id",
+        None,
+        ResourceDescriptor("fp", payload_hash(payload), len(encode_payload(payload))),
+        payload,
     )
     adapter.commit(build_commit_request("client", "r1", backend.read(), (item,)))
     object.__setattr__(item, "id", "changed")

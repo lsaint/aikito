@@ -51,6 +51,7 @@ def _descriptor(value: ResourceDescriptor | None) -> dict | None:
     return {
         "fingerprint": value.fingerprint,
         "content_hash": value.content_hash,
+        "size": value.size,
         "references": list(value.references),
         "mode_fingerprint": value.mode_fingerprint,
     }
@@ -209,6 +210,7 @@ def _decode_descriptor(raw: object) -> ResourceDescriptor | None:
         {
             "fingerprint",
             "content_hash",
+            "size",
             "references",
             "mode_fingerprint",
         },
@@ -218,6 +220,7 @@ def _decode_descriptor(raw: object) -> ResourceDescriptor | None:
     return ResourceDescriptor(
         value["fingerprint"],
         value["content_hash"],
+        value["size"],
         tuple(value["references"]),
         value["mode_fingerprint"],
     )

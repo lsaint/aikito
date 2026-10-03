@@ -78,11 +78,11 @@ responses.
 Every resource payload, in a `fetch` result or a commit mutation, uses one wire
 shape: `{"content_hash": ..., "data": ...}`, where `data` is canonical Base64 of
 the portable payload encoding. A mutation payload's `content_hash` must equal its
-`after` descriptor's hash.
+`after` descriptor's hash, and the portable byte length must match its `size`.
 
 `fetch` is all-or-nothing. The response ID set must equal the requested set, and
 each payload is validated against the matching expected descriptor's
-`content_hash`. A decoding client also checks that the response operation matches
+`content_hash` and `size`. A decoding client also checks that the response operation matches
 the request, that a commit result validates against the full original
 `CommitRequest`, and that a resolve receipt matches the requested identity; the
 full resolve digest check stays with the pending request owner.
@@ -156,18 +156,19 @@ resource or commit meaning in exceptions.
 
 ## Commit capacity preflight
 
-New reconciliation commits are limited to 67,108,864 bytes (64 MiB), measured
-using the complete Remote Protocol commit request, including its envelope and
-Base64 payload encoding. The internal policy lives in `remote_limits.py` and
-does not change either wire version. It applies to every reconciliation backend.
+New reconciliation rounds fit the 67,108,864-byte (64 MiB) request and response
+limits using complete wire sizes. Descriptor `size` is the portable encoded
+payload byte length, validated alongside `content_hash` and included in request
+and result digests. Version 1 is unpublished and changes in place; regenerated
+golden vectors define the current encoding, without legacy migration.
 
-Reconciliation checks capacity after building the request and before persisting
-pending state or calling commit. An oversized request raises
-`WorkspaceReconcileError`; local resources and Base remain unchanged, and no
-pending request is created. The user can reduce the batch and plan again.
-Existing pending requests retain their original recovery semantics and identity.
-Future transports and servers must use this same request limit; transport-only
-rejection after persistence cannot substitute for this preflight.
+Selection precedes payload fetch and marks excess work `DEFERRED`; groups that
+cannot fit alone are `BLOCKED`. Upload encoding is checked again before pending
+persistence, so an oversized exact-retry request is never persisted. Full
+manifest capacity is a separate, known resource-count limit. See
+[bounded reconciliation capacity](http-transport.md#capacity-and-framing).
+
+Transport rejection after persistence cannot substitute for this preflight.
 
 ## Security boundary
 

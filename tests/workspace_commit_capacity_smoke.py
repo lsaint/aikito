@@ -10,7 +10,7 @@ from workspace_reconcile_smoke import _workspace
 
 from aikito.workspace import remote_limits
 from aikito.workspace.pending_commit import PendingCommitStore
-from aikito.workspace.reconcile import WorkspaceReconcileError, run_reconciliation
+from aikito.workspace.reconcile import run_reconciliation
 from aikito.workspace.remote import FilesystemRemote
 from aikito.workspace.remote_protocol import Operation, decode_request
 from aikito.workspace.replica_state import load_replica_state
@@ -40,12 +40,11 @@ def exercise(base: Path) -> None:
     original_limit = remote_limits.MAX_REMOTE_REQUEST_BYTES
     remote_limits.MAX_REMOTE_REQUEST_BYTES = 16 * 1024
     try:
-        try:
-            run_reconciliation(local, remote, home, dry_run=False)
-        except WorkspaceReconcileError as exc:
-            assert "size limit" in str(exc)
-        else:
-            raise AssertionError("Oversized commit succeeded")
+        result = run_reconciliation(local, remote, home, dry_run=False)
+        item = next(
+            item for item in result.items if item.id == "memory:notes/capacity.md"
+        )
+        assert item.action == "BLOCKED" and "wire budget" in item.reason
         assert commits == []
         assert PendingCommitStore(local, home).load() is None
         assert load_replica_state(local) == previous_state

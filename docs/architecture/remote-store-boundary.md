@@ -33,7 +33,7 @@ pending persistence; it is not a frozen HTTP wire format. Request digests
 cover the encoding version and domain, client ID, previous receipt, complete
 expected snapshot, before/after descriptors and the exact existing canonical
 payload bytes. Request ID and the claimed digest are excluded. Descriptor
-encoding retains fingerprints, transport hashes, ordered references and the
+encoding retains fingerprints, transport hashes, encoded payload byte sizes, ordered references and the
 current optional opaque `mode_fingerprint`. Absence is `null` and
 differs from a present member with an empty fingerprint. Decoding rejects
 unknown fields/versions, duplicate JSON fields/IDs, invalid payload/hash pairs,
@@ -230,7 +230,7 @@ as content from an older snapshot.
 
 | Value | Required semantics |
 | --- | --- |
-| Snapshot | Opaque `sync_id`, nonnegative revision, resource descriptors indexed by opaque ID; no physical `ResourcePart` or paths. Descriptors carry a logical fingerprint, transport hash, and an optional opaque content version. |
+| Snapshot | Opaque `sync_id`, nonnegative revision, resource descriptors indexed by opaque ID; no physical `ResourcePart` or paths. Descriptors carry a logical fingerprint, transport hash, encoded payload byte size, and an optional opaque content version. |
 | Payload | Versioned, deterministic, portable content with no disk paths, handles, or shared directory requirements. The backend verifies the transport hash without interpreting the content. |
 | Mutation | Opaque resource ID, expected before descriptor or absence, and replacement descriptor plus payload, or an explicit delete with no payload. An empty fingerprint denotes presence and differs from absence. Duplicate IDs are invalid. |
 | Ownership | Snapshots, descriptors, mutations, and returned payloads are immutable or defensively copied at each boundary, including nested typed values. Caller mutation cannot affect stored or previously read state. |
@@ -304,15 +304,17 @@ The protocol therefore permits opaque encrypted content in a later transport.
 
 ## Application sequence
 
-1. Read descriptors, scan the local workspace, and plan the safe subset. The
-   preview fetches only candidate local downloads and remote config fields
-   required to check a shared TOML merge. Conflict choices may add a second,
-   incremental fetch. A NOOP preview makes no fetch request. Config field IDs
-   do not distinguish literal dotted keys from nested keys, so a config change
-   requires the paths of all remote config fields in that shared file.
-2. With no center lock exposed to the engine, fetch all planned downloads
-   against that snapshot. Validate and stage them locally. Verify selected
-   upload content still matches the plan; preserve shared TOML field isolation.
+1. Read descriptors, scan the local workspace, and compare against per-resource
+   Base. Select a dependency-safe subset within request and response wire budgets
+   before fetching any payload. New references wait for missing providers;
+   provider deletion waits for reference removal. Only cycles are atomic groups.
+   Remote config fields needed to validate shared TOML merges count toward the
+   same download budget. `DEFERRED` resources neither advance Base nor enter the
+   pending safe scope. Unfit groups are `BLOCKED`, not global findings.
+2. Validate selected downloaded content and retain a bounded `(id, content_hash)`
+   cache. Replanning under the local writer lock checks the current snapshot and
+   reuses verified content without duplicate fetches. Stage selected downloads
+   locally and capture selected uploads; preserve shared TOML field isolation.
 3. For uploads/deletes, check the complete protocol-encoded request against the
    internal 64 MiB request limit before persisting anything. Oversized commits
    fail without pending state or a commit call; see
@@ -330,6 +332,23 @@ The protocol therefore permits opaque encrypted content in a later transport.
 These are two separate transactions, not a distributed atomic commit. Center
 address changes do not change identity. Conflict/blocked resources retain Base,
 safe independent resources advance, and local-only fields remain local.
+
+An invocation repeats bounded rounds, returning accumulated applied items,
+remaining deferred/conflicting/blocked items, round count and any stop reason.
+It converges when inputs stabilize, groups fit and storage stays available;
+continuous competition instead stops at bounded retry/round limits. A no-progress
+round stops with completed work intact. Conflicts and blocked resources alone
+are partial success. Explicit resolutions survive deferral and are removed only
+when applied. Replica state persists unfinished first-pairing IDs so template
+ancestors and preservation rules survive multiple rounds and restarts. Pairing
+progress commits with Base; pending recovery confirms only uploaded IDs.
+
+The protocol and commit encoding remain version 1. These internal features are
+unpublished: descriptor byte size changes the encoding and golden vectors in
+place, without a compatibility decoder or migration. Size is a nonnegative
+integer and must match the encoded payload, independently of its transport hash.
+The descriptor manifest still limits resource counts, even though aggregate
+payload size no longer limits the center; see [capacity](http-transport.md#capacity-and-framing).
 
 ## Skill fingerprint decision and compatibility
 
@@ -516,7 +535,7 @@ The network-safe request, receipt, pending recovery and fault-injection contract
 is implemented for both reference backends. This internal
 boundary introduces no public reconciliation CLI, hosted service, account,
 network transport, or encryption. The memory store remains test-only. A future HTTP implementation must run the shared store and reconciliation
-acceptance suites. Remote Protocol v1 is frozen as an internal compatibility
+acceptance suites. Remote Protocol v1 is an unpublished internal compatibility
 contract while the HTTP transport and E2EE remain open; authorized readable
 scopes need their own key and privacy design.
 
@@ -555,7 +574,7 @@ unknown message version or an unconfirmable commit receipt are all treated as an
 unknown commit outcome by the client adapter, never as a definite rejection.
 Only a transport that proves non-delivery, or a decoded backend `StoreError`,
 selects a specific result. See [Remote Protocol](remote-protocol.md) for the
-frozen operation and error contract.
+current operation and error contract.
 
 ## Network safety invariants
 
@@ -564,7 +583,7 @@ All rules below are `[current]` and apply to the shared reconciliation contract.
 
 | Rule ID | Invariant |
 | --- | --- |
-| `INV-SYNC-01` | Base advances per resource only after confirmation: uploads use accepted after descriptors, downloads require successful local application, and conflict/blocked resources retain their old Base. Replica revision records confirmed progress, not complete convergence. |
+| `INV-SYNC-01` | Base advances per resource only after confirmation: uploads use accepted after descriptors, downloads require successful local application, and conflict/blocked/deferred resources retain their old Base. Replica revision records confirmed progress, not complete convergence. |
 | `INV-SYNC-02` | Every new logical commit uses a fresh request ID scoped by center and client. Retry and restart reuse the exact persisted request, including its original ID and digest. |
 | `INV-SYNC-03` | The latest matching request returns its first accepted result before CAS, without reapplying mutations or incrementing revision. A different digest for that ID is an identity error. An identical old request whose receipt was replaced fails CAS. |
 | `INV-SYNC-04` | An unresolved pending request prevents new mutation commits. Delivery uncertainty, unavailable resolution, invalid responses and corrupt state retain pending and do not advance Base. |

@@ -104,7 +104,7 @@ def test_commit_and_replay_through_handler():
 
 
 def test_fetch_rejects_missing_or_extra_ids():
-    descriptor = ResourceDescriptor("fp", "a" * 64)
+    descriptor = ResourceDescriptor("fp", "a" * 64, 0)
     expected = RemoteSnapshot("center", 1, {"x": descriptor, "y": descriptor})
     adapter = SerializedRemoteStore(
         lambda message: wire_fetch({"x": FilePayload(b"data")})
@@ -114,7 +114,7 @@ def test_fetch_rejects_missing_or_extra_ids():
 
 
 def test_fetch_rejects_payload_not_matching_expected_hash():
-    expected = RemoteSnapshot("center", 1, {"x": ResourceDescriptor("fp", "a" * 64)})
+    expected = RemoteSnapshot("center", 1, {"x": ResourceDescriptor("fp", "a" * 64, 0)})
     adapter = SerializedRemoteStore(
         lambda message: wire_fetch({"x": FilePayload(b"data")})
     )

@@ -997,6 +997,16 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Bounded multi-round reconciliation
+        if: matrix.group == 'core'
+        run: |
+          $boundedBase = Join-Path $env:RUNNER_TEMP "bounded-reconcile"
+          python tests/workspace_bounded_reconcile_smoke.py "$boundedBase"
+          if ($LASTEXITCODE -ne 0) { throw "Bounded reconciliation failed" }
+          foreach ($relative in @("right\projects\demo\memory\notes\11.md", "checked.txt")) {
+            if (-not (Test-Path (Join-Path $boundedBase $relative) -PathType Leaf)) { throw "Missing bounded reconciliation output: $relative" }
+          }
+
       # group=core: workspace_reconcile_smoke + workspace_reconcile_resources_smoke + workspace_reconcile_resolution_smoke
       - name: Reconcile core smoke
         if: matrix.group == 'core'

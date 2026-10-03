@@ -55,7 +55,11 @@ def recover_pending(local: Path, remote: RemoteStore, home: Path) -> bool:
                 mode_fingerprint=after.mode_fingerprint,
             )
     completed = replace(
-        state, base=base, revision=max(state.revision, result.accepted_revision)
+        state,
+        base=base,
+        revision=max(state.revision, result.accepted_revision),
+        unpaired_ids=state.unpaired_ids
+        - {mutation.id for mutation in request.mutations},
     )
     store.complete(pending, result, completed)
     store.clear(pending)

@@ -271,7 +271,7 @@ def test_resolution_inferred_provider_still_checks_credentials(tmp_path, replica
     assert next(i for i in plan.items if i.id == "skill:x").action == "BLOCKED"
     assert (
         next(i for i in plan.items if i.id == "project-skill:demo/x").action
-        == "CONFLICT"
+        == "DEFERRED"
     )
     assert "skill:x" not in remote.read().resources
     assert "project-skill:demo/x" not in remote.read().resources
