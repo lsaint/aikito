@@ -49,6 +49,7 @@ LOCAL_CONFIG = frozenset({"inbox.path"})
 REMOTE_STATE = ".local/state/aikito/workspace-reconcile/remote.json"
 REPLICA_STATE = ".local/state/aikito/workspace-reconcile/replica.json"
 PENDING_COMMIT_STATE = ".local/state/aikito/workspace-reconcile/pending.json"
+REMOTE_BINDING_STATE = ".local/state/aikito/workspace-reconcile/binding.json"
 RECONCILE_POLICY = PathPolicy(
     states=(REMOTE_STATE, REPLICA_STATE, PENDING_COMMIT_STATE),
     create_parents=True,

@@ -24,8 +24,10 @@ class _FastThreadingHTTPServer(ThreadingHTTPServer):
 
 
 class HTTPRemoteServer:
-    def __init__(self, backend):
+    def __init__(self, backend, *, token: str | None = None):
         self.handler = RemoteProtocolHandler(backend)
+        self.token = token
+        self.dispatch_count = 0
         self.requests: list[bytes] = []
         self.connections: list[tuple] = []
         self.headers: list[dict] = []
@@ -33,7 +35,9 @@ class HTTPRemoteServer:
         self._lock = threading.Lock()
         self.response_body: bytes | None = None
         self.delay = 0.1
-        self._server = _FastThreadingHTTPServer(("127.0.0.1", 0), self._request_handler())
+        self._server = _FastThreadingHTTPServer(
+            ("127.0.0.1", 0), self._request_handler()
+        )
         self._server.daemon_threads = True
         self._thread = threading.Thread(
             target=self._server.serve_forever,
@@ -78,8 +82,20 @@ class HTTPRemoteServer:
                 except (BrokenPipeError, ConnectionResetError):
                     self.close_connection = True
 
+            def _reject_access(self, status):
+                self.send_response(status)
+                self.send_header("Content-Length", "0")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.close_connection = True
+
             def _post(self):
                 self.connection.settimeout(5)
+                if owner.token is not None:
+                    authorization = self.headers.get("Authorization")
+                    if authorization != "Bearer " + owner.token:
+                        self._reject_access(401 if not authorization else 403)
+                        return
                 if (
                     self.path != "/v1/remote"
                     or self.headers.get("Content-Type") != "application/octet-stream"
@@ -106,6 +122,11 @@ class HTTPRemoteServer:
                     self.close_connection = True
                     self.connection.shutdown(socket.SHUT_RDWR)
                     return
+                if fault in {"reject_401", "reject_403"}:
+                    self._reject_access(401 if fault == "reject_401" else 403)
+                    return
+                with owner._lock:
+                    owner.dispatch_count += 1
                 response = owner.handler.handle(request)
                 if owner.response_body is not None:
                     response = owner.response_body
@@ -166,8 +187,11 @@ class HTTPRemoteServer:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument("--token")
     args = parser.parse_args()
-    with HTTPRemoteServer(FilesystemRemote.create(args.root)) as server:
+    with HTTPRemoteServer(
+        FilesystemRemote.create(args.root), token=args.token
+    ) as server:
         print(server.url, flush=True)
         threading.Event().wait()
 

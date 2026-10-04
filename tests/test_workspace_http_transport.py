@@ -14,10 +14,11 @@ from http_remote_server import HTTPRemoteServer
 from workspace_memory_remote import InMemoryRemote
 
 from aikito.workspace import remote_limits
+from aikito.workspace.remote_access import RemoteAccessDenied
 from aikito.workspace.http_transport import HTTPTransport
 from aikito.workspace.remote_protocol import encode_read_request
 from aikito.workspace.remote_store import CommitOutcomeUnknown, StoreUnavailable
-from aikito.workspace.remote_transport import TransportNotDelivered
+from aikito.workspace.remote_transport import TransportNotDelivered, TransportRejected
 from aikito.workspace.serialized_remote import SerializedRemoteStore
 from test_workspace_remote_receipts import request
 
@@ -44,6 +45,80 @@ def test_opaque_post_and_fresh_connections(server, monkeypatch):
     assert len(set(server.connections)) == 2
     assert all(h["Content-Type"] == "application/octet-stream" for h in server.headers)
     assert all(h["Connection"] == "close" for h in server.headers)
+
+
+def test_explicit_authorization_preserves_protocol_bytes(server):
+    transport = HTTPTransport(server.url, authorization="Bearer test-secret")
+    message = encode_read_request()
+    transport.exchange(message)
+    assert server.requests == [message]
+    assert server.headers[0]["Authorization"] == "Bearer test-secret"
+    assert "test-secret" not in repr(transport)
+
+
+def test_global_http_debug_does_not_print_credentials(server, monkeypatch, capsys):
+    monkeypatch.setattr(http.client.HTTPConnection, "debuglevel", 1)
+    HTTPTransport(server.url, authorization="Bearer test-secret").exchange(
+        encode_read_request()
+    )
+    captured = capsys.readouterr()
+    assert "test-secret" not in captured.out + captured.err
+
+
+@pytest.mark.parametrize(
+    "authorization",
+    [
+        "",
+        "Bearer secret\r\nX: injected",
+        "secret\n",
+        "secret\x00",
+        "secret\x7f",
+        "中文",
+        123,
+    ],
+)
+def test_invalid_authorization_rejected_without_secret(authorization):
+    with pytest.raises(ValueError) as caught:
+        HTTPTransport("https://example.invalid/remote", authorization=authorization)
+    assert "secret" not in str(caught.value)
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_access_rejection_is_definitive_for_commit(server, status, monkeypatch):
+    server.arm(f"reject_{status}")
+    transport = HTTPTransport(server.url, authorization="Bearer secret")
+
+    def no_body(response):
+        raise AssertionError("Access rejection body must not be read")
+
+    monkeypatch.setattr(transport, "_read_response", no_body)
+    adapter = SerializedRemoteStore(transport.exchange)
+    backend = InMemoryRemote("center")
+    with pytest.raises(RemoteAccessDenied) as caught:
+        adapter.commit(request(backend))
+    assert caught.value.status == status
+    assert server.dispatch_count == 0
+    assert backend.read().revision == 0
+
+
+def test_auth_check_precedes_body_read_and_dispatch():
+    with HTTPRemoteServer(InMemoryRemote("center"), token="expected") as server:
+        for authorization, status in [(None, 401), ("Bearer wrong", 403)]:
+            transport = HTTPTransport(server.url, authorization=authorization)
+            with pytest.raises(TransportRejected) as caught:
+                transport.exchange(b"not even a protocol request")
+            assert caught.value.status == status
+        assert server.request_count == 0
+        assert server.dispatch_count == 0
+
+
+def test_redirect_does_not_forward_authorization(server):
+    server.arm("redirect")
+    with pytest.raises(ValueError, match="302"):
+        HTTPTransport(server.url, authorization="Bearer secret").exchange(
+            encode_read_request()
+        )
+    assert server.request_count == 1
 
 
 @pytest.mark.parametrize(

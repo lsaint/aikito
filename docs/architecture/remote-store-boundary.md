@@ -3,12 +3,17 @@
 The [HTTP transport](http-transport.md) carries this internal contract through a
 real socket without changing reconciliation or storage semantics. Remote Protocol
 is independent of HTTP; neither HTTP transport nor `RemoteProtocolHandler`
-constitutes a cloud service or hosted production server.
+constitutes a production server.
 
 The internal reconciliation engine uses `workspace.remote_store.RemoteStore`
 and portable payloads. `FilesystemRemote` and the test-only `InMemoryRemote`
 implement the same contract. There is no public reconciliation CLI or service;
 the acceptance driver is test orchestration.
+
+A [local remote binding](remote-binding.md) fixes the center identity and supplies
+credential references through a factory. HTTP access errors remain local
+`StoreError` values; authentication and endpoint details never enter the store
+contract or reconciliation.
 
 ## Commit identity contract
 

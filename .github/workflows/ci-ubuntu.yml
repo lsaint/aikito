@@ -222,8 +222,18 @@ jobs:
           test -f "$HTTP_REMOTE/right/skills/example/run.sh"
           test -f "$HTTP_REMOTE/checked.txt"
           test ! -e "$HTTP_REMOTE/moved-left/.local/state/aikito/workspace-reconcile/pending.json"
+          BINDING=${{ runner.temp }}/remote-binding
+          python3 tests/workspace_remote_binding_smoke.py "$BINDING"
+          test -f "$BINDING/local/.local/state/aikito/workspace-reconcile/binding.json"
+          test -f "$BINDING/local/.local/state/aikito/workspace-reconcile/replica.json"
+          test -f "$BINDING/center/memory/notes/binding.md"
+          test -f "$BINDING/auth-checked.txt"
+          test -f "$BINDING/checked.txt"
+          test ! -e "$BINDING/local/.local/state/aikito/workspace-reconcile/pending.json"
+          ! grep -Fq 'binding-smoke-secret' "$BINDING/local/.local/state/aikito/workspace-reconcile/binding.json"
           python3 tests/generate_remote_protocol_vectors.py --check
           AIKITO_REMOTE_TEST_SERVER_CMD="python3 tests/http_remote_server.py --root {root}" python3 -m pytest tests/test_workspace_remote_store_contract.py tests/test_workspace_remote_receipts.py
+          AIKITO_REMOTE_TEST_SERVER_CMD="python3 tests/http_remote_server.py --root {root} --token {token}" python3 -m pytest tests/test_workspace_http_external.py -k external_auth_contract
           CAPACITY=${{ runner.temp }}/commit-capacity
           python3 tests/workspace_commit_capacity_smoke.py "$CAPACITY"
           test -f "$CAPACITY/local/memory/notes/capacity.md"

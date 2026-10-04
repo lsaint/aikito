@@ -6,8 +6,8 @@ response against the call's own context before trusting it.
 
 Transport failure describes bytes delivery only. For a commit that may have
 been delivered, any unconfirmable outcome becomes ``CommitOutcomeUnknown`` and
-never a definite rejection; only ``TransportNotDelivered`` proves the request
-did not reach the backend.
+never a definite rejection; ``TransportNotDelivered`` proves non-delivery and ``TransportRejected``
+proves contracted pre-dispatch access rejection.
 """
 
 from __future__ import annotations
@@ -15,10 +15,12 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping
 from types import MappingProxyType
 
+from .remote_access import RemoteAccessDenied
 from .payload import ResourcePayload, encode_payload, payload_hash
 from .remote_transport import (
     Exchange as Exchange,
     TransportNotDelivered as TransportNotDelivered,
+    TransportRejected,
 )
 from .remote_protocol import (
     ERROR_EXCEPTIONS,
@@ -120,6 +122,8 @@ class SerializedRemoteStore:
     ) -> ProtocolResponse:
         try:
             reply = self._exchange(message)
+        except TransportRejected as exc:
+            raise RemoteAccessDenied(exc.status) from None
         except TransportNotDelivered:
             raise StoreUnavailable(
                 "Remote transport did not deliver the request"

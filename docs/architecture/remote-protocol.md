@@ -20,7 +20,8 @@ Reconciliation
 ```
 
 The protocol knows only bytes and portable domain objects. It must not import
-transport, HTTP, socket, path or filesystem concerns.
+transport, HTTP, socket, path or filesystem concerns. Endpoint routing and
+authentication are outside Remote Protocol v1; see [remote binding](remote-binding.md).
 
 ## Versioning
 
@@ -187,9 +188,10 @@ Transport rejection after persistence cannot substitute for this preflight.
 
 ## Non-goals
 
-Remote Protocol v1 does not define an HTTP server or client, a hosted service,
-accounts, login, API keys, OAuth, a cloud database, object storage, background
-daemons, network discovery or E2EE. It adds no public reconciliation API or CLI.
+Remote Protocol v1 does not define an HTTP server or client, credential issuance,
+OAuth, databases, object storage, background daemons, network discovery or E2EE.
+It adds no public reconciliation API or CLI.
 [HTTP transport](http-transport.md) is a separate internal layer beneath the
-adapter. Encryption and authorization remain separate future layers. A protocol
-handler is not a hosted server, and HTTP transport is not a cloud service.
+adapter. Authentication and local identity pinning belong to
+[remote binding](remote-binding.md); encryption remains a separate future layer.
+A protocol handler and the test HTTP bridge are not production servers.

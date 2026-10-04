@@ -27,14 +27,19 @@ def http_store(root):
 
 
 @contextmanager
-def external_store(root, *, startup_timeout=30):
+def external_endpoint(root, *, startup_timeout=30, token=None):
     """Read one endpoint line and always reap the independently started server.
 
     The command is an argv template, never a shell script. Format each token
     after splitting so a temporary root containing spaces remains one argument.
     """
     template = os.environ["AIKITO_REMOTE_TEST_SERVER_CMD"]
-    command = [part.replace("{root}", str(root)) for part in shlex.split(template)]
+    if "{token}" in template and token is None:
+        raise ValueError("External server command requires a test token")
+    command = [
+        part.replace("{root}", str(root)).replace("{token}", token or "")
+        for part in shlex.split(template)
+    ]
     if not command or "{root}" not in template:
         raise ValueError("External server command must include {root}")
     root.mkdir(parents=True, exist_ok=True)
@@ -76,8 +81,8 @@ def external_store(root, *, startup_timeout=30):
                     f"External server did not announce an endpoint line{detail}"
                 )
             url = line.decode("utf-8").strip()
-            transport = HTTPTransport(url)
-            yield SerializedRemoteStore(transport.exchange)
+            HTTPTransport(url)
+            yield url
         finally:
             process.terminate()
             try:
@@ -87,6 +92,15 @@ def external_store(root, *, startup_timeout=30):
                 process.wait(timeout=5)
             reader.join(timeout=5)
             process.stdout.close()
+
+
+@contextmanager
+def external_store(root, *, startup_timeout=30, token=None):
+    with external_endpoint(root, startup_timeout=startup_timeout, token=token) as url:
+        transport = HTTPTransport(
+            url, authorization=None if token is None else "Bearer " + token
+        )
+        yield SerializedRemoteStore(transport.exchange)
 
 
 def contract_backends(*local):

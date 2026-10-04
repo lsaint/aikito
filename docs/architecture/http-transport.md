@@ -1,7 +1,7 @@
 # Internal HTTP transport
 
-HTTP transports the existing Remote Protocol; it does not define a cloud
-service or public REST API. `HTTPTransport.exchange(bytes) -> bytes` has no
+HTTP transports the existing Remote Protocol; it does not define a public REST
+API. `HTTPTransport.exchange(bytes) -> bytes` has no
 knowledge of operations, resources, receipts or reconciliation. It imports
 neither the protocol nor the store. `RemoteProtocolHandler` remains independent
 of HTTP. The client uses the standard library and adds no runtime dependency.
@@ -12,12 +12,16 @@ of HTTP. The client uses the standard library and adds no runtime dependency.
   `Content-Type: application/octet-stream`. Preserve the URL path and query.
   There are no operation-specific HTTP routes.
 - Return every protocol response, including an error envelope, with HTTP 200.
-  Only a complete 200 body is passed to the protocol decoder. Any other status,
-  including redirects, is a transport failure.
+  Only a complete 200 body is passed to the protocol decoder. Contracted 401/403
+  are pre-dispatch access rejections; other non-200 statuses, including redirects,
+  remain transport failures.
 - Use a fresh connection for every exchange and send `Connection: close`.
   Neither side may require connection reuse. Do not automatically retry.
-- Do not follow redirects, use environment proxies, send credentials or cookies,
-  or interpret request/response bodies in the transport.
+- Send only fixed transport headers and the caller's explicitly provided
+  `authorization` value. Reject header controls and non-ASCII values before
+  connecting. Never include authorization in exception messages or object repr.
+  Do not follow redirects, use environment proxies, read environment credentials,
+  send cookies or interpret request/response bodies in the transport.
 - Accept HTTP and HTTPS. HTTPS verifies certificates and hostnames with the
   default trust store; there is no insecure mode.
 - Invalid endpoints, embedded user information, fragments and invalid timeouts
@@ -32,9 +36,17 @@ That path is a test convention, not a public compatibility promise.
 DNS lookup, connection refusal and local socket allocation failures. The TCP
 connection step is separate from HTTPS negotiation. TLS failures, ambiguous
 connection failures/timeouts, send failures, resets, response timeouts, malformed
-framing and non-200 responses remain ordinary exceptions.
+framing and non-200 responses other than contracted 401/403 remain ordinary
+exceptions.
 
-`SerializedRemoteStore` maps non-delivery to `StoreUnavailable`; all other
+`TransportRejected` reports 401/403 only under the endpoint contract that access
+checks happen before reading or dispatching protocol operations. Response bodies
+are not read and the connection is closed. `SerializedRemoteStore` maps these to
+`RemoteAccessDenied`, a local `StoreError` rather than a protocol error code.
+Even rejected commits retain pending. Binding and credential construction belong
+to the [remote factory](remote-binding.md), never HTTP or reconciliation.
+
+`SerializedRemoteStore` maps non-delivery to `StoreUnavailable`; remaining
 exchange failures are `CommitOutcomeUnknown` for commit and `StoreUnavailable`
 for other operations. A timeout never proves that a commit was rejected.
 Retain the exact pending request and resolve its original identity on restart.
@@ -141,6 +153,7 @@ reconciliation behavior plus real lost-response recovery in three-platform smoke
 jobs. Unit tests focus on framing, failure classification, pending identity and
 capacity boundaries.
 
-No public package export, cloud CLI, account, pairing, authentication, encryption,
-database, hosted server, proxy support, automatic discovery, daemon or logging
-is introduced. HTTP transport is an internal layer beneath the existing adapter.
+No public package export, reconciliation CLI, pairing UI, encryption, database,
+production server, proxy support, automatic discovery, daemon or logging is
+introduced. HTTP authentication and local binding remain internal layers beneath
+reconciliation, without changing protocol bytes.

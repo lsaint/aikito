@@ -41,6 +41,8 @@ from aikito.workspace.remote_transport import (
     TransportNotDelivered as DeliveryError,
 )
 from aikito.workspace import serialized_remote
+from aikito.workspace.remote_access import RemoteAccessDenied
+from aikito.workspace.remote_transport import TransportRejected
 
 
 def test_transport_exports_remain_compatible():
@@ -185,6 +187,23 @@ def test_transport_not_delivered_is_unavailable_for_all_operations():
         adapter.read()
     with pytest.raises(StoreUnavailable):
         adapter.commit(request)
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_transport_access_rejection_is_not_unknown_commit(status):
+    _, request, snapshot = seeded()
+    adapter = SerializedRemoteStore(raising(TransportRejected(status)))
+    calls = [
+        adapter.read,
+        adapter.recover,
+        lambda: adapter.fetch(snapshot, []),
+        lambda: adapter.commit(request),
+        lambda: adapter.resolve_commit("center", "client", "request", "a" * 64),
+    ]
+    for call in calls:
+        with pytest.raises(RemoteAccessDenied) as caught:
+            call()
+        assert caught.value.status == status
 
 
 def test_unknown_transport_failure_is_unknown_only_for_commit():
