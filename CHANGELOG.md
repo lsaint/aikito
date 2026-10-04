@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.57.4] - 2026-10-05
+
+### Added
+
+- Added local workspace remote binding and identity pinning (`.local/state/aikito/workspace-reconcile/binding.json`), securely pinning a workspace to a resource center by endpoint and `sync_id` with credential indirection (saving only the environment variable name, never secrets).
+- Added authenticated remote factory utilities (`bind_remote`, `open_bound_remote`, `verify_remote_binding`, `remove_remote_binding`) and `BoundRemote` wrapper ensuring center identity pinning and fail-closed authentication.
+- Added authenticated HTTP test server harness and cross-platform socket smoke test (`workspace_remote_binding_smoke.py`) validating binding persistence, rejected commit handling, pending commit preservation, and safe restart recovery.
+
 ## [1.57.3] - 2026-10-03
 
 ### Added
@@ -1083,7 +1091,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.57.3...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.57.4...HEAD
+[1.57.4]: https://github.com/lsaint/aikito/compare/v1.57.3...v1.57.4
 [1.57.3]: https://github.com/lsaint/aikito/compare/v1.57.2...v1.57.3
 [1.57.2]: https://github.com/lsaint/aikito/compare/v1.57.1...v1.57.2
 [1.57.1]: https://github.com/lsaint/aikito/compare/v1.57.0...v1.57.1
