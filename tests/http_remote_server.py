@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import json
+import re
+import signal
 import socket
 import socketserver
 import threading
@@ -11,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from aikito.workspace import remote_limits
-from aikito.workspace.remote import FilesystemRemote
+from aikito.workspace.remote import FilesystemRemote, REMOTE_STATE
 from aikito.workspace.remote_protocol import RemoteProtocolHandler, decode_request
 
 
@@ -24,9 +27,19 @@ class _FastThreadingHTTPServer(ThreadingHTTPServer):
 
 
 class HTTPRemoteServer:
-    def __init__(self, backend, *, token: str | None = None):
+    def __init__(
+        self,
+        backend,
+        *,
+        token: str | None = None,
+        stores=None,
+        grants=None,
+        listen=("127.0.0.1", 0),
+    ):
         self.handler = RemoteProtocolHandler(backend)
         self.token = token
+        self.stores = stores
+        self.grants = grants or {}
         self.dispatch_count = 0
         self.requests: list[bytes] = []
         self.connections: list[tuple] = []
@@ -35,9 +48,7 @@ class HTTPRemoteServer:
         self._lock = threading.Lock()
         self.response_body: bytes | None = None
         self.delay = 0.1
-        self._server = _FastThreadingHTTPServer(
-            ("127.0.0.1", 0), self._request_handler()
-        )
+        self._server = _FastThreadingHTTPServer(listen, self._request_handler())
         self._server.daemon_threads = True
         self._thread = threading.Thread(
             target=self._server.serve_forever,
@@ -45,6 +56,11 @@ class HTTPRemoteServer:
             daemon=True,
         )
         self.url = f"http://127.0.0.1:{self._server.server_port}/v1/remote"
+        if stores:
+            self.url = (
+                f"http://127.0.0.1:{self._server.server_port}"
+                f"/v1/stores/{next(iter(stores))}/remote"
+            )
 
     @property
     def request_count(self):
@@ -91,15 +107,36 @@ class HTTPRemoteServer:
 
             def _post(self):
                 self.connection.settimeout(5)
+                handler = owner.handler
+                if owner.stores is not None:
+                    match = re.fullmatch(
+                        r"/v1/stores/([a-z0-9][a-z0-9_-]{0,62})/remote", self.path
+                    )
+                    if not match:
+                        self._reject_access(400)
+                        return
+                    store_id = match[1]
+                    authorization = self.headers.get("Authorization", "")
+                    allowed = owner.grants.get(authorization)
+                    if allowed is None:
+                        self._reject_access(401)
+                        return
+                    if store_id not in allowed:
+                        self._reject_access(403)
+                        return
+                    backend = owner.stores.get(store_id)
+                    if backend is None:
+                        self._reject_access(404)
+                        return
+                    handler = RemoteProtocolHandler(backend)
                 if owner.token is not None:
                     authorization = self.headers.get("Authorization")
                     if authorization != "Bearer " + owner.token:
-                        self._reject_access(401 if not authorization else 403)
+                        self._reject_access(401)
                         return
                 if (
-                    self.path != "/v1/remote"
-                    or self.headers.get("Content-Type") != "application/octet-stream"
-                ):
+                    owner.stores is None and self.path != "/v1/remote"
+                ) or self.headers.get("Content-Type") != "application/octet-stream":
                     self.send_error(400)
                     return
                 lengths = self.headers.get_all("Content-Length", [])
@@ -127,7 +164,7 @@ class HTTPRemoteServer:
                     return
                 with owner._lock:
                     owner.dispatch_count += 1
-                response = owner.handler.handle(request)
+                response = handler.handle(request)
                 if owner.response_body is not None:
                     response = owner.response_body
                 if fault == "drop_after_handler":
@@ -188,12 +225,37 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--token")
+    parser.add_argument("--test-config", type=Path)
     args = parser.parse_args()
+    stores, grants, listen = None, None, ("127.0.0.1", 0)
+    if args.test_config:
+        config = json.loads(args.test_config.read_text(encoding="utf-8"))
+        stores, grants = {}, {}
+        for entry in config["stores"]:
+            store_id = entry["store_id"]
+            if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,62}", store_id):
+                raise ValueError("Invalid test store ID")
+            grants.setdefault("Bearer " + entry["token"], set()).add(store_id)
+            if entry.get("initialize", True):
+                root = args.root / "stores" / store_id
+                stores[store_id] = (
+                    FilesystemRemote(root)
+                    if (root / REMOTE_STATE).exists()
+                    else FilesystemRemote.create(root)
+                )
+        host, port = config.get("listen", "127.0.0.1:0").rsplit(":", 1)
+        listen = (host, int(port))
+    stopping = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stopping.set())
     with HTTPRemoteServer(
-        FilesystemRemote.create(args.root), token=args.token
+        None if stores is not None else FilesystemRemote.create(args.root),
+        token=args.token,
+        stores=stores,
+        grants=grants,
+        listen=listen,
     ) as server:
         print(server.url, flush=True)
-        threading.Event().wait()
+        stopping.wait()
 
 
 if __name__ == "__main__":

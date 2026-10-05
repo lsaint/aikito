@@ -126,3 +126,14 @@ HTTP sockets, assert binding and resource files, check that binding excludes the
 token, and verify pending retention, no unauthorized revision advance and restart
 recovery after lost responses. Existing recovery contracts and byte-exact protocol
 vectors continue to apply unchanged.
+
+## Independent server acceptance
+
+The multi-store test assembly keeps URL `store_id` separate from the pinned
+protocol `sync_id`. A service restart reuses its listening address and store
+metadata, so a bound client keeps both pins. The external server smoke exercises
+real reconciliation, a lost accepted response, pending retention, service restart,
+and durable receipt resolution through `open_bound_remote`. It verifies that
+binding contains only the credential source and that successful recovery clears
+pending without a second publication. See the
+[HTTP test assembly](http-transport.md#multi-store-and-restart-test-assembly).

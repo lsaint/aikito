@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 
-import hashlib
 import os
 import json
 import threading
@@ -12,12 +11,9 @@ from dataclasses import replace
 
 import pytest
 
-from aikito.workspace.payload import encode_payload
 from aikito.workspace.payload import (
     FilePayload,
-    ResourceDescriptor,
     ResourceMutation,
-    payload_hash,
 )
 from aikito.workspace.remote import FilesystemRemote, REMOTE_STATE
 from aikito.workspace.remote_store import (
@@ -29,12 +25,12 @@ from aikito.workspace.remote_store import (
     StoreIdentityMismatch,
 )
 from aikito.workspace.remote_wire import (
-    build_commit_request,
     commit_request_digest,
     validate_commit_result,
 )
 from workspace_memory_remote import InMemoryRemote
 from workspace_http_remote import contract_backends, external_store, http_store
+from workspace_store_setup import mutation, request, resolve
 
 
 @pytest.fixture(params=contract_backends("memory", "filesystem"))
@@ -48,38 +44,6 @@ def store(request, tmp_path):
         InMemoryRemote()
         if request.param == "memory"
         else FilesystemRemote.create(tmp_path / "center")
-    )
-
-
-def mutation(name="one", data=b"one", before=None):
-    payload = FilePayload(data)
-    return ResourceMutation(
-        f"memory:notes/{name}.md",
-        before,
-        ResourceDescriptor(
-            hashlib.sha256(data).hexdigest(),
-            payload_hash(payload),
-            len(encode_payload(payload)),
-        ),
-        payload,
-    )
-
-
-def request(
-    store, *batch, client="client-a", identity="request-a", cursor=None, expected=None
-):
-    return build_commit_request(
-        client,
-        identity,
-        expected or store.read(),
-        batch or (mutation(),),
-        previous_receipt=cursor,
-    )
-
-
-def resolve(store, req):
-    return store.resolve_commit(
-        req.expected.sync_id, req.client_id, req.request_id, req.mutation_digest
     )
 
 

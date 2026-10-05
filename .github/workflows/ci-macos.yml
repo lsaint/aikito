@@ -141,6 +141,16 @@ jobs:
           test -f "$BINDING/checked.txt"
           test ! -e "$BINDING/local/.local/state/aikito/workspace-reconcile/pending.json"
           ! grep -Fq 'binding-smoke-secret' "$BINDING/local/.local/state/aikito/workspace-reconcile/binding.json"
+          EXTERNAL_SERVICE=${{ runner.temp }}/external-service
+          python3 tests/workspace_external_server_smoke.py "$EXTERNAL_SERVICE"
+          test -f "$EXTERNAL_SERVICE/center-test-server.json"
+          test -d "$EXTERNAL_SERVICE/center/stores/alpha"
+          test -d "$EXTERNAL_SERVICE/center/stores/beta"
+          test -f "$EXTERNAL_SERVICE/local/.local/state/aikito/workspace-reconcile/binding.json"
+          test -f "$EXTERNAL_SERVICE/local/.local/state/aikito/workspace-reconcile/replica.json"
+          test -f "$EXTERNAL_SERVICE/lost-response-checked.txt"
+          test -f "$EXTERNAL_SERVICE/checked.txt"
+          test ! -e "$EXTERNAL_SERVICE/local/.local/state/aikito/workspace-reconcile/pending.json"
           CAPACITY=${{ runner.temp }}/commit-capacity
           python3 tests/workspace_commit_capacity_smoke.py "$CAPACITY"
           test -f "$CAPACITY/local/memory/notes/capacity.md"

@@ -157,3 +157,54 @@ No public package export, reconciliation CLI, pairing UI, encryption, database,
 production server, proxy support, automatic discovery, daemon or logging is
 introduced. HTTP authentication and local binding remain internal layers beneath
 reconciliation, without changing protocol bytes.
+
+## Multi-store and restart test assembly
+
+An independent implementation can opt into the multi-store contract with an argv
+placeholder `{config}` in `AIKITO_REMOTE_TEST_SERVER_CMD`. It points to a temporary
+UTF-8 JSON file with this test-only shape:
+
+```json
+{"listen":"127.0.0.1:0","stores":[{"store_id":"alpha","token":"test-token","initialize":true}]}
+```
+
+The harness supplies `{root}` and `{config}` after argv splitting. Tokens are
+synthetic test credentials. `initialize` defaults to true; false declares an
+authorized but absent store. One token may have several store grants. The process
+announces the first configured store's complete endpoint as its first stdout line.
+Store routes use `/v1/stores/{store_id}/remote` on that listening address, with
+strict lowercase ASCII IDs. These routes are a test assembly convention rather
+than a Remote Protocol field. Protocol `sync_id` remains independently opaque.
+
+Restart preserves the root, grants and listening address. The harness writes the
+announced address back into `listen`, terminates/reaps the process, then starts it
+again with the same configuration. Already initialized stores must reopen their
+persisted state. A request never creates an undeclared store. Contract checks
+cover independent resource/revision/receipt state, concurrent CAS, stable identity,
+durable receipt resolution and exact-request replay after restart.
+
+Missing or invalid credentials return 401. A valid token without the requested
+store grant returns 403 even when that store does not exist; authorization
+precedes existence and body consumption. An authorized absent store returns 404.
+These statuses describe service assembly, not protocol error codes. The existing
+single-store `{token}` mode also supplies one synthetic credential to ordinary
+store and receipt fixtures, so those contracts can use authenticated endpoints.
+
+`tests/workspace_external_server_smoke.py` runs portable reconciliation acceptance
+and BoundRemote recovery through a relay that forwards protocol bytes and drops
+one accepted commit response. The server is then restarted while pending remains;
+resolution confirms the durable receipt without advancing revision twice. Public
+CI runs the same assembly against the bundled test server. External implementations
+run it locally with their `{root}` / `{config}` command; no fault or control endpoint
+is required.
+
+Run the multi-store contract against the bundled server with:
+
+```sh
+PYTHONPATH=src AIKITO_REMOTE_TEST_SERVER_CMD='python tests/http_remote_server.py --root {root} --test-config {config}' \
+  python -m pytest tests/test_workspace_http_multistore_contract.py
+PYTHONPATH=src python tests/workspace_external_server_smoke.py /tmp/external-server-check
+```
+
+Use a fresh smoke directory. The smoke defaults to the bundled server unless a
+`{config}`-aware external command is already set in the environment.

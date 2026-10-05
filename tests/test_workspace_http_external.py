@@ -46,7 +46,7 @@ def test_external_auth_contract_rejects_without_mutation(tmp_path, monkeypatch):
         )
         snapshot = valid.read()
         commit = request(valid)
-        for authorization, status in [(None, 401), ("Bearer wrong", 403)]:
+        for authorization, status in [(None, 401), ("Bearer wrong", 401)]:
             invalid = SerializedRemoteStore(
                 HTTPTransport(endpoint, authorization=authorization).exchange
             )

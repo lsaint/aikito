@@ -234,6 +234,16 @@ jobs:
           python3 tests/generate_remote_protocol_vectors.py --check
           AIKITO_REMOTE_TEST_SERVER_CMD="python3 tests/http_remote_server.py --root {root}" python3 -m pytest tests/test_workspace_remote_store_contract.py tests/test_workspace_remote_receipts.py
           AIKITO_REMOTE_TEST_SERVER_CMD="python3 tests/http_remote_server.py --root {root} --token {token}" python3 -m pytest tests/test_workspace_http_external.py -k external_auth_contract
+          EXTERNAL_SERVICE=${{ runner.temp }}/external-service
+          python3 tests/workspace_external_server_smoke.py "$EXTERNAL_SERVICE"
+          test -f "$EXTERNAL_SERVICE/center-test-server.json"
+          test -d "$EXTERNAL_SERVICE/center/stores/alpha"
+          test -d "$EXTERNAL_SERVICE/center/stores/beta"
+          test -f "$EXTERNAL_SERVICE/local/.local/state/aikito/workspace-reconcile/binding.json"
+          test -f "$EXTERNAL_SERVICE/local/.local/state/aikito/workspace-reconcile/replica.json"
+          test -f "$EXTERNAL_SERVICE/lost-response-checked.txt"
+          test -f "$EXTERNAL_SERVICE/checked.txt"
+          test ! -e "$EXTERNAL_SERVICE/local/.local/state/aikito/workspace-reconcile/pending.json"
           CAPACITY=${{ runner.temp }}/commit-capacity
           python3 tests/workspace_commit_capacity_smoke.py "$CAPACITY"
           test -f "$CAPACITY/local/memory/notes/capacity.md"

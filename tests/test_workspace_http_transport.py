@@ -103,7 +103,7 @@ def test_access_rejection_is_definitive_for_commit(server, status, monkeypatch):
 
 def test_auth_check_precedes_body_read_and_dispatch():
     with HTTPRemoteServer(InMemoryRemote("center"), token="expected") as server:
-        for authorization, status in [(None, 401), ("Bearer wrong", 403)]:
+        for authorization, status in [(None, 401), ("Bearer wrong", 401)]:
             transport = HTTPTransport(server.url, authorization=authorization)
             with pytest.raises(TransportRejected) as caught:
                 transport.exchange(b"not even a protocol request")
