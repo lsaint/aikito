@@ -49,6 +49,7 @@ from aikito.status import (
     collect_subagents_matrix,
     get_status_report_data,
 )
+from aikito.templating import load_agents_template
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -660,6 +661,55 @@ class AikitoStatusCollectorTest(unittest.TestCase):
         self.assertTrue(data.total_skills_count >= 0)
         self.assertTrue(data.total_memory_notes >= 0)
 
+    @patch("aikito.agents.shutil.which", return_value=None)
+    def test_synced_registry_only_shows_local_consumers(self, _which) -> None:
+        write_agents(self.aikito_dir, load_agents_template())
+        self.assertEqual(len(list((self.aikito_dir / "agents").glob("*.toml"))), 8)
+        (self.home / ".codex").rmdir()
+        (self.home / ".gemini" / "config").mkdir(parents=True)
+        # A shared skills container is not evidence that every consumer is installed.
+        (self.home / ".agents" / "skills").mkdir(parents=True)
+
+        report = get_status_report_data(self.aikito_dir, self.home)
+
+        self.assertEqual([row.agent_name for row in report.agents], ["agy"])
+        self.assertEqual(report.consumers, ["agy"])
+        rendered = render_status_report(report, is_tty=False, no_color=True)
+        self.assertIn("Consumers (1): agy", rendered)
+        self.assertEqual(len(list((self.aikito_dir / "agents").glob("*.toml"))), 8)
+
+    @patch("aikito.agents.shutil.which", return_value=None)
+    def test_no_local_consumers_shows_empty_list(self, _which) -> None:
+        write_agents(self.aikito_dir, load_agents_template())
+        (self.home / ".codex").rmdir()
+
+        report = get_status_report_data(self.aikito_dir, self.home)
+
+        self.assertEqual(report.agents, [])
+        self.assertEqual(report.consumers, [])
+        rendered = render_status_report(report, is_tty=False, no_color=True)
+        self.assertIn("Consumers (0): -", rendered)
+
+    @patch("aikito.agents.shutil.which")
+    def test_binary_only_consumer_is_visible(self, which) -> None:
+        write_agents(self.aikito_dir, load_agents_template())
+        (self.home / ".codex").rmdir()
+        which.side_effect = lambda binary: "/bin/agy" if binary == "agy" else None
+
+        report = get_status_report_data(self.aikito_dir, self.home)
+
+        self.assertEqual(report.consumers, ["agy"])
+
+    @patch("aikito.agents.shutil.which", return_value=None)
+    def test_custom_consumer_with_unknown_availability_remains_visible(
+        self, _which
+    ) -> None:
+        write_agents(self.aikito_dir, '[agents.custom]\ndisplay_name = "Custom"\n')
+
+        report = get_status_report_data(self.aikito_dir, self.home)
+
+        self.assertEqual([row.agent_name for row in report.agents], ["custom"])
+
     def test_status_ignores_legacy_index(self) -> None:
         note = self.aikito_dir / "memory" / "notes" / "decision.md"
         note.write_text(
@@ -681,6 +731,8 @@ class AikitoStatusCollectorTest(unittest.TestCase):
             home = root / "home"
             aikito_dir = root / "aikito"
             home.mkdir()
+            (home / ".codex").mkdir()
+            (home / ".pi").mkdir()
             (aikito_dir / "global").mkdir(parents=True)
             (aikito_dir / "global" / "AGENTS.md").write_text("", encoding="utf-8")
             (aikito_dir / "skills.toml").write_text("skills = []\n", encoding="utf-8")

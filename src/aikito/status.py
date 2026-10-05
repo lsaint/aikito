@@ -11,7 +11,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from .agents import load_agent_definitions
+from .agents import check_agent_availability, load_agent_definitions
 from .inspection import InspectionStatus, ResourceInspectionView
 from .mcp import (
     load_agent_specs,
@@ -391,6 +391,9 @@ def collect_agent_status_rows(
     rows: list[AgentStatusRow] = []
 
     for name, definition in agents_dict.items():
+        if check_agent_availability(definition, home).is_not_installed:
+            continue
+
         # 1. Instructions Status
         instructions_status = "SKIP"
         if definition.instruction_path is not None:

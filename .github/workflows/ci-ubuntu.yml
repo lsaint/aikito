@@ -168,6 +168,41 @@ jobs:
           grep -F "[CONNECTED]" ${{ runner.temp }}/connect-workspace.out
           grep -F "aikito doctor" ${{ runner.temp }}/connect-workspace.out
 
+      - name: Status consumers after cross-machine workspace sync
+        run: |
+          python3 - <<'PY'
+          import os
+          import subprocess
+          import sys
+          import tempfile
+          from pathlib import Path
+
+          from aikito.agents import AGENT_INSTALL_MARKERS
+          from aikito.init import init_workspace
+          from aikito.templating import load_template
+
+          with tempfile.TemporaryDirectory() as directory:
+              root = Path(directory)
+              home = root / "home"
+              workspace = root / "workspace"
+              (home / ".gemini" / "config").mkdir(parents=True)
+              (home / ".agents" / "skills").mkdir(parents=True)
+              assert init_workspace(workspace, home)
+              for name in AGENT_INSTALL_MARKERS:
+                  (workspace / "agents" / f"{name}.toml").write_text(
+                      load_template(f"agents/{name}.toml"), encoding="utf-8",
+                  )
+              assert len(list((workspace / "agents").glob("*.toml"))) == 8
+              env = dict(os.environ, HOME=str(home), AIKITO_DIR=str(workspace), PATH="")
+              result = subprocess.run(
+                  [sys.executable, "-m", "aikito", "status", "--color", "never"],
+                  env=env, text=True, capture_output=True, check=True,
+              )
+              assert "Consumers (1): agy" in result.stdout, result.stdout
+              assert (workspace / "agents" / "codex.toml").is_file()
+              assert not (home / ".codex").exists()
+          PY
+
       - name: Workspace resource migration smoke
         run: |
           LEGACY=${{ runner.temp }}/legacy-layout-ws
