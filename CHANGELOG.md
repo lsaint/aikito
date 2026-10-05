@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.57.5] - 2026-10-05
+
+### Fixed
+
+- Filtered consumer status entries in `aikito status` strictly to the local host, preventing foreign machine consumers from appearing in local workspace status output.
+
+### Added
+
+- Added multi-store contract validation and smoke coverage for isolated external HTTP stores with durable recovery across platforms.
+
 ## [1.57.4] - 2026-10-05
 
 ### Added
@@ -1091,7 +1101,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.57.4...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.57.5...HEAD
+[1.57.5]: https://github.com/lsaint/aikito/compare/v1.57.4...v1.57.5
 [1.57.4]: https://github.com/lsaint/aikito/compare/v1.57.3...v1.57.4
 [1.57.3]: https://github.com/lsaint/aikito/compare/v1.57.2...v1.57.3
 [1.57.2]: https://github.com/lsaint/aikito/compare/v1.57.1...v1.57.2
