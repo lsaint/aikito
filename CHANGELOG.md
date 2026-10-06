@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.57.6] - 2026-10-06
+
+### Changed
+
+- Refactored agent MCP and subagent capability handling into modular adapter registries that manage native format rendering, parsing, field validation, and file layouts.
+- Replaced hardcoded agent install markers with declarative `[agents.<name>.detect]` tables in Agent configurations supporting portable command and marker path signals.
+- Standardized subagent platform table resolution and validation through agent definitions before writing, reporting unregistered platforms as warnings during runtime loading.
+
 ## [1.57.5] - 2026-10-05
 
 ### Fixed
@@ -1101,7 +1109,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.57.5...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.57.6...HEAD
+[1.57.6]: https://github.com/lsaint/aikito/compare/v1.57.5...v1.57.6
 [1.57.5]: https://github.com/lsaint/aikito/compare/v1.57.4...v1.57.5
 [1.57.4]: https://github.com/lsaint/aikito/compare/v1.57.3...v1.57.4
 [1.57.3]: https://github.com/lsaint/aikito/compare/v1.57.2...v1.57.3
