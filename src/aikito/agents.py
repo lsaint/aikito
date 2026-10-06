@@ -104,7 +104,7 @@ def _resolve_project_path(value: object, field: str, agent: str) -> Path:
     if not isinstance(value, str) or not value:
         raise AgentRegistryError(f"Agent '{agent}' requires a string '{field}'")
     path = Path(value)
-    if path.is_absolute() or path == Path(".") or ".." in path.parts:
+    if path.is_absolute() or bool(path.anchor) or path == Path(".") or ".." in path.parts:
         raise AgentRegistryError(
             f"Agent '{agent}' requires a safe relative '{field}', got: {value}"
         )
@@ -148,7 +148,11 @@ def _load_detection(spec: Mapping[str, Any], name: str) -> DetectionCapability |
         values[key] = tuple(value)
     paths = tuple(Path(value) for value in values["paths"])
     if any(
-        path.is_absolute() or ".." in path.parts or path == Path(".") for path in paths
+        path.is_absolute()
+        or bool(path.anchor)
+        or ".." in path.parts
+        or path == Path(".")
+        for path in paths
     ):
         raise AgentRegistryError(
             f"Agent '{name}' detect.paths must be safe home-relative paths"
