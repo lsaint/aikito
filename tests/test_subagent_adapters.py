@@ -19,7 +19,9 @@ from layout_helpers import write_agents
 
 
 GOLDEN = json.loads(
-    (Path(__file__).parent / "fixtures/subagent-adapter-parity.json").read_text()
+    (Path(__file__).parent / "fixtures/subagent-adapter-parity.json").read_text(
+        encoding="utf-8"
+    )
 )
 
 
