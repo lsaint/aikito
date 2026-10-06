@@ -7,6 +7,10 @@ instruction_path = ".copilot/copilot-instructions.md"
 project_instruction_path = "AGENTS.md"
 skills_path = ".agents/skills"
 
+[agents.github-copilot.detect]
+commands = ["copilot"]
+paths = [".copilot"]
+
 [agents.github-copilot.runner]
 command = ["copilot", "-C", "{workdir}", "-i", "{prompt}"]
 

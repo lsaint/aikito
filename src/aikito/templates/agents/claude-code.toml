@@ -7,6 +7,10 @@ instruction_path = ".claude/CLAUDE.md"
 project_instruction_path = ".claude/CLAUDE.md"
 skills_path = ".claude/skills"
 
+[agents.claude-code.detect]
+commands = ["claude"]
+paths = [".claude"]
+
 [agents.claude-code.runner]
 command = ["claude", "{prompt}"]
 

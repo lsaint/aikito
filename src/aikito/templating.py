@@ -13,8 +13,9 @@ from pathlib import Path
 from typing import List, Tuple
 
 from .agents import (
-    AGENT_INSTALL_MARKERS,
+    BUILTIN_AGENTS,
     check_agent_availability,
+    bundled_agent,
 )
 from .compat import _package_resource_dir
 
@@ -78,13 +79,13 @@ def load_default_memory_instruction() -> str:
 
 
 def load_agents_template() -> str:
-    return _join_agent_templates(tuple(AGENT_INSTALL_MARKERS))
+    return _join_agent_templates(tuple(BUILTIN_AGENTS))
 
 
 def filter_agents_template(agent_names: tuple[str, ...]) -> str:
     """Render the registry using only the selected per-Agent templates."""
     selected = set(agent_names)
-    ordered_names = tuple(name for name in AGENT_INSTALL_MARKERS if name in selected)
+    ordered_names = tuple(name for name in BUILTIN_AGENTS if name in selected)
     return _join_agent_templates(ordered_names)
 
 
@@ -99,16 +100,23 @@ def _join_agent_templates(agent_names: tuple[str, ...]) -> str:
 def detect_existing_agents(home: Path) -> List[Tuple[str, Path]]:
     """Return installed registry agents in template order."""
     detected = []
-    for agent_name, (
-        display_name,
-        binary,
-        relative_marker,
-    ) in AGENT_INSTALL_MARKERS.items():
-        if not check_agent_availability(agent_name, home).is_installed:
+    for name in BUILTIN_AGENTS:
+        agent = bundled_agent(name, home)
+        if not check_agent_availability(agent, home).is_installed:
             continue
-        executable = shutil.which(binary)
+        executable = next(
+            (
+                value
+                for command in agent.detect.commands
+                if (value := shutil.which(command))
+            ),
+            None,
+        )
+        marker = next(
+            (home / path for path in agent.detect.paths if (home / path).exists()), home
+        )
         detected.append(
-            (display_name, Path(executable) if executable else home / relative_marker)
+            (agent.display_name, Path(executable) if executable else marker)
         )
     return detected
 
@@ -119,8 +127,8 @@ def detected_agent_names(
     detected_display_names = {name for name, _ in detected_agents}
     return tuple(
         name
-        for name, (display_name, _binary, _marker) in AGENT_INSTALL_MARKERS.items()
-        if display_name in detected_display_names
+        for name in BUILTIN_AGENTS
+        if bundled_agent(name, Path.home()).display_name in detected_display_names
     )
 
 
@@ -134,7 +142,7 @@ def verify_templates() -> list[str]:
     required_files = [
         *(template_name for _dest, template_name, _description in TEMPLATE_FILES),
         *(template_name for _dest, template_name in PROJECT_TEMPLATE_FILES),
-        *(f"agents/{name}.toml" for name in AGENT_INSTALL_MARKERS),
+        *(f"agents/{name}.toml" for name in BUILTIN_AGENTS),
         *(f"skills/{name}/SKILL.md" for name in BUNDLED_SKILL_NAMES),
         *BUNDLED_SKILL_REFERENCE_FILES,
     ]

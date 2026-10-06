@@ -93,6 +93,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Agent detection and adapter reuse CLI smoke
+        shell: pwsh
+        run: python tests/agent_adapters_smoke.py
+
       - name: Verify Windows CLI Help and Version
         shell: pwsh
         run: |

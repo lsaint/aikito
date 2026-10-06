@@ -7,6 +7,10 @@ instruction_path = ".grok/rules/aikito.md"
 project_instruction_path = "AGENTS.md"
 skills_path = ".agents/skills"
 
+[agents.grok.detect]
+commands = ["grok"]
+paths = [".grok"]
+
 [agents.grok.runner]
 command = ["grok", "--cwd", "{workdir}", "-p", "{prompt}"]
 

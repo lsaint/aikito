@@ -219,14 +219,14 @@ def collect_subagent_details(
     inspection: WorkspaceInspectionContext | None = None,
 ) -> list[SubagentDetailRow]:
     from .subagent import (
-        FORMAT_EXTENSIONS,
+        get_target_subagent_path,
         load_all_agents,
         load_subagent_definitions,
     )
 
     inspection = inspection or create_inspection_context(aikito_dir, home)
     agent_configs, all_agent_names = load_all_agents(aikito_dir, home)
-    subagent_defs = load_subagent_definitions(aikito_dir, allow_empty=True)
+    subagent_defs = load_subagent_definitions(aikito_dir, allow_empty=True, home=home)
     try:
         inspections = inspection.subagent_views
     except SubagentConfigError:
@@ -265,20 +265,18 @@ def collect_subagent_details(
             insp_view = inspection_map.get((name, ag_key))
             if ag_key not in sub_def.agents:
                 status = "NOT_TARGETED"
-                ext = FORMAT_EXTENSIONS.get(ag_cfg.config_format, ".md")
-                target_path = ag_cfg.config_path / f"{name}{ext}"
+                target_path = get_target_subagent_path(ag_cfg, name)
             elif insp_view:
                 if insp_view.status == InspectionStatus.UPDATE:
                     status = "DRIFT"
                 else:
                     status = str(insp_view.status)
                 target_path = insp_view.target_path or (
-                    ag_cfg.config_path / f"{name}.md"
+                    get_target_subagent_path(ag_cfg, name)
                 )
             else:
                 status = "MISSING"
-                ext = FORMAT_EXTENSIONS.get(ag_cfg.config_format, ".md")
-                target_path = ag_cfg.config_path / f"{name}{ext}"
+                target_path = get_target_subagent_path(ag_cfg, name)
 
             platform_opts = sub_def.platform_configs.get(ag_key, {})
             canonical_path = aikito_dir / "subagents" / f"{name}.md"
@@ -536,6 +534,7 @@ def collect_agent_status_rows(
             AgentStatusRow(
                 agent_name=name,
                 display_name=definition.display_name,
+                consumer_name=get_consumer_display_name(definition),
                 instructions_status=instructions_status,
                 skills_status=skills_status,
                 skills_link_depth=skills_link_depth,
@@ -711,7 +710,7 @@ def get_status_report_data(aikito_dir: Path, home: Path) -> StatusReportData:
     projects = collect_project_summaries(aikito_dir, home)
 
     consumer_names = sorted(
-        dict.fromkeys(get_consumer_display_name(a.agent_name) for a in agent_rows)
+        dict.fromkeys((a.consumer_name or a.agent_name) for a in agent_rows)
     )
 
     return StatusReportData(

@@ -460,7 +460,7 @@ class CheckConfigSyntaxTest(unittest.TestCase):
         self._write_minimal_toml_files()
         write_agents(self.aikito_dir, '[agents.grok]\ndisplay_name = "Grok Build"\n')
 
-        with patch("aikito.doctor.is_agent_installed", return_value=False):
+        with patch("aikito.agents.shutil.which", return_value=None):
             section = check_config_syntax(self.aikito_dir, self.home)
 
         finding = next(

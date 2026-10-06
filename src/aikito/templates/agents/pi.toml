@@ -13,6 +13,10 @@ instruction_path = ".pi/agent/AGENTS.md"
 project_instruction_path = "AGENTS.md"
 skills_path = ".agents/skills"
 
+[agents.pi.detect]
+commands = ["pi"]
+paths = [".pi"]
+
 [agents.pi.runner]
 command = ["pi", "-p", "{prompt}"]
 

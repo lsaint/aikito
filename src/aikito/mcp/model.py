@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..inspection import ResourceInspectionView
+    from ..agents import Agent
 from urllib.request import HTTPRedirectHandler
 
 from ..config_runtime import ConfigTarget, FileSnapshot, StaleConfigPlanError
@@ -116,6 +117,7 @@ class AgentSpec:
     contains_secret: bool = False
     missing_credential_env: str = ""
     home: Path | None = None
+    definition: Agent | None = field(default=None, repr=False, compare=False)
 
     @property
     def state_key(self) -> str:

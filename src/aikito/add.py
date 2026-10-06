@@ -23,7 +23,8 @@ from .frontmatter import (
 )
 from .project_sync import sync_project
 from .skill_state import WorkspaceWriterLock
-from .subagent import KNOWN_PLATFORM_FIELDS
+from .agents import load_agent_definitions
+from .subagent_adapters import get_subagent_adapter
 from .templating import BUNDLED_SKILL_NAMES
 from .workspace.sync import sync_global_resources
 
@@ -888,6 +889,7 @@ def _resolve_subagent_source(
     name: Optional[str],
     description: Optional[str],
     home: Path,
+    aikito_dir: Path,
 ) -> ImportedSubagent:
     """
     Resolve and parse an external subagent source (file or directory).
@@ -943,9 +945,17 @@ def _resolve_subagent_source(
     else:
         raise ValueError(f"Source path is not a file or directory: {from_source}")
 
+    definitions = load_agent_definitions(aikito_dir, home)
+    platform_adapters = {
+        name: get_subagent_adapter(agent.subagents.config_format)
+        for name, agent in definitions.items()
+        if agent.subagents
+    }
     try:
         raw_content = source_md_file.read_text(encoding="utf-8")
-        source_meta, source_body = _parse_markdown_frontmatter(raw_content)
+        source_meta, source_body = _parse_markdown_frontmatter(
+            raw_content, platform_names=platform_adapters
+        )
     except Exception as exc:
         raise ValueError(
             f"Failed to read source file '{_display_path(source_md_file, home)}': {exc}"
@@ -995,21 +1005,30 @@ def _resolve_subagent_source(
 
     # Explicit platform tables in frontmatter (e.g. claude-code: { ... })
     explicit_platform_configs: Dict[str, Dict[str, Any]] = {}
-    for plat in KNOWN_PLATFORM_FIELDS:
-        if plat in source_meta and isinstance(source_meta[plat], dict):
+    adapter_fields = set().union(
+        *(adapter.allowed_fields for adapter in platform_adapters.values())
+    )
+    for plat, value in source_meta.items():
+        if (
+            isinstance(value, dict)
+            and plat not in adapter_fields
+            and plat not in ("name", "description", "agents", "metadata")
+        ):
             validated = validate_platform_opts(
-                plat, inferred_name or "subagent", source_meta[plat]
+                plat, inferred_name or "subagent", source_meta[plat], agents=definitions
             )
             explicit_platform_configs[plat] = validated
 
     # Top-level platform options (e.g. tools, model, user-invocable, etc.)
     top_level_opts: Dict[str, Any] = {}
-    all_known_platform_fields = set().union(*KNOWN_PLATFORM_FIELDS.values()) - {
+    all_known_platform_fields = set().union(
+        *(adapter.allowed_fields for adapter in platform_adapters.values())
+    ) - {
         "name",
         "description",
     }
     for k, v in source_meta.items():
-        if k in ("name", "description", "agents") or k in KNOWN_PLATFORM_FIELDS:
+        if k in ("name", "description", "agents") or k in platform_adapters:
             continue
         if k in all_known_platform_fields:
             top_level_opts[k] = v
@@ -1087,7 +1106,9 @@ def add_subagent(
     imported = None
     if from_source is not None:
         try:
-            imported = _resolve_subagent_source(from_source, name, description, home)
+            imported = _resolve_subagent_source(
+                from_source, name, description, home, aikito_dir
+            )
         except (ValueError, SubagentConfigError) as exc:
             print(f"[ERROR] {exc}", file=sys.stderr)
             return False
@@ -1143,8 +1164,14 @@ def add_subagent(
                 imported.top_level_options
             )
     try:
+        definitions = load_agent_definitions(aikito_dir, home)
         for platform, options in platform_configs.items():
-            validate_platform_opts(platform, name_clean, options)
+            validate_platform_opts(
+                platform,
+                name_clean,
+                options,
+                agents=definitions,
+            )
         body = (
             imported.instructions
             if imported

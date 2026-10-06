@@ -1926,7 +1926,7 @@ reason = "off"
             spec(
                 "grok",
                 home / ".grok/config.toml",
-                "toml",
+                "grok_toml",
                 {"url": url},
                 enabled=False,
                 reason="off",
@@ -1941,7 +1941,17 @@ reason = "off"
                 reason="MCP synchronization is not supported for agent 'pi'",
             ),
         ]
-        self.assertEqual([dataclasses.asdict(item) for item in specs], expected)
+        self.assertEqual(
+            [
+                {
+                    key: value
+                    for key, value in dataclasses.asdict(item).items()
+                    if key != "definition"
+                }
+                for item in specs
+            ],
+            expected,
+        )
 
     def test_declared_unsupported_capability_keeps_path_and_reason(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1991,7 +2001,14 @@ config_path = ".plain/mcp.json"
             }
 
         self.assertEqual(
-            [dataclasses.asdict(item) for item in specs],
+            [
+                {
+                    key: value
+                    for key, value in dataclasses.asdict(item).items()
+                    if key != "definition"
+                }
+                for item in specs
+            ],
             [
                 unsupported(
                     "legacy",

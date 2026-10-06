@@ -37,17 +37,19 @@ from .conflict import (
     has_any_conflict_markers as _has_conflict_markers,
 )
 from .agents import (
-    AGENT_INSTALL_MARKERS,
+    BUILTIN_AGENTS,
+    bundled_agent,
+    check_agent_availability,
     AgentRegistry,
     AgentRegistryError,
     check_target_availability,
-    is_agent_installed,
     load_agent_definitions,
 )
 from .inspection import InspectionStatus
 from .diagnostics import Finding, FindingAction
 from .link import classify_symlink  # noqa: F401
-from .mcp.adapters.jsonc import _load_document, _parse_jsonc
+from .mcp.adapters import get_mcp_adapter, read_all_entries
+
 from .mcp import (
     MCPConfigError,
     load_agent_specs,
@@ -543,25 +545,10 @@ def check_orphans(
 
             existing_servers: set[str] = set()
             fmt = capability.config_format
-            if fmt in ("agy_json", "claude_json", "copilot_json"):
-                try:
-                    doc = json.loads(text)
-                    existing_servers = set(doc.get("mcpServers", {}).keys())
-                except json.JSONDecodeError:
-                    pass
-            elif fmt == "toml":
-                try:
-                    doc = tomllib.loads(text)
-                    existing_servers = set(doc.get("mcp_servers", {}).keys())
-                except tomllib.TOMLDecodeError:
-                    pass
-            elif fmt == "jsonc":
-                try:
-                    doc = _parse_jsonc(text)
-                    if isinstance(doc, dict):
-                        existing_servers = set(doc.get("mcp", {}).keys())
-                except Exception:  # noqa: BLE001, S110
-                    pass
+            try:
+                existing_servers = set(read_all_entries(fmt, text))
+            except MCPConfigError:
+                pass
 
             for srv_key in sorted(existing_servers):
                 if (
@@ -813,8 +800,11 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
                             "aikito doctor --fix",
                         )
                     )
-            for agent_name in sorted(registered_agents & AGENT_INSTALL_MARKERS.keys()):
-                if not is_agent_installed(agent_name, home):
+            definitions = load_agent_definitions(aikito_dir, home)
+            for agent_name in sorted(registered_agents):
+                if check_agent_availability(
+                    definitions[agent_name], home
+                ).is_not_installed:
                     findings.append(
                         _ok(
                             f"agents/{agent_name}.toml: registered Agent is offline on this host"
@@ -933,31 +923,15 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
                             "aikito sync mcp",
                         )
                     )
-                elif fmt in ("agy_json", "claude_json", "copilot_json"):
-                    json.loads(text)
-                    findings.append(
-                        _ok(f"{definition.display_name} config: valid JSON ({display})")
-                    )
-                elif fmt == "toml":
-                    tomllib.loads(text)
-                    findings.append(
-                        _ok(f"{definition.display_name} config: valid TOML ({display})")
-                    )
-                elif fmt == "jsonc":
-                    # Basic parse via our internal parser
-                    _parse_jsonc(text)
+                else:
+                    adapter = get_mcp_adapter(fmt)
+                    adapter.read_all_entries(text)
                     findings.append(
                         _ok(
-                            f"{definition.display_name} config: valid JSONC ({display})"
+                            f"{definition.display_name} config: valid {adapter.syntax_name} ({display})"
                         )
                     )
-                elif fmt == "dsh_cordis":
-                    _load_document(fmt, text)
-                    findings.append(
-                        _ok(
-                            f"{definition.display_name} config: valid Cordis patch YAML ({display})"
-                        )
-                    )
+
             except (
                 json.JSONDecodeError,
                 tomllib.TOMLDecodeError,
@@ -976,18 +950,31 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
 
     # 3d. Subagent platform option schema
     try:
-        defs = load_subagent_definitions(aikito_dir, allow_empty=True)
+        agents = load_agent_definitions(aikito_dir, home)
+        defs = load_subagent_definitions(aikito_dir, allow_empty=True, home=home)
         subagent_schema_ok = True
         for sub_name, definition in defs.items():
             for agent_name, opts in definition.platform_configs.items():
+                if agent_name not in agents:
+                    findings.append(
+                        _warn(
+                            f"subagents/{sub_name}.md: platform '{agent_name}' has no Agent definition in this workspace; ignored"
+                        )
+                    )
+                    continue
                 try:
-                    validate_platform_opts(agent_name, sub_name, opts)
+                    validate_platform_opts(
+                        agent_name,
+                        sub_name,
+                        opts,
+                        agents=agents,
+                    )
                 except SubagentConfigError as exc:
                     findings.append(_fail(f"subagents/{sub_name}.md: {exc}"))
                     subagent_schema_ok = False
         if subagent_schema_ok and defs:
             findings.append(_ok("Subagent platform options: all valid"))
-    except SubagentConfigError as exc:
+    except (SubagentConfigError, AgentRegistryError) as exc:
         findings.append(_fail(f"subagents: {exc}"))
 
     return DoctorSection(name="Configuration", findings=findings)
@@ -1366,17 +1353,19 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
 
     # 6c. Agent CLI availability
 
-    cli_map = {
-        "codex": "codex",
-        "claude": "claude",
-        "agy": "agy",
-        "opencode": "opencode",
-        "copilot": "copilot",
-        "dsh": "dsh",
-        "grok": "grok",
-    }
+    try:
+        definitions = load_agent_definitions(aikito_dir, home).values()
+    except AgentRegistryError:
+        definitions = (bundled_agent(name, home) for name in BUILTIN_AGENTS)
+    commands = dict.fromkeys(
+        command
+        for definition in definitions
+        if definition.detect
+        for command in definition.detect.commands
+    )
     found_clis: list[str] = []
-    for label, binary in cli_map.items():
+    for binary in commands:
+        label = binary
         if shutil.which(binary):
             findings.append(_ok(f"{label} CLI found ({binary})"))
             found_clis.append(label)
@@ -1385,7 +1374,7 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
         findings.append(
             _warn(
                 "No supported agent CLI found in $PATH (install at least one: "
-                f"{', '.join(sorted(cli_map.keys()))})"
+                f"{', '.join(sorted(commands))})"
             )
         )
 

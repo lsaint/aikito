@@ -7,6 +7,10 @@ instruction_path = ".config/opencode/AGENTS.md"
 project_instruction_path = "AGENTS.md"
 skills_path = ".agents/skills"
 
+[agents.opencode.detect]
+commands = ["opencode"]
+paths = [".config/opencode"]
+
 [agents.opencode.runner]
 command = ["opencode", "{workdir}", "--prompt", "{prompt}"]
 

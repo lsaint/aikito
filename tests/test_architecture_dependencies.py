@@ -9,7 +9,7 @@ from pathlib import Path
 SRC = Path(__file__).resolve().parents[1] / "src" / "aikito"
 
 AGENT_DOMAIN_SYMBOLS = {
-    "AGENT_INSTALL_MARKERS",
+    "BUILTIN_AGENTS",
     "Agent",
     "AgentDefinition",
     "AgentRegistry",
@@ -57,6 +57,69 @@ def _imports_mcp_module(path: Path) -> bool:
 
 
 class ArchitectureDependencyTests(unittest.TestCase):
+    def test_core_has_no_builtin_agent_identity_branches(self) -> None:
+        from aikito.agents import BUILTIN_AGENTS
+
+        violations = []
+        paths = (
+            "agents.py",
+            "subagent.py",
+            "doctor.py",
+            "inspection.py",
+            "mcp/planner.py",
+            "mcp/executor.py",
+        )
+        for relative in paths:
+            tree = ast.parse((SRC / relative).read_text())
+            parents = {
+                child: parent
+                for parent in ast.walk(tree)
+                for child in ast.iter_child_nodes(parent)
+            }
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Compare):
+                    continue
+                identity = node.left
+                identity_name = (
+                    identity.id
+                    if isinstance(identity, ast.Name)
+                    else identity.attr
+                    if isinstance(identity, ast.Attribute)
+                    else ""
+                )
+                if identity_name not in ("name", "agent", "agent_name", "ag_name"):
+                    continue
+                names = {
+                    value.value
+                    for value in ast.walk(node)
+                    if isinstance(value, ast.Constant) and isinstance(value.value, str)
+                } & set(BUILTIN_AGENTS)
+                if not names:
+                    continue
+                owner = node
+                while owner in parents and not isinstance(owner, ast.FunctionDef):
+                    owner = parents[owner]
+                # The only identity compatibility rule maps old portable Grok TOML to its semantic adapter.
+                if (
+                    relative == "agents.py"
+                    and isinstance(owner, ast.FunctionDef)
+                    and owner.name == "_load_mcp_capability"
+                    and names == {"grok"}
+                ):
+                    continue
+                violations.append(f"{relative}:{node.lineno}: {sorted(names)}")
+        self.assertEqual(violations, [])
+
+    def test_layout_and_frontmatter_do_not_import_subagent_core(self) -> None:
+        for relative in ("workspace/layout.py", "frontmatter.py"):
+            tree = ast.parse((SRC / relative).read_text())
+            imports = [
+                node.module
+                for node in ast.walk(tree)
+                if isinstance(node, ast.ImportFrom)
+            ]
+            self.assertNotIn("subagent", imports, relative)
+
     def test_agents_module_does_not_import_mcp(self) -> None:
         self.assertFalse(_imports_mcp_module(SRC / "agents.py"))
 

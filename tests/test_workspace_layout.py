@@ -23,7 +23,7 @@ def legacy_workspace(root: Path) -> None:
     (root / "agents.toml").write_text(
         "# Registry header\n[agents]\n\n# Codex description\n[agents.codex]\n"
         'display_name = "Codex"\n\n[agents.codex.subagents]\n'
-        'config_path = ".codex/config.toml"\n',
+        'config_path = ".codex/agents"\nconfig_format = "codex_toml"\n',
         encoding="utf-8",
     )
     (root / "subagents.toml").write_text(
@@ -148,7 +148,7 @@ def test_migration_keeps_comments_with_the_following_resource(tmp_path: Path) ->
         "# General guidance for all agents\n\n"
         "# Codex CLI\n"
         "[agents.codex]\n"
-        'display_name = "Codex"\n\n'
+        'display_name = "Codex"\n\n[agents.codex.subagents]\nconfig_path = ".codex/agents"\nconfig_format = "codex_toml"\n\n'
         "# Claude Code CLI\n"
         "[agents.claude-code]\n"
         'display_name = "Claude Code"\n',
@@ -211,3 +211,15 @@ def test_empty_subagent_registry_keeps_comments_in_layout_marker(
         encoding="utf-8"
     )
     require_current_layout(root)
+
+
+def test_migration_uses_supplied_home(tmp_path):
+    root, home = tmp_path / "legacy", tmp_path / "home"
+    legacy_workspace(root)
+    with patch(
+        "pathlib.Path.home", side_effect=AssertionError("Ambient home was used")
+    ):
+        plan = build_migration_plan(root, home=home)
+        assert not plan.blocked
+        apply_migration(plan, home)
+    assert (root / "layout.toml").is_file()

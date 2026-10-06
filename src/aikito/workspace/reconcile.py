@@ -867,6 +867,7 @@ def apply_reconcile_plan(
                     downloads,
                     Path(staging),
                     policy=_local_policy(plan.local),
+                    home=home,
                 )
                 mutations = capture_mutations(
                     ResourceContent.from_workspace(plan.local_snapshot),

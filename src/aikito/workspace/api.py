@@ -246,7 +246,7 @@ class Workspace:
         subagents_dir = self.path / "subagents"
         if subagents_dir.is_dir():
             try:
-                subs = load_subagent_definitions(self.path)
+                subs = load_subagent_definitions(self.path, home=self.home)
                 subagents_set.update(subs.keys())
             except Exception:
                 pass

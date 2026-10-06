@@ -7,6 +7,10 @@ instruction_path = ".codex/AGENTS.md"
 project_instruction_path = "AGENTS.md"
 skills_path = ".agents/skills"
 
+[agents.codex.detect]
+commands = ["codex"]
+paths = [".codex"]
+
 [agents.codex.runner]
 command = ["codex", "-C", "{workdir}", "{prompt}"]
 

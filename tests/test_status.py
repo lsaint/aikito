@@ -59,6 +59,7 @@ class AikitoStatusRenderTest(unittest.TestCase):
         self.agent_rows = [
             AgentStatusRow(
                 agent_name="claude-code",
+                consumer_name="claude",
                 display_name="Claude Code",
                 instructions_status="OK",
                 skills_status="OK (11)",
@@ -88,6 +89,7 @@ class AikitoStatusRenderTest(unittest.TestCase):
         conflict_rows = [
             AgentStatusRow(
                 agent_name="claude-code",
+                consumer_name="claude",
                 display_name="Claude Code",
                 instructions_status="MISSING",
                 skills_status="OK (11)",
@@ -122,6 +124,7 @@ class AikitoStatusRenderTest(unittest.TestCase):
         clean_rows = [
             AgentStatusRow(
                 agent_name="claude-code",
+                consumer_name="claude",
                 display_name="Claude Code",
                 instructions_status="OK",
                 skills_status="OK (11)",
@@ -1063,6 +1066,7 @@ instruction_path = ".codex/AGENTS.md"
             ),
             AgentStatusRow(
                 agent_name="github-copilot",
+                consumer_name="copilot",
                 display_name="GitHub Copilot CLI",
                 instructions_status="OK",
                 skills_status="OK (2)",
@@ -1072,6 +1076,7 @@ instruction_path = ".codex/AGENTS.md"
             ),
             AgentStatusRow(
                 agent_name="claude-code",
+                consumer_name="claude",
                 display_name="Claude Code",
                 instructions_status="OK",
                 skills_status="OK (2)",

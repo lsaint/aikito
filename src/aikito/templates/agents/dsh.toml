@@ -7,6 +7,10 @@ instruction_path = ".dsh/AGENTS.md"
 project_instruction_path = "AGENTS.md"
 skills_path = ".agents/skills"
 
+[agents.dsh.detect]
+commands = ["dsh"]
+paths = [".dsh"]
+
 [agents.dsh.runner]
 command = ["dsh", "--profile", "headless", "{prompt}"]
 

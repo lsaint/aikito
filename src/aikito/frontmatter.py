@@ -9,8 +9,7 @@ from __future__ import annotations
 import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
-
-from .subagent import KNOWN_PLATFORM_FIELDS
+from collections.abc import Collection
 
 
 def _split_markdown_frontmatter(
@@ -82,7 +81,9 @@ def _parse_yaml_value(val_str: str) -> Any:
     return val_str.strip("\"'")
 
 
-def _parse_markdown_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
+def _parse_markdown_frontmatter(
+    content: str, *, platform_names: Collection[str] = ()
+) -> Tuple[Dict[str, Any], str]:
     split_res = _split_markdown_frontmatter(content)
     if not split_res:
         split_res = _split_markdown_frontmatter(content.strip())
@@ -139,7 +140,7 @@ def _parse_markdown_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
                         meta[key] = "\n".join(c.strip() for c in non_empty)
                 elif not non_empty:
                     meta[key] = ""
-                elif key in KNOWN_PLATFORM_FIELDS and any(":" in c for c in non_empty):
+                elif key in platform_names and any(":" in c for c in non_empty):
                     sub_dict: Dict[str, Any] = {}
                     for c in non_empty:
                         if ":" in c:

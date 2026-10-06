@@ -93,6 +93,44 @@ and `builtin_mcps` (a list of Agent-native default server names, such as
 `["openaiDeveloperDocs"]` for Codex, that `aikito adopt` automatically omits from
 workspace adoption).
 
+### Agent definitions and adapters
+
+Agent TOML declares paths, runner commands, optional capabilities, and portable
+installation policy. Core plans and executes capabilities; MCP and Subagent
+registries own native rendering, parsing, field validation, and file layouts.
+`config_format` selects the semantic adapter. Agents with the same file syntax
+can use different adapters when their header or authentication behavior differs.
+
+An optional detection table accepts CLI command names and safe paths relative
+to the host's home directory:
+
+```toml
+[agents.example.detect]
+commands = ["example"]
+paths = [".example"]
+```
+
+Any command on `PATH` or existing marker counts as installed. Missing detection
+metadata in an older built-in definition uses only the bundled detection policy;
+other capability fields are never merged. Custom agents without signals use the
+target parent directory when available and otherwise remain unknown. Observation
+results stay local and are never written into portable resources.
+
+Subagent platform tables resolve through the workspace's Agent definition to
+its adapter. Local authoring (`add`, `adopt`, layout migration) rejects unknown
+platforms, missing capabilities, and invalid fields before writing. Workspace
+resource batches validate only written subagents and those whose platform
+definitions changed, against the resulting workspace including Agent
+definitions in the same batch; platforms without a definition there stay
+portable. Runtime loading and synchronization ignore such platforms and Doctor
+reports them as warnings. Shared-file adapters provide text merges; Core still
+freezes final content, checks stale plans, protects conflicts, backs up, and
+writes atomically.
+
+Legacy Grok `mcp.config_format = "toml"` normalizes internally to `grok_toml`.
+The portable bundled spelling stays `toml` for older clients, preserving Grok's
+`${ENV}` headers independently of Codex's `env_http_headers`.
+
 ## Project Runtime Directory
 
 Project synchronization creates a managed `.agents/` directory in the target

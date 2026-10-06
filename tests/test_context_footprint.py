@@ -38,6 +38,16 @@ class TestContextFootprintEstimates(unittest.TestCase):
         self.assertEqual(format_token_estimate(6200), "~6.2k")
         self.assertEqual(format_token_estimate(18400), "~18.4k")
 
+    def test_extract_colon_description(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "SKILL.md").write_text(
+                "---\ndescription:\n  Use when: reviewing code\nmetadata:\n  author: me\n---\nReview.\n"
+            )
+            self.assertEqual(
+                extract_skill_description(root), "Use when: reviewing code"
+            )
+
     def test_extract_skill_description(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             skill_dir = Path(td) / "my-skill"

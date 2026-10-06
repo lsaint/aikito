@@ -166,7 +166,7 @@ def cmd_migrate_workspace_resources(args: argparse.Namespace) -> None:
         with WorkspaceWriterLock(Path.home()):
             if recover((get_aikito_dir(),), policy=migration_path_policy()):
                 print("[RECOVER] Interrupted workspace migration recovered")
-    plan = build_migration_plan(get_aikito_dir())
+    plan = build_migration_plan(get_aikito_dir(), home=Path.home())
     for path, _content in plan.creates:
         print(f"[CREATE] {path}")
     for path, _content in plan.updates:

@@ -200,11 +200,9 @@ def _parse_subagent_text(path: Path | str, content: str) -> tuple[dict[str, Any]
         or len(set(agents)) != len(agents)
     ):
         raise WorkspaceLayoutError(f"Subagent agents list invalid: {path}")
-    from ..subagent import KNOWN_PLATFORM_FIELDS
-
     if any(
         key not in ("description", "agents")
-        and (key not in KNOWN_PLATFORM_FIELDS or not isinstance(value, dict))
+        and (validate_resource_name(key, "agent") or not isinstance(value, dict))
         for key, value in metadata.items()
     ):
         raise WorkspaceLayoutError(f"Subagent platform config invalid: {path}")
@@ -301,9 +299,11 @@ def render_subagent_text(
     return "".join(lines)
 
 
-def build_migration_plan(root: Path) -> MigrationPlan:
+def build_migration_plan(root: Path, *, home: Path | None = None) -> MigrationPlan:
     """Read the legacy layout and report all target collisions before writing."""
     root = root.expanduser().resolve()
+    # Without a host home, the root only anchors field validation; no path is resolved.
+    home = home if home is not None else root
     version = _marker_version(root)
     legacy_paths = tuple(
         name
@@ -330,7 +330,8 @@ def build_migration_plan(root: Path) -> MigrationPlan:
     marker_content = LAYOUT_CONTENT
     creates: list[tuple[str, str]] = []
     updates: list[tuple[str, str]] = []
-    from ..subagent import SubagentConfigError, validate_platform_opts
+    from ..subagent_validation import definitions_from_document, validate_platform_opts
+    from ..subagent_adapters import SubagentConfigError
 
     for name in legacy_paths:
         path = root / name
@@ -412,11 +413,17 @@ def build_migration_plan(root: Path) -> MigrationPlan:
                 findings.append(f"Subagent cannot round-trip: {name}")
             else:
                 updates.append((f"subagents/{name}.md", new_text))
+        definitions = definitions_from_document(agents_document, home)
         for name, metadata in table.items():
             if isinstance(metadata, dict):
                 for platform, options in metadata.items():
                     if platform not in ("description", "agents"):
-                        validate_platform_opts(platform, name, options)
+                        validate_platform_opts(
+                            platform,
+                            name,
+                            options,
+                            agents=definitions,
+                        )
         for path in (root / "subagents").iterdir():
             if path.name not in (".DS_Store", "Thumbs.db", "desktop.ini") and (
                 path.suffix != ".md" or path.stem not in table
@@ -453,7 +460,7 @@ def apply_migration(plan: MigrationPlan, home: Path) -> None:
     with WorkspaceWriterLock(home):
         if recover((plan.root,), policy=policy):
             raise WorkspaceLayoutError("Recovered an interrupted migration; run again")
-        fresh = build_migration_plan(plan.root)
+        fresh = build_migration_plan(plan.root, home=home)
         if fresh != plan:
             raise WorkspaceLayoutError("Workspace changed after migration planning")
         if plan.blocked:
@@ -504,9 +511,13 @@ def apply_migration(plan: MigrationPlan, home: Path) -> None:
             changes.append(marker)
 
             def verify() -> None:
-                _read_agent_files(plan.root)
-                from ..subagent import validate_platform_opts
+                document = _read_agent_files(plan.root)
+                from ..subagent_validation import (
+                    definitions_from_document,
+                    validate_platform_opts,
+                )
 
+                definitions = definitions_from_document(document, home)
                 for path in (plan.root / "subagents").iterdir():
                     if path.name in (".DS_Store", "Thumbs.db", "desktop.ini"):
                         continue
@@ -519,7 +530,12 @@ def apply_migration(plan: MigrationPlan, home: Path) -> None:
                     metadata, _ = parse_subagent_file(path)
                     for platform, options in metadata.items():
                         if platform not in ("description", "agents"):
-                            validate_platform_opts(platform, path.stem, options)
+                            validate_platform_opts(
+                                platform,
+                                path.stem,
+                                options,
+                                agents=definitions,
+                            )
                 if any((plan.root / name).exists() for name in _LEGACY_FILES):
                     raise WorkspaceLayoutError("Legacy files remain after migration")
 

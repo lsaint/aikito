@@ -168,6 +168,9 @@ jobs:
           grep -F "[CONNECTED]" ${{ runner.temp }}/connect-workspace.out
           grep -F "aikito doctor" ${{ runner.temp }}/connect-workspace.out
 
+      - name: Agent detection and adapter reuse CLI smoke
+        run: python3 tests/agent_adapters_smoke.py
+
       - name: Status consumers after cross-machine workspace sync
         run: |
           python3 - <<'PY'
@@ -177,7 +180,7 @@ jobs:
           import tempfile
           from pathlib import Path
 
-          from aikito.agents import AGENT_INSTALL_MARKERS
+          from aikito.agents import BUILTIN_AGENTS
           from aikito.init import init_workspace
           from aikito.templating import load_template
 
@@ -188,7 +191,7 @@ jobs:
               (home / ".gemini" / "config").mkdir(parents=True)
               (home / ".agents" / "skills").mkdir(parents=True)
               assert init_workspace(workspace, home)
-              for name in AGENT_INSTALL_MARKERS:
+              for name in BUILTIN_AGENTS:
                   (workspace / "agents" / f"{name}.toml").write_text(
                       load_template(f"agents/{name}.toml"), encoding="utf-8",
                   )

@@ -17,6 +17,7 @@ from ..plan_observation import (
     UnknownPlanActionError,
 )
 from .adapters import (
+    get_mcp_adapter,
     _entry_matches_desired,
     _fingerprint,
     _read_entry,
@@ -208,7 +209,7 @@ def build_mcp_plan(
         canonical_path = canonical_paths[phys_id]
         resolved_format = g_specs[0].config_format if g_specs else ""
         file_sensitive = any(
-            s.contains_secret or s.config_format in ("claude_json", "agy_json")
+            s.contains_secret or get_mcp_adapter(s.config_format).materializes_secrets
             for s in g_specs
         )
         file_snapshot = capture_file_snapshot(
@@ -234,7 +235,7 @@ def build_mcp_plan(
                 format=spec.config_format,
                 agent=spec.agent,
                 sensitive=spec.contains_secret
-                or spec.config_format in ("claude_json", "agy_json"),
+                or get_mcp_adapter(spec.config_format).materializes_secrets,
                 target_name=spec.target_name,
             )
 

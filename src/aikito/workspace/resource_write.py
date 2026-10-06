@@ -283,6 +283,54 @@ def verify_resource_snapshot(
         raise WorkspaceCoreError("Resource verification failed: " + ", ".join(changed))
 
 
+def _validate_subagent_batch(
+    expected: dict[str, Resource],
+    paths: dict[str, Path],
+    home: Path,
+    written: frozenset[str],
+) -> None:
+    """Validate written subagents and those whose platform definitions changed.
+
+    Untouched subagents were already accepted under read rules. Platforms
+    without an Agent definition in the resulting workspace stay portable,
+    matching runtime reads; registered platforms validate strictly.
+    """
+    from ..subagent_validation import (
+        definitions_from_document,
+        validate_subagent_metadata,
+    )
+    from ..subagent_adapters import SubagentConfigError
+    from ..agents import AgentRegistryError
+    from .layout import parse_subagent_file
+
+    try:
+        document = {"agents": {}}
+        for key, resource in expected.items():
+            if resource.kind == "agent":
+                document["agents"].update(
+                    tomllib.loads(paths[key].read_text(encoding="utf-8"))["agents"]
+                )
+        agents = definitions_from_document(document, home)
+        changed_agents = {
+            key.partition(":")[2] for key in written if key.startswith("agent:")
+        }
+        for key, resource in expected.items():
+            if resource.kind != "subagent":
+                continue
+            metadata, _ = parse_subagent_file(paths[key])
+            platforms = {
+                name: options
+                for name, options in metadata.items()
+                if name not in ("description", "agents") and name in agents
+            }
+            if key in written or changed_agents & platforms.keys():
+                validate_subagent_metadata(platforms, resource.name, agents)
+    except (AgentRegistryError, SubagentConfigError) as exc:
+        raise WorkspaceCoreError(
+            f"Invalid subagent platform configuration: {exc}"
+        ) from exc
+
+
 def prepare_resource_writes(
     content: ResourceContent,
     target_snapshot: WorkspaceSnapshot,
@@ -292,6 +340,7 @@ def prepare_resource_writes(
     policy: PathPolicy,
     external: frozenset[str] = frozenset(),
     sync: bool = False,
+    home: Path | None = None,
 ) -> tuple[tuple[Change, ...], dict[str, Resource]]:
     """Compose logical writes or deletions before the caller's atomic commit.
 
@@ -433,6 +482,21 @@ def prepare_resource_writes(
                 after,
             )
         )
+    effective_paths = {
+        key: target / resource.parts[0].path for key, resource in expected.items()
+    }
+    for change in changes:
+        if change.source is not None:
+            for key, resource in expected.items():
+                if resource.parts[0].path == change.path:
+                    effective_paths[key] = change.source
+    # Without a host home, the tree root only anchors field validation; no path is resolved.
+    _validate_subagent_batch(
+        expected,
+        effective_paths,
+        home if home is not None else target,
+        frozenset(write.id for write in writes),
+    )
     return tuple(changes), expected
 
 
@@ -442,6 +506,7 @@ def apply_resource_writes(
     writes: tuple[ResourceWrite, ...],
     *,
     policy: PathPolicy,
+    home: Path | None = None,
 ) -> None:
     """Apply the validated resource batch under the caller's writer lock."""
     _require_valid(source_snapshot)
@@ -452,6 +517,7 @@ def apply_resource_writes(
             writes,
             Path(staging),
             policy=policy,
+            home=home,
         )
         if changes:
             apply(

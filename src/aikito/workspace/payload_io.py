@@ -251,6 +251,7 @@ def prepare_payload_writes(
     *,
     policy: PathPolicy,
     external: frozenset[str] = frozenset(),
+    home: Path | None = None,
 ) -> tuple[tuple[Change, ...], dict[str, Resource]]:
     """Stage portable content, then compose each shared target file once."""
     content = materialize_resources(resources, payloads, staging)
@@ -264,4 +265,5 @@ def prepare_payload_writes(
         policy=policy,
         external=external,
         sync=True,
+        home=home,
     )

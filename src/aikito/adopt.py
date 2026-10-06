@@ -831,6 +831,8 @@ def _build_file_plans(
     instructions: InstructionsAdoption,
     mcp_servers: List[MCPServerAdoption],
     subagents: List[SubagentAdoption],
+    *,
+    home: Path,
 ) -> tuple[AdoptFilePlan, ...]:
     plans: list[AdoptFilePlan] = []
 
@@ -911,6 +913,11 @@ def _build_file_plans(
         from .subagent import SubagentConfigError, validate_platform_opts
         from .workspace.layout import render_subagent_text
 
+        agents = (
+            load_agent_definitions(aikito_dir, home)
+            if any(sub.platform_configs for sub in subagents)
+            else {}
+        )
         instructions_dir = aikito_dir / "subagents"
         for sub in subagents:
             name_error = validate_resource_name(sub.subagent_name, "subagent")
@@ -942,7 +949,12 @@ def _build_file_plans(
                             "Missing description, target Agent, or instructions"
                         )
                     for agent, options in sub.platform_configs.items():
-                        validate_platform_opts(agent, sub.subagent_name, options)
+                        validate_platform_opts(
+                            agent,
+                            sub.subagent_name,
+                            options,
+                            agents=agents,
+                        )
                     desired = render_subagent_text(
                         {
                             "description": sub.description,
@@ -978,6 +990,8 @@ def _collect_adopt_findings(
     mcp_servers: List[MCPServerAdoption],
     subagents: List[SubagentAdoption],
     errors: list[Finding],
+    *,
+    home: Path,
 ) -> tuple[Finding, ...]:
     findings = list(errors)
     if instructions.has_conflict:
@@ -1017,7 +1031,9 @@ def _collect_adopt_findings(
 
     subagent_logs = [
         (fp.resource_name, fp.log_message)
-        for fp in _build_file_plans(aikito_dir, instructions, mcp_servers, subagents)
+        for fp in _build_file_plans(
+            aikito_dir, instructions, mcp_servers, subagents, home=home
+        )
         if fp.resource_kind == "subagent_prompt"
     ]
     subagents_by_name = {sub.subagent_name: sub for sub in subagents}
@@ -1051,6 +1067,7 @@ def collect_adopt_findings(plan: AdoptPlan) -> tuple[Finding, ...]:
         plan.mcp_servers,
         plan.subagents,
         list(plan.errors),
+        home=plan.home,
     )
 
 
@@ -1064,10 +1081,15 @@ def _create_adopt_plan(
     skipped: tuple[str, ...] = (),
 ) -> AdoptPlan:
     file_plans = _build_file_plans(
-        request.workspace, instructions, mcp_servers, subagents
+        request.workspace, instructions, mcp_servers, subagents, home=request.home
     )
     findings = _collect_adopt_findings(
-        request.workspace, instructions, mcp_servers, subagents, errors
+        request.workspace,
+        instructions,
+        mcp_servers,
+        subagents,
+        errors,
+        home=request.home,
     )
     backup_sources = tuple(
         _collect_sources_for_backup(request.home, instructions, subagents)

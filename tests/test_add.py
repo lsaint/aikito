@@ -1213,7 +1213,9 @@ claude-code:
 ---
 # Instructions
 """
-        meta, body = _parse_markdown_frontmatter(content)
+        meta, body = _parse_markdown_frontmatter(
+            content, platform_names={"codex", "claude-code"}
+        )
         self.assertEqual(meta.get("name"), "multi-helper")
         self.assertEqual(meta.get("codex"), {"model": "gpt-4o"})
         self.assertEqual(meta.get("claude-code"), {"model": "claude-3-5-sonnet"})

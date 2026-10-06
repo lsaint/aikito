@@ -7,6 +7,10 @@ instruction_path = ".gemini/GEMINI.md"
 project_instruction_path = "AGENTS.md"
 skills_path = ".gemini/antigravity-cli/skills"
 
+[agents.agy.detect]
+commands = ["agy"]
+paths = [".gemini/config"]
+
 [agents.agy.runner]
 command = ["agy", "--prompt-interactive", "{prompt}"]
 

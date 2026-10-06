@@ -398,8 +398,12 @@ def test_template_history_lists_every_current_template(tmp_path: Path) -> None:
 def test_unmodified_older_template_adopts_source(tmp_path: Path) -> None:
     source = _workspace(tmp_path / "source")
     target = _workspace(tmp_path / "target")
-    older = load_template("agents/codex.toml").replace(
-        'builtin_mcps = ["openaiDeveloperDocs"]\n', ""
+    older = (
+        load_template("agents/codex.toml")
+        .replace('builtin_mcps = ["openaiDeveloperDocs"]\n', "")
+        .replace(
+            '[agents.codex.detect]\ncommands = ["codex"]\npaths = [".codex"]\n\n', ""
+        )
     )
     (target / "agents/codex.toml").write_text(older, encoding="utf-8")
     _agent(source, "s")

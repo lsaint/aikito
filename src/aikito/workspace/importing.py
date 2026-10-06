@@ -369,6 +369,7 @@ def apply_import_plan(plan: ImportPlan, home: Path) -> None:
                 right,
                 tuple(item.resource for item in plan.changes),
                 policy=_policy(plan.target, destination_prefix=plan.inbox_prefix),
+                home=home,
             )
         except (WorkspaceCoreError, WorkspaceResourceError) as exc:
             raise WorkspaceImportError(str(exc)) from exc

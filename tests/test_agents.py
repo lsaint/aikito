@@ -58,6 +58,57 @@ class AgentsModelTests(unittest.TestCase):
             # Verify AgentDefinition is an instance of Agent
             self.assertIsInstance(mcp_def, Agent)
 
+    def test_detection_metadata_parsing(self) -> None:
+        agent = AgentRegistry.from_document(
+            {
+                "agents": {
+                    "example": {
+                        "detect": {
+                            "commands": ["example", "example-cli"],
+                            "paths": [".example"],
+                        }
+                    }
+                }
+            },
+            self.home,
+        )["example"]
+        self.assertEqual(agent.detect.commands, ("example", "example-cli"))
+        self.assertEqual(agent.detect.paths, (Path(".example"),))
+
+    def test_detection_metadata_rejects_invalid_values(self) -> None:
+        for section in (
+            [],
+            {"commands": "example"},
+            {"commands": [""]},
+            {"paths": ["../escape"]},
+            {"paths": ["/absolute"]},
+        ):
+            with self.subTest(section=section), self.assertRaises(AgentRegistryError):
+                AgentRegistry.from_document(
+                    {"agents": {"example": {"detect": section}}}, self.home
+                )
+
+    def test_detection_override_and_bundled_fallback(self) -> None:
+        legacy = AgentRegistry.from_document({"agents": {"codex": {}}}, self.home)[
+            "codex"
+        ]
+        self.assertEqual(legacy.detect.commands, ("codex",))
+        custom = AgentRegistry.from_document(
+            {"agents": {"codex": {"detect": {"commands": ["example"]}}}}, self.home
+        )["codex"]
+        with patch(
+            "shutil.which",
+            side_effect=lambda cmd: "/bin/example" if cmd == "example" else None,
+        ):
+            self.assertTrue(check_agent_availability(custom, self.home).is_installed)
+            self.assertTrue(
+                check_agent_availability(legacy, self.home).is_not_installed
+            )
+        explicit_empty = AgentRegistry.from_document(
+            {"agents": {"codex": {"detect": {}}}}, self.home
+        )["codex"]
+        self.assertTrue(check_agent_availability(explicit_empty, self.home).is_unknown)
+
     def test_agent_registry_queries(self) -> None:
         registry = AgentRegistry.load(self.ws, self.home)
         self.assertIn("claude-code", registry)
@@ -397,6 +448,23 @@ def _definition(
         "instruction_path": None,
         "project_instruction_path": None,
         "skills_path": None,
+        "detect": dataclasses.asdict(
+            AgentRegistry.from_document({"agents": {name: {}}}, Path("/HOME"))[
+                name
+            ].detect
+        )
+        if name
+        in (
+            "codex",
+            "claude-code",
+            "agy",
+            "opencode",
+            "github-copilot",
+            "dsh",
+            "grok",
+            "pi",
+        )
+        else None,
         "mcp": None,
         "subagents": subagents,
         "runner": runner,
@@ -575,7 +643,7 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
                 skills_path=h / ".agents/skills",
                 mcp={
                     "config_path": h / ".grok/config.toml",
-                    "config_format": "toml",
+                    "config_format": "grok_toml",
                     "live_command": ("grok", "mcp", "list"),
                 },
                 subagents={

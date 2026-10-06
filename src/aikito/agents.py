@@ -3,26 +3,29 @@
 from __future__ import annotations
 
 import shutil
+import functools
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
-from .compat import get_physical_path, is_directory_case_sensitive
+from .compat import (
+    _package_resource_dir,
+    get_physical_path,
+    is_directory_case_sensitive,
+)
 
-# Canonical "is this Agent installed on this machine" registry.
-# Shared by init detection, doctor diagnostics, and synchronization gating.
-# A value is (display_name, binary_on_path, home-relative marker directory);
-# either signal counts as installed.
-AGENT_INSTALL_MARKERS: dict[str, tuple[str, str, Path]] = {
-    "codex": ("Codex", "codex", Path(".codex")),
-    "claude-code": ("Claude Code", "claude", Path(".claude")),
-    "agy": ("Antigravity CLI", "agy", Path(".gemini/config")),
-    "opencode": ("OpenCode", "opencode", Path(".config/opencode")),
-    "github-copilot": ("GitHub Copilot CLI", "copilot", Path(".copilot")),
-    "dsh": ("DeepSeek Harness", "dsh", Path(".dsh")),
-    "grok": ("Grok Build", "grok", Path(".grok")),
-    "pi": ("Pi", "pi", Path(".pi")),
-}
+# Template order is product policy, separate from host installation signals.
+BUILTIN_AGENTS = (
+    "codex",
+    "claude-code",
+    "agy",
+    "opencode",
+    "github-copilot",
+    "dsh",
+    "grok",
+    "pi",
+)
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,14 @@ class AgentAvailability:
 
 
 @dataclass(frozen=True)
+class DetectionCapability:
+    """Portable install policy; observations remain local to the host."""
+
+    commands: tuple[str, ...] = ()
+    paths: tuple[Path, ...] = ()
+
+
+@dataclass(frozen=True)
 class Agent:
     """Identity and declarative resource paths for one target agent platform."""
 
@@ -54,6 +65,7 @@ class Agent:
     instruction_path: Path | None = None
     project_instruction_path: Path | None = None
     skills_path: Path | None = None
+    detect: DetectionCapability | None = None
 
 
 class AgentRegistryError(ValueError):
@@ -99,19 +111,64 @@ def _resolve_project_path(value: object, field: str, agent: str) -> Path:
     return path
 
 
+@functools.cache
+def bundled_agent_spec(name: str) -> Mapping[str, Any]:
+    """Read bundled defaults without merging workspace capability declarations."""
+    if name not in BUILTIN_AGENTS:
+        return {}
+    path = _package_resource_dir("templates") / "agents" / f"{name}.toml"
+    return tomllib.loads(path.read_text(encoding="utf-8"))["agents"][name]
+
+
+def bundled_agent(name: str, home: Path) -> Agent:
+    return AgentRegistry.from_document(
+        {"agents": {name: bundled_agent_spec(name)}}, home
+    )[name]
+
+
+def _load_detection(spec: Mapping[str, Any], name: str) -> DetectionCapability | None:
+    section = (
+        spec.get("detect")
+        if "detect" in spec
+        else bundled_agent_spec(name).get("detect")
+    )
+    if section is None:
+        return None
+    if not isinstance(section, dict):
+        raise AgentRegistryError(f"Agent '{name}' detect section must be a table")
+    values = {}
+    for key in ("commands", "paths"):
+        value = section.get(key, [])
+        if not isinstance(value, list) or not all(
+            isinstance(item, str) and item for item in value
+        ):
+            raise AgentRegistryError(
+                f"Agent '{name}' detect.{key} must be a list of non-empty strings"
+            )
+        values[key] = tuple(value)
+    paths = tuple(Path(value) for value in values["paths"])
+    if any(
+        path.is_absolute() or ".." in path.parts or path == Path(".") for path in paths
+    ):
+        raise AgentRegistryError(
+            f"Agent '{name}' detect.paths must be safe home-relative paths"
+        )
+    return DetectionCapability(values["commands"], paths)
+
+
 def check_agent_availability(
     agent: str | Agent,
     home: Path,
     target_path: Path | None = None,
 ) -> AgentAvailability:
     """Determine whether an agent is installed, not installed, or unknown."""
-    agent_name = agent.name if isinstance(agent, Agent) else str(agent)
-    marker = AGENT_INSTALL_MARKERS.get(agent_name)
-    if marker is not None:
-        _display, binary, relative_marker = marker
-        if shutil.which(binary):
+    if isinstance(agent, str):
+        agent = bundled_agent(agent, home)
+    detection = agent.detect
+    if detection is not None and (detection.commands or detection.paths):
+        if any(shutil.which(command) for command in detection.commands):
             return AgentAvailability("installed", "binary_on_path")
-        if (home / relative_marker).exists():
+        if any((home / path).exists() for path in detection.paths):
             return AgentAvailability("installed", "marker_directory")
         return AgentAvailability("not_installed", "marker_not_found")
 
@@ -128,7 +185,7 @@ def check_agent_availability(
 
 
 def is_agent_installed(
-    agent_name: str,
+    agent_name: str | Agent,
     home: Path,
     target_path: Path | None = None,
 ) -> bool | None:
@@ -184,6 +241,7 @@ class AgentRegistry:
                 instruction_path=instr_path,
                 project_instruction_path=proj_instr_path,
                 skills_path=skills_path,
+                detect=_load_detection(spec, name),
             )
         return cls(loaded)
 
@@ -288,7 +346,11 @@ def _load_mcp_capability(
     # Legacy coercion (str()/tuple()) is preserved from v1.50.0 on purpose.
     return MCPCapability(
         config_path=config_path,
-        config_format=str(mcp.get("config_format", "unsupported")),
+        config_format=(
+            "grok_toml"
+            if name == "grok" and mcp.get("config_format") == "toml"
+            else str(mcp.get("config_format", "unsupported"))
+        ),
         name_style=str(mcp.get("name_style", "verbatim")),
         reason=str(mcp.get("reason", "")),
         live_command=tuple(mcp.get("live_command", ()) or ()),
@@ -370,6 +432,7 @@ def _build_agent_definition(
         instruction_path=base_agent.instruction_path,
         project_instruction_path=base_agent.project_instruction_path,
         skills_path=base_agent.skills_path,
+        detect=base_agent.detect,
         mcp=_load_mcp_capability(spec, name, home),
         subagents=_load_subagent_capability(spec, name, home),
         runner=_load_runner_capability(spec, name, config_path),
@@ -416,6 +479,7 @@ class Target:
     canonical_source: Path | None = None
     consumers: tuple[str, ...] = ()  # Agent names that consume this target
     consumer_display_names: tuple[str, ...] = ()
+    consumer_agents: tuple[Agent, ...] = ()
 
     @property
     def is_same_object(self) -> bool:
@@ -480,7 +544,7 @@ def check_target_availability(
     """Check availability across all consumers of a Target."""
     statuses = [
         check_agent_availability(consumer, home, target_path=target.path)
-        for consumer in target.consumers
+        for consumer in (target.consumer_agents or target.consumers)
     ]
     if any(s.is_installed for s in statuses):
         installed_ev = next(s.evidence for s in statuses if s.is_installed)
@@ -532,6 +596,7 @@ def resolve_targets(
                 canonical_source=canonical_source,
                 consumers=names,
                 consumer_display_names=display_names,
+                consumer_agents=tuple(registry[name] for name in names),
             )
             if active_only:
                 avail = check_target_availability(t, home)
@@ -561,6 +626,7 @@ def resolve_targets(
                 canonical_source=canonical_source,
                 consumers=names,
                 consumer_display_names=display_names,
+                consumer_agents=tuple(registry[name] for name in names),
             )
             if active_only:
                 avail = check_target_availability(t, home)
@@ -600,6 +666,7 @@ def resolve_targets(
                 canonical_source=canonical_source,
                 consumers=names,
                 consumer_display_names=display_names,
+                consumer_agents=tuple(registry[name] for name in names),
             )
             if active_only and not path.parent.exists():
                 avail = check_target_availability(t, home)

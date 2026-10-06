@@ -34,6 +34,9 @@ jobs:
       - name: Run macOS unit tests
         run: python -m pytest
 
+      - name: Agent detection and adapter reuse CLI smoke
+        run: python tests/agent_adapters_smoke.py
+
       - name: Create mock agent directories in isolated home
         run: |
           mkdir -p "$HOME"

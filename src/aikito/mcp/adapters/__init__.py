@@ -1,5 +1,8 @@
 """Configuration adapters for agent-native MCP configs."""
 
+from dataclasses import dataclass
+from collections.abc import Callable
+
 import base64
 import hashlib
 import json
@@ -106,6 +109,261 @@ def _fingerprint(value: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
+def _build_toml(url, override, authentication, headers, server_name):
+    desired = {"url": url}
+    if authentication:
+        desired["env_http_headers"] = {
+            "Authorization": authentication.authorization_env
+        }
+    elif headers:
+        static_headers = {}
+        env_headers = {}
+        for key, value in headers.items():
+            env_ref = _environment_reference(value)
+            if env_ref:
+                env_headers[key] = env_ref
+            else:
+                static_headers[key] = value
+        if static_headers:
+            desired["headers"] = static_headers
+        if env_headers:
+            desired["env_http_headers"] = env_headers
+    return desired, False, ""
+
+
+def _build_grok_toml(url, override, authentication, headers, server_name):
+    desired = {"url": url}
+    if authentication:
+        desired["headers"] = {
+            "Authorization": f"${{{authentication.authorization_env}}}"
+        }
+    elif headers:
+        desired["headers"] = headers
+    return desired, False, ""
+
+
+def _build_jsonc(url, override, authentication, headers, server_name):
+    desired = {
+        "type": "remote",
+        "url": url,
+        "enabled": True,
+        "timeout": override.get("timeout", 30000),
+    }
+    if authentication:
+        desired["oauth"] = False
+        desired["headers"] = {
+            "Authorization": f"{{env:{authentication.authorization_env}}}"
+        }
+    elif headers:
+        jsonc_headers: dict[str, str] = {}
+        for k, v in headers.items():
+            env_ref = _environment_reference(v)
+            if env_ref:
+                jsonc_headers[k] = f"{{env:{env_ref}}}"
+            else:
+                jsonc_headers[k] = v
+        desired["headers"] = jsonc_headers
+    return desired, False, ""
+
+
+def _build_agy_json(url, override, authentication, headers, server_name):
+    desired = {"serverUrl": url}
+    if authentication:
+        # agy 1.1.8 accepts headers but does not document environment
+        # interpolation, so only its generated runtime config contains this.
+        if os.environ.get(authentication.token_env):
+            desired["headers"] = {
+                "Authorization": authentication.authorization_header()
+            }
+        else:
+            return desired, True, authentication.token_env
+        return desired, True, ""
+    elif headers:
+        resolved_headers: dict[str, str] = {}
+        missing_env = ""
+        has_secret = False
+        for k, v in headers.items():
+            env_ref = _environment_reference(v)
+            if env_ref:
+                has_secret = True
+                env_val = os.environ.get(env_ref)
+                if env_val:
+                    resolved_headers[k] = env_val
+                else:
+                    missing_env = env_ref
+            else:
+                resolved_headers[k] = v
+        if missing_env:
+            return desired, True, missing_env
+        desired["headers"] = resolved_headers
+        return desired, has_secret, ""
+    return desired, False, ""
+
+
+def _build_claude_json(url, override, authentication, headers, server_name):
+    desired = {"type": "http", "url": url}
+    if authentication:
+        desired["headers"] = {
+            "Authorization": f"${{{authentication.authorization_env}}}"
+        }
+    elif headers:
+        claude_headers: dict[str, str] = {}
+        for k, v in headers.items():
+            env_ref = _environment_reference(v)
+            if env_ref:
+                claude_headers[k] = f"${{{env_ref}}}"
+            else:
+                claude_headers[k] = v
+        desired["headers"] = claude_headers
+    return desired, False, ""
+
+
+def _build_copilot_json(url, override, authentication, headers, server_name):
+    desired = {
+        "type": "http",
+        "url": url,
+        "tools": ["*"],
+    }
+    if headers:
+        copilot_headers: dict[str, str] = {}
+        for k, v in headers.items():
+            env_ref = _environment_reference(v)
+            if env_ref:
+                copilot_headers[k] = f"${{{env_ref}}}"
+            else:
+                copilot_headers[k] = v
+        desired["headers"] = copilot_headers
+    elif authentication:
+        desired["headers"] = {
+            "Authorization": f"${{{authentication.authorization_env}}}"
+        }
+    else:
+        desired["headers"] = {}
+    return desired, False, ""
+
+
+def _build_dsh_cordis(url, override, authentication, headers, server_name):
+    transport = override.get("transport", "streamable-http")
+    desired = {
+        "serverName": str(override.get("name", server_name)),
+        "transport": transport,
+        "url": url,
+    }
+    if headers:
+        dsh_headers: dict[str, str] = {}
+        for k, v in headers.items():
+            env_ref = _environment_reference(v)
+            if env_ref:
+                dsh_headers[k] = f"!!js process.env.{env_ref}"
+            else:
+                dsh_headers[k] = v
+        desired["headers"] = dsh_headers
+    elif authentication:
+        desired["headers"] = {
+            "Authorization": f"!!js process.env.{authentication.authorization_env}"
+        }
+    if "timeout" in override:
+        desired["toolCallTimeoutMs"] = override["timeout"]
+    return desired, False, ""
+
+
+@dataclass(frozen=True)
+class MCPAdapter:
+    build_desired: Callable
+    read_entry: Callable
+    update_entry: Callable
+    remove_entry: Callable
+    document_format: str
+    server_collection: str
+    syntax_name: str
+    materializes_secrets: bool = False
+
+    def read_all_entries(self, text: str) -> dict[str, dict[str, Any]]:
+        document = _load_document(self.document_format, text)
+        servers = document.get(self.server_collection, {})
+        if not isinstance(servers, dict):
+            raise MCPConfigError("Agent MCP server collection must be an object")
+        return {
+            name: entry for name, entry in servers.items() if isinstance(entry, dict)
+        }
+
+
+MCP_ADAPTERS: dict[str, MCPAdapter] = {
+    "toml": MCPAdapter(
+        _build_toml,
+        get_toml_server,
+        update_toml_server,
+        remove_toml_server,
+        "toml",
+        "mcp_servers",
+        "TOML",
+    ),
+    "grok_toml": MCPAdapter(
+        _build_grok_toml,
+        get_toml_server,
+        update_toml_server,
+        remove_toml_server,
+        "toml",
+        "mcp_servers",
+        "TOML",
+    ),
+    "jsonc": MCPAdapter(
+        _build_jsonc,
+        get_jsonc_server,
+        update_jsonc_server,
+        remove_jsonc_server,
+        "jsonc",
+        "mcp",
+        "JSONC",
+    ),
+    "agy_json": MCPAdapter(
+        _build_agy_json,
+        get_agy_json_server,
+        update_agy_json_server,
+        remove_agy_json_server,
+        "agy_json",
+        "mcpServers",
+        "JSON",
+        True,
+    ),
+    "claude_json": MCPAdapter(
+        _build_claude_json,
+        get_claude_json_server,
+        update_claude_json_server,
+        remove_claude_json_server,
+        "claude_json",
+        "mcpServers",
+        "JSON",
+        True,
+    ),
+    "copilot_json": MCPAdapter(
+        _build_copilot_json,
+        get_copilot_json_server,
+        update_copilot_json_server,
+        remove_copilot_json_server,
+        "copilot_json",
+        "mcpServers",
+        "JSON",
+    ),
+    "dsh_cordis": MCPAdapter(
+        _build_dsh_cordis,
+        get_dsh_cordis_server,
+        update_dsh_cordis_server,
+        remove_dsh_cordis_server,
+        "dsh_cordis",
+        "mcpServers",
+        "Cordis patch YAML",
+    ),
+}
+
+
+def get_mcp_adapter(config_format: str) -> MCPAdapter:
+    try:
+        return MCP_ADAPTERS[config_format]
+    except KeyError as exc:
+        raise MCPConfigError(f"Unsupported config format: {config_format}") from exc
+
+
 def _build_desired(
     config_format: str,
     url: str,
@@ -116,183 +374,17 @@ def _build_desired(
     agent: str = "",
     server_name: str = "",
 ) -> tuple[dict[str, Any], bool, str]:
-    """Construct the format-bound MCP payload for a target config."""
-    if config_format == "toml":
-        desired: dict[str, Any] = {"url": url}
-        if authentication:
-            if agent == "grok":
-                # Grok interpolates ${ENV} in headers; Codex uses env_http_headers.
-                desired["headers"] = {
-                    "Authorization": f"${{{authentication.authorization_env}}}"
-                }
-            else:
-                desired["env_http_headers"] = {
-                    "Authorization": authentication.authorization_env
-                }
-        elif headers:
-            if agent == "grok":
-                desired["headers"] = headers
-            else:
-                static_headers: dict[str, str] = {}
-                env_headers: dict[str, str] = {}
-                for k, v in headers.items():
-                    env_ref = _environment_reference(v)
-                    if env_ref:
-                        env_headers[k] = env_ref
-                    else:
-                        static_headers[k] = v
-                if static_headers:
-                    desired["headers"] = static_headers
-                if env_headers:
-                    desired["env_http_headers"] = env_headers
-        return desired, False, ""
-    if config_format == "jsonc":
-        desired = {
-            "type": "remote",
-            "url": url,
-            "enabled": True,
-            "timeout": override.get("timeout", 30000),
-        }
-        if authentication:
-            desired["oauth"] = False
-            desired["headers"] = {
-                "Authorization": f"{{env:{authentication.authorization_env}}}"
-            }
-        elif headers:
-            jsonc_headers: dict[str, str] = {}
-            for k, v in headers.items():
-                env_ref = _environment_reference(v)
-                if env_ref:
-                    jsonc_headers[k] = f"{{env:{env_ref}}}"
-                else:
-                    jsonc_headers[k] = v
-            desired["headers"] = jsonc_headers
-        return desired, False, ""
-    if config_format == "agy_json":
-        desired = {"serverUrl": url}
-        if authentication:
-            # agy 1.1.8 accepts headers but does not document environment
-            # interpolation, so only its generated runtime config contains this.
-            if os.environ.get(authentication.token_env):
-                desired["headers"] = {
-                    "Authorization": authentication.authorization_header()
-                }
-            else:
-                return desired, True, authentication.token_env
-            return desired, True, ""
-        elif headers:
-            resolved_headers: dict[str, str] = {}
-            missing_env = ""
-            has_secret = False
-            for k, v in headers.items():
-                env_ref = _environment_reference(v)
-                if env_ref:
-                    has_secret = True
-                    env_val = os.environ.get(env_ref)
-                    if env_val:
-                        resolved_headers[k] = env_val
-                    else:
-                        missing_env = env_ref
-                else:
-                    resolved_headers[k] = v
-            if missing_env:
-                return desired, True, missing_env
-            desired["headers"] = resolved_headers
-            return desired, has_secret, ""
-        return desired, False, ""
-    if config_format == "claude_json":
-        desired = {"type": "http", "url": url}
-        if authentication:
-            desired["headers"] = {
-                "Authorization": f"${{{authentication.authorization_env}}}"
-            }
-        elif headers:
-            claude_headers: dict[str, str] = {}
-            for k, v in headers.items():
-                env_ref = _environment_reference(v)
-                if env_ref:
-                    claude_headers[k] = f"${{{env_ref}}}"
-                else:
-                    claude_headers[k] = v
-            desired["headers"] = claude_headers
-        return desired, False, ""
-    if config_format == "copilot_json":
-        desired = {
-            "type": "http",
-            "url": url,
-            "tools": ["*"],
-        }
-        if headers:
-            copilot_headers: dict[str, str] = {}
-            for k, v in headers.items():
-                env_ref = _environment_reference(v)
-                if env_ref:
-                    copilot_headers[k] = f"${{{env_ref}}}"
-                else:
-                    copilot_headers[k] = v
-            desired["headers"] = copilot_headers
-        elif authentication:
-            desired["headers"] = {
-                "Authorization": f"${{{authentication.authorization_env}}}"
-            }
-        else:
-            desired["headers"] = {}
-        return desired, False, ""
-    if config_format == "dsh_cordis":
-        transport = override.get("transport", "streamable-http")
-        desired = {
-            "serverName": str(override.get("name", "")),
-            "transport": transport,
-            "url": url,
-        }
-        if headers:
-            dsh_headers: dict[str, str] = {}
-            for k, v in headers.items():
-                env_ref = _environment_reference(v)
-                if env_ref:
-                    dsh_headers[k] = f"!!js process.env.{env_ref}"
-                else:
-                    dsh_headers[k] = v
-            desired["headers"] = dsh_headers
-        elif authentication:
-            desired["headers"] = {
-                "Authorization": f"!!js process.env.{authentication.authorization_env}"
-            }
-        if "timeout" in override:
-            desired["toolCallTimeoutMs"] = override["timeout"]
-        return desired, False, ""
-    # Unsupported formats never get written; payload is informational only.
-    return {}, False, ""
+    return get_mcp_adapter(config_format).build_desired(
+        url, override, authentication, headers, server_name
+    )
 
 
 def read_entry(spec: AgentSpec, text: str) -> dict[str, Any] | None:
-    if spec.config_format == "toml":
-        return get_toml_server(text, spec.target_name)
-    if spec.config_format == "jsonc":
-        return get_jsonc_server(text, spec.target_name)
-    if spec.config_format == "agy_json":
-        return get_agy_json_server(text, spec.target_name)
-    if spec.config_format == "claude_json":
-        return get_claude_json_server(text, spec.target_name)
-    if spec.config_format == "copilot_json":
-        return get_copilot_json_server(text, spec.target_name)
-    if spec.config_format == "dsh_cordis":
-        return get_dsh_cordis_server(text, spec.target_name)
-    raise MCPConfigError(f"Unsupported config format: {spec.config_format}")
+    return get_mcp_adapter(spec.config_format).read_entry(text, spec.target_name)
 
 
 def read_all_entries(config_format: str, text: str) -> dict[str, dict[str, Any]]:
-    """Read only the MCP server map from an Agent-native configuration."""
-    document = _load_document(config_format, text)
-    if config_format == "toml":
-        servers = document.get("mcp_servers", {})
-    elif config_format == "jsonc":
-        servers = document.get("mcp", {})
-    else:
-        servers = document.get("mcpServers", {})
-    if not isinstance(servers, dict):
-        raise MCPConfigError("Agent MCP server collection must be an object")
-    return {name: entry for name, entry in servers.items() if isinstance(entry, dict)}
+    return get_mcp_adapter(config_format).read_all_entries(text)
 
 
 _read_entry = read_entry
@@ -324,32 +416,10 @@ def _entry_matches_desired(spec: AgentSpec, current: dict[str, Any] | None) -> b
 
 
 def _update_entry(spec: AgentSpec, text: str) -> str:
-    if spec.config_format == "toml":
-        return update_toml_server(text, spec.target_name, spec.desired)
-    if spec.config_format == "jsonc":
-        return update_jsonc_server(text, spec.target_name, spec.desired)
-    if spec.config_format == "agy_json":
-        return update_agy_json_server(text, spec.target_name, spec.desired)
-    if spec.config_format == "claude_json":
-        return update_claude_json_server(text, spec.target_name, spec.desired)
-    if spec.config_format == "copilot_json":
-        return update_copilot_json_server(text, spec.target_name, spec.desired)
-    if spec.config_format == "dsh_cordis":
-        return update_dsh_cordis_server(text, spec.target_name, spec.desired)
-    raise MCPConfigError(f"Unsupported config format: {spec.config_format}")
+    return get_mcp_adapter(spec.config_format).update_entry(
+        text, spec.target_name, spec.desired
+    )
 
 
 def _remove_entry(spec: AgentSpec, text: str) -> str:
-    if spec.config_format == "toml":
-        return remove_toml_server(text, spec.target_name)
-    if spec.config_format == "jsonc":
-        return remove_jsonc_server(text, spec.target_name)
-    if spec.config_format == "agy_json":
-        return remove_agy_json_server(text, spec.target_name)
-    if spec.config_format == "claude_json":
-        return remove_claude_json_server(text, spec.target_name)
-    if spec.config_format == "copilot_json":
-        return remove_copilot_json_server(text, spec.target_name)
-    if spec.config_format == "dsh_cordis":
-        return remove_dsh_cordis_server(text, spec.target_name)
-    raise MCPConfigError(f"Unsupported config format: {spec.config_format}")
+    return get_mcp_adapter(spec.config_format).remove_entry(text, spec.target_name)

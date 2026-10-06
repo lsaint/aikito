@@ -14,7 +14,7 @@ from pathlib import Path
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from .agents import AGENT_INSTALL_MARKERS
+from .agents import Agent
 from .diagnostics import Finding
 from .plan_observation import OperationEffect, safe_observe_plan
 from .context_footprint import format_token_estimate
@@ -35,6 +35,7 @@ class AgentStatusRow:
     skills_link_depth: Optional[int] = None
     mcp_status: str = "SKIP"
     subagent_status: str = "SKIP"
+    consumer_name: str = ""
 
 
 @dataclass
@@ -1012,14 +1013,13 @@ def render_key_value_fields(fields: List[Tuple[str, str]]) -> str:
     )
 
 
-def get_consumer_display_name(agent_name: str) -> str:
-    """Map an internal agent name to its user-facing consumer/binary name."""
-    if agent_name in AGENT_INSTALL_MARKERS:
-        return AGENT_INSTALL_MARKERS[agent_name][1]
-    for _disp, binary, _marker in AGENT_INSTALL_MARKERS.values():
-        if agent_name == binary:
-            return binary
-    return agent_name
+def get_consumer_display_name(agent: Agent) -> str:
+    """Use the loaded definition's primary CLI command as its consumer label."""
+    return (
+        agent.detect.commands[0]
+        if agent.detect and agent.detect.commands
+        else agent.name
+    )
 
 
 def format_global_summary_line(
@@ -1112,7 +1112,7 @@ def render_status_report(
     consumers = data.consumers
     if not consumers and data.agents:
         consumers = sorted(
-            dict.fromkeys(get_consumer_display_name(a.agent_name) for a in data.agents)
+            dict.fromkeys((a.consumer_name or a.agent_name) for a in data.agents)
         )
     consumer_str = " · ".join(consumers) if consumers else "-"
     output_sections.append(f"Consumers ({len(consumers)}): {consumer_str}")

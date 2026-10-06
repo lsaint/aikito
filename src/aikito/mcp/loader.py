@@ -154,6 +154,7 @@ def load_agent_specs(aikito_dir: Path, home: Path) -> list[AgentSpec]:
                             or f"MCP synchronization is not supported for agent '{agent}'"
                         ),
                         home=home,
+                        definition=definition,
                     )
                 )
                 continue
@@ -167,14 +168,8 @@ def load_agent_specs(aikito_dir: Path, home: Path) -> list[AgentSpec]:
                 override,
                 authentication,
                 headers,
-                agent=agent,
-                server_name=server_name,
+                server_name=target_name,
             )
-            if capability.config_format == "dsh_cordis" and not desired.get(
-                "serverName"
-            ):
-                desired = dict(desired)
-                desired["serverName"] = target_name
             specs.append(
                 AgentSpec(
                     agent=agent,
@@ -194,6 +189,7 @@ def load_agent_specs(aikito_dir: Path, home: Path) -> list[AgentSpec]:
                     contains_secret=contains_secret,
                     missing_credential_env=missing_credential_env,
                     home=home,
+                    definition=definition,
                 )
             )
     return specs
@@ -212,7 +208,7 @@ def _find_agent_spec(specs: list[AgentSpec], agent: str, server: str) -> AgentSp
 
 def _agent_detected(spec: AgentSpec) -> bool:
     if spec.home is not None:
-        installed = is_agent_installed(spec.agent, spec.home)
+        installed = is_agent_installed(spec.definition or spec.agent, spec.home)
         if installed is not None:
             return installed
     return spec.config_path.parent.exists()
