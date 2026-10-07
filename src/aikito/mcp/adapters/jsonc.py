@@ -161,7 +161,7 @@ def _load_document(config_format: str, text: str) -> dict[str, Any]:
     if not text.strip():
         return {}
 
-    if config_format in ("toml", "grok_toml"):
+    if config_format == "toml":
         try:
             document = tomllib.loads(text)
         except tomllib.TOMLDecodeError as exc:

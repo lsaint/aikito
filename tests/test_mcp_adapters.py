@@ -78,7 +78,9 @@ config_format = "jsonc"
         'transport = "remote"\nurl = "https://example.com/mcp"\nagents = ["grok", "example"]\n'
     )
     definitions = load_agent_definitions(ws, home)
-    assert definitions["grok"].mcp.config_format == "grok_toml"
+    # Legacy portable Grok definitions inherit the bundled semantic adapter.
+    assert definitions["grok"].mcp.config_format == "toml"
+    assert definitions["grok"].mcp.adapter == "grok_toml"
     assert definitions["example"].mcp.config_format == "jsonc"
     specs = {s.agent: s for s in load_agent_specs(ws, home)}
     assert specs["example"].desired["type"] == "remote"
@@ -89,3 +91,56 @@ config_format = "jsonc"
 def test_unknown_adapter_fails_closed():
     with pytest.raises(MCPConfigError, match="Unsupported"):
         get_mcp_adapter("unknown")
+
+
+def _mcp_capability(tmp_path, body):
+    ws = tmp_path / "ws"
+    write_agents(ws, body)
+    return load_agent_definitions(ws, tmp_path / "home")
+
+
+def test_explicit_adapter_overrides_bundled_default(tmp_path):
+    definitions = _mcp_capability(
+        tmp_path,
+        """[agents.grok]
+[agents.grok.mcp]
+config_path = ".grok/config.toml"
+config_format = "toml"
+adapter = "toml"
+[agents.example]
+[agents.example.mcp]
+config_path = ".example/config.toml"
+config_format = "toml"
+adapter = "grok_toml"
+""",
+    )
+    assert definitions["grok"].mcp.adapter == "toml"
+    # Custom Agents reuse a semantic adapter without any identity branch.
+    assert definitions["example"].mcp.adapter == "grok_toml"
+
+
+def test_changed_format_does_not_inherit_bundled_adapter(tmp_path):
+    definitions = _mcp_capability(
+        tmp_path,
+        """[agents.grok]
+[agents.grok.mcp]
+config_path = ".grok/mcp.jsonc"
+config_format = "jsonc"
+""",
+    )
+    assert definitions["grok"].mcp.adapter == "jsonc"
+
+
+def test_invalid_adapter_value_is_rejected(tmp_path):
+    from aikito.agents import AgentRegistryError
+
+    with pytest.raises(AgentRegistryError, match="mcp.adapter"):
+        _mcp_capability(
+            tmp_path,
+            """[agents.example]
+[agents.example.mcp]
+config_path = ".example/config.toml"
+config_format = "toml"
+adapter = ""
+""",
+        )

@@ -544,9 +544,8 @@ def check_orphans(
                 continue
 
             existing_servers: set[str] = set()
-            fmt = capability.config_format
             try:
-                existing_servers = set(read_all_entries(fmt, text))
+                existing_servers = set(read_all_entries(capability.adapter, text))
             except MCPConfigError:
                 pass
 
@@ -912,7 +911,6 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
             if capability is None or not capability.config_path.exists():
                 continue
             cfg = capability.config_path
-            fmt = capability.config_format
             display = _home_rel(cfg, home)
             try:
                 text = cfg.read_text(encoding="utf-8")
@@ -924,7 +922,7 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
                         )
                     )
                 else:
-                    adapter = get_mcp_adapter(fmt)
+                    adapter = get_mcp_adapter(capability.adapter)
                     adapter.read_all_entries(text)
                     findings.append(
                         _ok(

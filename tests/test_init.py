@@ -131,7 +131,8 @@ class AikitoInitTest(unittest.TestCase):
             agents["grok"].mcp.config_path,
             self.fake_home / ".grok/config.toml",
         )
-        self.assertEqual(agents["grok"].mcp.config_format, "grok_toml")
+        self.assertEqual(agents["grok"].mcp.config_format, "toml")
+        self.assertEqual(agents["grok"].mcp.adapter, "grok_toml")
         # Pi participates in instructions and skills only; MCP and sub-agents
         # live in optional pi extensions, so it has no such sections.
         self.assertEqual(

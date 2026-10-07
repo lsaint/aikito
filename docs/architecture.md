@@ -127,9 +127,14 @@ reports them as warnings. Shared-file adapters provide text merges; Core still
 freezes final content, checks stale plans, protects conflicts, backs up, and
 writes atomically.
 
-Legacy Grok `mcp.config_format = "toml"` normalizes internally to `grok_toml`.
-The portable bundled spelling stays `toml` for older clients, preserving Grok's
-`${ENV}` headers independently of Codex's `env_http_headers`.
+MCP capabilities may declare an optional `adapter` when one file format carries
+different semantics. Grok and Codex both use `config_format = "toml"`; Grok
+declares `adapter = "grok_toml"` to keep `${ENV}` headers independent of Codex's
+`env_http_headers`. Without `adapter`, the key defaults to `config_format`, and
+an older built-in definition whose format still matches its bundled template
+inherits only the bundled adapter. Older clients ignore the field, so the
+portable definition stays compatible. Subagent formats are already one per
+native semantics, so subagent capabilities have no separate adapter key.
 
 ## Project Runtime Directory
 

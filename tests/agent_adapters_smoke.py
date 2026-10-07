@@ -82,16 +82,15 @@ config_format = "claude_markdown"
     status = cli("status")
     assert "aikito-example-smoke" in status  # Marker-only detection.
 
-    # Preserve the portable legacy Grok spelling consumed by older clients.
-    (workspace / "agents/grok.toml").write_text(
-        load_template("agents/grok.toml"), encoding="utf-8"
+    # A pre-adapter Grok definition must keep Grok header semantics.
+    legacy_grok = "\n".join(
+        line
+        for line in load_template("agents/grok.toml").splitlines()
+        if not line.startswith("adapter")
     )
-    assert (
-        tomllib.loads((workspace / "agents/grok.toml").read_text())["agents"]["grok"][
-            "mcp"
-        ]["config_format"]
-        == "toml"
-    )
+    (workspace / "agents/grok.toml").write_text(legacy_grok + "\n", encoding="utf-8")
+    legacy_mcp = tomllib.loads(legacy_grok)["agents"]["grok"]["mcp"]
+    assert legacy_mcp["config_format"] == "toml" and "adapter" not in legacy_mcp
     (home / ".grok").mkdir()
     (workspace / "mcps/docs.toml").write_text(
         """transport = "remote"

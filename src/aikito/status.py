@@ -149,7 +149,7 @@ def collect_mcp_details(
         path = capability.config_path if capability else None
         if capability and path and path.is_file():
             entries = read_all_entries(
-                capability.config_format, path.read_text(encoding="utf-8")
+                capability.adapter, path.read_text(encoding="utf-8")
             )
             for target_name in sorted(
                 entries.keys() - managed_targets.get(agent_name, set())

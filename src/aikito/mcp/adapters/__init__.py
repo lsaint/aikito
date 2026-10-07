@@ -380,11 +380,11 @@ def _build_desired(
 
 
 def read_entry(spec: AgentSpec, text: str) -> dict[str, Any] | None:
-    return get_mcp_adapter(spec.config_format).read_entry(text, spec.target_name)
+    return get_mcp_adapter(spec.adapter).read_entry(text, spec.target_name)
 
 
-def read_all_entries(config_format: str, text: str) -> dict[str, dict[str, Any]]:
-    return get_mcp_adapter(config_format).read_all_entries(text)
+def read_all_entries(adapter: str, text: str) -> dict[str, dict[str, Any]]:
+    return get_mcp_adapter(adapter).read_all_entries(text)
 
 
 _read_entry = read_entry
@@ -416,10 +416,10 @@ def _entry_matches_desired(spec: AgentSpec, current: dict[str, Any] | None) -> b
 
 
 def _update_entry(spec: AgentSpec, text: str) -> str:
-    return get_mcp_adapter(spec.config_format).update_entry(
+    return get_mcp_adapter(spec.adapter).update_entry(
         text, spec.target_name, spec.desired
     )
 
 
 def _remove_entry(spec: AgentSpec, text: str) -> str:
-    return get_mcp_adapter(spec.config_format).remove_entry(text, spec.target_name)
+    return get_mcp_adapter(spec.adapter).remove_entry(text, spec.target_name)

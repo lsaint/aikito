@@ -1877,6 +1877,7 @@ reason = "off"
                 "home": home,
             }
             expected.update(extra)
+            expected.setdefault("adapter", fmt)
             return expected
 
         expected = [
@@ -1926,8 +1927,9 @@ reason = "off"
             spec(
                 "grok",
                 home / ".grok/config.toml",
-                "grok_toml",
+                "toml",
                 {"url": url},
+                adapter="grok_toml",
                 enabled=False,
                 reason="off",
                 live_command=("grok", "mcp", "list"),
@@ -1998,6 +2000,7 @@ config_path = ".plain/mcp.json"
                 "contains_secret": False,
                 "missing_credential_env": "",
                 "home": home,
+                "adapter": "unsupported",
             }
 
         self.assertEqual(

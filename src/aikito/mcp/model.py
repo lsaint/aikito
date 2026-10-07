@@ -118,6 +118,11 @@ class AgentSpec:
     missing_credential_env: str = ""
     home: Path | None = None
     definition: Agent | None = field(default=None, repr=False, compare=False)
+    adapter: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.adapter:
+            object.__setattr__(self, "adapter", self.config_format)
 
     @property
     def state_key(self) -> str:

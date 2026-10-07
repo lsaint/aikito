@@ -21,5 +21,6 @@ config_format = "grok_markdown"
 [agents.grok.mcp]
 config_path = ".grok/config.toml"
 config_format = "toml"
+adapter = "grok_toml"                           # Grok interpolates ${ENV} in headers
 name_style = "verbatim"
 live_command = ["grok", "mcp", "list"]

@@ -163,7 +163,7 @@ def load_agent_specs(aikito_dir: Path, home: Path) -> list[AgentSpec]:
             default_target = _target_name(name_style, server_name)
             target_name = str(override.get("name", default_target))
             desired, contains_secret, missing_credential_env = _build_desired(
-                capability.config_format,
+                capability.adapter,
                 url,
                 override,
                 authentication,
@@ -190,6 +190,7 @@ def load_agent_specs(aikito_dir: Path, home: Path) -> list[AgentSpec]:
                     missing_credential_env=missing_credential_env,
                     home=home,
                     definition=definition,
+                    adapter=capability.adapter,
                 )
             )
     return specs

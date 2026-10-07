@@ -53,6 +53,7 @@ TEMPLATE_HISTORY: dict[str, frozenset[str]] = {
     ),
     "agent:grok": frozenset(
         {
+            "bac2eab68f77e239497bf15b3b60dbcbfd0161355e1383f2c1a7af09544d5942",
             "60d82e16609a3700e0db069534cf6465e606dec6ef297887b0b234c6c09de035",
             "3507642b8e5648502fb315cf6f75c152b6047672daccb251b0acfd5f8cc7268b",
         }

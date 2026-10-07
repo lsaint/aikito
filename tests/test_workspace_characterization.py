@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from aikito.agents import BUILTIN_AGENTS
 from aikito.init import init_workspace
 from aikito.templating import load_template, render_project_files
 from aikito.workspace.importing import build_import_plan, run_workspace_import
@@ -388,6 +389,11 @@ def test_three_way_compare(
 def test_template_history_lists_every_current_template(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path / "workspace")
     _project(workspace)
+    # Cover every bundled Agent regardless of what the host detects.
+    for name in BUILTIN_AGENTS:
+        (workspace / "agents" / f"{name}.toml").write_text(
+            load_template(f"agents/{name}.toml"), encoding="utf-8"
+        )
     for key, resource in snapshot_workspace(workspace).resources.items():
         if key.split(":", 1)[0] in ("agent", "config", "global-instructions"):
             assert resource.fingerprint in template_fingerprints(key), key

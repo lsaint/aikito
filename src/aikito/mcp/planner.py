@@ -209,7 +209,7 @@ def build_mcp_plan(
         canonical_path = canonical_paths[phys_id]
         resolved_format = g_specs[0].config_format if g_specs else ""
         file_sensitive = any(
-            s.contains_secret or get_mcp_adapter(s.config_format).materializes_secrets
+            s.contains_secret or get_mcp_adapter(s.adapter).materializes_secrets
             for s in g_specs
         )
         file_snapshot = capture_file_snapshot(
@@ -235,7 +235,7 @@ def build_mcp_plan(
                 format=spec.config_format,
                 agent=spec.agent,
                 sensitive=spec.contains_secret
-                or get_mcp_adapter(spec.config_format).materializes_secrets,
+                or get_mcp_adapter(spec.adapter).materializes_secrets,
                 target_name=spec.target_name,
             )
 

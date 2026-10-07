@@ -480,6 +480,7 @@ def _definition(
             "builtin_servers": (),
             **mcp,
         }
+        expected["mcp"].setdefault("adapter", expected["mcp"]["config_format"])
     return expected
 
 
@@ -643,7 +644,8 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
                 skills_path=h / ".agents/skills",
                 mcp={
                     "config_path": h / ".grok/config.toml",
-                    "config_format": "grok_toml",
+                    "config_format": "toml",
+                    "adapter": "grok_toml",
                     "live_command": ("grok", "mcp", "list"),
                 },
                 subagents={

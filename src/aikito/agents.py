@@ -104,7 +104,12 @@ def _resolve_project_path(value: object, field: str, agent: str) -> Path:
     if not isinstance(value, str) or not value:
         raise AgentRegistryError(f"Agent '{agent}' requires a string '{field}'")
     path = Path(value)
-    if path.is_absolute() or bool(path.anchor) or path == Path(".") or ".." in path.parts:
+    if (
+        path.is_absolute()
+        or bool(path.anchor)
+        or path == Path(".")
+        or ".." in path.parts
+    ):
         raise AgentRegistryError(
             f"Agent '{agent}' requires a safe relative '{field}', got: {value}"
         )
@@ -295,6 +300,13 @@ class MCPCapability:
     live_command: tuple[str, ...] = ()
     auth_command: tuple[str, ...] = ()
     builtin_servers: tuple[str, ...] = ()
+    # Semantic adapter key; differs from config_format only when one file
+    # format carries different MCP semantics (e.g. Codex vs Grok TOML).
+    adapter: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.adapter:
+            object.__setattr__(self, "adapter", self.config_format)
 
     @property
     def is_supported(self) -> bool:
@@ -347,14 +359,23 @@ def _load_mcp_capability(
         raise AgentRegistryError(
             f"Agent '{name}' mcp.builtin_mcps must be a list of strings"
         )
+    config_format = str(mcp.get("config_format", "unsupported"))
+    adapter = mcp.get("adapter")
+    if adapter is None:
+        # Older portable definitions lack an adapter; inherit the bundled one
+        # only while the declared file format still matches the template.
+        bundled = bundled_agent_spec(name).get("mcp", {})
+        if bundled.get("config_format") == config_format:
+            adapter = bundled.get("adapter")
+    elif not isinstance(adapter, str) or not adapter:
+        raise AgentRegistryError(
+            f"Agent '{name}' mcp.adapter must be a non-empty string"
+        )
     # Legacy coercion (str()/tuple()) is preserved from v1.50.0 on purpose.
     return MCPCapability(
         config_path=config_path,
-        config_format=(
-            "grok_toml"
-            if name == "grok" and mcp.get("config_format") == "toml"
-            else str(mcp.get("config_format", "unsupported"))
-        ),
+        config_format=config_format,
+        adapter=adapter or config_format,
         name_style=str(mcp.get("name_style", "verbatim")),
         reason=str(mcp.get("reason", "")),
         live_command=tuple(mcp.get("live_command", ()) or ()),

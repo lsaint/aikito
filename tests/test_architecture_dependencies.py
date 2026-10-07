@@ -71,11 +71,6 @@ class ArchitectureDependencyTests(unittest.TestCase):
         )
         for relative in paths:
             tree = ast.parse((SRC / relative).read_text())
-            parents = {
-                child: parent
-                for parent in ast.walk(tree)
-                for child in ast.iter_child_nodes(parent)
-            }
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Compare):
                     continue
@@ -95,17 +90,6 @@ class ArchitectureDependencyTests(unittest.TestCase):
                     if isinstance(value, ast.Constant) and isinstance(value.value, str)
                 } & set(BUILTIN_AGENTS)
                 if not names:
-                    continue
-                owner = node
-                while owner in parents and not isinstance(owner, ast.FunctionDef):
-                    owner = parents[owner]
-                # The only identity compatibility rule maps old portable Grok TOML to its semantic adapter.
-                if (
-                    relative == "agents.py"
-                    and isinstance(owner, ast.FunctionDef)
-                    and owner.name == "_load_mcp_capability"
-                    and names == {"grok"}
-                ):
                     continue
                 violations.append(f"{relative}:{node.lineno}: {sorted(names)}")
         self.assertEqual(violations, [])
