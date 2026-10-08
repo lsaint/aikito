@@ -97,6 +97,10 @@ jobs:
         shell: pwsh
         run: python tests/agent_adapters_smoke.py
 
+      - name: Definition-driven adoption and Agent registration CLI smoke
+        shell: pwsh
+        run: python tests/adopt_definitions_smoke.py
+
       - name: Verify Windows CLI Help and Version
         shell: pwsh
         run: |

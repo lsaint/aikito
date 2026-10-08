@@ -385,6 +385,20 @@ class SubagentAdapter:
     read_item: Callable[[str, str], str | None] | None = None
     merge: Callable[[str, Sequence[ConfigOperation]], str] | None = None
     availability_check: Callable[[Path], tuple[bool, str]] | None = None
+    # Native frontmatter fields kept on adoption; None marks it not adoptable.
+    import_fields: frozenset[str] | None = None
+
+    def list_unmanaged(self, root: Path) -> dict[str, Path]:
+        """List native per-file subagents that Aikito did not generate."""
+        if self.layout != "per_file" or self.target_path or not root.is_dir():
+            return {}
+        return {
+            path.name[: -len(self.extension)]: path
+            for path in sorted(root.iterdir())
+            if path.is_file()
+            and path.name.endswith(self.extension)
+            and not has_aikito_marker(path)
+        }
 
     def validate_options(
         self, agent_name: str, subagent_name: str, options: dict[str, Any]
@@ -487,7 +501,9 @@ SUBAGENT_ADAPTERS: dict[str, SubagentAdapter] = {
         availability_check=_codex_available,
     ),
     "claude_markdown": SubagentAdapter(
-        render_claude_markdown, allowed_fields=frozenset({"model", "effort"})
+        render_claude_markdown,
+        allowed_fields=frozenset({"model", "effort"}),
+        import_fields=frozenset(),
     ),
     "agy_markdown": SubagentAdapter(
         render_agy_markdown,
@@ -515,6 +531,16 @@ SUBAGENT_ADAPTERS: dict[str, SubagentAdapter] = {
             "disable-model-invocation": "boolean",
             "user-invocable": "boolean",
         },
+        import_fields=frozenset(
+            {
+                "name",
+                "model",
+                "tools",
+                "target",
+                "disable-model-invocation",
+                "user-invocable",
+            }
+        ),
     ),
     "opencode_markdown": SubagentAdapter(
         render_opencode_markdown, allowed_fields=frozenset({"model"})

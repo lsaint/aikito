@@ -67,11 +67,20 @@ target fails. There is no global skip-errors mode. Unreadable or malformed
 source files remain unskippable because Aikito cannot safely determine their
 contents.
 
+New MCP or subagent resources may require registration of a built-in Agent.
+The registration is part of the same preflight plan and precedes resource
+writes. `--skip agent/<name>` blocks the plan unless its dependent new resources
+are also skipped. Existing Agent definitions are never replaced by adoption.
+
 An applied adoption creates timestamped backups under:
 
 ```text
 ~/.aikito/backups/adopt_<timestamp>
 ```
+
+Native MCP configurations whose adapter materializes credentials are excluded
+from whole-file backups. They still participate in source fingerprint checks,
+so modifying or removing them after planning blocks all writes.
 
 Adoption imports resources into the Aikito workspace. It does not overwrite the
 original Agent configuration files; Agent-native changes occur only during an
@@ -153,6 +162,10 @@ steps. See the [MCP invariants](architecture/invariants-mcp.md).
 Canonical MCP configuration should contain environment-variable references,
 not plaintext credentials. Adoption converts recognized secrets to references,
 but users must still inspect imported configuration before committing it.
+All supported MCP import adapters apply the same sensitive-header conversion,
+including Claude native configuration and custom Agents. Existing references
+and non-sensitive headers are preserved; configure generated
+`AIKITO_<SERVER>_<HEADER>` variables before synchronization.
 
 - Sensitive credential tokens, authorization headers, and environment variables are redacted in all plan summaries, CLI outputs, error messages, and public structured views ([INV-MCP-05](architecture/invariants-mcp.md#inv-mcp-05)).
 - Configuration files containing sensitive credentials or marked as sensitive suppress standard whole-file backups to prevent plaintext secrets leaking into backup directories, and enforce secure filesystem permissions (`0600` on POSIX, restricted ACLs on Windows) ([INV-MCP-06](architecture/invariants-mcp.md#inv-mcp-06)).

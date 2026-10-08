@@ -42,6 +42,12 @@ resource-level `--skip` only when you intentionally do not want to adopt one.
 Agent-native default servers configured in `agents/<name>.toml` under `builtin_mcps`
 (such as `openaiDeveloperDocs` for Codex) are automatically excluded from adoption.
 
+Sources follow registered Agent paths and supported import adapters. Bundled
+definitions also allow discovery of unregistered built-in Agents. When a new
+MCP or subagent resource requires one, adoption registers its bundled
+`agents/<name>.toml` first. Existing definitions are preserved; importing only
+instructions does not register an Agent.
+
 Existing skill directories are not imported automatically. After this onboarding
 flow, review them separately, use `aikito add skill` to create a canonical
 destination, and move in the content you want Aikito to govern.

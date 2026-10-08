@@ -482,7 +482,7 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         action="append",
         default=[],
         metavar="RESOURCE",
-        help="Skip one explicit resource (instructions, mcp/<name>, or subagent/<name>); repeatable",
+        help="Skip one explicit resource (instructions, agent/<name>, mcp/<name>, or subagent/<name>); repeatable",
     )
     p_adopt.set_defaults(func=cmd_adopt)
 

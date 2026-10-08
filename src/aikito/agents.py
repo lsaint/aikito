@@ -464,6 +464,16 @@ def _build_agent_definition(
     )
 
 
+def bundled_agent_definition(name: str, home: Path) -> AgentDefinition:
+    """Build a built-in definition from its bundled template only."""
+    spec = bundled_agent_spec(name)
+    if not spec:
+        raise AgentRegistryError(f"Agent '{name}' has no bundled definition")
+    registry = AgentRegistry.from_document({"agents": {name: spec}}, home)
+    config_path = _package_resource_dir("templates") / "agents" / f"{name}.toml"
+    return _build_agent_definition(registry[name], spec, home, config_path)
+
+
 def load_agent_definition(aikito_dir: Path, home: Path, name: str) -> AgentDefinition:
     """Load one agent without validating unrelated agent declarations."""
     document = load_agent_document(aikito_dir)

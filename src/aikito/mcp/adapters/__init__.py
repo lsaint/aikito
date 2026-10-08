@@ -267,6 +267,17 @@ def _build_dsh_cordis(url, override, authentication, headers, server_name):
     return desired, False, ""
 
 
+def _import_verbatim(entry: dict[str, Any]) -> dict[str, Any] | None:
+    return dict(entry)
+
+
+def _import_copilot_json(entry: dict[str, Any]) -> dict[str, Any] | None:
+    # Copilot local servers have no canonical remote equivalent.
+    if entry.get("type", "http") != "http" or not isinstance(entry.get("url"), str):
+        return None
+    return {**entry, "transport": "remote"}
+
+
 @dataclass(frozen=True)
 class MCPAdapter:
     build_desired: Callable
@@ -277,6 +288,9 @@ class MCPAdapter:
     server_collection: str
     syntax_name: str
     materializes_secrets: bool = False
+    # Converts one native entry for adoption; None marks the adapter as not
+    # adoptable, and a None result skips an unsupported entry.
+    import_entry: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None
 
     def read_all_entries(self, text: str) -> dict[str, dict[str, Any]]:
         document = _load_document(self.document_format, text)
@@ -297,6 +311,7 @@ MCP_ADAPTERS: dict[str, MCPAdapter] = {
         "toml",
         "mcp_servers",
         "TOML",
+        import_entry=_import_verbatim,
     ),
     "grok_toml": MCPAdapter(
         _build_grok_toml,
@@ -335,6 +350,7 @@ MCP_ADAPTERS: dict[str, MCPAdapter] = {
         "mcpServers",
         "JSON",
         True,
+        import_entry=_import_verbatim,
     ),
     "copilot_json": MCPAdapter(
         _build_copilot_json,
@@ -344,6 +360,7 @@ MCP_ADAPTERS: dict[str, MCPAdapter] = {
         "copilot_json",
         "mcpServers",
         "JSON",
+        import_entry=_import_copilot_json,
     ),
     "dsh_cordis": MCPAdapter(
         _build_dsh_cordis,

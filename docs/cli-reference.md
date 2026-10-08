@@ -175,6 +175,10 @@ needed. Skips apply only to that invocation and are printed in the plan. Unknown
 resource names fail instead of being ignored; unreadable or malformed source
 configuration remains a plan-level error and cannot be skipped.
 
+`adopt` also accepts `--skip agent/<name>` for a planned built-in Agent
+registration. Skip its dependent new MCP or subagent resources too; otherwise
+preflight blocks the entire import.
+
 `status` is the compact dashboard: its Memory `Status` column combines the
 presence of canonical note directories and runtime connection health, and the
 legend explains any warning symbols. Use

@@ -20,7 +20,8 @@
 
 ### INV-ADOPT-03: Explicit Skip Scoping `[current]` {: #inv-adopt-03 }
 
-- The `--skip` flag specifies resources or resource kinds to omit from adoption (e.g., `--skip claude-code`, `--skip mcp:fetch`).
+- The repeatable `--skip` flag names an explicit target: `instructions`, `agent/<name>`, `mcp/<name>`, or `subagent/<name>`.
+- Skipping a required Agent registration without skipping its dependent new resources blocks the entire plan.
 - Skipped resources are excluded during `AdoptPlan` construction or request handling:
   - They are recorded in `AdoptPlan.skipped`.
   - They generate no mutation entries in `AdoptFilePlan`.
@@ -37,7 +38,7 @@
 
 ### INV-ADOPT-05: Local Agent Source Backup Boundary `[current]` {: #inv-adopt-05 }
 
-- Prior to modifying or importing existing local agent configurations, timestamped backups of the original agent source files are created under `~/.aikito/backups/adopt_<timestamp>`.
+- Prior to importing existing local agent configurations, timestamped backups of eligible source files are created under `~/.aikito/backups/adopt_<timestamp>`. Native MCP files whose adapter materializes credentials are excluded from whole-file backups but still participate in source fingerprint checks.
 - Backups protect original agent configuration files against data loss.
 - If backup creation fails, adoption execution immediately aborts with zero canonical workspace writes.
 
@@ -59,6 +60,7 @@
 ### INV-ADOPT-08: Structured Adopt Execution Result `[current]` {: #inv-adopt-08 }
 
 - `execute_adoption()` returns an `AdoptExecutionResult` detailing:
+  - `agents`: List of built-in Agent definitions successfully registered
   - `instructions`: List of adopted instruction targets
   - `mcps`: List of adopted MCP definitions
   - `subagents`: List of adopted subagent prompt files and registry entries

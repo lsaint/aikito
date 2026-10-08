@@ -13,19 +13,31 @@ import os
 import shutil
 import sys
 import tomllib
-from dataclasses import dataclass, replace
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .agents import (
+    BUILTIN_AGENTS,
+    AgentDefinition,
+    AgentRegistryError,
+    bundled_agent_definition,
+    load_agent_definitions,
+)
+from .compat import is_same_target_location
 from .diagnostics import Finding, FindingAction
 from .frontmatter import _parse_markdown_frontmatter
-from .agents import AgentDefinition, AgentRegistryError, load_agent_definitions
+from .mcp.adapters import MCP_ADAPTERS, MCPAdapter
+from .mcp.model import MCPConfigError
+from .mcp.redact import is_credential_header
 from .render import render_finding_lines
-from .subagent import has_aikito_marker
+from .subagent_adapters import SUBAGENT_ADAPTERS
 from .templating import (
     load_default_memory_instruction,
     load_global_agents_template,
+    load_template,
 )
 
 
@@ -69,15 +81,25 @@ class AdoptFilePlan:
     path: Path
     expected_pre_image: str | None
     desired_content: str
-    resource_kind: str  # "instructions", "mcp", "subagent_prompt"
+    resource_kind: str  # "agent", "instructions", "mcp", "subagent_prompt"
     resource_name: str
     action: str  # "CREATE", "UPDATE", "NOOP"
     log_message: str = ""
 
 
 @dataclass(frozen=True)
+class AgentRegistrationAdoption:
+    """A built-in Agent that adopted resources need registered in the workspace."""
+
+    agent_name: str
+    display_name: str
+    sources: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class AdoptExecutionResult:
     success: bool
+    agents: tuple[str, ...] = ()
     instructions: tuple[str, ...] = ()
     mcps: tuple[str, ...] = ()
     subagents: tuple[str, ...] = ()
@@ -106,6 +128,13 @@ class AdoptPlan:
     backup_sources: tuple[Path, ...] = ()
     source_fingerprints: tuple[tuple[Path, str], ...] = ()
     can_apply: bool = True
+    agent_registrations: tuple[AgentRegistrationAdoption, ...] = ()
+    # None when the workspace registry is absent or invalid; no registration
+    # is planned then.
+    registered_agents: frozenset[str] | None = None
+    definitions: Mapping[str, AgentDefinition] = field(
+        default_factory=dict, repr=False, compare=False
+    )
 
     @property
     def aikito_dir(self) -> Path:
@@ -122,6 +151,7 @@ class AdoptPlan:
 
 @dataclass(frozen=True)
 class AdoptSummary:
+    agent_registrations: int
     instruction_updates: int
     mcp_imports: int
     subagent_imports: int
@@ -131,7 +161,12 @@ class AdoptSummary:
 
     @property
     def total_changes(self) -> int:
-        return self.instruction_updates + self.mcp_imports + self.subagent_imports
+        return (
+            self.agent_registrations
+            + self.instruction_updates
+            + self.mcp_imports
+            + self.subagent_imports
+        )
 
 
 def _write_text_atomic(target: Path, content: str) -> None:
@@ -204,10 +239,130 @@ def render_mcp_server_file(
         )
 
 
+def _claude_desktop_sources(home: Path) -> list[Path]:
+    return [
+        home
+        / "Library"
+        / "Application Support"
+        / "Claude"
+        / "claude_desktop_config.json",
+        home / ".claude" / "claude_desktop_config.json",
+    ]
+
+
+def _none(home: Path) -> list[Path]:
+    return []
+
+
+# Third-party import sources that share an Agent's MCP shape but are not part of
+# its Agent definition, e.g. Claude Desktop for Claude Code.
+_EXTERNAL_MCP_SOURCES = {"claude-code": _claude_desktop_sources}
+
+
+def _external_mcp_sources(home: Path) -> list[Path]:
+    return [
+        path for sources in _EXTERNAL_MCP_SOURCES.values() for path in sources(home)
+    ]
+
+
+# Earlier sources own canonical names and agents-list order; this preserves the
+# established Claude, Codex, Copilot precedence. Others follow with verbatim names
+# first so hyphenated canonical names win over underscore spellings.
+_MCP_SOURCE_PRECEDENCE = ("claude-code", "codex", "github-copilot")
+
+
+def _mcp_source_order(name: str, definition: AgentDefinition) -> tuple:
+    if name in _MCP_SOURCE_PRECEDENCE:
+        return (_MCP_SOURCE_PRECEDENCE.index(name),)
+    underscore = bool(definition.mcp and definition.mcp.name_style == "underscore")
+    return (len(_MCP_SOURCE_PRECEDENCE), underscore, _agent_order(name))
+
+
+def _agent_order(name: str) -> tuple[int, str]:
+    return (
+        (BUILTIN_AGENTS.index(name), "")
+        if name in BUILTIN_AGENTS
+        else (
+            len(BUILTIN_AGENTS),
+            name,
+        )
+    )
+
+
+@dataclass(frozen=True)
+class _AdoptionDefinitions:
+    """Workspace Agents plus bundled definitions for unregistered built-ins."""
+
+    definitions: dict[str, AgentDefinition]
+    registered: frozenset[str]
+    registry_valid: bool = True
+
+
+def _adoption_definitions(
+    aikito_dir: Path | None, home: Path, errors: list[Finding] | None = None
+) -> _AdoptionDefinitions:
+    registered: dict[str, AgentDefinition] = {}
+    valid = True
+    agents_path = aikito_dir / "agents" if aikito_dir is not None else None
+    if agents_path is not None and agents_path.is_dir():
+        try:
+            registered = load_agent_definitions(aikito_dir, home)
+        except AgentRegistryError as exc:
+            valid = False
+            _record_scan_error(errors, str(exc), source=agents_path, resource="agents")
+    definitions = dict(registered)
+    for name in BUILTIN_AGENTS:
+        definitions.setdefault(name, bundled_agent_definition(name, home))
+    return _AdoptionDefinitions(
+        dict(sorted(definitions.items(), key=lambda item: _agent_order(item[0]))),
+        frozenset(registered),
+        valid,
+    )
+
+
+def _mcp_backup_sources(
+    definitions: Mapping[str, AgentDefinition], home: Path
+) -> list[Path]:
+    # Secret-materializing configs are never copied whole into backups.
+    paths = list(_external_mcp_sources(home))
+    for definition in definitions.values():
+        capability = definition.mcp
+        if capability is None or not capability.is_supported:
+            continue
+        adapter = MCP_ADAPTERS.get(capability.adapter)
+        if adapter and adapter.import_entry and not adapter.materializes_secrets:
+            paths.append(capability.config_path)
+    return paths
+
+
+def _adoption_source_files(
+    definitions: Mapping[str, AgentDefinition], home: Path
+) -> set[Path]:
+    """Include sources excluded from backups and merged secondary subagents."""
+    paths = set(_external_mcp_sources(home))
+    for definition in definitions.values():
+        mcp = definition.mcp
+        if mcp and mcp.is_supported:
+            adapter = MCP_ADAPTERS.get(mcp.adapter)
+            if adapter and adapter.import_entry:
+                paths.add(mcp.config_path)
+        subagents = definition.subagents
+        if subagents:
+            subagent_adapter = SUBAGENT_ADAPTERS.get(subagents.config_format)
+            if subagent_adapter and subagent_adapter.import_fields is not None:
+                paths.update(
+                    subagent_adapter.list_unmanaged(
+                        _home_anchored(subagents.config_path, home)
+                    ).values()
+                )
+    return {path for path in paths if path.is_file()}
+
+
 def _collect_sources_for_backup(
     home: Path,
     instructions: InstructionsAdoption | None,
     subagents: List[SubagentAdoption] | None,
+    definitions: Mapping[str, AgentDefinition] | None = None,
 ) -> List[Path]:
     files = set()
 
@@ -216,25 +371,11 @@ def _collect_sources_for_backup(
             if path.is_file():
                 files.add(path)
 
-    claude_json_candidates = [
-        home
-        / "Library"
-        / "Application Support"
-        / "Claude"
-        / "claude_desktop_config.json",
-        home / ".claude" / "claude_desktop_config.json",
-    ]
-    for p in claude_json_candidates:
-        if p.is_file():
-            files.add(p)
-
-    codex_toml = home / ".codex" / "config.toml"
-    if codex_toml.is_file():
-        files.add(codex_toml)
-
-    copilot_mcp = home / ".copilot" / "mcp-config.json"
-    if copilot_mcp.is_file():
-        files.add(copilot_mcp)
+    if definitions is None:
+        definitions = _adoption_definitions(None, home).definitions
+    for path in _mcp_backup_sources(definitions, home):
+        if path.is_file():
+            files.add(path)
 
     if subagents:
         for sub in subagents:
@@ -247,7 +388,9 @@ def _collect_sources_for_backup(
 def collect_source_files_for_backup(plan: AdoptPlan) -> List[Path]:
     if plan.backup_sources:
         return list(plan.backup_sources)
-    return _collect_sources_for_backup(plan.home, plan.instructions, plan.subagents)
+    return _collect_sources_for_backup(
+        plan.home, plan.instructions, plan.subagents, plan.definitions or None
+    )
 
 
 def create_adopt_backup(
@@ -376,15 +519,37 @@ def _record_mcp_url_conflict(
     )
 
 
+# Legacy instruction locations that differ from the current runtime targets.
+_LEGACY_INSTRUCTION_SOURCES = {"agy": (Path(".gemini/config/AGENTS.md"),)}
+
+
+def _instruction_candidates(
+    definitions: Mapping[str, AgentDefinition], home: Path
+) -> list[tuple[str, Path]]:
+    candidates: list[tuple[str, Path]] = []
+    seen: list[Path] = []
+    for name, definition in definitions.items():
+        paths = [definition.instruction_path] if definition.instruction_path else []
+        paths += [home / path for path in _LEGACY_INSTRUCTION_SOURCES.get(name, ())]
+        for path in paths:
+            # Agents sharing one physical file contribute it once.
+            if any(is_same_target_location(path, other) for other in seen):
+                continue
+            seen.append(path)
+            candidates.append((name, path))
+    return candidates
+
+
 def scan_instructions(
-    aikito_dir: Path, home: Path, *, errors: list[Finding] | None = None
+    aikito_dir: Path,
+    home: Path,
+    *,
+    errors: list[Finding] | None = None,
+    definitions: Mapping[str, AgentDefinition] | None = None,
 ) -> InstructionsAdoption:
-    candidates = [
-        ("codex", home / ".codex" / "AGENTS.md"),
-        ("claude-code", home / ".claude" / "CLAUDE.md"),
-        ("agy", home / ".gemini" / "config" / "AGENTS.md"),
-        ("github-copilot", home / ".copilot" / "copilot-instructions.md"),
-    ]
+    if definitions is None:
+        definitions = _adoption_definitions(aikito_dir, home, errors).definitions
+    candidates = _instruction_candidates(definitions, home)
 
     target_path = aikito_dir / "global" / "AGENTS.md"
 
@@ -395,7 +560,7 @@ def scan_instructions(
                 content = path.read_text(encoding="utf-8").strip()
                 if content:
                     sources.append((agent_name, path, content))
-            except (PermissionError, OSError) as e:
+            except (OSError, UnicodeDecodeError) as e:
                 _record_scan_error(
                     errors,
                     f"Unable to read instructions: {e}",
@@ -456,14 +621,13 @@ def _sanitize_mcp_env(
 
 def _sanitize_mcp_headers(headers: Dict[str, Any], server_name: str) -> Dict[str, str]:
     sanitized = {}
-    sensitive_fragments = ("authorization", "api-key", "api_key", "token", "secret")
     safe_server_name = "".join(
         char if char.isalnum() else "_" for char in server_name.upper()
     )
     for key, value in headers.items():
         value_text = str(value)
         is_reference = "${" in value_text or value_text.startswith("$")
-        is_sensitive = any(fragment in key.lower() for fragment in sensitive_fragments)
+        is_sensitive = is_credential_header(key)
         if is_sensitive and not is_reference:
             safe_key = "".join(char if char.isalnum() else "_" for char in key.upper())
             value_text = f"${{AIKITO_{safe_server_name}_{safe_key}}}"
@@ -477,26 +641,18 @@ def scan_mcp_servers(
     *,
     errors: list[Finding] | None = None,
     builtin_mcps: list[Tuple[str, str]] | None = None,
+    definitions: Mapping[str, AgentDefinition] | None = None,
 ) -> List[MCPServerAdoption]:
     adopted_servers: Dict[str, MCPServerAdoption] = {}
 
-    agent_definitions: dict[str, AgentDefinition] = {}
-    agent_builtin_mcps: Dict[str, set[str]] = {}
-    agents_path = aikito_dir / "agents"
-    if agents_path.is_dir():
-        try:
-            agent_definitions = load_agent_definitions(aikito_dir, home)
-        except AgentRegistryError as exc:
-            _record_scan_error(
-                errors,
-                str(exc),
-                source=agents_path,
-                resource="agents",
-            )
-        else:
-            for ag_name, ag_def in agent_definitions.items():
-                if ag_def.mcp and ag_def.mcp.builtin_servers:
-                    agent_builtin_mcps[ag_name] = set(ag_def.mcp.builtin_servers)
+    if definitions is None:
+        definitions = _adoption_definitions(aikito_dir, home, errors).definitions
+    agent_definitions = dict(definitions)
+    agent_builtin_mcps: Dict[str, set[str]] = {
+        name: set(definition.mcp.builtin_servers)
+        for name, definition in agent_definitions.items()
+        if definition.mcp and definition.mcp.builtin_servers
+    }
 
     existing_mcps: set[str] = set()
     mcps_dir = aikito_dir / "mcps"
@@ -568,149 +724,53 @@ def scan_mcp_servers(
                 source_file=source_file,
             )
 
-    # 1. Claude Code (~/.claude.json) & Claude Desktop JSON
-    claude_json_candidates = [
-        home / ".claude.json",
-        home
-        / "Library"
-        / "Application Support"
-        / "Claude"
-        / "claude_desktop_config.json",
-        home / ".claude" / "claude_desktop_config.json",
-    ]
+    def _sanitize(name: str, config: Dict[str, Any]) -> Dict[str, Any]:
+        config = dict(config)
+        if isinstance(config.get("env"), dict):
+            config["env"], _ = _sanitize_mcp_env(config["env"])
+        if isinstance(config.get("headers"), dict):
+            config["headers"] = _sanitize_mcp_headers(config["headers"], name)
+        return config
 
-    for c_path in claude_json_candidates:
-        if c_path.is_file():
-            try:
-                with open(c_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    mcp_servers = data.get("mcpServers", {})
-                    if isinstance(mcp_servers, dict):
-                        for s_name, s_cfg in mcp_servers.items():
-                            if isinstance(s_cfg, dict):
-                                s_cfg_copy = dict(s_cfg)
-                                if "env" in s_cfg_copy and isinstance(
-                                    s_cfg_copy["env"], dict
-                                ):
-                                    sanitized_env, _ = _sanitize_mcp_env(
-                                        s_cfg_copy["env"]
-                                    )
-                                    s_cfg_copy["env"] = sanitized_env
-
-                                _register_server(
-                                    s_name,
-                                    "claude-code",
-                                    s_cfg_copy,
-                                    c_path,
-                                )
-            except json.JSONDecodeError as e:
-                _record_scan_error(
-                    errors,
-                    f"Failed to parse JSON: {e}",
-                    source=c_path,
-                    resource="mcp",
-                )
-            except (PermissionError, OSError) as e:
-                _record_scan_error(
-                    errors,
-                    f"Failed to read MCP config file: {e}",
-                    source=c_path,
-                    resource="mcp",
-                )
-
-    # 2. Codex TOML
-    codex_toml = home / ".codex" / "config.toml"
-    if codex_toml.is_file():
+    def _read_source(
+        agent: str, path: Path, adapter: MCPAdapter
+    ) -> dict[str, dict[str, Any]]:
         try:
-            with open(codex_toml, "rb") as f:
-                data = tomllib.load(f)
-                mcp_servers = data.get("mcp_servers", {})
-                if isinstance(mcp_servers, dict):
-                    for s_name, s_cfg in mcp_servers.items():
-                        if isinstance(s_cfg, dict):
-                            s_cfg_copy = dict(s_cfg)
-                            if "env" in s_cfg_copy and isinstance(
-                                s_cfg_copy["env"], dict
-                            ):
-                                sanitized_env, _ = _sanitize_mcp_env(s_cfg_copy["env"])
-                                s_cfg_copy["env"] = sanitized_env
+            return adapter.read_all_entries(path.read_text(encoding="utf-8"))
+        except MCPConfigError as exc:
+            message = f"Failed to parse {adapter.syntax_name}: {exc}"
+        except (PermissionError, OSError, UnicodeDecodeError) as exc:
+            message = f"Failed to read MCP config file: {exc}"
+        _record_scan_error(errors, message, source=path, resource="mcp")
+        return {}
 
-                            _register_server(
-                                s_name,
-                                "codex",
-                                s_cfg_copy,
-                                codex_toml,
-                            )
-        except tomllib.TOMLDecodeError as e:
-            _record_scan_error(
-                errors,
-                f"Failed to parse TOML: {e}",
-                source=codex_toml,
-                resource="mcp",
-            )
-        except (PermissionError, OSError) as e:
-            _record_scan_error(
-                errors,
-                f"Failed to read MCP config file: {e}",
-                source=codex_toml,
-                resource="mcp",
-            )
+    # Agent-native configs, read through each adoptable semantic adapter.
+    native_sources: list[tuple[str, Path, MCPAdapter]] = []
+    for agent, definition in sorted(
+        agent_definitions.items(), key=lambda item: _mcp_source_order(*item)
+    ):
+        capability = definition.mcp
+        if capability is None or not capability.is_supported:
+            continue
+        adapter = MCP_ADAPTERS.get(capability.adapter)
+        if adapter is None or adapter.import_entry is None:
+            continue
+        paths = [capability.config_path, *_EXTERNAL_MCP_SOURCES.get(agent, _none)(home)]
+        native_sources.extend(
+            (agent, path, adapter) for path in paths if path.is_file()
+        )
 
-    # 3. GitHub Copilot CLI (~/.copilot/mcp-config.json)
-    copilot_mcp_config = home / ".copilot" / "mcp-config.json"
-    if copilot_mcp_config.is_file():
-        try:
-            with open(copilot_mcp_config, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                mcp_servers = data.get("mcpServers", {})
-                if isinstance(mcp_servers, dict):
-                    for s_name, s_cfg in mcp_servers.items():
-                        if isinstance(s_cfg, dict):
-                            s_cfg_copy = dict(s_cfg)
-                            if "env" in s_cfg_copy and isinstance(
-                                s_cfg_copy["env"], dict
-                            ):
-                                sanitized_env, _ = _sanitize_mcp_env(s_cfg_copy["env"])
-                                s_cfg_copy["env"] = sanitized_env
-                            if "headers" in s_cfg_copy and isinstance(
-                                s_cfg_copy["headers"], dict
-                            ):
-                                sanitized_headers = _sanitize_mcp_headers(
-                                    s_cfg_copy["headers"], s_name
-                                )
-                                s_cfg_copy["headers"] = sanitized_headers
-
-                            server_type = s_cfg_copy.get("type", "http")
-                            if server_type != "http" or not isinstance(
-                                s_cfg_copy.get("url"), str
-                            ):
-                                print(
-                                    f"[WARN] Skipping unsupported local Copilot MCP server '{s_name}'",
-                                    file=sys.stderr,
-                                )
-                                continue
-                            s_cfg_copy["transport"] = "remote"
-
-                            _register_server(
-                                s_name,
-                                "github-copilot",
-                                s_cfg_copy,
-                                copilot_mcp_config,
-                            )
-        except json.JSONDecodeError as e:
-            _record_scan_error(
-                errors,
-                f"Failed to parse JSON: {e}",
-                source=copilot_mcp_config,
-                resource="mcp",
-            )
-        except (PermissionError, OSError) as e:
-            _record_scan_error(
-                errors,
-                f"Failed to read MCP config file: {e}",
-                source=copilot_mcp_config,
-                resource="mcp",
-            )
+    for agent, path, adapter in native_sources:
+        for name, entry in _read_source(agent, path, adapter).items():
+            converted = adapter.import_entry(_sanitize(name, entry))
+            if converted is None:
+                display = agent_definitions[agent].display_name
+                print(
+                    f"[WARN] Skipping unsupported local {display} MCP server '{name}'",
+                    file=sys.stderr,
+                )
+                continue
+            _register_server(name, agent, converted, path)
 
     result_servers: List[MCPServerAdoption] = []
     for srv in adopted_servers.values():
@@ -728,101 +788,73 @@ def scan_mcp_servers(
     return result_servers
 
 
+def _home_anchored(path: Path, home: Path) -> Path:
+    """Re-anchor a resolved capability path under home so backups keep its layout."""
+    try:
+        return home / path.relative_to(home.resolve())
+    except ValueError:
+        return path
+
+
 def scan_subagents(
-    aikito_dir: Path, home: Path, *, errors: list[Finding] | None = None
+    aikito_dir: Path,
+    home: Path,
+    *,
+    errors: list[Finding] | None = None,
+    definitions: Mapping[str, AgentDefinition] | None = None,
 ) -> List[SubagentAdoption]:
+    if definitions is None:
+        definitions = _adoption_definitions(aikito_dir, home, errors).definitions
     subagents: List[SubagentAdoption] = []
-
-    # Claude Code Subagents
-    claude_agents_dir = home / ".claude" / "agents"
-    if claude_agents_dir.is_dir():
-        for agent_file in sorted(claude_agents_dir.glob("*.md")):
-            if has_aikito_marker(agent_file):
-                continue
-            s_name = agent_file.stem
+    for agent, definition in definitions.items():
+        capability = definition.subagents
+        if capability is None:
+            continue
+        adapter = SUBAGENT_ADAPTERS.get(capability.config_format)
+        if adapter is None or adapter.import_fields is None:
+            continue
+        for s_name, agent_file in adapter.list_unmanaged(
+            _home_anchored(capability.config_path, home)
+        ).items():
             try:
                 raw_content = agent_file.read_text(encoding="utf-8")
-                meta, body = _parse_markdown_frontmatter(raw_content)
-                desc = meta.get(
-                    "description", f"Adopted subagent {s_name} from Claude Code"
-                )
-
-                subagents.append(
-                    SubagentAdoption(
-                        subagent_name=s_name,
-                        description=str(desc),
-                        role=s_name.capitalize(),
-                        system_prompt=body,
-                        target_agents=["claude-code"],
-                        source_file=agent_file,
-                        platform_configs={},
-                    )
-                )
-            except (PermissionError, OSError) as e:
+            except (OSError, UnicodeDecodeError) as e:
                 _record_scan_error(
                     errors,
                     f"Failed to read subagent file: {e}",
                     source=agent_file,
                     resource=f"subagent/{s_name}",
                 )
-
-    # GitHub Copilot CLI Subagents
-    copilot_agents_dir = home / ".copilot" / "agents"
-    if copilot_agents_dir.is_dir():
-        for agent_file in sorted(copilot_agents_dir.glob("*.agent.md")):
-            if has_aikito_marker(agent_file):
                 continue
-            s_name = (
-                agent_file.name[:-9]
-                if agent_file.name.endswith(".agent.md")
-                else agent_file.stem
-            )
-            try:
-                raw_content = agent_file.read_text(encoding="utf-8")
-                meta, body = _parse_markdown_frontmatter(raw_content)
-                desc = meta.get(
-                    "description", f"Adopted subagent {s_name} from GitHub Copilot CLI"
-                )
-                platform_config = {
-                    key: meta[key]
-                    for key in (
-                        "name",
-                        "model",
-                        "tools",
-                        "target",
-                        "disable-model-invocation",
-                        "user-invocable",
-                    )
-                    if key in meta
-                }
-
-                existing = next(
-                    (s for s in subagents if s.subagent_name == s_name), None
-                )
-                if existing:
-                    if "github-copilot" not in existing.target_agents:
-                        existing.target_agents.append("github-copilot")
-                    existing.platform_configs["github-copilot"] = platform_config
-                else:
-                    subagents.append(
-                        SubagentAdoption(
-                            subagent_name=s_name,
-                            description=str(desc),
-                            role=s_name.capitalize(),
-                            system_prompt=body,
-                            target_agents=["github-copilot"],
-                            source_file=agent_file,
-                            platform_configs={"github-copilot": platform_config},
+            meta, body = _parse_markdown_frontmatter(raw_content)
+            platform_config = {
+                key: meta[key] for key in sorted(adapter.import_fields) if key in meta
+            }
+            existing = next((s for s in subagents if s.subagent_name == s_name), None)
+            if existing:
+                if agent not in existing.target_agents:
+                    existing.target_agents.append(agent)
+                if adapter.import_fields:
+                    existing.platform_configs[agent] = platform_config
+                continue
+            subagents.append(
+                SubagentAdoption(
+                    subagent_name=s_name,
+                    description=str(
+                        meta.get(
+                            "description",
+                            f"Adopted subagent {s_name} from {definition.display_name}",
                         )
-                    )
-            except (PermissionError, OSError) as e:
-                _record_scan_error(
-                    errors,
-                    f"Failed to read subagent file: {e}",
-                    source=agent_file,
-                    resource=f"subagent/{s_name}",
+                    ),
+                    role=s_name.capitalize(),
+                    system_prompt=body,
+                    target_agents=[agent],
+                    source_file=agent_file,
+                    platform_configs=(
+                        {agent: platform_config} if adapter.import_fields else {}
+                    ),
                 )
-
+            )
     return subagents
 
 
@@ -833,8 +865,28 @@ def _build_file_plans(
     subagents: List[SubagentAdoption],
     *,
     home: Path,
+    definitions: Mapping[str, AgentDefinition] | None = None,
+    registrations: tuple[AgentRegistrationAdoption, ...] = (),
 ) -> tuple[AdoptFilePlan, ...]:
     plans: list[AdoptFilePlan] = []
+
+    # 0. Built-in Agent registrations required by adopted resources
+    for registration in registrations:
+        path = aikito_dir / "agents" / f"{registration.agent_name}.toml"
+        plans.append(
+            AdoptFilePlan(
+                path=path,
+                expected_pre_image=None,
+                desired_content=load_template(f"agents/{registration.agent_name}.toml"),
+                resource_kind="agent",
+                resource_name=registration.agent_name,
+                action="CREATE",
+                log_message=(
+                    f"[REGISTER AGENT] {registration.display_name} "
+                    f"({', '.join(registration.sources)})"
+                ),
+            )
+        )
 
     # 1. Instructions
     inst = instructions
@@ -913,8 +965,14 @@ def _build_file_plans(
         from .subagent import SubagentConfigError, validate_platform_opts
         from .workspace.layout import render_subagent_text
 
+        # Unregistered built-ins validate against the bundled definition that
+        # this plan registers alongside them.
         agents = (
-            load_agent_definitions(aikito_dir, home)
+            (
+                definitions
+                if definitions is not None
+                else _adoption_definitions(aikito_dir, home).definitions
+            )
             if any(sub.platform_configs for sub in subagents)
             else {}
         )
@@ -992,8 +1050,24 @@ def _collect_adopt_findings(
     errors: list[Finding],
     *,
     home: Path,
+    definitions: Mapping[str, AgentDefinition] | None = None,
+    unregistered: Mapping[str, tuple[str, ...]] | None = None,
 ) -> tuple[Finding, ...]:
     findings = list(errors)
+    for agent, resources in sorted((unregistered or {}).items()):
+        for resource in resources:
+            findings.append(
+                Finding(
+                    status="FAIL",
+                    code="adopt.agent_unregistered",
+                    resource=resource,
+                    source=f"agents/{agent}.toml",
+                    message=f"{resource} targets unregistered Agent '{agent}'",
+                    reason=f"Registration agent/{agent} was skipped",
+                    fix_hint=(f"Adopt agent/{agent} or also skip {resource}"),
+                    actions=(FindingAction("Skip", f"aikito adopt --skip {resource}"),),
+                )
+            )
     if instructions.has_conflict:
         source_paths = ", ".join(str(path) for _, path, _ in instructions.sources)
         target = instructions.target_path or aikito_dir / "global" / "AGENTS.md"
@@ -1032,7 +1106,12 @@ def _collect_adopt_findings(
     subagent_logs = [
         (fp.resource_name, fp.log_message)
         for fp in _build_file_plans(
-            aikito_dir, instructions, mcp_servers, subagents, home=home
+            aikito_dir,
+            instructions,
+            mcp_servers,
+            subagents,
+            home=home,
+            definitions=definitions,
         )
         if fp.resource_kind == "subagent_prompt"
     ]
@@ -1068,7 +1147,43 @@ def collect_adopt_findings(plan: AdoptPlan) -> tuple[Finding, ...]:
         plan.subagents,
         list(plan.errors),
         home=plan.home,
+        definitions=plan.definitions or None,
     )
+
+
+def _registration_needs(
+    file_plans: tuple[AdoptFilePlan, ...],
+    mcp_servers: List[MCPServerAdoption],
+    subagents: List[SubagentAdoption],
+    registered: frozenset[str] | None,
+    definitions: Mapping[str, AgentDefinition],
+) -> dict[str, tuple[str, ...]]:
+    """Map unregistered built-in Agents to the created resources targeting them."""
+    if registered is None:
+        return {}
+    created = {
+        (fp.resource_kind, fp.resource_name)
+        for fp in file_plans
+        if fp.action == "CREATE"
+    }
+    needs: dict[str, list[str]] = {}
+    for server in mcp_servers:
+        if ("mcp", server.server_name) not in created:
+            continue
+        for agent in server.agents:
+            if agent not in registered:
+                needs.setdefault(agent, []).append(f"mcp/{server.server_name}")
+    for sub in subagents:
+        if ("subagent_prompt", sub.subagent_name) not in created:
+            continue
+        for agent in sub.target_agents:
+            if agent not in registered:
+                needs.setdefault(agent, []).append(f"subagent/{sub.subagent_name}")
+    return {
+        agent: tuple(needs[agent])
+        for agent in sorted(needs, key=_agent_order)
+        if agent in definitions
+    }
 
 
 def _create_adopt_plan(
@@ -1079,9 +1194,36 @@ def _create_adopt_plan(
     errors: list[Finding],
     builtin_mcps: list[Tuple[str, str]],
     skipped: tuple[str, ...] = (),
+    *,
+    definitions: Mapping[str, AgentDefinition],
+    registered: frozenset[str] | None,
 ) -> AdoptPlan:
-    file_plans = _build_file_plans(
-        request.workspace, instructions, mcp_servers, subagents, home=request.home
+    resource_plans = _build_file_plans(
+        request.workspace,
+        instructions,
+        mcp_servers,
+        subagents,
+        home=request.home,
+        definitions=definitions,
+    )
+    needs = _registration_needs(
+        resource_plans, mcp_servers, subagents, registered, definitions
+    )
+    registrations = tuple(
+        AgentRegistrationAdoption(agent, definitions[agent].display_name, sources)
+        for agent, sources in needs.items()
+        if f"agent/{agent}" not in skipped
+    )
+    file_plans = (
+        _build_file_plans(
+            request.workspace,
+            InstructionsAdoption([]),
+            [],
+            [],
+            home=request.home,
+            registrations=registrations,
+        )
+        + resource_plans
     )
     findings = _collect_adopt_findings(
         request.workspace,
@@ -1090,12 +1232,20 @@ def _create_adopt_plan(
         subagents,
         errors,
         home=request.home,
+        definitions=definitions,
+        unregistered={
+            agent: sources
+            for agent, sources in needs.items()
+            if f"agent/{agent}" in skipped
+        },
     )
     backup_sources = tuple(
-        _collect_sources_for_backup(request.home, instructions, subagents)
+        _collect_sources_for_backup(request.home, instructions, subagents, definitions)
     )
     source_fingerprints: list[tuple[Path, str]] = []
-    for src in backup_sources:
+    for src in sorted(
+        set(backup_sources) | _adoption_source_files(definitions, request.home)
+    ):
         if src.is_file():
             try:
                 source_fingerprints.append(
@@ -1118,6 +1268,9 @@ def _create_adopt_plan(
         backup_sources=backup_sources,
         source_fingerprints=tuple(source_fingerprints),
         can_apply=can_apply,
+        agent_registrations=registrations,
+        registered_agents=registered,
+        definitions=definitions,
     )
 
 
@@ -1140,11 +1293,27 @@ def build_adopt_plan(
 
     errors: list[Finding] = []
     builtin_mcps: list[Tuple[str, str]] = []
-    instructions = scan_instructions(workspace, resolved_home, errors=errors)
-    mcp_servers = scan_mcp_servers(
-        workspace, resolved_home, errors=errors, builtin_mcps=builtin_mcps
+    loaded = _adoption_definitions(workspace, resolved_home, errors)
+    definitions = loaded.definitions
+    instructions = scan_instructions(
+        workspace, resolved_home, errors=errors, definitions=definitions
     )
-    subagents = scan_subagents(workspace, resolved_home, errors=errors)
+    mcp_servers = scan_mcp_servers(
+        workspace,
+        resolved_home,
+        errors=errors,
+        builtin_mcps=builtin_mcps,
+        definitions=definitions,
+    )
+    subagents = scan_subagents(
+        workspace, resolved_home, errors=errors, definitions=definitions
+    )
+    # Registration needs a real, valid workspace registry to extend.
+    registered = (
+        loaded.registered
+        if loaded.registry_valid and (workspace / "agents").is_dir()
+        else None
+    )
 
     plan = _create_adopt_plan(
         request=request,
@@ -1154,6 +1323,8 @@ def build_adopt_plan(
         errors=errors,
         builtin_mcps=builtin_mcps,
         skipped=(),
+        definitions=definitions,
+        registered=registered,
     )
 
     if skip_tuple:
@@ -1173,6 +1344,9 @@ def apply_adopt_skips(plan: AdoptPlan, requested: list[str] | None) -> AdoptPlan
         available.add("instructions")
     available.update(f"mcp/{server.server_name}" for server in plan.mcp_servers)
     available.update(f"subagent/{sub.subagent_name}" for sub in plan.subagents)
+    available.update(
+        f"agent/{registration.agent_name}" for registration in plan.agent_registrations
+    )
     unknown = sorted(requested_set - available)
     if unknown:
         available_text = ", ".join(sorted(available)) or "none"
@@ -1208,10 +1382,15 @@ def apply_adopt_skips(plan: AdoptPlan, requested: list[str] | None) -> AdoptPlan
         errors=list(plan.errors),
         builtin_mcps=list(plan.builtin_mcps),
         skipped=skipped,
+        definitions=plan.definitions,
+        registered=plan.registered_agents,
     )
 
 
 def summarize_adopt_plan(plan: AdoptPlan) -> AdoptSummary:
+    agent_registrations = sum(
+        1 for fp in plan.file_plans if fp.resource_kind == "agent"
+    )
     instruction_updates = sum(
         1
         for fp in plan.file_plans
@@ -1233,6 +1412,7 @@ def summarize_adopt_plan(plan: AdoptPlan) -> AdoptSummary:
     errors = len(plan.findings) - conflicts
 
     return AdoptSummary(
+        agent_registrations=agent_registrations,
         instruction_updates=instruction_updates,
         mcp_imports=mcp_imports,
         subagent_imports=subagent_imports,
@@ -1245,6 +1425,8 @@ def summarize_adopt_plan(plan: AdoptPlan) -> AdoptSummary:
 def _print_adopt_summary(summary: AdoptSummary, skipped: tuple[str, ...]) -> None:
     print("Adoption plan")
     print()
+    if summary.agent_registrations:
+        print(f"  Agents:       {summary.agent_registrations} registration(s)")
     print(f"  Instructions: {summary.instruction_updates} update(s)")
     print(f"  MCP servers:  {summary.mcp_imports} import(s)")
     print(f"  Subagents:    {summary.subagent_imports} import(s)")
@@ -1366,30 +1548,41 @@ def execute_adoption(
             )
 
     for src, expected_fp in getattr(plan, "source_fingerprints", ()):
-        if src.is_file():
-            try:
-                current_fp = hashlib.sha256(src.read_bytes()).hexdigest()
-            except OSError as exc:
-                err_msg = f"Cannot read source configuration file '{src}': {exc}"
-                print(f"[ERROR] {err_msg}", file=sys.stderr)
-                return AdoptExecutionResult(
-                    success=False,
-                    skipped=plan.skipped,
-                    failed=(str(src),),
-                    error_message=err_msg,
-                )
-            if current_fp != expected_fp:
-                err_msg = f"Source configuration file '{src}' was modified after plan was generated"
-                print(
-                    f"[ERROR] Adoption plan is stale: {err_msg}. Re-run 'aikito adopt' to plan against current host state.",
-                    file=sys.stderr,
-                )
-                return AdoptExecutionResult(
-                    success=False,
-                    skipped=plan.skipped,
-                    failed=(str(src),),
-                    error_message=err_msg,
-                )
+        if not src.is_file():
+            err_msg = f"Source configuration file '{src}' was removed after plan was generated"
+            print(
+                f"[ERROR] Adoption plan is stale: {err_msg}. Re-run 'aikito adopt' to plan against current host state.",
+                file=sys.stderr,
+            )
+            return AdoptExecutionResult(
+                success=False,
+                skipped=plan.skipped,
+                failed=(str(src),),
+                error_message=err_msg,
+            )
+        try:
+            current_fp = hashlib.sha256(src.read_bytes()).hexdigest()
+        except OSError as exc:
+            err_msg = f"Cannot read source configuration file '{src}': {exc}"
+            print(f"[ERROR] {err_msg}", file=sys.stderr)
+            return AdoptExecutionResult(
+                success=False,
+                skipped=plan.skipped,
+                failed=(str(src),),
+                error_message=err_msg,
+            )
+        if current_fp != expected_fp:
+            err_msg = f"Source configuration file '{src}' was modified after plan was generated"
+            print(
+                f"[ERROR] Adoption plan is stale: {err_msg}. Re-run 'aikito adopt' to plan against current host state.",
+                file=sys.stderr,
+            )
+            return AdoptExecutionResult(
+                success=False,
+                skipped=plan.skipped,
+                failed=(str(src),),
+                error_message=err_msg,
+            )
 
     # Create timestamped backup of local agent config files (INV-ADOPT-05)
     actual_backup_dir = None
@@ -1422,6 +1615,7 @@ def execute_adoption(
     ]
     written_files: list[Path] = []
     failed_files: list[str] = []
+    adopted_agents: list[str] = []
     adopted_instructions: list[str] = []
     adopted_mcps: list[str] = []
     adopted_subagents: list[str] = []
@@ -1437,6 +1631,38 @@ def execute_adoption(
             failed_files.append(str(fp.path))
             print(f"[ERROR] Failed to write '{fp.path}': {exc}", file=sys.stderr)
             return False
+
+    # 0. Agent registrations precede the resources that reference them
+    agent_fps = [fp for fp in plan.file_plans if fp.resource_kind == "agent"]
+    if agent_fps and verbose:
+        print("\n--- Agent Registration ---")
+    for fp in agent_fps:
+        if verbose:
+            print(
+                fp.log_message.replace(
+                    "[REGISTER AGENT]", "[DRY-RUN AGENT] Would register"
+                )
+                if dry_run
+                else fp.log_message
+            )
+        if dry_run:
+            continue
+        if not _write_fp(fp):
+            return AdoptExecutionResult(
+                success=False,
+                agents=tuple(adopted_agents),
+                backups=tuple(backups),
+                skipped=plan.skipped,
+                failed=tuple(failed_files),
+                written_files=tuple(written_files),
+                unwritten_files=tuple(
+                    p for p in planned_targets if p not in written_files
+                ),
+                error_message=f"Failed to write '{fp.path}'",
+            )
+        adopted_agents.append(fp.resource_name)
+        if verbose:
+            print(f"[WRITE FILE] Created {fp.path}")
 
     # 1. Instructions Adoption
     inst = plan.instructions
@@ -1463,6 +1689,7 @@ def execute_adoption(
                     )
                     return AdoptExecutionResult(
                         success=False,
+                        agents=tuple(adopted_agents),
                         instructions=(),
                         mcps=(),
                         subagents=(),
@@ -1515,6 +1742,7 @@ def execute_adoption(
                     )
                     return AdoptExecutionResult(
                         success=False,
+                        agents=tuple(adopted_agents),
                         instructions=tuple(adopted_instructions),
                         mcps=tuple(adopted_mcps),
                         subagents=(),
@@ -1553,6 +1781,7 @@ def execute_adoption(
                         )
                         return AdoptExecutionResult(
                             success=False,
+                            agents=tuple(adopted_agents),
                             instructions=tuple(adopted_instructions),
                             mcps=tuple(adopted_mcps),
                             subagents=tuple(adopted_subagents),
@@ -1575,6 +1804,7 @@ def execute_adoption(
 
     return AdoptExecutionResult(
         success=True,
+        agents=tuple(adopted_agents),
         instructions=tuple(adopted_instructions),
         mcps=tuple(adopted_mcps),
         subagents=tuple(adopted_subagents),

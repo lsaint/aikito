@@ -171,6 +171,17 @@ jobs:
       - name: Agent detection and adapter reuse CLI smoke
         run: python3 tests/agent_adapters_smoke.py
 
+      - name: Definition-driven adoption and Agent registration CLI smoke
+        env:
+          AIKITO_ADOPT_SMOKE_ROOT: ${{ runner.temp }}/adopt-definitions-smoke
+        run: |
+          python3 tests/adopt_definitions_smoke.py
+          test -f "$AIKITO_ADOPT_SMOKE_ROOT/workspace/agents/codex.toml"
+          test -f "$AIKITO_ADOPT_SMOKE_ROOT/workspace/agents/github-copilot.toml"
+          test -f "$AIKITO_ADOPT_SMOKE_ROOT/workspace/mcps/example-docs.toml"
+          test -f "$AIKITO_ADOPT_SMOKE_ROOT/workspace/mcps/private-api.toml"
+          test -f "$AIKITO_ADOPT_SMOKE_ROOT/workspace/subagents/review.md"
+
       - name: Status consumers after cross-machine workspace sync
         run: |
           python3 - <<'PY'
