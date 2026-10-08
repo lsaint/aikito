@@ -6,7 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [1.57.6] - 2026-10-06
+## [1.57.7] - 2026-10-08
+
+### Added
+
+- `aikito adopt` discovers unregistered built-in Agent configurations and automatically registers bundled `agents/<name>.toml` definitions when required by imported MCP servers or subagents.
+- `aikito adopt` supports `--skip agent/<name>` to omit planned Agent registrations, requiring dependent MCP or subagent resources to be skipped as well.
+
+### Changed
+
+- Declared MCP semantic adapters directly in `[agents.<name>.mcp]` tables of Agent definitions, decoupling adapter dispatch from hardcoded Agent identifiers.
+- Adoption excludes native MCP configurations containing materialized credentials from whole-file backups while preserving source fingerprint verification.
+- Standardized sensitive header-to-environment-variable conversion across all supported MCP import adapters.
+
 
 ### Changed
 
@@ -1109,7 +1121,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.57.6...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.57.7...HEAD
+[1.57.7]: https://github.com/lsaint/aikito/compare/v1.57.6...v1.57.7
 [1.57.6]: https://github.com/lsaint/aikito/compare/v1.57.5...v1.57.6
 [1.57.5]: https://github.com/lsaint/aikito/compare/v1.57.4...v1.57.5
 [1.57.4]: https://github.com/lsaint/aikito/compare/v1.57.3...v1.57.4
