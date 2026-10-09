@@ -64,8 +64,8 @@ _SECRET_PATTERN = re.compile(
     rb"(?i)(?:api[_-]?key|access[_-]?token|password|client[_-]?secret)"
     rb"\s*[:=]\s*['\"]?[A-Za-z0-9_./+\-=]{16,}"
 )
-_TOP_LEVEL_FILES = ("layout.toml", "skills.toml", "config.toml")
-_TOP_LEVEL_DIRS = (
+TOP_LEVEL_FILES = ("layout.toml", "skills.toml", "config.toml")
+TOP_LEVEL_DIRS = (
     "agents",
     "global",
     "memory",
@@ -74,6 +74,8 @@ _TOP_LEVEL_DIRS = (
     "subagents",
     "mcps",
 )
+_TOP_LEVEL_FILES = TOP_LEVEL_FILES
+_TOP_LEVEL_DIRS = TOP_LEVEL_DIRS
 _PROJECT_SET_FIELDS = ("path", "paths", "skills")
 
 

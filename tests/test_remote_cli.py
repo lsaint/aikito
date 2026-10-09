@@ -85,6 +85,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
 
     def test_bind_uninitialized_workspace(self, tmp_path=None):
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             empty_ws = Path(tmp_dir) / "empty"
             empty_ws.mkdir()
@@ -103,6 +104,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
 
     def test_sync_without_binding(self):
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             ws = _workspace(Path(tmp_dir) / "ws")
             args = self.parser.parse_args(["remote", "sync", "--dry-run"])
@@ -118,6 +120,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
 
     def test_bind_insecure_endpoint(self):
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             ws = _workspace(Path(tmp_dir) / "ws")
             args = self.parser.parse_args(
@@ -136,6 +139,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
 
     def test_bind_credentials_in_query(self):
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             ws = _workspace(Path(tmp_dir) / "ws")
             args = self.parser.parse_args(
@@ -150,10 +154,13 @@ class RemoteCLIOperationsTest(unittest.TestCase):
             ):
                 cmd_remote_bind(args)
             self.assertEqual(ctx.exception.code, 1)
-            self.assertIn("Credentials must not appear in endpoint URL query", stderr.getvalue())
+            self.assertIn(
+                "Credentials must not appear in endpoint URL query", stderr.getvalue()
+            )
 
     def test_bind_and_sync_lifecycle(self):
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             base = Path(tmp_dir)
             ws_a = _workspace(base / "ws_a")
@@ -174,10 +181,15 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                 ):
                     cmd_remote_bind(args_bind_a)
 
-                self.assertIn("[SUCCESS] Bound workspace to remote store", stdout_bind.getvalue())
+                self.assertIn(
+                    "[SUCCESS] Bound workspace to remote store", stdout_bind.getvalue()
+                )
                 self.assertIn(server.url, stdout_bind.getvalue())
                 self.assertIn(AUTH.env, stdout_bind.getvalue())
-                self.assertIn("Run 'aikito remote sync --dry-run' to preview", stdout_bind.getvalue())
+                self.assertIn(
+                    "Run 'aikito remote sync --dry-run' to preview",
+                    stdout_bind.getvalue(),
+                )
 
                 # Re-binding ws_a should fail
                 stderr_bind2 = io.StringIO()
@@ -214,7 +226,9 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                     patch.dict(os.environ, ENV),
                 ):
                     cmd_remote_sync(args_sync_dry)
-                self.assertIn("Remote sync plan (revision: 0) [preview]", stdout_dry.getvalue())
+                self.assertIn(
+                    "Remote sync plan (revision: 0) [preview]", stdout_dry.getvalue()
+                )
                 self.assertIn("Planned:   2", stdout_dry.getvalue())
 
                 # WS A: Apply initial resources
@@ -290,6 +304,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
 
     def test_bind_auth_failures(self):
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             base = Path(tmp_dir)
             ws = _workspace(base / "ws")
@@ -311,10 +326,13 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                 ):
                     cmd_remote_bind(args_bind)
                 self.assertEqual(ctx.exception.code, 1)
-                self.assertIn("Remote authentication failed (HTTP 401)", stderr_401.getvalue())
+                self.assertIn(
+                    "Remote authentication failed (HTTP 401)", stderr_401.getvalue()
+                )
 
     def test_sync_recovers_interrupted_round(self):
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             ws = _workspace(Path(tmp_dir) / "ws")
             save_remote_binding(
@@ -330,15 +348,19 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                 patch.dict(os.environ, ENV),
                 patch(
                     "aikito.remote_cli.sync_workspace_remote",
-                    side_effect=WorkspaceReconcileError("Recovered an interrupted round; run again"),
+                    side_effect=WorkspaceReconcileError(
+                        "Recovered an interrupted round; run again"
+                    ),
                 ),
                 self.assertRaises(SystemExit) as ctx,
             ):
                 cmd_remote_sync(args)
             self.assertEqual(ctx.exception.code, 1)
+
     def test_sync_reports_individually_blocked_resource(self):
         import tempfile
         from unittest.mock import MagicMock
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             ws = _workspace(Path(tmp_dir) / "ws")
             save_remote_binding(
@@ -383,12 +405,15 @@ class RemoteCLIOperationsTest(unittest.TestCase):
             self.assertEqual(ctx.exception.code, 1)
             out = stdout.getvalue()
             self.assertIn("Blocked:   1", out)
-            self.assertIn("[BLOCKED] skill:secret_tool (Contains plaintext credential)", out)
+            self.assertIn(
+                "[BLOCKED] skill:secret_tool (Contains plaintext credential)", out
+            )
             self.assertIn("Completed with blocked resources remaining", out)
 
     def test_sync_reports_conflicts_properly(self):
         import tempfile
         from unittest.mock import MagicMock
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             ws = _workspace(Path(tmp_dir) / "ws")
             save_remote_binding(
@@ -448,6 +473,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
     def test_sync_reports_stop_reason(self):
         import tempfile
         from unittest.mock import MagicMock
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             ws = _workspace(Path(tmp_dir) / "ws")
             save_remote_binding(
@@ -483,7 +509,9 @@ class RemoteCLIOperationsTest(unittest.TestCase):
 
             self.assertEqual(ctx.exception.code, 1)
             out = stdout.getvalue()
-            self.assertIn("Synchronization stopped: Reconciliation round limit reached", out)
+            self.assertIn(
+                "Synchronization stopped: Reconciliation round limit reached", out
+            )
 
 
 if __name__ == "__main__":

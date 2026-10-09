@@ -39,4 +39,3 @@ class RemoteAccessDenied(StoreError):
             if status == 401
             else "Remote authorization denied"
         )
-

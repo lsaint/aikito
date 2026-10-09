@@ -63,6 +63,7 @@ version.
 | `aikito doctor [--fix]` | Run deep workspace diagnostics and repair supported configuration issues |
 | `aikito remote bind <endpoint> [--token-env <VAR>]` | Bind the workspace to an external remote store and pin its identity |
 | `aikito remote sync (--dry-run \| --apply) [--verbose]` | Preview or synchronize local workspace resources with the bound remote store |
+| `aikito remote watch [--poll-interval <SEC>] [--debounce-ms <MS>] [--once] [--verbose]` | Continuously synchronize local workspace changes and remote updates |
 | `aikito completion zsh\|bash\|fish\|powershell` | Print a shell completion script |
 | `aikito completion candidates projects\|skills\|subagents\|mcps\|memories\|memory-completions\|inbox\|inbox-completions\|paths [prefix]` | List dynamic completion candidates |
 | `aikito version [-c\|--check] [--force] [--json]` | Print the CLI version and check for available updates |
@@ -101,6 +102,23 @@ aikito remote sync --apply --verbose
 ```
 
 Reconciliation transfers mutations transactionally between the local workspace and remote store. Unresolved conflicts and blocked resources remain untouched while safe resources are applied.
+
+### Continuous Synchronization (`aikito remote watch`)
+
+Run the foreground auto-sync worker to continuously synchronize changes between the local workspace and the remote store:
+
+```bash
+aikito remote watch
+aikito remote watch --poll-interval 5.0 --debounce-ms 500
+aikito remote watch --once
+```
+
+The auto-sync worker:
+- Enforces single-worker process ownership per workspace with a non-blocking lifecycle lock.
+- Watches managed directories (`global/`, `projects/`, `memory/`, `skills/`, `subagents/`, `mcps/`, `agents/`, `inbox/`) and coalesces rapid edits using debouncing (default: 500ms).
+- Periodically polls the remote store revision (default: every 5.0s) and downloads new changes.
+- Automatically resolves content conflicts by preserving the newest version while archiving the losing version safely to `.local/sync-conflicts/<timestamp>/`.
+- Safely handles network drops with exponential retry backoff without losing local edits.
 
 ## Workspace Import
 

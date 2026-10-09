@@ -1425,4 +1425,3 @@ def render_remote_sync_plan(
             lines.extend(("", "Details:", *details))
 
     return "\n".join(lines)
-

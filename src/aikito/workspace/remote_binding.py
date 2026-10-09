@@ -36,14 +36,18 @@ def validate_binding_endpoint(endpoint: str) -> None:
     except ValueError:
         raise RemoteBindingError("Invalid remote binding endpoint") from None
     if url.scheme != "https" and url.hostname not in {"127.0.0.1", "::1", "localhost"}:
-        raise RemoteEndpointInsecure("Remote credentials require HTTPS outside loopback")
+        raise RemoteEndpointInsecure(
+            "Remote credentials require HTTPS outside loopback"
+        )
     for key, _ in parse_qsl(url.query, keep_blank_values=True):
         name = key.lower().replace("-", "_")
         if any(
             part in name
             for part in ("token", "secret", "password", "credential", "auth")
         ) or name in {"key", "api_key", "apikey"}:
-            raise RemoteEndpointCredentialsForbidden("Credentials must not appear in endpoint queries")
+            raise RemoteEndpointCredentialsForbidden(
+                "Credentials must not appear in endpoint queries"
+            )
 
 
 @dataclass(frozen=True)

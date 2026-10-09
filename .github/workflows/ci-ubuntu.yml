@@ -117,6 +117,7 @@ jobs:
           python3 -m aikito remote --help
           python3 -m aikito remote bind --help
           python3 -m aikito remote sync --help
+          python3 -m aikito remote watch --help
           python3 -m aikito show --help
           python3 -m aikito show inbox --help
           python3 -m aikito doctor --help
@@ -290,6 +291,10 @@ jobs:
           test -f "$REMOTE_CLI_SMOKE/ws_b/memory/notes/smoke-idea.md"
           test -f "$REMOTE_CLI_SMOKE/center/memory/notes/smoke-idea.md"
           ! grep -Fq 'remote-cli-smoke-secret' "$REMOTE_CLI_SMOKE/ws_a/.local/state/aikito/workspace-reconcile/binding.json"
+          REMOTE_WATCH_SMOKE=${{ runner.temp }}/remote-watch-smoke
+          python3 tests/workspace_remote_watch_smoke.py "$REMOTE_WATCH_SMOKE"
+          test -f "$REMOTE_WATCH_SMOKE/ws_b/memory/notes/watch-smoke.md"
+          test -f "$REMOTE_WATCH_SMOKE/ws_a/memory/notes/from-b.md"
           python3 tests/generate_remote_protocol_vectors.py --check
           AIKITO_REMOTE_TEST_SERVER_CMD="python3 tests/http_remote_server.py --root {root}" python3 -m pytest tests/test_workspace_remote_store_contract.py tests/test_workspace_remote_receipts.py
           AIKITO_REMOTE_TEST_SERVER_CMD="python3 tests/http_remote_server.py --root {root} --token {token}" python3 -m pytest tests/test_workspace_http_external.py -k external_auth_contract

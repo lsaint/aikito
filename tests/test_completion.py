@@ -142,6 +142,17 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         ]
         self.assertIn("--agent", maintain_flags)
 
+        remote_subs = schema["commands"]["remote"]["subcommands"]
+        self.assertIn("bind", remote_subs)
+        self.assertIn("sync", remote_subs)
+        self.assertIn("watch", remote_subs)
+        self.assertIn("--token-env", remote_subs["bind"]["flags"])
+        self.assertIn("--dry-run", remote_subs["sync"]["flags"])
+        self.assertIn("--apply", remote_subs["sync"]["flags"])
+        self.assertIn("--poll-interval", remote_subs["watch"]["flags"])
+        self.assertIn("--debounce-ms", remote_subs["watch"]["flags"])
+        self.assertIn("--once", remote_subs["watch"]["flags"])
+
     def test_generators_produce_script_with_aliases_and_flags(self) -> None:
         parser = AIKITO_CLI.build_parser()
 

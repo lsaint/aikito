@@ -154,6 +154,10 @@ jobs:
           test -f "$REMOTE_CLI_SMOKE/ws_b/memory/notes/smoke-idea.md"
           test -f "$REMOTE_CLI_SMOKE/center/memory/notes/smoke-idea.md"
           ! grep -Fq 'remote-cli-smoke-secret' "$REMOTE_CLI_SMOKE/ws_a/.local/state/aikito/workspace-reconcile/binding.json"
+          REMOTE_WATCH_SMOKE=${{ runner.temp }}/remote-watch-smoke
+          python3 tests/workspace_remote_watch_smoke.py "$REMOTE_WATCH_SMOKE"
+          test -f "$REMOTE_WATCH_SMOKE/ws_b/memory/notes/watch-smoke.md"
+          test -f "$REMOTE_WATCH_SMOKE/ws_a/memory/notes/from-b.md"
           EXTERNAL_SERVICE=${{ runner.temp }}/external-service
           python3 tests/workspace_external_server_smoke.py "$EXTERNAL_SERVICE"
           test -f "$EXTERNAL_SERVICE/center-test-server.json"

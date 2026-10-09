@@ -9,10 +9,12 @@ from pathlib import Path
 
 from .init import is_recognized_workspace
 from .workspace.paths import resolve_workspace
+from .workspace.auto_sync import AutoSyncWorkerRunning
 from .remote_service import (
     bind_workspace_remote,
     get_workspace_remote_binding,
     sync_workspace_remote,
+    watch_workspace_remote,
 )
 from .render import render_remote_sync_plan
 from .workspace.reconcile import (
@@ -112,9 +114,7 @@ def cmd_remote_bind(args: argparse.Namespace) -> None:
     token_env = getattr(args, "token_env", "AIKITO_REMOTE_TOKEN")
 
     try:
-        binding = bind_workspace_remote(
-            workspace, endpoint, token_env, home=home
-        )
+        binding = bind_workspace_remote(workspace, endpoint, token_env, home=home)
     except Exception as exc:
         print(
             f"[ERROR] {_explain_remote_error(exc, endpoint=endpoint, token_env=token_env)}",
@@ -171,4 +171,62 @@ def cmd_remote_sync(args: argparse.Namespace) -> None:
         or bool(plan.stop_reason)
         or bool(plan.deferred)
     ):
+        sys.exit(1)
+
+
+def cmd_remote_watch(args: argparse.Namespace) -> None:
+    """Handle 'aikito remote watch [--poll-interval <SEC>] [--debounce-ms <MS>] [--once] [--verbose]'."""
+    home = Path.home()
+    workspace = resolve_workspace(home)
+    if not is_recognized_workspace(workspace):
+        print(
+            f"[ERROR] '{workspace}' is not a recognized Aikito workspace. Run 'aikito init workspace' first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    binding = get_workspace_remote_binding(workspace)
+    if binding is None:
+        print(
+            "[ERROR] No remote binding configured for this workspace. Run 'aikito remote bind <endpoint>' first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    endpoint = binding.endpoint
+    token_env = binding.auth.env
+    poll_interval = getattr(args, "poll_interval", 5.0)
+    debounce_delay = getattr(args, "debounce_ms", 500) / 1000.0
+    once = getattr(args, "once", False)
+    verbose = getattr(args, "verbose", False)
+
+    def log(msg: str) -> None:
+        if (
+            verbose
+            or msg.startswith("[ERROR]")
+            or msg.startswith("[CONFLICT]")
+            or msg.startswith("[SYNC]")
+        ):
+            print(msg)
+
+    try:
+        watch_workspace_remote(
+            workspace,
+            home=home,
+            poll_interval=poll_interval,
+            debounce_delay=debounce_delay,
+            once=once,
+            logger=log,
+        )
+    except AutoSyncWorkerRunning as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\n[INFO] Auto-sync watcher stopped.", file=sys.stderr)
+        sys.exit(0)
+    except Exception as exc:
+        print(
+            f"[ERROR] {_explain_remote_error(exc, endpoint=endpoint, token_env=token_env)}",
+            file=sys.stderr,
+        )
         sys.exit(1)

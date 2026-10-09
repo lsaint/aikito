@@ -1134,6 +1134,12 @@ jobs:
             if (-not (Test-Path (Join-Path $remoteCliBase $relative) -PathType Leaf)) { throw "Missing remote CLI smoke artifact: $relative" }
           }
           if (Select-String -Path (Join-Path $remoteCliBase "ws_a/.local/state/aikito/workspace-reconcile/binding.json") -SimpleMatch "remote-cli-smoke-secret" -Quiet) { throw "Binding contains credential value" }
+          $remoteWatchBase = Join-Path $env:RUNNER_TEMP "remote-watch-smoke"
+          python tests/workspace_remote_watch_smoke.py "$remoteWatchBase"
+          if ($LASTEXITCODE -ne 0) { throw "Remote watch smoke failed" }
+          foreach ($relative in @("ws_b/memory/notes/watch-smoke.md", "ws_a/memory/notes/from-b.md")) {
+            if (-not (Test-Path (Join-Path $remoteWatchBase $relative) -PathType Leaf)) { throw "Missing remote watch smoke artifact: $relative" }
+          }
           $externalServiceBase = Join-Path $env:RUNNER_TEMP "external-service"
           python tests/workspace_external_server_smoke.py "$externalServiceBase"
           if ($LASTEXITCODE -ne 0) { throw "External server smoke failed" }

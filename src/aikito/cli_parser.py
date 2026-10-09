@@ -70,8 +70,13 @@ def _get_handlers(handlers: dict[str, Any] | None = None) -> dict[str, Any]:
     if handlers is not None:
         return handlers
     from . import cli
+    from .remote_cli import (
+        cmd_remote_bind,
+        cmd_remote_sync,
+        cmd_remote_watch,
+    )
 
-    return {
+    resolved = {
         name: getattr(cli, name)
         for name in (
             "cmd_add_mcp",
@@ -98,8 +103,6 @@ def _get_handlers(handlers: dict[str, Any] | None = None) -> dict[str, Any]:
             "cmd_mcp_sync",
             "cmd_path_workspace",
             "cmd_project_sync",
-            "cmd_remote_bind",
-            "cmd_remote_sync",
             "cmd_rename_memory",
             "cmd_rm_inbox",
             "cmd_rm_mcp",
@@ -120,6 +123,10 @@ def _get_handlers(handlers: dict[str, Any] | None = None) -> dict[str, Any]:
             "cmd_web",
         )
     }
+    resolved["cmd_remote_bind"] = cmd_remote_bind
+    resolved["cmd_remote_sync"] = cmd_remote_sync
+    resolved["cmd_remote_watch"] = cmd_remote_watch
+    return resolved
 
 
 def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentParser:
@@ -150,6 +157,7 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     cmd_project_sync = h["cmd_project_sync"]
     cmd_remote_bind = h["cmd_remote_bind"]
     cmd_remote_sync = h["cmd_remote_sync"]
+    cmd_remote_watch = h["cmd_remote_watch"]
     cmd_rename_memory = h["cmd_rename_memory"]
     cmd_rm_inbox = h["cmd_rm_inbox"]
     cmd_rm_mcp = h["cmd_rm_mcp"]
@@ -776,6 +784,36 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     )
     add_color_args(p_remote_sync)
     p_remote_sync.set_defaults(func=cmd_remote_sync)
+
+    # remote watch [--poll-interval <SEC>] [--debounce-ms <MS>] [--once] [--verbose]
+    p_remote_watch = remote_subparsers.add_parser(
+        "watch",
+        help="Continuously synchronize local workspace changes and remote updates",
+    )
+    p_remote_watch.add_argument(
+        "--poll-interval",
+        type=float,
+        default=5.0,
+        help="Remote polling interval in seconds (default: 5.0)",
+    )
+    p_remote_watch.add_argument(
+        "--debounce-ms",
+        type=int,
+        default=500,
+        help="Local file change debounce delay in milliseconds (default: 500)",
+    )
+    p_remote_watch.add_argument(
+        "--once",
+        action="store_true",
+        help="Run a single check and synchronization round, then exit",
+    )
+    p_remote_watch.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show detailed synchronization log messages",
+    )
+    add_color_args(p_remote_watch)
+    p_remote_watch.set_defaults(func=cmd_remote_watch)
 
     # show & drill-down subparsers
     p_show = subparsers.add_parser(

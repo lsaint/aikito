@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
+from .workspace.auto_sync import AutoSyncScheduler
 from .workspace.reconcile import ReconcilePlan, run_reconciliation
 from .workspace.remote_binding import (
     RemoteAuth,
@@ -54,3 +55,27 @@ def sync_workspace_remote(
         home=home,
         dry_run=dry_run,
     )
+
+
+def watch_workspace_remote(
+    workspace: Path,
+    *,
+    home: Path | None = None,
+    environ: Mapping[str, str] | None = None,
+    poll_interval: float = 5.0,
+    debounce_delay: float = 0.5,
+    once: bool = False,
+    logger: Callable[[str], None] | None = None,
+) -> None:
+    """Run continuous automatic synchronization for a workspace."""
+    home = Path.home() if home is None else home
+    remote = open_bound_remote(workspace, environ=environ)
+    scheduler = AutoSyncScheduler(
+        workspace,
+        remote,
+        home=home,
+        poll_interval=poll_interval,
+        debounce_delay=debounce_delay,
+        logger=logger,
+    )
+    scheduler.run(once=once)

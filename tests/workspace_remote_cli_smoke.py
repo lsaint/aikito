@@ -62,7 +62,9 @@ def run_smoke(base: Path) -> None:
         assert res.returncode == 0, f"Bind A failed: {res.stderr}\n{res.stdout}"
         assert "[SUCCESS] Bound workspace to remote store" in res.stdout
         assert "Run 'aikito remote sync --dry-run' to preview" in res.stdout
-        assert (ws_a / REMOTE_BINDING_STATE).exists(), "Binding state file missing in ws_a"
+        assert (ws_a / REMOTE_BINDING_STATE).exists(), (
+            "Binding state file missing in ws_a"
+        )
 
         # 2. Re-bind Workspace A should be rejected
         res_rebind = run_cli(
@@ -82,7 +84,9 @@ def run_smoke(base: Path) -> None:
             env_vars=env_auth,
         )
         assert res.returncode == 0, f"Bind B failed: {res.stderr}\n{res.stdout}"
-        assert (ws_b / REMOTE_BINDING_STATE).exists(), "Binding state file missing in ws_b"
+        assert (ws_b / REMOTE_BINDING_STATE).exists(), (
+            "Binding state file missing in ws_b"
+        )
 
         # 4. Workspace A: initial apply to push default resources
         res = run_cli(
@@ -118,7 +122,9 @@ def run_smoke(base: Path) -> None:
         )
         assert res.returncode == 0, f"Dry-run B failed: {res.stderr}\n{res.stdout}"
         assert "Remote sync plan" in res.stdout
-        assert not (ws_b / "memory/notes/smoke-idea.md").exists(), "Dry-run should not write file"
+        assert not (ws_b / "memory/notes/smoke-idea.md").exists(), (
+            "Dry-run should not write file"
+        )
 
         # 7. Workspace B: apply sync
         res = run_cli(
@@ -129,7 +135,9 @@ def run_smoke(base: Path) -> None:
         )
         assert res.returncode == 0, f"Apply B failed: {res.stderr}\n{res.stdout}"
         assert "Remote sync result" in res.stdout
-        assert (ws_b / "memory/notes/smoke-idea.md").exists(), "File should exist after apply"
+        assert (ws_b / "memory/notes/smoke-idea.md").exists(), (
+            "File should exist after apply"
+        )
         content = (ws_b / "memory/notes/smoke-idea.md").read_text(encoding="utf-8")
         assert content == "Durable smoke test idea\n", f"Unexpected content: {content}"
 
