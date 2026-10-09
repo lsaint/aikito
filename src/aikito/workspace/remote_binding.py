@@ -16,7 +16,13 @@ from urllib.parse import parse_qsl
 from ..skill_state import WorkspaceWriterLock
 from .http_transport import validate_endpoint
 from .pending_commit import PendingCommitStore
-from .remote_access import RemoteBindingError
+from .remote_access import (
+    RemoteBindingError,
+    RemoteBindingExists,
+    RemoteCredentialError,
+    RemoteEndpointCredentialsForbidden,
+    RemoteEndpointInsecure,
+)
 from .remote_store import InvalidContent, StoreIdentityMismatch
 from .remote_wire import decode_state_json
 from .replica_state import load_replica_state
@@ -30,14 +36,14 @@ def validate_binding_endpoint(endpoint: str) -> None:
     except ValueError:
         raise RemoteBindingError("Invalid remote binding endpoint") from None
     if url.scheme != "https" and url.hostname not in {"127.0.0.1", "::1", "localhost"}:
-        raise RemoteBindingError("Remote credentials require HTTPS outside loopback")
+        raise RemoteEndpointInsecure("Remote credentials require HTTPS outside loopback")
     for key, _ in parse_qsl(url.query, keep_blank_values=True):
         name = key.lower().replace("-", "_")
         if any(
             part in name
             for part in ("token", "secret", "password", "credential", "auth")
         ) or name in {"key", "api_key", "apikey"}:
-            raise RemoteBindingError("Credentials must not appear in endpoint queries")
+            raise RemoteEndpointCredentialsForbidden("Credentials must not appear in endpoint queries")
 
 
 @dataclass(frozen=True)
@@ -51,7 +57,7 @@ class RemoteAuth:
             or type(self.env) is not str
             or not re.fullmatch(r"[A-Z_][A-Z0-9_]*", self.env)
         ):
-            raise RemoteBindingError("Invalid remote credential reference")
+            raise RemoteCredentialError("Invalid remote credential reference")
 
 
 @dataclass(frozen=True)
@@ -121,7 +127,7 @@ def save_remote_binding(
     home = Path.home() if home is None else home
     with WorkspaceWriterLock(home):
         if load_remote_binding(workspace) is not None:
-            raise RemoteBindingError("Remote binding already exists")
+            raise RemoteBindingExists("Remote binding already exists")
         pending = PendingCommitStore(workspace, home).load()
         replica, _ = load_replica_state(workspace)
         if (replica is not None and replica.sync_id != binding.sync_id) or (

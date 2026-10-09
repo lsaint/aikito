@@ -102,6 +102,12 @@ from .inbox import (
     remove_inbox_note,
     resolve_inbox_target_for_command,
 )
+from .remote_cli import (
+    cmd_remote_bind,
+    cmd_remote_sync,
+)
+
+__all__ = ["cmd_remote_bind", "cmd_remote_sync"]
 from .render import (
     DoctorReport,
     render_doctor_report,

@@ -98,6 +98,8 @@ def _get_handlers(handlers: dict[str, Any] | None = None) -> dict[str, Any]:
             "cmd_mcp_sync",
             "cmd_path_workspace",
             "cmd_project_sync",
+            "cmd_remote_bind",
+            "cmd_remote_sync",
             "cmd_rename_memory",
             "cmd_rm_inbox",
             "cmd_rm_mcp",
@@ -146,6 +148,8 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     cmd_mcp_sync = h["cmd_mcp_sync"]
     cmd_path_workspace = h["cmd_path_workspace"]
     cmd_project_sync = h["cmd_project_sync"]
+    cmd_remote_bind = h["cmd_remote_bind"]
+    cmd_remote_sync = h["cmd_remote_sync"]
     cmd_rename_memory = h["cmd_rename_memory"]
     cmd_rm_inbox = h["cmd_rm_inbox"]
     cmd_rm_mcp = h["cmd_rm_mcp"]
@@ -724,6 +728,54 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         help="Remove managed subagent files that are no longer defined",
     )
     p_sync_subagent.set_defaults(func=cmd_subagent_sync)
+
+    # remote & drill-down subparsers
+    p_remote = subparsers.add_parser(
+        "remote",
+        help="Manage external remote store synchronization and bindings",
+    )
+    remote_subparsers = p_remote.add_subparsers(dest="remote_target", required=True)
+
+    # remote bind <endpoint> [--token-env <VAR>]
+    p_remote_bind = remote_subparsers.add_parser(
+        "bind",
+        help="Bind workspace to an external remote store endpoint",
+    )
+    p_remote_bind.add_argument(
+        "endpoint",
+        help="Remote store URL endpoint (must use HTTPS unless on loopback)",
+    )
+    p_remote_bind.add_argument(
+        "--token-env",
+        default="AIKITO_REMOTE_TOKEN",
+        help="Environment variable name containing the bearer token (default: AIKITO_REMOTE_TOKEN)",
+    )
+    add_color_args(p_remote_bind)
+    p_remote_bind.set_defaults(func=cmd_remote_bind)
+
+    # remote sync (--dry-run | --apply) [--verbose]
+    p_remote_sync = remote_subparsers.add_parser(
+        "sync",
+        help="Synchronize workspace resources with the bound remote store",
+    )
+    mode_group = p_remote_sync.add_mutually_exclusive_group(required=True)
+    mode_group.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview synchronization changes without modifying local or remote state",
+    )
+    mode_group.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply synchronization changes to local workspace and remote store",
+    )
+    p_remote_sync.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show detailed item-level reconciliation output",
+    )
+    add_color_args(p_remote_sync)
+    p_remote_sync.set_defaults(func=cmd_remote_sync)
 
     # show & drill-down subparsers
     p_show = subparsers.add_parser(

@@ -61,9 +61,46 @@ version.
 | `aikito edit skill <target>` | Open a skill's SKILL.md in `$VISUAL` or `$EDITOR` |
 | `aikito edit subagent <target>` | Open a subagent's instruction markdown in `$VISUAL` or `$EDITOR` |
 | `aikito doctor [--fix]` | Run deep workspace diagnostics and repair supported configuration issues |
+| `aikito remote bind <endpoint> [--token-env <VAR>]` | Bind the workspace to an external remote store and pin its identity |
+| `aikito remote sync (--dry-run \| --apply) [--verbose]` | Preview or synchronize local workspace resources with the bound remote store |
 | `aikito completion zsh\|bash\|fish\|powershell` | Print a shell completion script |
 | `aikito completion candidates projects\|skills\|subagents\|mcps\|memories\|memory-completions\|inbox\|inbox-completions\|paths [prefix]` | List dynamic completion candidates |
 | `aikito version [-c\|--check] [--force] [--json]` | Print the CLI version and check for available updates |
+
+## Remote Store Synchronization
+
+Aikito allows synchronizing workspace resources with an external remote store.
+To configure synchronization, first bind the workspace to an endpoint:
+
+```bash
+aikito remote bind https://remote.example.com/v1/remote
+aikito remote bind https://remote.example.com/v1/remote --token-env CUSTOM_TOKEN
+```
+
+The binding persists the endpoint and pinned `sync_id` locally in `.local/state/aikito/workspace-reconcile/binding.json`.
+Credentials are never written to disk; Aikito stores only the environment variable name (default: `AIKITO_REMOTE_TOKEN`).
+
+### Previewing Changes (`--dry-run`)
+
+Preview planned changes before applying:
+
+```bash
+aikito remote sync --dry-run
+aikito remote sync --dry-run --verbose
+```
+
+Dry-run mode inspects local and remote snapshots and reports planned creations, updates, deletions, conflicts, and blocked resources without modifying local files or the remote store.
+
+### Applying Changes (`--apply`)
+
+To apply the synchronization plan:
+
+```bash
+aikito remote sync --apply
+aikito remote sync --apply --verbose
+```
+
+Reconciliation transfers mutations transactionally between the local workspace and remote store. Unresolved conflicts and blocked resources remain untouched while safe resources are applied.
 
 ## Workspace Import
 

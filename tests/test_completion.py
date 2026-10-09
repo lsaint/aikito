@@ -63,6 +63,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("remove", schema["commands"])
         self.assertIn("maintain", schema["commands"])
         self.assertIn("git", schema["commands"])
+        self.assertIn("remote", schema["commands"])
         self.assertIn("--version", schema["flags"])
 
         # Subcommand aliases
@@ -158,7 +159,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("add\\ subagent", zsh)
         self.assertIn("add\\ mcp", zsh)
         self.assertIn("--dry-run", zsh)
-        self.assertNotIn("--apply", zsh)
+        self.assertIn("--apply", zsh)
         self.assertIn("--prune", zsh)
         self.assertIn("_files -/", zsh)
         self.assertIn("completion candidates paths", zsh)
@@ -176,7 +177,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
         self.assertIn("add\\ subagent", bash)
         self.assertIn("add\\ mcp", bash)
         self.assertIn("--dry-run", bash)
-        self.assertNotIn("--apply", bash)
+        self.assertIn("--apply", bash)
         self.assertIn("--prune", bash)
         self.assertIn("compgen -d", bash)
         self.assertIn("completion candidates paths", bash)
@@ -202,7 +203,7 @@ class AikitoCompletionReflectionTest(unittest.TestCase):
             fish,
         )
         self.assertIn("-l dry-run", fish)
-        self.assertNotIn("-l apply", fish)
+        self.assertIn("-l apply", fish)
         self.assertIn("-l prune", fish)
         self.assertIn("-F", fish)
         self.assertIn("completion candidates paths", fish)

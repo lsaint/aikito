@@ -112,6 +112,9 @@ jobs:
           python -m aikito git --help
           python -m aikito rm subagent --help
           python -m aikito rm mcp --help
+          python -m aikito remote --help
+          python -m aikito remote bind --help
+          python -m aikito remote sync --help
           python -m aikito invalid-subcommand 2>$null
           if ($LASTEXITCODE -eq 0) { throw "aikito did not propagate non-zero exit code on invalid subcommand" }
           $global:LASTEXITCODE = 0
@@ -1124,6 +1127,13 @@ jobs:
           }
           if (Test-Path "$bindingBase/local/.local/state/aikito/workspace-reconcile/pending.json") { throw "Binding recovery left pending state" }
           if (Select-String -Path "$bindingBase/local/.local/state/aikito/workspace-reconcile/binding.json" -SimpleMatch "binding-smoke-secret" -Quiet) { throw "Binding contains credential value" }
+          $remoteCliBase = Join-Path $env:RUNNER_TEMP "remote-cli-smoke"
+          python tests/workspace_remote_cli_smoke.py "$remoteCliBase"
+          if ($LASTEXITCODE -ne 0) { throw "Remote CLI smoke failed" }
+          foreach ($relative in @("ws_a/.local/state/aikito/workspace-reconcile/binding.json", "ws_b/.local/state/aikito/workspace-reconcile/binding.json", "ws_b/memory/notes/smoke-idea.md", "center/memory/notes/smoke-idea.md")) {
+            if (-not (Test-Path (Join-Path $remoteCliBase $relative) -PathType Leaf)) { throw "Missing remote CLI smoke artifact: $relative" }
+          }
+          if (Select-String -Path (Join-Path $remoteCliBase "ws_a/.local/state/aikito/workspace-reconcile/binding.json") -SimpleMatch "remote-cli-smoke-secret" -Quiet) { throw "Binding contains credential value" }
           $externalServiceBase = Join-Path $env:RUNNER_TEMP "external-service"
           python tests/workspace_external_server_smoke.py "$externalServiceBase"
           if ($LASTEXITCODE -ne 0) { throw "External server smoke failed" }

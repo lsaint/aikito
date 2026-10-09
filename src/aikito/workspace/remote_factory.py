@@ -15,7 +15,11 @@ from pathlib import Path
 from ..skill_state import WorkspaceWriterLock
 from .http_transport import HTTPTransport
 from .payload import ResourcePayload
-from .remote_access import RemoteBindingError
+from .remote_access import (
+    RemoteBindingExists,
+    RemoteBindingMissing,
+    RemoteCredentialError,
+)
 from .remote_binding import (
     RemoteAuth,
     RemoteBinding,
@@ -43,7 +47,7 @@ def resolve_credential(
         or not value
         or any(not 33 <= ord(c) <= 126 for c in value)
     ):
-        raise RemoteBindingError("Remote credential is missing or invalid")
+        raise RemoteCredentialError("Remote credential is missing or invalid")
     return value
 
 
@@ -127,7 +131,7 @@ def open_bound_remote(
 ) -> RemoteStore:
     binding = load_remote_binding(workspace)
     if binding is None:
-        raise RemoteBindingError("Remote binding is missing")
+        raise RemoteBindingMissing("Remote binding is missing")
     return BoundRemote(
         _open_remote(binding.endpoint, binding.auth, environ), binding.sync_id
     )
@@ -153,7 +157,7 @@ def bind_remote(
     home = Path.home() if home is None else home
     with WorkspaceWriterLock(home):
         if load_remote_binding(workspace) is not None:
-            raise RemoteBindingError("Remote binding already exists")
+            raise RemoteBindingExists("Remote binding already exists")
         snapshot = remote.read()
         binding = RemoteBinding(1, endpoint, snapshot.sync_id, auth)
         save_remote_binding(workspace, binding, home=home)

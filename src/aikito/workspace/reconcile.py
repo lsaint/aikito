@@ -91,6 +91,10 @@ class WorkspaceReconcileError(WorkspaceCoreError):
     """A reconciliation round cannot be handled safely."""
 
 
+class InterruptedRoundRecovered(WorkspaceReconcileError):
+    """An interrupted reconciliation round was recovered; run again to proceed."""
+
+
 @dataclass(frozen=True)
 class ReconcileItem:
     id: str
@@ -139,6 +143,10 @@ class ReconcilePlan:
     @property
     def deferred(self) -> tuple[ReconcileItem, ...]:
         return tuple(item for item in self.items if item.action == "DEFERRED")
+
+    @property
+    def blocked_items(self) -> tuple[ReconcileItem, ...]:
+        return tuple(item for item in self.items if item.action == "BLOCKED")
 
     @property
     def blocked(self) -> bool:
@@ -1019,7 +1027,7 @@ def run_reconciliation(
     rounds = 0
     with WorkspaceWriterLock(home):
         if recover_reconciliation(local, remote, home):
-            raise WorkspaceReconcileError("Recovered an interrupted round; run again")
+            raise InterruptedRoundRecovered("Recovered an interrupted round; run again")
         while True:
             plan = None
             for attempt in range(2):

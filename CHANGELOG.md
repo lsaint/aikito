@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Added `aikito remote bind` command to bind the active workspace to an external remote store endpoint with environment variable credential indirection and identity pinning.
+- Added `aikito remote sync` command with mutually exclusive `--dry-run` preview and `--apply` reconciliation modes.
+
 ## [1.57.7] - 2026-10-08
 
 ### Added

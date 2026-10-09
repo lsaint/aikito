@@ -7,6 +7,26 @@ class RemoteBindingError(StoreError):
     """The local binding or its credential reference cannot be used."""
 
 
+class RemoteBindingExists(RemoteBindingError):
+    """A remote binding already exists for this workspace."""
+
+
+class RemoteBindingMissing(RemoteBindingError):
+    """No remote binding exists for this workspace."""
+
+
+class RemoteCredentialError(RemoteBindingError):
+    """Remote credential is missing, invalid, or improperly referenced."""
+
+
+class RemoteEndpointInsecure(RemoteBindingError):
+    """Insecure remote endpoint; credentials require HTTPS outside loopback."""
+
+
+class RemoteEndpointCredentialsForbidden(RemoteBindingError):
+    """Credentials must not appear in endpoint URL query parameters."""
+
+
 class RemoteAccessDenied(StoreError):
     """The endpoint rejected access before dispatch; retain any pending request."""
 
@@ -19,3 +39,4 @@ class RemoteAccessDenied(StoreError):
             if status == 401
             else "Remote authorization denied"
         )
+

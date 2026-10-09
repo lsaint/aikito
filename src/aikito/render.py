@@ -1314,3 +1314,115 @@ def render_workspace_sync_plan(plan: Any, *, verbose: bool = False) -> str:
         if details:
             lines.extend(("", "Details", "", *details))
     return "\n".join(lines)
+
+
+def render_remote_sync_plan(
+    plan: Any, *, dry_run: bool = False, verbose: bool = False
+) -> str:
+    """Render a concise or verbose textual summary of a remote ReconcilePlan."""
+    revision = plan.revision
+    changes_count = len(plan.changes)
+    conflicts_count = len(plan.conflicts)
+    blocked_items = tuple(item for item in plan.items if item.action == "BLOCKED")
+    blocked_count = len(plan.findings) + len(blocked_items)
+    deferred_count = len(plan.deferred)
+    applied_count = len(plan.applied_items)
+
+    lines = [
+        f"Remote sync plan (revision: {revision}) [preview]"
+        if dry_run
+        else f"Remote sync result (revision: {revision})",
+        "",
+    ]
+
+    if dry_run:
+        lines.append(f"  Planned:   {changes_count}")
+    else:
+        lines.append(f"  Applied:   {applied_count}")
+
+    lines.extend(
+        [
+            f"  Conflicts: {conflicts_count}",
+            f"  Blocked:   {blocked_count}",
+            f"  Deferred:  {deferred_count}",
+        ]
+    )
+
+    if not dry_run:
+        lines.append(f"  Rounds:    {plan.rounds}")
+
+    attention: list[str] = []
+    if plan.conflicts:
+        attention.extend(
+            f"[CONFLICT] {item.id} ({item.reason})" for item in plan.conflicts
+        )
+    if plan.findings:
+        attention.extend(f"[BLOCKED] {finding}" for finding in plan.findings)
+    if blocked_items:
+        attention.extend(
+            f"[BLOCKED] {item.id} ({item.reason})" for item in blocked_items
+        )
+    if plan.deferred:
+        attention.extend(
+            f"[DEFERRED] {item.id} ({item.reason})" for item in plan.deferred
+        )
+
+    if attention:
+        lines.extend(("", "Needs attention:"))
+        lines.extend(f"  {line}" for line in attention)
+
+    has_blockers = bool(plan.findings)
+    has_conflicts = bool(plan.conflicts)
+    has_blocked_items = bool(blocked_items)
+    has_deferred = bool(plan.deferred)
+    has_stop_reason = bool(plan.stop_reason and plan.stop_reason != "Blocking findings")
+
+    if has_blockers:
+        lines.extend(("", "Blocked by safety checks; synchronization stopped"))
+    elif has_stop_reason:
+        lines.extend(("", f"Synchronization stopped: {plan.stop_reason}"))
+    elif dry_run:
+        if has_conflicts or has_blocked_items:
+            lines.extend(
+                ("", "Conflicts or blocked resources detected; cannot apply cleanly")
+            )
+        elif changes_count == 0:
+            lines.extend(("", "Up to date; no changes to apply"))
+        else:
+            lines.extend(
+                ("", "Safe to apply. Run 'aikito remote sync --apply' to proceed")
+            )
+    else:
+        if has_conflicts and has_blocked_items:
+            lines.extend(
+                ("", "Completed with conflicts and blocked resources remaining")
+            )
+        elif has_conflicts:
+            lines.extend(("", "Completed with conflicts remaining"))
+        elif has_blocked_items:
+            lines.extend(("", "Completed with blocked resources remaining"))
+        elif has_deferred:
+            lines.extend(("", "Completed with deferred items remaining"))
+        elif applied_count == 0 and not plan.changes:
+            lines.extend(("", "Up to date; no changes were needed"))
+        else:
+            lines.extend(("", "Applied successfully"))
+
+    if verbose:
+        details: list[str] = []
+        if not dry_run and plan.applied_items:
+            for item in plan.applied_items:
+                target_str = f" -> {item.target}" if item.target else ""
+                details.append(f"  [APPLIED] [{item.action}] {item.id}{target_str}")
+        for item in plan.items:
+            if dry_run and item.action != "NOOP":
+                target_str = f" -> {item.target}" if item.target else ""
+                details.append(f"  [PLANNED] [{item.action}] {item.id}{target_str}")
+            elif not dry_run and item.action in {"CONFLICT", "BLOCKED", "DEFERRED"}:
+                target_str = f" -> {item.target}" if item.target else ""
+                details.append(f"  [{item.action}] {item.id}{target_str}")
+        if details:
+            lines.extend(("", "Details:", *details))
+
+    return "\n".join(lines)
+
