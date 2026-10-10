@@ -3,20 +3,27 @@
 from __future__ import annotations
 
 import argparse
+import getpass
+import json
 import ssl
 import sys
 from pathlib import Path
+from typing import Any
 
 from .init import is_recognized_workspace
-from .workspace.paths import resolve_workspace
-from .workspace.auto_sync import AutoSyncWorkerRunning
 from .remote_service import (
     bind_workspace_remote,
     get_workspace_remote_binding,
+    get_workspace_remote_status,
+    save_workspace_remote_credential,
+    start_workspace_remote_service,
+    stop_workspace_remote_service,
     sync_workspace_remote,
     watch_workspace_remote,
 )
 from .render import render_remote_sync_plan
+from .workspace.auto_sync import AutoSyncWorkerRunning
+from .workspace.paths import resolve_workspace
 from .workspace.reconcile import (
     InterruptedRoundRecovered,
     WorkspaceReconcileError,
@@ -30,12 +37,29 @@ from .workspace.remote_access import (
     RemoteEndpointCredentialsForbidden,
     RemoteEndpointInsecure,
 )
+from .workspace.remote_credentials import (
+    get_credentials_path,
+    read_credentials_file,
+    save_keychain,
+)
 from .workspace.remote_store import (
     RecoveryRequired,
     StoreIdentityMismatch,
     StoreUnavailable,
 )
 from .workspace.remote_transport import TransportNotDelivered, TransportRejected
+
+EXIT_SUCCESS = 0
+EXIT_FAILURE = 1
+EXIT_LOCKED = 75
+EXIT_UNRECOVERABLE = 78
+
+
+def _resolve_cli_workspace(args: argparse.Namespace, home: Path) -> Path:
+    ws_arg = getattr(args, "workspace", None)
+    if ws_arg:
+        return Path(ws_arg).expanduser().resolve()
+    return resolve_workspace(home)
 
 
 def _explain_remote_error(
@@ -96,13 +120,74 @@ def _explain_remote_error(
         return f"Remote binding error: {target}"
     if isinstance(target, WorkspaceReconcileError):
         return f"Synchronization error: {target}"
+    if isinstance(target, RuntimeError):
+        return str(target)
     return f"Failed: {target}"
 
 
+def render_remote_status(status: dict[str, Any]) -> str:
+    """Format structured remote and background service status for terminal output."""
+    ws = status["workspace"]
+    svc = status.get("service", {})
+    running = svc.get("running", False)
+    pid = svc.get("pid")
+    manager = svc.get("manager", "unknown")
+    state = svc.get("state", "stopped")
+
+    if running:
+        svc_str = f"{state} (PID: {pid})" if pid else f"{state}"
+    else:
+        svc_str = "stopped"
+
+    binding = status.get("binding")
+    if binding:
+        ep_str = binding.get("endpoint", "None")
+        raw_sync_id = str(binding.get("sync_id", "None"))
+        if raw_sync_id and len(raw_sync_id) > 12:
+            sync_id_str = f"{raw_sync_id[:8]}...{raw_sync_id[-4:]}"
+        else:
+            sync_id_str = raw_sync_id
+        token_env = binding.get("token_env", "None")
+        source = status.get("credential_source")
+        if source:
+            cred_str = f"{token_env} (resolved from {source})"
+        else:
+            cred_str = f"{token_env} (not resolved)"
+    else:
+        ep_str = "None (not bound)"
+        sync_id_str = "None"
+        cred_str = "None"
+
+    last_chk = status.get("last_checked") or "Never"
+    last_succ = status.get("last_success") or "Never"
+    last_rev = status.get("last_revision")
+    rev_str = str(last_rev) if last_rev is not None else "None"
+    pending = status.get("pending", 0)
+    conflicts = status.get("conflicts", 0)
+    last_err = status.get("last_error") or "None"
+
+    lines = [
+        "Aikito Remote Status:",
+        f"  Workspace:       {ws}",
+        f"  Service:         {svc_str}",
+        f"  Service manager: {manager}",
+        f"  Endpoint:        {ep_str}",
+        f"  Sync ID:         {sync_id_str}",
+        f"  Credential:      {cred_str}",
+        f"  Last checked:    {last_chk}",
+        f"  Last success:    {last_succ}",
+        f"  Last revision:   {rev_str}",
+        f"  Pending:         {pending}",
+        f"  Conflicts:       {conflicts}",
+        f"  Last error:      {last_err}",
+    ]
+    return "\n".join(lines)
+
+
 def cmd_remote_bind(args: argparse.Namespace) -> None:
-    """Handle 'aikito remote bind <endpoint> [--token-env <VAR>]'."""
+    """Handle 'aikito remote bind <endpoint> [--token-env <VAR>] [--workspace <PATH>]'."""
     home = Path.home()
-    workspace = resolve_workspace(home)
+    workspace = _resolve_cli_workspace(args, home)
     if not is_recognized_workspace(workspace):
         print(
             f"[ERROR] '{workspace}' is not a recognized Aikito workspace. Run 'aikito init workspace' first.",
@@ -129,9 +214,9 @@ def cmd_remote_bind(args: argparse.Namespace) -> None:
 
 
 def cmd_remote_sync(args: argparse.Namespace) -> None:
-    """Handle 'aikito remote sync (--dry-run | --apply) [--verbose]'."""
+    """Handle 'aikito remote sync (--dry-run | --apply) [--verbose] [--workspace <PATH>]'."""
     home = Path.home()
-    workspace = resolve_workspace(home)
+    workspace = _resolve_cli_workspace(args, home)
     if not is_recognized_workspace(workspace):
         print(
             f"[ERROR] '{workspace}' is not a recognized Aikito workspace. Run 'aikito init workspace' first.",
@@ -175,9 +260,9 @@ def cmd_remote_sync(args: argparse.Namespace) -> None:
 
 
 def cmd_remote_watch(args: argparse.Namespace) -> None:
-    """Handle 'aikito remote watch [--poll-interval <SEC>] [--debounce-ms <MS>] [--once] [--verbose]'."""
+    """Handle 'aikito remote watch [--poll-interval <SEC>] [--debounce-ms <MS>] [--once] [--verbose] [--workspace <PATH>]'."""
     home = Path.home()
-    workspace = resolve_workspace(home)
+    workspace = _resolve_cli_workspace(args, home)
     if not is_recognized_workspace(workspace):
         print(
             f"[ERROR] '{workspace}' is not a recognized Aikito workspace. Run 'aikito init workspace' first.",
@@ -220,13 +305,173 @@ def cmd_remote_watch(args: argparse.Namespace) -> None:
         )
     except AutoSyncWorkerRunning as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_LOCKED)
     except KeyboardInterrupt:
         print("\n[INFO] Auto-sync watcher stopped.", file=sys.stderr)
-        sys.exit(0)
+        sys.exit(EXIT_SUCCESS)
+    except (
+        RemoteCredentialError,
+        StoreIdentityMismatch,
+        RemoteEndpointInsecure,
+        RemoteEndpointCredentialsForbidden,
+    ) as exc:
+        print(
+            f"[ERROR] {_explain_remote_error(exc, endpoint=endpoint, token_env=token_env)}",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_UNRECOVERABLE)
     except Exception as exc:
         print(
             f"[ERROR] {_explain_remote_error(exc, endpoint=endpoint, token_env=token_env)}",
             file=sys.stderr,
         )
+        sys.exit(EXIT_FAILURE)
+
+
+def cmd_remote_start(args: argparse.Namespace) -> None:
+    """Handle 'aikito remote start [--workspace <PATH>] [--mode <auto|system|process>]'."""
+    home = Path.home()
+    workspace = _resolve_cli_workspace(args, home)
+    if not is_recognized_workspace(workspace):
+        print(
+            f"[ERROR] '{workspace}' is not a recognized Aikito workspace. Run 'aikito init workspace' first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    binding = get_workspace_remote_binding(workspace)
+    if binding is None:
+        print(
+            "[ERROR] No remote binding configured for this workspace. Run 'aikito remote bind <endpoint>' first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    mode = getattr(args, "mode", "auto")
+    try:
+        res = start_workspace_remote_service(workspace, home=home, mode=mode)
+    except Exception as exc:
+        print(
+            f"[ERROR] {_explain_remote_error(exc, endpoint=binding.endpoint, token_env=binding.auth.env)}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if res["already_running"]:
+        print(f"[INFO] Auto-sync service is already running (PID: {res['pid']}).")
+        return
+
+    print(f"[SUCCESS] Started background auto-sync service for workspace '{workspace}'")
+    print(f"  Service type: {res['manager_name']} ({res['service_name']})")
+    status_msg = f"running (PID: {res['pid']})" if res.get("pid") else "started"
+    print(f"  Status:       {status_msg}")
+    print(f"  Log file:     {res['log_path']}")
+
+
+def cmd_remote_stop(args: argparse.Namespace) -> None:
+    """Handle 'aikito remote stop [--workspace <PATH>] [--mode <auto|system|process>]'."""
+    home = Path.home()
+    workspace = _resolve_cli_workspace(args, home)
+    if not is_recognized_workspace(workspace):
+        print(
+            f"[ERROR] '{workspace}' is not a recognized Aikito workspace. Run 'aikito init workspace' first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    mode = getattr(args, "mode", "auto")
+    try:
+        res = stop_workspace_remote_service(workspace, home=home, mode=mode)
+    except Exception as exc:
+        print(f"[ERROR] Failed to stop remote service: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if res["was_running"]:
+        if not res["is_running"]:
+            print(f"[SUCCESS] Stopped auto-sync service for workspace '{workspace}'.")
+        else:
+            print(
+                f"[ERROR] Service process could not be terminated (PID: {res.get('pid')}).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    else:
+        print("[INFO] Auto-sync service is not running.")
+
+
+def cmd_remote_status(args: argparse.Namespace) -> None:
+    """Handle 'aikito remote status [--workspace <PATH>] [--json] [--mode <auto|system|process>]'."""
+    home = Path.home()
+    workspace = _resolve_cli_workspace(args, home)
+    if not is_recognized_workspace(workspace):
+        print(
+            f"[ERROR] '{workspace}' is not a recognized Aikito workspace. Run 'aikito init workspace' first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    mode = getattr(args, "mode", "auto")
+    as_json = getattr(args, "json", False)
+
+    status = get_workspace_remote_status(workspace, home=home, mode=mode)
+
+    if as_json:
+        print(json.dumps(status, indent=2, sort_keys=True))
+    else:
+        print(render_remote_status(status))
+
+
+def cmd_remote_credential(args: argparse.Namespace) -> None:
+    """Handle 'aikito remote credential {set,list,path}'."""
+    home = Path.home()
+    cred_action = getattr(args, "cred_action", None)
+
+    if cred_action == "set":
+        key = args.key
+        use_stdin = getattr(args, "stdin", False)
+        if use_stdin or not sys.stdin.isatty():
+            value = sys.stdin.read().strip()
+        else:
+            value = getpass.getpass(f"Enter token for '{key}': ").strip()
+
+        if not value:
+            print("[ERROR] Credential value cannot be empty.", file=sys.stderr)
+            sys.exit(1)
+
+        use_keychain = getattr(args, "keychain", False)
+        if use_keychain:
+            try:
+                save_keychain(key, value)
+                print(
+                    f"[SUCCESS] Saved credential '{key}' to operating system keychain."
+                )
+            except Exception as exc:
+                print(
+                    f"[ERROR] Failed to save credential to keychain: {exc}",
+                    file=sys.stderr,
+                )
+                sys.exit(EXIT_FAILURE)
+        else:
+            try:
+                target = save_workspace_remote_credential(key, value, home=home)
+                print(
+                    f"[SUCCESS] Saved credential '{key}' to secure credentials file ({target})."
+                )
+            except Exception as exc:
+                print(f"[ERROR] Failed to save credential: {exc}", file=sys.stderr)
+                sys.exit(EXIT_FAILURE)
+    elif cred_action == "path":
+        target = get_credentials_path(home)
+        print(str(target))
+    elif cred_action == "list":
+        target = get_credentials_path(home)
+        creds = read_credentials_file(target) if target.exists() else {}
+        print("Configured credentials:")
+        if not creds:
+            print("  (none)")
+        else:
+            for k in sorted(creds.keys()):
+                print(f"  {k}: [configured]")
+    else:
+        print("Usage: aikito remote credential {set,list,path}", file=sys.stderr)
         sys.exit(1)

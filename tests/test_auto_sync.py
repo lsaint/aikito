@@ -562,7 +562,7 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                 ):
                     cmd_remote_watch(args)
 
-                self.assertEqual(ctx.exception.code, 1)
+                self.assertEqual(ctx.exception.code, 75)
                 self.assertIn(
                     "Another auto-sync worker is already running", stderr.getvalue()
                 )

@@ -8,7 +8,6 @@ a backend whose verification read requires recovery.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Collection, Mapping
 from pathlib import Path
 
@@ -18,7 +17,6 @@ from .payload import ResourcePayload
 from .remote_access import (
     RemoteBindingExists,
     RemoteBindingMissing,
-    RemoteCredentialError,
 )
 from .remote_binding import (
     RemoteAuth,
@@ -27,6 +25,7 @@ from .remote_binding import (
     save_remote_binding,
     validate_binding_endpoint,
 )
+from .remote_credentials import resolve_credential
 from .remote_store import (
     CommitRequest,
     CommitResult,
@@ -38,24 +37,15 @@ from .remote_store import (
 from .serialized_remote import SerializedRemoteStore
 
 
-def resolve_credential(
-    auth: RemoteAuth, environ: Mapping[str, str] | None = None
-) -> str:
-    value = (os.environ if environ is None else environ).get(auth.env)
-    if (
-        type(value) is not str
-        or not value
-        or any(not 33 <= ord(c) <= 126 for c in value)
-    ):
-        raise RemoteCredentialError("Remote credential is missing or invalid")
-    return value
-
-
 def _open_remote(
-    endpoint: str, auth: RemoteAuth, environ: Mapping[str, str] | None
+    endpoint: str,
+    auth: RemoteAuth,
+    environ: Mapping[str, str] | None,
+    *,
+    home: Path | None = None,
 ) -> RemoteStore:
     validate_binding_endpoint(endpoint)
-    token = resolve_credential(auth, environ)
+    token = resolve_credential(auth, environ, home=home)
     return SerializedRemoteStore(
         HTTPTransport(endpoint, authorization="Bearer " + token).exchange
     )
@@ -127,21 +117,29 @@ class BoundRemote:
 
 
 def open_bound_remote(
-    workspace: Path, *, environ: Mapping[str, str] | None = None
+    workspace: Path,
+    *,
+    home: Path | None = None,
+    environ: Mapping[str, str] | None = None,
 ) -> RemoteStore:
     binding = load_remote_binding(workspace)
     if binding is None:
         raise RemoteBindingMissing("Remote binding is missing")
     return BoundRemote(
-        _open_remote(binding.endpoint, binding.auth, environ), binding.sync_id
+        _open_remote(binding.endpoint, binding.auth, environ, home=home),
+        binding.sync_id,
     )
 
 
 def verify_remote_binding(
-    binding: RemoteBinding, *, environ: Mapping[str, str] | None = None
+    binding: RemoteBinding,
+    *,
+    home: Path | None = None,
+    environ: Mapping[str, str] | None = None,
 ) -> RemoteSnapshot:
     return BoundRemote(
-        _open_remote(binding.endpoint, binding.auth, environ), binding.sync_id
+        _open_remote(binding.endpoint, binding.auth, environ, home=home),
+        binding.sync_id,
     ).read()
 
 
@@ -153,8 +151,8 @@ def bind_remote(
     home: Path | None = None,
     environ: Mapping[str, str] | None = None,
 ) -> RemoteBinding:
-    remote = _open_remote(endpoint, auth, environ)
     home = Path.home() if home is None else home
+    remote = _open_remote(endpoint, auth, environ, home=home)
     with WorkspaceWriterLock(home):
         if load_remote_binding(workspace) is not None:
             raise RemoteBindingExists("Remote binding already exists")

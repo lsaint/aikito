@@ -158,6 +158,13 @@ jobs:
           python3 tests/workspace_remote_watch_smoke.py "$REMOTE_WATCH_SMOKE"
           test -f "$REMOTE_WATCH_SMOKE/ws_b/memory/notes/watch-smoke.md"
           test -f "$REMOTE_WATCH_SMOKE/ws_a/memory/notes/from-b.md"
+          REMOTE_SERVICE_SMOKE=${{ runner.temp }}/remote-service-smoke
+          python3 tests/workspace_remote_service_smoke.py "$REMOTE_SERVICE_SMOKE"
+          test -f "$REMOTE_SERVICE_SMOKE/ws_a/.local/state/aikito/workspace-reconcile/binding.json"
+          test -f "$REMOTE_SERVICE_SMOKE/ws_a/.local/state/aikito/workspace-reconcile/status.json"
+          test -f "$REMOTE_SERVICE_SMOKE/ws_a/memory/notes/smoke-idea.md"
+          test -f "$REMOTE_SERVICE_SMOKE/center/memory/notes/smoke-idea.md"
+          ! grep -Fq 'remote-service-smoke-secret' "$REMOTE_SERVICE_SMOKE/ws_a/.local/state/aikito/workspace-reconcile/binding.json"
           EXTERNAL_SERVICE=${{ runner.temp }}/external-service
           python3 tests/workspace_external_server_smoke.py "$EXTERNAL_SERVICE"
           test -f "$EXTERNAL_SERVICE/center-test-server.json"

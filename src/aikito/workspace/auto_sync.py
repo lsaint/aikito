@@ -9,8 +9,10 @@ periodic remote revision polling, and automatic conflict resolution.
 from __future__ import annotations
 
 import errno
+import json
 import os
 import shutil
+import signal
 import sys
 import threading
 import time
@@ -49,6 +51,9 @@ from .remote_transport import TransportNotDelivered
 from .resource_state import (
     SYNC_CONFLICTS_DIR,
     WORKER_LOCK_STATE,
+    WORKER_LOG_STATE,
+    WORKER_STATUS_STATE,
+    WORKER_STOP_STATE,
     local_resource_for_id,
     state_path,
 )
@@ -185,6 +190,93 @@ class AutoSyncLifecycleLock:
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self.release()
+
+
+def _is_pid_alive(pid: int) -> bool:
+    """Check if a process with the given PID is currently alive."""
+    if pid <= 0:
+        return False
+    if not is_windows():
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError as err:
+            return err.errno == errno.EPERM
+    else:
+        try:
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.OpenProcess(
+                0x1000, False, pid
+            )  # PROCESS_QUERY_LIMITED_INFORMATION
+            if handle:
+                kernel32.CloseHandle(handle)
+                return True
+            return False
+        except Exception:
+            return False
+
+
+def is_worker_running(workspace: Path) -> tuple[bool, int | None]:
+    """Check if an auto-sync worker process is currently running for this workspace.
+
+    Returns (True, pid) if a worker holds the lifecycle lock, or (False, None).
+    """
+    workspace = workspace.expanduser().resolve()
+    lock_path = state_path(workspace, WORKER_LOCK_STATE, create=False)
+    if not lock_path.exists():
+        return False, None
+
+    pid: int | None = None
+    try:
+        content = lock_path.read_text(encoding="utf-8").strip()
+        if content.isdigit():
+            pid = int(content)
+    except Exception:
+        pass
+
+    try:
+        f = open(lock_path, "a+", encoding="utf-8")
+    except Exception:
+        if pid is not None and _is_pid_alive(pid):
+            return True, pid
+        return False, None
+
+    try:
+        if not is_windows():
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            return False, None
+        else:
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+            return False, None
+    except (BlockingIOError, OSError):
+        return True, pid
+    finally:
+        f.close()
+
+
+def load_worker_status(workspace: Path) -> dict[str, Any] | None:
+    """Load persisted worker status dictionary if available."""
+    path = state_path(workspace, WORKER_STATUS_STATE, create=False)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def save_worker_status(workspace: Path, data: dict[str, Any]) -> None:
+    """Atomically save worker status dictionary."""
+    path = state_path(workspace, WORKER_STATUS_STATE, create=True)
+    text = json.dumps(data, indent=2, sort_keys=True) + "\n"
+    _atomic_write_bytes(path, text.encode("utf-8"))
 
 
 @dataclass(frozen=True)
@@ -495,9 +587,10 @@ class AutoSyncScheduler:
     def __init__(
         self,
         workspace: Path,
-        remote: RemoteStore,
+        remote: RemoteStore | None,
         home: Path,
         *,
+        remote_opener: Callable[[], RemoteStore] | None = None,
         poll_interval: float = 5.0,
         debounce_delay: float = 0.5,
         scan_interval: float = 1.0,
@@ -507,6 +600,7 @@ class AutoSyncScheduler:
     ) -> None:
         self.workspace = workspace.expanduser().resolve()
         self.remote = remote
+        self._remote_opener = remote_opener
         self.home = home.expanduser().resolve()
         self.poll_interval = poll_interval
         self.debounce_delay = debounce_delay
@@ -522,6 +616,22 @@ class AutoSyncScheduler:
         self._processed_seq = 0
         self._stopped = False
 
+        self._status: dict[str, Any] = {
+            "state": AutoSyncState.IDLE.value,
+            "pid": os.getpid(),
+            "last_checked": None,
+            "last_success": None,
+            "last_revision": None,
+            "last_error": None,
+            "conflicts": 0,
+            "pending": 0,
+        }
+        existing = load_worker_status(self.workspace)
+        if existing and isinstance(existing, dict):
+            for k in ("last_success", "last_revision"):
+                if k in existing:
+                    self._status[k] = existing[k]
+
         self._watcher = LocalWatcher(
             self.workspace,
             self.notify_dirty,
@@ -529,8 +639,38 @@ class AutoSyncScheduler:
             scan_interval=self.scan_interval,
         )
 
+    def _check_stop_requested(self) -> bool:
+        stop_path = state_path(self.workspace, WORKER_STOP_STATE, create=False)
+        if stop_path.exists():
+            try:
+                stop_path.unlink()
+            except OSError:
+                pass
+            self.stop()
+            return True
+        return False
+
+    def _rotate_log(self, max_bytes: int = 5 * 1024 * 1024) -> None:
+        log_path = state_path(self.workspace, WORKER_LOG_STATE, create=False)
+        if not log_path.exists():
+            return
+        try:
+            if log_path.stat().st_size >= max_bytes:
+                backup = log_path.with_name(log_path.name + ".1")
+                if backup.exists():
+                    backup.unlink()
+                log_path.rename(backup)
+        except Exception:
+            pass
+
     def _set_state(self, new_state: AutoSyncState, detail: str | None = None) -> None:
         self.state = new_state
+        self._status["state"] = new_state.value
+        if detail is not None:
+            self._status["last_error"] = detail
+        elif new_state in (AutoSyncState.IDLE, AutoSyncState.SYNCING):
+            self._status["last_error"] = None
+        save_worker_status(self.workspace, self._status)
         if self.on_status_change:
             try:
                 self.on_status_change(new_state, detail)
@@ -544,7 +684,12 @@ class AutoSyncScheduler:
 
     def step(self) -> ReconcilePlan:
         """Run a single check and reconciliation step, resolving any conflicts."""
+        self._rotate_log()
+        self._status["last_checked"] = datetime.now(timezone.utc).isoformat()
         self._set_state(AutoSyncState.SYNCING)
+
+        if self.remote is None and self._remote_opener is not None:
+            self.remote = self._remote_opener()
 
         # 1. Recover pending commits or journals first (Fix Issue 1)
         if recover_reconciliation(self.workspace, self.remote, self.home):
@@ -624,12 +769,22 @@ class AutoSyncScheduler:
         if result.deferred:
             self.logger(f"[WARN] {len(result.deferred)} resource(s) deferred")
 
+        if hasattr(result, "conflicts"):
+            self._status["conflicts"] = len(result.conflicts)
+
         if attention_reasons:
             self._set_state(
                 AutoSyncState.ATTENTION_REQUIRED, "; ".join(attention_reasons)
             )
         else:
+            self._status["last_success"] = datetime.now(timezone.utc).isoformat()
+            if (
+                hasattr(result, "remote_snapshot")
+                and result.remote_snapshot is not None
+            ):
+                self._status["last_revision"] = result.remote_snapshot.revision
             self._set_state(AutoSyncState.IDLE)
+        save_worker_status(self.workspace, self._status)
 
         return result
 
@@ -637,6 +792,22 @@ class AutoSyncScheduler:
         """Run the scheduler with lifecycle locking."""
         lifecycle = AutoSyncLifecycleLock(self.workspace)
         with lifecycle:
+            self._status["pid"] = os.getpid()
+            save_worker_status(self.workspace, self._status)
+
+            prev_sigterm = None
+            prev_sigint = None
+            try:
+                if threading.current_thread() is threading.main_thread():
+
+                    def _sig_handler(signum: int, frame: Any) -> None:
+                        self.stop()
+
+                    prev_sigterm = signal.signal(signal.SIGTERM, _sig_handler)
+                    prev_sigint = signal.signal(signal.SIGINT, _sig_handler)
+            except (ValueError, AttributeError):
+                pass
+
             if once:
                 self.step()
                 return
@@ -668,7 +839,13 @@ class AutoSyncScheduler:
                         self.logger(f"[ERROR] Sync error requires attention: {exc}")
 
                 while not self._stopped:
-                    if self.state == AutoSyncState.RETRY_WAIT:
+                    if self._check_stop_requested() or self._stopped:
+                        break
+
+                    if self.state in (
+                        AutoSyncState.RETRY_WAIT,
+                        AutoSyncState.ATTENTION_REQUIRED,
+                    ):
                         timeout = backoff
                     else:
                         timeout = self.poll_interval
@@ -677,7 +854,7 @@ class AutoSyncScheduler:
                     local_triggered = self._wake_event.is_set()
                     self._wake_event.clear()
 
-                    if self._stopped:
+                    if self._check_stop_requested() or self._stopped:
                         break
 
                     with self._lock:
@@ -687,7 +864,12 @@ class AutoSyncScheduler:
 
                     if local_triggered:
                         should_step = True
-                    elif self.state == AutoSyncState.RETRY_WAIT:
+                    elif self.state in (
+                        AutoSyncState.RETRY_WAIT,
+                        AutoSyncState.ATTENTION_REQUIRED,
+                    ):
+                        should_step = True
+                    elif self.remote is None:
                         should_step = True
                     else:
                         # Serial remote polling in main thread
@@ -747,6 +929,16 @@ class AutoSyncScheduler:
                             backoff = min(backoff * 2.0, max_backoff)
 
             finally:
+                if prev_sigterm is not None:
+                    try:
+                        signal.signal(signal.SIGTERM, prev_sigterm)
+                    except Exception:
+                        pass
+                if prev_sigint is not None:
+                    try:
+                        signal.signal(signal.SIGINT, prev_sigint)
+                    except Exception:
+                        pass
                 self._watcher.stop()
                 self._set_state(AutoSyncState.STOPPED)
                 self.logger("[INFO] Auto-sync worker stopped")

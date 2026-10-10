@@ -61,9 +61,13 @@ version.
 | `aikito edit skill <target>` | Open a skill's SKILL.md in `$VISUAL` or `$EDITOR` |
 | `aikito edit subagent <target>` | Open a subagent's instruction markdown in `$VISUAL` or `$EDITOR` |
 | `aikito doctor [--fix]` | Run deep workspace diagnostics and repair supported configuration issues |
-| `aikito remote bind <endpoint> [--token-env <VAR>]` | Bind the workspace to an external remote store and pin its identity |
-| `aikito remote sync (--dry-run \| --apply) [--verbose]` | Preview or synchronize local workspace resources with the bound remote store |
-| `aikito remote watch [--poll-interval <SEC>] [--debounce-ms <MS>] [--once] [--verbose]` | Continuously synchronize local workspace changes and remote updates |
+| `aikito remote bind <endpoint> [--token-env <VAR>] [--workspace <PATH>]` | Bind the workspace to an external remote store and pin its identity |
+| `aikito remote sync (--dry-run \| --apply) [--verbose] [--workspace <PATH>]` | Preview or synchronize local workspace resources with the bound remote store |
+| `aikito remote watch [--poll-interval <SEC>] [--debounce-ms <MS>] [--once] [--verbose] [--workspace <PATH>]` | Continuously synchronize local workspace changes and remote updates |
+| `aikito remote start [--workspace <PATH>] [--mode {auto,system,process}]` | Start background automatic synchronization service |
+| `aikito remote stop [--workspace <PATH>] [--mode {auto,system,process}]` | Stop background automatic synchronization service |
+| `aikito remote status [--workspace <PATH>] [--json] [--mode {auto,system,process}]` | Show status of remote binding and background synchronization |
+| `aikito remote credential {set,list,path}` | Manage credentials in secure user configuration storage |
 | `aikito completion zsh\|bash\|fish\|powershell` | Print a shell completion script |
 | `aikito completion candidates projects\|skills\|subagents\|mcps\|memories\|memory-completions\|inbox\|inbox-completions\|paths [prefix]` | List dynamic completion candidates |
 | `aikito version [-c\|--check] [--force] [--json]` | Print the CLI version and check for available updates |
@@ -79,7 +83,35 @@ aikito remote bind https://remote.example.com/v1/remote --token-env CUSTOM_TOKEN
 ```
 
 The binding persists the endpoint and pinned `sync_id` locally in `.local/state/aikito/workspace-reconcile/binding.json`.
-Credentials are never written to disk; Aikito stores only the environment variable name (default: `AIKITO_REMOTE_TOKEN`).
+Credentials are never written to the workspace; Aikito references the environment variable name (default: `AIKITO_REMOTE_TOKEN`) or resolves from secure user credential storage.
+
+### Secure Credentials (`aikito remote credential`)
+
+Background services running outside an interactive shell can securely resolve tokens from user configuration storage (`~/.config/aikito/credentials` with 0600 permissions) or OS keychains:
+
+```bash
+# Store a bearer token securely in credentials file (prompts interactively with hidden input)
+aikito remote credential set AIKITO_REMOTE_TOKEN
+
+# Or pass token non-interactively via standard input
+echo "secret-token-value" | aikito remote credential set AIKITO_REMOTE_TOKEN --stdin
+
+# Or store directly into the operating system keychain / keyring (macOS / Linux)
+aikito remote credential set AIKITO_REMOTE_TOKEN --keychain
+
+# Native OS keychain tools can also be populated manually:
+# macOS:   security add-generic-password -U -s aikito -a AIKITO_REMOTE_TOKEN -w "secret-token-value"
+# Linux:   echo "secret-token-value" | secret-tool store --label="aikito" service aikito key AIKITO_REMOTE_TOKEN
+# (Note: Windows is not currently supported for --keychain; use the secure credentials file instead.
+# On macOS, `security -w <value>` passes the token as a CLI argument during execution; for maximum confidentiality,
+# use the credentials file with 0600 permissions or standard environment variables.)
+
+# List configured credential names (values are masked)
+aikito remote credential list
+
+# Display path to the secure credentials file
+aikito remote credential path
+```
 
 ### Previewing Changes (`--dry-run`)
 
@@ -105,7 +137,7 @@ Reconciliation transfers mutations transactionally between the local workspace a
 
 ### Continuous Synchronization (`aikito remote watch`)
 
-Run the foreground auto-sync worker to continuously synchronize changes between the local workspace and the remote store:
+Run the foreground auto-sync worker to continuously synchronize changes between the local workspace and the remote store (useful for debugging):
 
 ```bash
 aikito remote watch
@@ -113,12 +145,29 @@ aikito remote watch --poll-interval 5.0 --debounce-ms 500
 aikito remote watch --once
 ```
 
-The auto-sync worker:
-- Enforces single-worker process ownership per workspace with a non-blocking lifecycle lock.
-- Watches managed directories (`global/`, `projects/`, `memory/`, `skills/`, `subagents/`, `mcps/`, `agents/`, `inbox/`) and coalesces rapid edits using debouncing (default: 500ms).
-- Periodically polls the remote store revision (default: every 5.0s) and downloads new changes.
-- Automatically resolves content conflicts by preserving the newest version while archiving the losing version safely to `.local/sync-conflicts/<timestamp>/`.
-- Safely handles network drops with exponential retry backoff without losing local edits.
+### Background Service (`aikito remote start / stop / status`)
+
+Run automatic synchronization as an operating system background service:
+
+```bash
+# Start background service (auto-detects macOS launchd, Linux systemd --user, or Windows Task Scheduler)
+aikito remote start
+
+# Inspect service liveness, PID, revision, conflicts, and pending commits
+aikito remote status
+aikito remote status --json
+
+# Gracefully stop background service and disable autostart
+aikito remote stop
+aikito remote disable
+```
+
+The background service:
+- Registers native OS background definitions (macOS LaunchAgent in `~/Library/LaunchAgents/`, Linux systemd unit in `~/.config/systemd/user/`, Windows Scheduled Task via `schtasks`).
+- Reuses the worker lifecycle lock to ensure idempotency and prevent duplicate workers.
+- Gracefully handles termination via stop requests with a 35-second termination window (covering the 30-second HTTP timeout), ensuring in-flight rounds and pending journals finish safely before stopping.
+- Disables and removes autostart registrations on stop/disable so services do not respawn on subsequent logins.
+- Never logs sensitive tokens or file bodies.
 
 ## Workspace Import
 

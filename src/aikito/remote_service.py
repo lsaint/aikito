@@ -4,15 +4,28 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import Any
 
-from .workspace.auto_sync import AutoSyncScheduler
+from .workspace.auto_sync import (
+    AutoSyncScheduler,
+    is_worker_running,
+    load_worker_status,
+)
+from .workspace.pending_commit import PendingCommitStore
 from .workspace.reconcile import ReconcilePlan, run_reconciliation
+from .workspace.remote_access import RemoteBindingMissing, RemoteCredentialError
 from .workspace.remote_binding import (
     RemoteAuth,
     RemoteBinding,
     load_remote_binding,
 )
+from .workspace.remote_credentials import (
+    resolve_credential_with_source,
+    save_credential,
+)
 from .workspace.remote_factory import bind_remote, open_bound_remote
+from .workspace.remote_store import RemoteStore
+from .workspace.service import get_service_manager
 
 
 def bind_workspace_remote(
@@ -48,7 +61,7 @@ def sync_workspace_remote(
 ) -> ReconcilePlan:
     """Run reconciliation against the bound remote store."""
     home = Path.home() if home is None else home
-    remote = open_bound_remote(workspace, environ=environ)
+    remote = open_bound_remote(workspace, home=home, environ=environ)
     return run_reconciliation(
         workspace,
         remote,
@@ -69,13 +82,154 @@ def watch_workspace_remote(
 ) -> None:
     """Run continuous automatic synchronization for a workspace."""
     home = Path.home() if home is None else home
-    remote = open_bound_remote(workspace, environ=environ)
+
+    def remote_opener() -> RemoteStore:
+        return open_bound_remote(workspace, home=home, environ=environ)
+
+    try:
+        remote: RemoteStore | None = remote_opener()
+    except RemoteCredentialError:
+        if once:
+            raise
+        remote = None
+
     scheduler = AutoSyncScheduler(
         workspace,
         remote,
         home=home,
+        remote_opener=remote_opener,
         poll_interval=poll_interval,
         debounce_delay=debounce_delay,
         logger=logger,
     )
     scheduler.run(once=once)
+
+
+def start_workspace_remote_service(
+    workspace: Path,
+    *,
+    home: Path | None = None,
+    mode: str = "auto",
+) -> dict[str, Any]:
+    """Start the background synchronization service idempotently."""
+    binding = get_workspace_remote_binding(workspace)
+    if binding is None:
+        raise RemoteBindingMissing("Remote binding is missing")
+
+    manager = get_service_manager(workspace, home=home, mode=mode)
+    running, pid = manager.is_running()
+    if running:
+        return {
+            "already_running": True,
+            "pid": pid,
+            "service_name": manager.get_service_name(),
+            "manager_name": manager.manager_name(),
+            "log_path": str(manager.get_log_path()),
+        }
+
+    manager.start(timeout=3.0)
+    running, pid = manager.is_running()
+
+    return {
+        "already_running": False,
+        "pid": pid,
+        "service_name": manager.get_service_name(),
+        "manager_name": manager.manager_name(),
+        "log_path": str(manager.get_log_path()),
+    }
+
+
+def stop_workspace_remote_service(
+    workspace: Path,
+    *,
+    home: Path | None = None,
+    mode: str = "auto",
+) -> dict[str, Any]:
+    """Stop the background synchronization service safely and disable autostart."""
+    manager = get_service_manager(workspace, home=home, mode=mode)
+    running, pid = manager.is_running()
+    was_running = running
+    stopped_pid = pid
+
+    if running or manager.is_installed():
+        manager.stop(timeout=35.0)
+        manager.uninstall()
+        running, _ = manager.is_running()
+
+    return {
+        "was_running": was_running,
+        "pid": stopped_pid,
+        "service_name": manager.get_service_name(),
+        "manager_name": manager.manager_name(),
+        "is_running": running,
+    }
+
+
+def get_workspace_remote_status(
+    workspace: Path,
+    *,
+    home: Path | None = None,
+    mode: str = "auto",
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Gather comprehensive structured status of remote binding and service."""
+    home = Path.home() if home is None else home.expanduser().resolve()
+    binding = get_workspace_remote_binding(workspace)
+    running, pid = is_worker_running(workspace)
+    manager = get_service_manager(workspace, home=home, mode=mode)
+    raw_status = load_worker_status(workspace) or {}
+
+    pending_store = PendingCommitStore(workspace, home)
+    pending_item = pending_store.load()
+    pending_count = 1 if pending_item is not None else 0
+
+    cred_source: str | None = None
+    cred_error: str | None = None
+    if binding is not None:
+        try:
+            _, cred_source = resolve_credential_with_source(
+                binding.auth,
+                environ=environ,
+                home=home,
+            )
+        except Exception as exc:
+            cred_error = str(exc)
+
+    state = raw_status.get("state", "idle") if running else "stopped"
+
+    return {
+        "workspace": str(workspace.expanduser().resolve()),
+        "binding": {
+            "endpoint": binding.endpoint,
+            "sync_id": binding.sync_id,
+            "token_env": binding.auth.env,
+        }
+        if binding
+        else None,
+        "service": {
+            "running": running,
+            "pid": pid,
+            "state": state,
+            "manager": manager.manager_name(),
+            "name": manager.get_service_name(),
+            "installed": manager.is_installed(),
+            "log_path": str(manager.get_log_path()),
+        },
+        "last_checked": raw_status.get("last_checked"),
+        "last_success": raw_status.get("last_success"),
+        "last_revision": raw_status.get("last_revision"),
+        "last_error": raw_status.get("last_error") or cred_error,
+        "conflicts": raw_status.get("conflicts", 0),
+        "pending": pending_count,
+        "credential_source": cred_source,
+    }
+
+
+def save_workspace_remote_credential(
+    key: str,
+    value: str,
+    *,
+    home: Path | None = None,
+) -> Path:
+    """Save a credential securely to the user credentials file."""
+    return save_credential(key, value, home=home)

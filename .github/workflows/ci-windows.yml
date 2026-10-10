@@ -53,7 +53,7 @@ jobs:
       - name: Run workspace remote and protocol unit tests
         if: matrix.group == 'workspace-remote'
         shell: pwsh
-        run: python -m pytest -n 2 --basetemp="$env:RUNNER_TEMP\pytest" tests/test_workspace_remote_binding.py tests/test_workspace_remote_factory.py tests/test_workspace_http_transport.py tests/test_workspace_http_remote_recovery.py tests/test_workspace_http_external.py tests/test_workspace_http_multistore_contract.py tests/test_workspace_remote_protocol_vectors.py tests/test_workspace_commit_encoding.py tests/test_workspace_loopback_remote.py tests/test_workspace_memory_remote.py tests/test_workspace_pending_commit.py tests/test_workspace_remote_commit.py tests/test_workspace_remote_protocol.py tests/test_workspace_remote_protocol_handler.py tests/test_workspace_remote_protocol_hardening.py tests/test_workspace_remote_protocol_regressions.py tests/test_workspace_remote_receipt_crashes.py tests/test_workspace_remote_receipts.py tests/test_workspace_remote_store.py tests/test_workspace_remote_store_contract.py tests/test_workspace_serialized_remote.py tests/test_workspace_serialized_remote_acceptance.py tests/test_workspace_serialized_remote_recovery.py tests/test_workspace_unreliable_remote.py
+        run: python -m pytest -n 2 --basetemp="$env:RUNNER_TEMP\pytest" tests/test_workspace_remote_binding.py tests/test_workspace_remote_factory.py tests/test_workspace_http_transport.py tests/test_workspace_http_remote_recovery.py tests/test_workspace_http_external.py tests/test_workspace_http_multistore_contract.py tests/test_workspace_remote_protocol_vectors.py tests/test_workspace_commit_encoding.py tests/test_workspace_loopback_remote.py tests/test_workspace_memory_remote.py tests/test_workspace_pending_commit.py tests/test_workspace_remote_commit.py tests/test_workspace_remote_protocol.py tests/test_workspace_remote_protocol_handler.py tests/test_workspace_remote_protocol_hardening.py tests/test_workspace_remote_protocol_regressions.py tests/test_workspace_remote_receipt_crashes.py tests/test_workspace_remote_receipts.py tests/test_workspace_remote_store.py tests/test_workspace_remote_store_contract.py tests/test_workspace_serialized_remote.py tests/test_workspace_serialized_remote_acceptance.py tests/test_workspace_serialized_remote_recovery.py tests/test_workspace_unreliable_remote.py tests/test_remote_service.py
 
       - name: Run workspace reconcile core unit tests
         if: matrix.group == 'workspace-reconcile'
@@ -1140,6 +1140,13 @@ jobs:
           foreach ($relative in @("ws_b/memory/notes/watch-smoke.md", "ws_a/memory/notes/from-b.md")) {
             if (-not (Test-Path (Join-Path $remoteWatchBase $relative) -PathType Leaf)) { throw "Missing remote watch smoke artifact: $relative" }
           }
+          $remoteServiceBase = Join-Path $env:RUNNER_TEMP "remote-service-smoke"
+          python tests/workspace_remote_service_smoke.py "$remoteServiceBase"
+          if ($LASTEXITCODE -ne 0) { throw "Remote service smoke failed" }
+          foreach ($relative in @("ws_a/.local/state/aikito/workspace-reconcile/binding.json", "ws_a/.local/state/aikito/workspace-reconcile/status.json", "ws_a/memory/notes/smoke-idea.md", "center/memory/notes/smoke-idea.md")) {
+            if (-not (Test-Path (Join-Path $remoteServiceBase $relative) -PathType Leaf)) { throw "Missing remote service smoke artifact: $relative" }
+          }
+          if (Select-String -Path (Join-Path $remoteServiceBase "ws_a/.local/state/aikito/workspace-reconcile/binding.json") -SimpleMatch "remote-service-smoke-secret" -Quiet) { throw "Binding contains credential value" }
           $externalServiceBase = Join-Path $env:RUNNER_TEMP "external-service"
           python tests/workspace_external_server_smoke.py "$externalServiceBase"
           if ($LASTEXITCODE -ne 0) { throw "External server smoke failed" }

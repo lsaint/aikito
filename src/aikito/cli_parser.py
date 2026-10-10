@@ -72,6 +72,10 @@ def _get_handlers(handlers: dict[str, Any] | None = None) -> dict[str, Any]:
     from . import cli
     from .remote_cli import (
         cmd_remote_bind,
+        cmd_remote_credential,
+        cmd_remote_start,
+        cmd_remote_status,
+        cmd_remote_stop,
         cmd_remote_sync,
         cmd_remote_watch,
     )
@@ -124,6 +128,10 @@ def _get_handlers(handlers: dict[str, Any] | None = None) -> dict[str, Any]:
         )
     }
     resolved["cmd_remote_bind"] = cmd_remote_bind
+    resolved["cmd_remote_credential"] = cmd_remote_credential
+    resolved["cmd_remote_start"] = cmd_remote_start
+    resolved["cmd_remote_status"] = cmd_remote_status
+    resolved["cmd_remote_stop"] = cmd_remote_stop
     resolved["cmd_remote_sync"] = cmd_remote_sync
     resolved["cmd_remote_watch"] = cmd_remote_watch
     return resolved
@@ -156,6 +164,10 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     cmd_path_workspace = h["cmd_path_workspace"]
     cmd_project_sync = h["cmd_project_sync"]
     cmd_remote_bind = h["cmd_remote_bind"]
+    cmd_remote_credential = h["cmd_remote_credential"]
+    cmd_remote_start = h["cmd_remote_start"]
+    cmd_remote_status = h["cmd_remote_status"]
+    cmd_remote_stop = h["cmd_remote_stop"]
     cmd_remote_sync = h["cmd_remote_sync"]
     cmd_remote_watch = h["cmd_remote_watch"]
     cmd_rename_memory = h["cmd_rename_memory"]
@@ -744,7 +756,7 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     )
     remote_subparsers = p_remote.add_subparsers(dest="remote_target", required=True)
 
-    # remote bind <endpoint> [--token-env <VAR>]
+    # remote bind <endpoint> [--token-env <VAR>] [--workspace <PATH>]
     p_remote_bind = remote_subparsers.add_parser(
         "bind",
         help="Bind workspace to an external remote store endpoint",
@@ -758,10 +770,16 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         default="AIKITO_REMOTE_TOKEN",
         help="Environment variable name containing the bearer token (default: AIKITO_REMOTE_TOKEN)",
     )
+    p_remote_bind.add_argument(
+        "--workspace",
+        type=Path,
+        default=None,
+        help="Target workspace directory (default: resolved active workspace)",
+    )
     add_color_args(p_remote_bind)
     p_remote_bind.set_defaults(func=cmd_remote_bind)
 
-    # remote sync (--dry-run | --apply) [--verbose]
+    # remote sync (--dry-run | --apply) [--verbose] [--workspace <PATH>]
     p_remote_sync = remote_subparsers.add_parser(
         "sync",
         help="Synchronize workspace resources with the bound remote store",
@@ -782,10 +800,16 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         action="store_true",
         help="Show detailed item-level reconciliation output",
     )
+    p_remote_sync.add_argument(
+        "--workspace",
+        type=Path,
+        default=None,
+        help="Target workspace directory (default: resolved active workspace)",
+    )
     add_color_args(p_remote_sync)
     p_remote_sync.set_defaults(func=cmd_remote_sync)
 
-    # remote watch [--poll-interval <SEC>] [--debounce-ms <MS>] [--once] [--verbose]
+    # remote watch [--poll-interval <SEC>] [--debounce-ms <MS>] [--once] [--verbose] [--workspace <PATH>]
     p_remote_watch = remote_subparsers.add_parser(
         "watch",
         help="Continuously synchronize local workspace changes and remote updates",
@@ -812,8 +836,121 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         action="store_true",
         help="Show detailed synchronization log messages",
     )
+    p_remote_watch.add_argument(
+        "--workspace",
+        type=Path,
+        default=None,
+        help="Target workspace directory (default: resolved active workspace)",
+    )
     add_color_args(p_remote_watch)
     p_remote_watch.set_defaults(func=cmd_remote_watch)
+
+    # remote start [--workspace <PATH>] [--mode <auto|system|process>]
+    p_remote_start = remote_subparsers.add_parser(
+        "start",
+        help="Start background automatic synchronization service",
+    )
+    p_remote_start.add_argument(
+        "--workspace",
+        type=Path,
+        default=None,
+        help="Target workspace directory (default: resolved active workspace)",
+    )
+    p_remote_start.add_argument(
+        "--mode",
+        choices=["auto", "system", "process"],
+        default="auto",
+        help="Service manager mode: auto, system, or process",
+    )
+    add_color_args(p_remote_start)
+    p_remote_start.set_defaults(func=cmd_remote_start)
+
+    # remote stop [--workspace <PATH>] [--mode <auto|system|process>]
+    p_remote_stop = remote_subparsers.add_parser(
+        "stop",
+        aliases=["disable"],
+        help="Stop and disable background automatic synchronization service",
+    )
+    p_remote_stop.add_argument(
+        "--workspace",
+        type=Path,
+        default=None,
+        help="Target workspace directory (default: resolved active workspace)",
+    )
+    p_remote_stop.add_argument(
+        "--mode",
+        choices=["auto", "system", "process"],
+        default="auto",
+        help="Service manager mode: auto, system, or process",
+    )
+    add_color_args(p_remote_stop)
+    p_remote_stop.set_defaults(func=cmd_remote_stop)
+
+    # remote status [--workspace <PATH>] [--json] [--mode <auto|system|process>]
+    p_remote_status = remote_subparsers.add_parser(
+        "status",
+        help="Show status of remote binding and background automatic synchronization",
+    )
+    p_remote_status.add_argument(
+        "--workspace",
+        type=Path,
+        default=None,
+        help="Target workspace directory (default: resolved active workspace)",
+    )
+    p_remote_status.add_argument(
+        "--json",
+        action="store_true",
+        help="Output status report in JSON format",
+    )
+    p_remote_status.add_argument(
+        "--mode",
+        choices=["auto", "system", "process"],
+        default="auto",
+        help="Service manager mode: auto, system, or process",
+    )
+    add_color_args(p_remote_status)
+    p_remote_status.set_defaults(func=cmd_remote_status)
+
+    # remote credential {set,list,path}
+    p_remote_cred = remote_subparsers.add_parser(
+        "credential",
+        help="Manage credentials in secure configuration storage",
+    )
+    cred_subparsers = p_remote_cred.add_subparsers(dest="cred_action", required=True)
+
+    p_cred_set = cred_subparsers.add_parser(
+        "set",
+        help="Store a credential in secure credentials storage",
+    )
+    p_cred_set.add_argument(
+        "key", help="Credential variable name (e.g. AIKITO_REMOTE_TOKEN)"
+    )
+    p_cred_set.add_argument(
+        "--stdin",
+        action="store_true",
+        help="Read credential value from standard input",
+    )
+    p_cred_set.add_argument(
+        "--keychain",
+        action="store_true",
+        help="Store credential in operating system keychain instead of configuration file",
+    )
+    add_color_args(p_cred_set)
+    p_cred_set.set_defaults(func=cmd_remote_credential)
+
+    p_cred_list = cred_subparsers.add_parser(
+        "list",
+        help="List configured credential names",
+    )
+    add_color_args(p_cred_list)
+    p_cred_list.set_defaults(func=cmd_remote_credential)
+
+    p_cred_path = cred_subparsers.add_parser(
+        "path",
+        help="Display path to secure credentials storage file",
+    )
+    add_color_args(p_cred_path)
+    p_cred_path.set_defaults(func=cmd_remote_credential)
 
     # show & drill-down subparsers
     p_show = subparsers.add_parser(
