@@ -515,9 +515,11 @@ def test_service_manager_start_timeout_raises_with_log(
 def test_get_aikito_command_resolution(
     fake_workspace: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from aikito import __version__
+
     fake_bin = fake_workspace / "bin" / "aikito"
     fake_bin.parent.mkdir(parents=True, exist_ok=True)
-    fake_bin.write_text('#!/bin/sh\necho "aikito 1.57.7"\nexit 0\n')
+    fake_bin.write_text(f'#!/bin/sh\necho "aikito {__version__}"\nexit 0\n')
     fake_bin.chmod(0o755)
 
     # 1. When sys.argv[0] is matching aikito binary
@@ -555,9 +557,9 @@ def test_get_aikito_command_resolution(
         str(fake_workspace),
     ]
 
-    # 4. When which finds a binary with substring version (e.g. 1.57.70 should not match 1.57.7)
+    # 4. When which finds a binary with substring version (e.g. 1.58.00 should not match 1.58.0)
     sub_bin = fake_workspace / "bin" / "sub_aikito"
-    sub_bin.write_text('#!/bin/sh\necho "aikito 1.57.70"\nexit 0\n')
+    sub_bin.write_text(f'#!/bin/sh\necho "aikito {__version__}0"\nexit 0\n')
     sub_bin.chmod(0o755)
     monkeypatch.setattr("sys.argv", ["pytest"])
     monkeypatch.setattr(

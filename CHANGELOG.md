@@ -6,12 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.58.0] - 2026-10-11
+
 ### Added
 
 - Added `aikito remote bind` command to bind the active workspace to an external remote store endpoint with environment variable credential indirection and identity pinning.
 - Added `aikito remote sync` command with mutually exclusive `--dry-run` preview and `--apply` reconciliation modes.
 - Added `aikito remote watch` command for continuous two-way synchronization with cross-process single-instance lifecycle locking, debounced local file watching, remote revision polling, and automatic conflict resolution with archive retention.
-- Added background service management commands: `aikito remote start`, `aikito remote stop`, and `aikito remote status` supporting macOS `launchd`, Linux `systemd --user`, Windows Task Scheduler, and process-based daemon modes.
+- Added background service management commands: `aikito remote start`, `aikito remote stop` (`disable`), and `aikito remote status` supporting macOS `launchd`, Linux `systemd --user`, Windows Task Scheduler, and process-based daemon modes.
 - Added secure credential resolution and storage commands (`aikito remote credential {set,list,path}`) persisting bearer tokens outside workspace and Git in user configuration storage (`~/.config/aikito/credentials`) with owner-only (0600) permissions and OS keychain integration.
 - Added structured terminal and JSON status reports tracking worker liveness, remote revision, unresolved conflicts, and pending commits.
 
@@ -1130,7 +1132,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.57.7...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.58.0...HEAD
+[1.58.0]: https://github.com/lsaint/aikito/compare/v1.57.7...v1.58.0
 [1.57.7]: https://github.com/lsaint/aikito/compare/v1.57.6...v1.57.7
 [1.57.6]: https://github.com/lsaint/aikito/compare/v1.57.5...v1.57.6
 [1.57.5]: https://github.com/lsaint/aikito/compare/v1.57.4...v1.57.5

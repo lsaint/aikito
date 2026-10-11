@@ -23,7 +23,7 @@ from .workspace import (
     WorkspaceSyncPreview,
 )
 
-__version__ = "1.57.7"
+__version__ = "1.58.0"
 
 __all__ = [
     "AmbiguousProjectPathError",
