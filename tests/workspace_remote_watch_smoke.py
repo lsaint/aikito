@@ -202,8 +202,18 @@ def run_smoke(base: Path) -> None:
             b_note = ws_b / "memory/notes/from-b.md"
             b_note.write_text("Created on B\n", encoding="utf-8")
 
-            # Wait for watcher debounce and upload
-            time.sleep(1.5)
+            # Wait until the continuous watcher has uploaded B's change. Windows
+            # runners can take longer than one debounce interval to schedule the
+            # scan and complete the HTTP request.
+            remote_note = backend.root / "memory/notes/from-b.md"
+            deadline = time.time() + 6.0
+            while time.time() < deadline:
+                if remote_note.exists():
+                    break
+                time.sleep(0.2)
+            assert remote_note.exists(), (
+                "Watch process on WS B did not upload from-b.md"
+            )
 
             # 9. Workspace A runs watch --once to verify it receives B's note
             res_pull_a = run_cli(
