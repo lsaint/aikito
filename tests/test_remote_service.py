@@ -695,7 +695,10 @@ def test_stop_workspace_remote_service_uninstalls_autostart(
     plist_path.write_bytes(b"<plist></plist>")
     assert mgr.is_installed() is True
 
-    with patch("subprocess.run") as mock_run:
+    with (
+        patch("aikito.remote_service.get_service_manager", return_value=mgr),
+        patch("subprocess.run") as mock_run,
+    ):
         mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
         stop_workspace_remote_service(fake_workspace, home=fake_home, mode="auto")
         assert not mgr.is_installed()
