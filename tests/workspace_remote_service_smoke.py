@@ -171,10 +171,8 @@ def run_smoke(base: Path) -> None:
             home=home,
         )
         assert res_stat_running.returncode == 0
-        assert (
-            "Service:         idle" in res_stat_running.stdout
-            or "running" in res_stat_running.stdout
-        )
+        assert f"(PID: {stat_data['service']['pid']})" in res_stat_running.stdout
+        assert "Service:         stopped" not in res_stat_running.stdout
 
         # 6. Start service again (idempotent test)
         res_start_again = run_cli(
