@@ -140,20 +140,29 @@ def run_smoke(base: Path) -> None:
         assert res_start.returncode == 0, f"Start failed: {res_start.stderr}"
         assert "[SUCCESS] Started background auto-sync service" in res_start.stdout
 
-        # Give process time to acquire lock and record status
-        time.sleep(1.0)
-
-        # 5. Check status after start (running)
-        res_stat_running = run_cli(
-            ["remote", "status", "--mode", "process"],
-            workspace=ws_a,
-            home=home,
-        )
-        assert res_stat_running.returncode == 0
-        assert (
-            "Service:         idle" in res_stat_running.stdout
-            or "running" in res_stat_running.stdout
-        )
+        # Wait until the background service acquires lock and records status.
+        # Fixed sleeps race interpreter and process startup on slower CI runners.
+        deadline = time.time() + 6.0
+        while time.time() < deadline:
+            res_stat_running = run_cli(
+                ["remote", "status", "--mode", "process"],
+                workspace=ws_a,
+                home=home,
+            )
+            if res_stat_running.returncode == 0 and (
+                "Service:         idle" in res_stat_running.stdout
+                or "running" in res_stat_running.stdout
+            ):
+                break
+            time.sleep(0.1)
+        else:
+            assert res_stat_running.returncode == 0, (
+                f"Status check failed: {res_stat_running.stderr}"
+            )
+            assert (
+                "Service:         idle" in res_stat_running.stdout
+                or "running" in res_stat_running.stdout
+            ), f"Service not running within timeout:\n{res_stat_running.stdout}"
 
         res_stat_json = run_cli(
             ["remote", "status", "--json", "--mode", "process"],
@@ -208,13 +217,19 @@ def run_smoke(base: Path) -> None:
         assert "[SUCCESS] Stopped auto-sync service" in res_stop.stdout
 
         # 9. Verify status is stopped
-        res_stat_stopped = run_cli(
-            ["remote", "status", "--json", "--mode", "process"],
-            workspace=ws_a,
-            home=home,
-        )
+        deadline = time.time() + 6.0
+        while time.time() < deadline:
+            res_stat_stopped = run_cli(
+                ["remote", "status", "--json", "--mode", "process"],
+                workspace=ws_a,
+                home=home,
+            )
+            if res_stat_stopped.returncode == 0:
+                stat_stopped = json.loads(res_stat_stopped.stdout)
+                if not stat_stopped["service"]["running"]:
+                    break
+            time.sleep(0.1)
         assert res_stat_stopped.returncode == 0
-        stat_stopped = json.loads(res_stat_stopped.stdout)
         assert stat_stopped["service"]["running"] is False
 
         # 10. Stop again when not running
