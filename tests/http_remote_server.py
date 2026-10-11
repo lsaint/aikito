@@ -99,17 +99,22 @@ class HTTPRemoteServer:
                     self.close_connection = True
 
             def _reject_access(self, status):
-                try:
-                    content_length = int(self.headers.get("Content-Length", "0"))
-                    if content_length > 0:
-                        self.rfile.read(content_length)
-                except Exception:
-                    pass
                 self.send_response(status)
                 self.send_header("Content-Length", "0")
                 self.send_header("Connection", "close")
                 self.end_headers()
                 self.close_connection = True
+                try:
+                    self.connection.setblocking(False)
+                    while self.connection.recv(65536):
+                        pass
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        self.connection.setblocking(True)
+                    except Exception:
+                        pass
 
             def _post(self):
                 self.connection.settimeout(5)
