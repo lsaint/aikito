@@ -597,9 +597,12 @@ def test_get_aikito_command_resolution(
     # 5. When which finds a hanging binary (timeout kill & reap)
     hang_dir = fake_workspace / "hang_dir"
     hang_dir.mkdir(parents=True, exist_ok=True)
-    hang_bin = hang_dir / "aikito"
-    hang_bin.write_text("#!/bin/sh\nsleep 10\nexit 0\n")
-    hang_bin.chmod(0o755)
+    hang_bin = hang_dir / bin_name
+    if is_windows():
+        hang_bin.write_text("@echo off\ncall :loop\nexit /b 0\n:loop\ngoto loop\n")
+    else:
+        hang_bin.write_text("#!/bin/sh\nsleep 10\nexit 0\n")
+        hang_bin.chmod(0o755)
     monkeypatch.setattr("sys.argv", ["pytest"])
     from aikito.workspace import service as svc_mod
 
