@@ -35,6 +35,7 @@ from aikito.workspace.service import (
     TaskSchedulerServiceManager,
     get_aikito_command,
     get_workspace_slug,
+    is_windows,
 )
 
 
@@ -223,8 +224,11 @@ def test_task_scheduler_service_manager_generation(
     with patch("subprocess.run") as mock_run:
         mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
         mgr.install()
-        mock_run.assert_called_once()
-        args = mock_run.call_args[0][0]
+        schtasks_calls = [
+            call for call in mock_run.call_args_list if "schtasks" in call[0][0]
+        ]
+        assert len(schtasks_calls) == 1
+        args = schtasks_calls[0][0][0]
         assert "schtasks" in args
         assert "/create" in args
         assert mgr.get_service_name() in args
@@ -517,10 +521,14 @@ def test_get_aikito_command_resolution(
 ) -> None:
     from aikito import __version__
 
-    fake_bin = fake_workspace / "bin" / "aikito"
+    bin_name = "aikito.cmd" if is_windows() else "aikito"
+    fake_bin = fake_workspace / "bin" / bin_name
     fake_bin.parent.mkdir(parents=True, exist_ok=True)
-    fake_bin.write_text(f'#!/bin/sh\necho "aikito {__version__}"\nexit 0\n')
-    fake_bin.chmod(0o755)
+    if is_windows():
+        fake_bin.write_text(f"@echo off\necho aikito {__version__}\nexit /b 0\n")
+    else:
+        fake_bin.write_text(f'#!/bin/sh\necho "aikito {__version__}"\nexit 0\n')
+        fake_bin.chmod(0o755)
 
     # 1. When sys.argv[0] is matching aikito binary
     monkeypatch.setattr("sys.argv", [str(fake_bin)])
@@ -539,9 +547,14 @@ def test_get_aikito_command_resolution(
     assert cmd_which[1:] == ["remote", "watch", "--workspace", str(fake_workspace)]
 
     # 3. When which finds an outdated aikito binary
-    old_bin = fake_workspace / "bin" / "old_aikito"
-    old_bin.write_text('#!/bin/sh\necho "aikito 0.1.0"\nexit 0\n')
-    old_bin.chmod(0o755)
+    old_bin_dir = fake_workspace / "old_bin"
+    old_bin_dir.mkdir(parents=True, exist_ok=True)
+    old_bin = old_bin_dir / bin_name
+    if is_windows():
+        old_bin.write_text("@echo off\necho aikito 0.1.0\nexit /b 0\n")
+    else:
+        old_bin.write_text('#!/bin/sh\necho "aikito 0.1.0"\nexit 0\n')
+        old_bin.chmod(0o755)
     monkeypatch.setattr("sys.argv", ["pytest"])
     monkeypatch.setattr(
         "shutil.which", lambda cmd: str(old_bin) if cmd == "aikito" else None
@@ -558,9 +571,14 @@ def test_get_aikito_command_resolution(
     ]
 
     # 4. When which finds a binary with substring version (e.g. 1.58.00 should not match 1.58.0)
-    sub_bin = fake_workspace / "bin" / "sub_aikito"
-    sub_bin.write_text(f'#!/bin/sh\necho "aikito {__version__}0"\nexit 0\n')
-    sub_bin.chmod(0o755)
+    sub_bin_dir = fake_workspace / "sub_bin"
+    sub_bin_dir.mkdir(parents=True, exist_ok=True)
+    sub_bin = sub_bin_dir / bin_name
+    if is_windows():
+        sub_bin.write_text(f"@echo off\necho aikito {__version__}0\nexit /b 0\n")
+    else:
+        sub_bin.write_text(f'#!/bin/sh\necho "aikito {__version__}0"\nexit 0\n')
+        sub_bin.chmod(0o755)
     monkeypatch.setattr("sys.argv", ["pytest"])
     monkeypatch.setattr(
         "shutil.which", lambda cmd: str(sub_bin) if cmd == "aikito" else None

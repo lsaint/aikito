@@ -91,7 +91,7 @@ class AutoSyncConflictResolutionTest(unittest.TestCase):
             self.assertTrue(archived.path.exists())
             self.assertIn(
                 ".local/sync-conflicts/20261009-120000/memory/notes/local.md",
-                str(archived.path),
+                archived.path.as_posix(),
             )
             self.assertEqual(
                 archived.path.read_text(encoding="utf-8"),
