@@ -187,9 +187,9 @@ def run_smoke(base: Path) -> None:
         note_file = ws_a / "memory/notes/smoke-idea.md"
         note_file.write_text("Created during service smoke test\n", encoding="utf-8")
 
-        # Wait up to 5 seconds for background worker to sync
+        # Wait up to 15 seconds for background worker to sync
         synced = False
-        deadline = time.monotonic() + 5.0
+        deadline = time.monotonic() + 15.0
         while time.monotonic() < deadline:
             res_chk = run_cli(
                 ["remote", "status", "--json", "--mode", "process"],

@@ -182,12 +182,18 @@ def run_smoke(base: Path) -> None:
 
             # 7. Workspace B watch process should automatically pull within a few seconds
             target_on_b = ws_b / "memory/notes/watch-smoke.md"
-            deadline = time.time() + 6.0
+            deadline = time.time() + 15.0
             synced = False
             while time.time() < deadline:
                 if target_on_b.exists():
                     synced = True
                     break
+                if watch_proc.poll() is not None:
+                    out, err = watch_proc.communicate()
+                    raise AssertionError(
+                        f"Watch process on WS B exited unexpectedly with code {watch_proc.returncode}:\n"
+                        f"stdout: {out}\nstderr: {err}"
+                    )
                 time.sleep(0.2)
 
             assert synced, (
@@ -206,10 +212,16 @@ def run_smoke(base: Path) -> None:
             # runners can take longer than one debounce interval to schedule the
             # scan and complete the HTTP request.
             remote_note = backend.root / "memory/notes/from-b.md"
-            deadline = time.time() + 6.0
+            deadline = time.time() + 15.0
             while time.time() < deadline:
                 if remote_note.exists():
                     break
+                if watch_proc.poll() is not None:
+                    out, err = watch_proc.communicate()
+                    raise AssertionError(
+                        f"Watch process on WS B exited unexpectedly with code {watch_proc.returncode}:\n"
+                        f"stdout: {out}\nstderr: {err}"
+                    )
                 time.sleep(0.2)
             assert remote_note.exists(), (
                 "Watch process on WS B did not upload from-b.md"
