@@ -12,6 +12,8 @@ from pathlib import Path
 from http_remote_server import HTTPRemoteServer
 from workspace_reconcile_smoke import _workspace
 
+from aikito.remote_cli import EXIT_LOCKED
+from aikito.workspace.auto_sync import is_worker_running
 from aikito.workspace.remote import FilesystemRemote
 
 TOKEN = "remote-watch-smoke-secret"
@@ -129,8 +131,24 @@ def run_smoke(base: Path) -> None:
         )
 
         try:
-            # Allow watch process to start and acquire lock
-            time.sleep(0.6)
+            # Wait until the child has acquired the lifecycle lock. Fixed sleeps
+            # race the interpreter and HTTP client startup on slower CI runners.
+            deadline = time.time() + 5.0
+            while time.time() < deadline:
+                running, _ = is_worker_running(ws_b)
+                if running:
+                    break
+                if watch_proc.poll() is not None:
+                    stdout, stderr = watch_proc.communicate()
+                    raise AssertionError(
+                        "Watch process exited before acquiring its lifecycle lock:\n"
+                        f"stdout: {stdout}\nstderr: {stderr}"
+                    )
+                time.sleep(0.05)
+            else:
+                raise AssertionError(
+                    "Watch process did not acquire its lifecycle lock within 5 seconds"
+                )
 
             # 5. Second watch on Workspace B must be rejected immediately
             res_second_watch = run_cli(
@@ -139,8 +157,8 @@ def run_smoke(base: Path) -> None:
                 home=home,
                 env_vars=env_auth,
             )
-            assert res_second_watch.returncode == 1, (
-                "Expected second watch to fail with exit code 1"
+            assert res_second_watch.returncode == EXIT_LOCKED, (
+                f"Expected second watch to fail with exit code {EXIT_LOCKED}"
             )
             assert (
                 "Another auto-sync worker is already running" in res_second_watch.stderr
