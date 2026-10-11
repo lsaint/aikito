@@ -52,6 +52,7 @@ from .resource_state import (
     SYNC_CONFLICTS_DIR,
     WORKER_LOCK_STATE,
     WORKER_LOG_STATE,
+    WORKER_PID_STATE,
     WORKER_STATUS_STATE,
     WORKER_STOP_STATE,
     local_resource_for_id,
@@ -129,6 +130,7 @@ class AutoSyncLifecycleLock:
     def __init__(self, workspace: Path) -> None:
         self.workspace = workspace.expanduser().resolve()
         self.lock_path = state_path(self.workspace, WORKER_LOCK_STATE, create=True)
+        self.pid_path = state_path(self.workspace, WORKER_PID_STATE, create=True)
         self._file: Any = None
 
     def acquire(self) -> None:
@@ -165,6 +167,12 @@ class AutoSyncLifecycleLock:
         except Exception:
             pass
 
+        try:
+            self.pid_path.write_text(f"{os.getpid()}\n", encoding="utf-8")
+            secure_file_permissions(self.pid_path)
+        except Exception:
+            pass
+
         self._file = f
 
     def release(self) -> None:
@@ -182,6 +190,11 @@ class AutoSyncLifecycleLock:
                 except Exception:
                     pass
         finally:
+            try:
+                if self.pid_path.exists():
+                    self.pid_path.unlink()
+            except Exception:
+                pass
             f.close()
 
     def __enter__(self) -> AutoSyncLifecycleLock:
@@ -229,12 +242,22 @@ def is_worker_running(workspace: Path) -> tuple[bool, int | None]:
         return False, None
 
     pid: int | None = None
-    try:
-        content = lock_path.read_text(encoding="utf-8").strip()
-        if content.isdigit():
-            pid = int(content)
-    except Exception:
-        pass
+    pid_path = state_path(workspace, WORKER_PID_STATE, create=False)
+    if pid_path.exists():
+        try:
+            content = pid_path.read_text(encoding="utf-8").strip()
+            if content.isdigit():
+                pid = int(content)
+        except Exception:
+            pass
+
+    if pid is None:
+        try:
+            content = lock_path.read_text(encoding="utf-8").strip()
+            if content.isdigit():
+                pid = int(content)
+        except Exception:
+            pass
 
     try:
         f = open(lock_path, "a+", encoding="utf-8")
@@ -247,12 +270,22 @@ def is_worker_running(workspace: Path) -> tuple[bool, int | None]:
         if not is_windows():
             fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            try:
+                if pid_path.exists():
+                    pid_path.unlink()
+            except Exception:
+                pass
             return False, None
         else:
             f.seek(0)
             msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
             f.seek(0)
             msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+            try:
+                if pid_path.exists():
+                    pid_path.unlink()
+            except Exception:
+                pass
             return False, None
     except (BlockingIOError, OSError):
         return True, pid

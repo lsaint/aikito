@@ -140,39 +140,41 @@ def run_smoke(base: Path) -> None:
         assert res_start.returncode == 0, f"Start failed: {res_start.stderr}"
         assert "[SUCCESS] Started background auto-sync service" in res_start.stdout
 
-        # Wait until the background service acquires lock and records status.
+        # Wait until the background service acquires lock and records status with PID.
         # Fixed sleeps race interpreter and process startup on slower CI runners.
         deadline = time.time() + 6.0
         while time.time() < deadline:
-            res_stat_running = run_cli(
-                ["remote", "status", "--mode", "process"],
+            res_stat_json = run_cli(
+                ["remote", "status", "--json", "--mode", "process"],
                 workspace=ws_a,
                 home=home,
             )
-            if res_stat_running.returncode == 0 and (
-                "Service:         idle" in res_stat_running.stdout
-                or "running" in res_stat_running.stdout
-            ):
-                break
+            if res_stat_json.returncode == 0:
+                stat_data = json.loads(res_stat_json.stdout)
+                if (
+                    stat_data["service"]["running"]
+                    and stat_data["service"]["pid"] is not None
+                ):
+                    break
             time.sleep(0.1)
         else:
-            assert res_stat_running.returncode == 0, (
-                f"Status check failed: {res_stat_running.stderr}"
+            assert res_stat_json.returncode == 0, (
+                f"JSON status check failed: {res_stat_json.stderr}"
             )
-            assert (
-                "Service:         idle" in res_stat_running.stdout
-                or "running" in res_stat_running.stdout
-            ), f"Service not running within timeout:\n{res_stat_running.stdout}"
+            assert stat_data["service"]["running"] is True
+            assert stat_data["service"]["pid"] is not None
 
-        res_stat_json = run_cli(
-            ["remote", "status", "--json", "--mode", "process"],
+        # 5. Check text status after start (running)
+        res_stat_running = run_cli(
+            ["remote", "status", "--mode", "process"],
             workspace=ws_a,
             home=home,
         )
-        assert res_stat_json.returncode == 0
-        stat_data = json.loads(res_stat_json.stdout)
-        assert stat_data["service"]["running"] is True
-        assert stat_data["service"]["pid"] is not None
+        assert res_stat_running.returncode == 0
+        assert (
+            "Service:         idle" in res_stat_running.stdout
+            or "running" in res_stat_running.stdout
+        )
 
         # 6. Start service again (idempotent test)
         res_start_again = run_cli(
