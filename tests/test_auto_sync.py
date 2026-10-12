@@ -269,7 +269,9 @@ class LocalWatcherTest(unittest.TestCase):
                 note.write_text("Second edit\n", encoding="utf-8")
 
                 # Wait for debounce to expire
-                time.sleep(0.2)
+                deadline = time.time() + 3.0
+                while not events and time.time() < deadline:
+                    time.sleep(0.05)
                 self.assertGreaterEqual(len(events), 1)
             finally:
                 watcher.stop()

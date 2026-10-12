@@ -579,7 +579,6 @@ class LocalWatcher:
         self.on_dirty()
 
     def _polled_loop(self) -> None:
-        self._known_mtimes = self._scan_managed_mtimes()
         while self._running:
             time.sleep(self.scan_interval)
             if not self._running:
@@ -593,6 +592,7 @@ class LocalWatcher:
         if self._running:
             return
         self._running = True
+        self._known_mtimes = self._scan_managed_mtimes()
         self._thread = threading.Thread(
             target=self._polled_loop,
             name=f"LocalWatcher-{self.workspace.name}",
