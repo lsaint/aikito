@@ -15,19 +15,19 @@ from . import remote_limits
 from .remote_protocol import (
     commit_envelope_size,
     descriptor_entry_size,
-    fetch_entry_size,
-    json_string_size,
-    mutation_size,
     encode_fetch_request,
     encode_fetch_response,
     encode_read_response,
+    fetch_entry_size,
+    json_string_size,
+    mutation_size,
 )
 from .remote_store import InvalidContent
 
 if TYPE_CHECKING:
-    from .reconcile import ReconcileItem
-    from .remote_store import RemoteSnapshot, ReceiptCursor
     from .payload import ResourceDescriptor
+    from .reconcile import ReconcileItem
+    from .remote_store import ReceiptCursor, RemoteSnapshot
 
 
 CHANGES = frozenset({"CREATE", "UPDATE", "DELETE"})
@@ -132,6 +132,13 @@ def needed_downloads(items, resources) -> set[str]:
         for item in items
         if item.action in CHANGES and item.target == "local" and item.after is not None
     }
+    needed.update(
+        item.id
+        for item in items
+        if item.action == "CONFLICT"
+        and item.id.startswith("skill:")
+        and item.id in resources
+    )
     if any(_needs_config_fields(item) for item in items):
         needed.update(key for key in resources if key.startswith("config:"))
     return needed

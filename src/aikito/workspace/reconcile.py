@@ -19,6 +19,23 @@ from ..config import get_inbox_path
 from ..init import is_recognized_workspace
 from ..skill_state import WorkspaceWriterLock
 from . import remote_limits
+from .commit_recovery import recover_pending
+from .layout import content_digest
+from .merge import compare
+from .payload import (
+    PayloadError,
+    ResourceDescriptor,
+    ResourcePayload,
+    TomlPayload,
+    TreePayload,
+    credential_payload,
+    encode_payload,
+    payload_hash,
+    tree_mode_fingerprint,
+    validate_payload,
+)
+from .payload_io import capture_mutations, capture_resources, prepare_payload_writes
+from .pending_commit import PendingCommitStore
 from .reconcile_budget import (
     CHANGES,
     check_manifest,
@@ -28,24 +45,23 @@ from .reconcile_budget import (
     select_round,
 )
 from .remote_protocol import encode_commit_request as encode_protocol_commit_request
-from .transactions import (
-    StateUpdate,
-    WorkspaceCoreError,
-    apply,
-    entry_type,
-    has_pending,
-    recover,
-    validate_resource_path,
+from .remote_store import RemoteSnapshot, RemoteStore, SnapshotExpired, StoreError
+from .remote_wire import (
+    build_commit_request,
+    committed_snapshot,
+    validate_commit_result,
 )
-from .merge import compare
+from .replica_state import ReplicaState, load_replica_state
+from .resource_state import (
+    LOCAL_CONFIG,
+    PENDING_COMMIT_STATE,
+    REPLICA_STATE,
+    SYNC_KINDS,
+    local_resource_for_id,
+    state_path,
+)
 from .resource_state import (
     REPLICA_POLICY as RECONCILE_POLICY,
-    REPLICA_STATE,
-    PENDING_COMMIT_STATE,
-    SYNC_KINDS,
-    LOCAL_CONFIG,
-    state_path,
-    local_resource_for_id,
 )
 from .resource_write import (
     ResourceContent,
@@ -57,34 +73,21 @@ from .resource_write import (
 )
 from .resources import (
     Resource,
-    WorkspaceSnapshot,
     WorkspaceResourceError,
+    WorkspaceSnapshot,
     physical_kind,
     snapshot_workspace,
 )
-from .remote_store import RemoteStore, RemoteSnapshot, SnapshotExpired, StoreError
-from .remote_wire import (
-    build_commit_request,
-    committed_snapshot,
-    validate_commit_result,
-)
-from .pending_commit import PendingCommitStore
-from .commit_recovery import recover_pending
-from .payload import (
-    ResourceDescriptor,
-    ResourcePayload,
-    TreePayload,
-    tree_mode_fingerprint,
-    TomlPayload,
-    PayloadError,
-    credential_payload,
-    encode_payload,
-    payload_hash,
-    validate_payload,
-)
-from .payload_io import capture_mutations, capture_resources, prepare_payload_writes
-from .replica_state import ReplicaState, load_replica_state
 from .templates import template_fingerprints
+from .transactions import (
+    StateUpdate,
+    WorkspaceCoreError,
+    apply,
+    entry_type,
+    has_pending,
+    recover,
+    validate_resource_path,
+)
 
 
 class WorkspaceReconcileError(WorkspaceCoreError):
@@ -292,6 +295,38 @@ def _check_items(
         f"Local {finding.resource}: {finding.message}" for finding in snapshot.findings
     ]
     for index, item in enumerate(items):
+        if (
+            item.action == "CONFLICT"
+            and item.id.startswith("skill:")
+            and item.id in remote_payloads
+            and item.id in a
+            and item.id in b
+        ):
+            local_res = a[item.id]
+            payload = remote_payloads[item.id]
+            if isinstance(payload, TreePayload):
+                file_records = [
+                    f"f {e.path} {content_digest(e.data)}"
+                    for e in payload.entries
+                    if e.data is not None
+                ]
+                remote_file_fp = hashlib.sha256(
+                    "\n".join(sorted(file_records)).encode("utf-8")
+                ).hexdigest()
+                remote_mode_fp = tree_mode_fingerprint(payload)
+                if (
+                    remote_file_fp == local_res.fingerprint
+                    and remote_mode_fp == local_res.mode_fingerprint
+                ):
+                    items[index] = replace(
+                        item,
+                        action="NOOP",
+                        target=None,
+                        before=None,
+                        after=None,
+                        reason="Both sides agree",
+                    )
+                    continue
         if item.action not in {"CREATE", "UPDATE", "DELETE"}:
             continue
         resource = a.get(item.id) or b.get(item.id)
@@ -472,7 +507,7 @@ def _resolve_items(
     its own choice. All inferred changes go through ordinary safety checks.
     """
     items = {item.id: item for item in proposed}
-    pending = list(sorted(choices.items()))
+    pending = sorted(choices.items())
     for identity, side in pending:
         items[identity] = _select_version(identity, side, local, remote)
     visited = set()
@@ -953,8 +988,11 @@ def apply_reconcile_plan(
                     elif (
                         left
                         and right
-                        and (left.fingerprint, left.mode_fingerprint)
-                        == (right.fingerprint, right.mode_fingerprint)
+                        and (
+                            (left.fingerprint, left.mode_fingerprint)
+                            == (right.fingerprint, right.mode_fingerprint)
+                            or (item.action == "NOOP" and item.id.startswith("skill:"))
+                        )
                     ):
                         base[item.id] = right
                         unpaired.discard(item.id)
