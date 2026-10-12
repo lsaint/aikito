@@ -7,6 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 
+from aikito.workspace.layout import content_digest
 from aikito.workspace.payload import encode_payload
 from aikito.workspace.payload import (
     FilePayload,
@@ -33,7 +34,7 @@ def exercise(base: Path, stage: str) -> None:
             "memory:notes/pending.md",
             None,
             ResourceDescriptor(
-                hashlib.sha256(payload.data).hexdigest(),
+                content_digest(payload.data),
                 payload_hash(payload),
                 len(encode_payload(payload)),
             ),
