@@ -468,7 +468,7 @@ jobs:
           test -f "$BASE/right/skills/reconcile-smoke/SKILL.md"
           grep -F '# Updated project' "$BASE/right/projects/demo/memory/notes/reconcile-smoke.md"
           grep -F '# Updated skill' "$BASE/right/skills/reconcile-smoke/SKILL.md"
-          test -d "$BASE/right/skills/reconcile-smoke/empty"
+          test ! -e "$BASE/right/skills/reconcile-smoke/empty"
           test -f "$BASE/right/memory/notes/recovered.md"
           test -f "$BASE/right/memory/notes/relocated.md"
           test -f "$BASE/right/.local/state/aikito/workspace-reconcile/replica.json"

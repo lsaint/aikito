@@ -59,7 +59,7 @@ def main() -> None:
     apply(right)
     assert (right / note).read_bytes() == (left / note).read_bytes()
     assert (right / project_note).read_bytes() == (left / project_note).read_bytes()
-    assert (right / "skills/reconcile-smoke/empty").is_dir()
+    assert not (right / "skills/reconcile-smoke/empty").exists()
     (right / note).write_text("# Updated\n", encoding="utf-8")
     (right / project_note).write_text("# Updated project\n", encoding="utf-8")
     (right / "skills/reconcile-smoke/SKILL.md").write_text(

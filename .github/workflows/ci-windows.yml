@@ -1058,7 +1058,7 @@ jobs:
           foreach ($relative in @("right\memory\notes\reconcile-smoke.md", "right\projects\demo\memory\notes\reconcile-smoke.md", "right\skills\reconcile-smoke\SKILL.md", "right\memory\notes\recovered.md", "right\memory\notes\relocated.md", "right\.local\state\aikito\workspace-reconcile\replica.json", "moved-left\.local\state\aikito\workspace-reconcile\replica.json", "moved-center\.local\state\aikito\workspace-reconcile\remote.json")) {
             if (-not (Test-Path (Join-Path $reconcileBase $relative))) { throw "Missing reconciled resource: $relative" }
           }
-          if (-not (Test-Path (Join-Path $reconcileBase "right\skills\reconcile-smoke\empty") -PathType Container)) { throw "Missing reconciled empty directory" }
+          if (Test-Path (Join-Path $reconcileBase "right\skills\reconcile-smoke\empty")) { throw "Unexpected reconciled empty directory" }
           if (-not (Select-String -Path (Join-Path $reconcileBase "right\projects\demo\memory\notes\reconcile-smoke.md") -SimpleMatch "# Updated project" -Quiet)) { throw "Project memory update was not reconciled" }
           if (-not (Select-String -Path (Join-Path $reconcileBase "right\skills\reconcile-smoke\SKILL.md") -SimpleMatch "# Updated skill" -Quiet)) { throw "Skill update was not reconciled" }
           foreach ($relative in @("right\memory\notes\deleted.md", "right\projects\demo\memory\notes\deleted.md", "right\skills\deleted", "moved-center\layout.toml", "right\.local\state\aikito\workspace-transactions\pending.json", "moved-center\.local\state\aikito\workspace-transactions\pending.json")) {
