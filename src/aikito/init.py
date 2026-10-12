@@ -1,6 +1,6 @@
 """
 Workspace initialization module for Aikito.
-Creates workspace skeleton, configuration templates, .gitignore, and initializes git repo.
+Creates workspace skeleton, configuration templates, .gitignore, .gitattributes, and initializes git repo.
 
 Template content is owned by ``templates/`` within the package; this module only
 enforces validation, source-root protection, and file placement. See
@@ -135,7 +135,7 @@ def _load_templates_error() -> Optional[str]:
 def init_workspace(target_dir: Path, home: Path, force: bool = False) -> bool:
     """
     Initializes an Aikito user data workspace in target_dir.
-    Creates skeleton directories, template configs, leading-slash .gitignore, and git repo.
+    Creates skeleton directories, template configs, leading-slash .gitignore, .gitattributes, and git repo.
     """
     target_dir = target_dir.expanduser().resolve()
     existing_workspace = is_recognized_workspace(target_dir)

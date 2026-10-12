@@ -1,0 +1,3 @@
+# Aikito Git Attributes
+# Ensure consistent cross-platform line endings (LF) for all text resources.
+* text=auto eol=lf

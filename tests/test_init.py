@@ -86,6 +86,13 @@ class AikitoInitTest(unittest.TestCase):
         self.assertIn("/__pycache__/", gitignore_content)
         self.assertIn("/.venv/", gitignore_content)
 
+        # Check .gitattributes
+        self.assertTrue((self.target_path / ".gitattributes").is_file())
+        gitattributes_content = (self.target_path / ".gitattributes").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("* text=auto eol=lf", gitattributes_content)
+
     def test_init_workspace_creates_a_usable_default_configuration(self) -> None:
         for marker in (
             ".codex",
