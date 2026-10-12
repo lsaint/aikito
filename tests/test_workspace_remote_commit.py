@@ -80,7 +80,6 @@ def encode_json(raw):
             (
                 TreeEntry("SKILL.md", b"# Skill\r\n"),
                 TreeEntry("run.sh", b"echo hello\n", True),
-                TreeEntry("empty"),
             )
         ),
         MemberPayload(),

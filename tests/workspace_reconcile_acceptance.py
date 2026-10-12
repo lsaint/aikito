@@ -88,7 +88,7 @@ def exercise_behavior(base: Path, backend: ReconciliationBackend) -> None:
     assert before == (_files(a), _files(b), backend.checkpoint())
     converge()
     assert {identity.partition(":")[0] for identity in _resources(a)} == SYNC_KINDS
-    assert (b / "skills/example/empty").is_dir()
+    assert not (b / "skills/example/empty").exists()
 
     # Credentials block only their resource; safe neighboring fields still sync.
     text = (a / "config.toml").read_text(encoding="utf-8")

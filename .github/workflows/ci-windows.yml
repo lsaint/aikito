@@ -1131,9 +1131,10 @@ jobs:
           $remoteCliBase = Join-Path $env:RUNNER_TEMP "remote-cli-smoke"
           python tests/workspace_remote_cli_smoke.py "$remoteCliBase"
           if ($LASTEXITCODE -ne 0) { throw "Remote CLI smoke failed" }
-          foreach ($relative in @("ws_a/.local/state/aikito/workspace-reconcile/binding.json", "ws_b/.local/state/aikito/workspace-reconcile/binding.json", "ws_b/memory/notes/smoke-idea.md", "center/memory/notes/smoke-idea.md")) {
+          foreach ($relative in @("ws_a/.local/state/aikito/workspace-reconcile/binding.json", "ws_b/.local/state/aikito/workspace-reconcile/binding.json", "ws_b/memory/notes/smoke-idea.md", "center/memory/notes/smoke-idea.md", "ws_b/skills/smoke-skill/SKILL.md")) {
             if (-not (Test-Path (Join-Path $remoteCliBase $relative) -PathType Leaf)) { throw "Missing remote CLI smoke artifact: $relative" }
           }
+          if (Test-Path (Join-Path $remoteCliBase "ws_b/skills/smoke-skill/empty")) { throw "Empty skill directory was synced" }
           if (Select-String -Path (Join-Path $remoteCliBase "ws_a/.local/state/aikito/workspace-reconcile/binding.json") -SimpleMatch "remote-cli-smoke-secret" -Quiet) { throw "Binding contains credential value" }
           $remoteWatchBase = Join-Path $env:RUNNER_TEMP "remote-watch-smoke"
           python tests/workspace_remote_watch_smoke.py "$remoteWatchBase"
@@ -1187,13 +1188,13 @@ jobs:
           foreach ($relative in @("target/skills/portable/SKILL.md", "target/skills/portable/run.sh", "target/capture/payload.md", "target/config.toml", "target/projects/demo/agent.toml")) {
             if (!(Test-Path (Join-Path $payloadBase $relative) -PathType Leaf)) { throw "Missing payload resource: $relative" }
           }
-          if (!(Test-Path "$payloadBase/target/skills/portable/empty" -PathType Container)) { throw "Missing payload empty directory" }
+          if (Test-Path "$payloadBase/target/skills/portable/empty") { throw "Payload synced an empty directory" }
           foreach ($relative in @("left/skills/portable/SKILL.md", "right/skills/portable/SKILL.md", "center/.local/state/aikito/workspace-reconcile/remote.json", "left/.local/state/aikito/workspace-reconcile/replica.json")) {
             if (!(Test-Path (Join-Path $boundaryBase $relative) -PathType Leaf)) { throw "Missing boundary resource: $relative" }
           }
           if (Test-Path "$boundaryBase/left/skills/portable/run.sh" -PathType Leaf) { throw "Deleted executable returned after sync" }
           if (Test-Path "$boundaryBase/right/skills/portable/run.sh" -PathType Leaf) { throw "Deleted executable remained in source replica" }
-          if (!(Test-Path "$boundaryBase/right/skills/portable/empty" -PathType Container)) { throw "Missing portable empty directory" }
+          if (Test-Path "$boundaryBase/right/skills/portable/empty") { throw "Portable sync created an empty directory" }
           if (!(Test-Path "$boundaryBase/right/skills/portable/.aikito-executable.json" -PathType Leaf)) { throw "Missing executable metadata" }
 
       - name: Network-safe Commit Recovery Smoke on Windows

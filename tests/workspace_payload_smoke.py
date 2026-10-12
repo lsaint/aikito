@@ -102,7 +102,7 @@ def exercise(base: Path) -> None:
     assert "auth" not in config
     assert config["feature.flag"] is True
     assert (target / "capture/payload.md").read_bytes() == b"inbox"
-    assert (target / "skills/portable/empty").is_dir()
+    assert not (target / "skills/portable/empty").exists()
     assert (
         snapshot_workspace(target).resources["skill:portable"].fingerprint
         == resources["skill:portable"].fingerprint

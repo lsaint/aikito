@@ -33,16 +33,12 @@ from .payload import (
 )
 from .resource_write import ResourceContent, ResourceWrite, prepare_resource_writes
 from .resources import (
-    SKILL_EXECUTABLE_METADATA,
     Resource,
     WorkspaceSnapshot,
+    SKILL_EXECUTABLE_METADATA,
     is_ignored_name,
 )
-from .skill_metadata import (
-    git_executable_metadata,
-    read_executable_metadata,
-    write_executable_metadata,
-)
+from .skill_metadata import logical_executable_metadata, write_executable_metadata
 from .transactions import Change, PathPolicy, entry_type
 
 
@@ -74,13 +70,11 @@ def _check_ancestors(path: Path) -> None:
 
 
 def _execution_metadata(root: Path) -> frozenset[str]:
-    path = root / SKILL_EXECUTABLE_METADATA
-    if entry_type(path) == "missing":
-        if is_windows():
-            return git_executable_metadata(root)
+    # Validate a present artifact on every host; only Windows uses Git fallback.
+    if not is_windows() and entry_type(root / SKILL_EXECUTABLE_METADATA) == "missing":
         return frozenset()
     try:
-        names = read_executable_metadata(path)
+        names = logical_executable_metadata(root)
         for name in names:
             validate_tree_path(name)
         return names
@@ -98,8 +92,6 @@ def _capture_tree(root: Path) -> TreePayload:
         children = [
             p for p in sorted(directory.iterdir()) if not is_ignored_name(p.name)
         ]
-        if not children and directory != root:
-            entries.append(TreeEntry(directory.relative_to(root).as_posix()))
         for child in children:
             kind = entry_type(child)
             if kind == "directory":
@@ -233,12 +225,9 @@ def materialize_resources(
                 for entry in payload.entries:
                     target = path.joinpath(*entry.path.split("/"))
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    if entry.data is None:
-                        target.mkdir()
-                    else:
-                        target.write_bytes(entry.data)
-                        if not is_windows():
-                            target.chmod(0o755 if entry.executable else 0o644)
+                    target.write_bytes(entry.data)
+                    if not is_windows():
+                        target.chmod(0o755 if entry.executable else 0o644)
                 if is_windows():
                     write_executable_metadata(
                         path / SKILL_EXECUTABLE_METADATA,

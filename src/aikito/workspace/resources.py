@@ -31,8 +31,8 @@ from ..project_config import get_project_candidate_paths
 from ..subagent import SUBAGENT_NAME_PATTERN
 from ..templating import BUNDLED_SKILL_NAMES
 from .layout import (
-    WorkspaceLayoutError,
     content_digest,
+    WorkspaceLayoutError,
     parse_subagent_file,
     parse_subagent_text,
     require_current_layout,
@@ -40,8 +40,7 @@ from .layout import (
 from .skill_metadata import (
     SKILL_EXECUTABLE_METADATA,
     executable_fingerprint,
-    git_executable_metadata,
-    read_executable_metadata,
+    logical_executable_metadata,
 )
 
 # Operating-system and interpreter artifacts that never carry resource content.
@@ -474,11 +473,7 @@ class _Scanner:
         visit(directory)
         try:
             if is_windows():
-                metadata_path = directory / SKILL_EXECUTABLE_METADATA
-                if metadata_path.is_file():
-                    executable = read_executable_metadata(metadata_path) & files.keys()
-                else:
-                    executable = git_executable_metadata(directory) & files.keys()
+                executable = logical_executable_metadata(directory) & files.keys()
             else:
                 executable = {
                     name

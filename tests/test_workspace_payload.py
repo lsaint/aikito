@@ -92,7 +92,6 @@ def tree(executable=True):
         (
             TreeEntry("run.sh", b"echo\n", executable),
             TreeEntry("SKILL.md", b"# Skill\n"),
-            TreeEntry("empty"),
         )
     )
 
@@ -171,7 +170,6 @@ def test_unsafe_paths_are_rejected(path):
         (TreeEntry("A/x", b"a"), TreeEntry("a/y", b"b")),
         (TreeEntry("x", b"a"), TreeEntry("x", b"b")),
         (TreeEntry("x", b"a"), TreeEntry("x/y", b"b")),
-        (TreeEntry("x"), TreeEntry("x/y", b"b")),
         (TreeEntry("é/x", b"a"), TreeEntry("é/y", b"b")),
     ],
 )

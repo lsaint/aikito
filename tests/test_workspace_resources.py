@@ -4,18 +4,24 @@ from __future__ import annotations
 
 import io
 import os
+import subprocess
 from contextlib import redirect_stdout
 from pathlib import Path
 
 import pytest
 
 from aikito.init import init_workspace
+from aikito.workspace import resources
 from aikito.workspace.resources import (
     WorkspaceResourceError,
     resource_id,
     resource_kind_for_path,
     scan_credentials,
     snapshot_workspace,
+)
+from aikito.workspace.skill_metadata import (
+    executable_fingerprint,
+    logical_executable_metadata,
 )
 
 
@@ -224,29 +230,41 @@ def test_skill_tree_digest_ignores_empty_directories(workspace: Path) -> None:
     skill_dir = workspace / "skills/demo"
     _write(skill_dir / "SKILL.md", "demo\n")
     before = snapshot_workspace(workspace).resources["skill:demo"]
-    (skill_dir / "empty_dir").mkdir()
-    (skill_dir / "nested/sub_empty").mkdir(parents=True)
+    (skill_dir / "empty").mkdir()
+    (skill_dir / "nested/empty").mkdir(parents=True)
     after = snapshot_workspace(workspace).resources["skill:demo"]
     assert after.fingerprint == before.fingerprint
 
 
-def test_windows_skill_mode_falls_back_to_git_index(
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+
+
+def test_logical_executable_metadata_falls_back_to_git_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    skill_dir = tmp_path / "repo/skills/demo"
+    _write(skill_dir / "SKILL.md", "demo\n")
+    _write(skill_dir / "bin/run.sh", "echo\n")
+    _git(tmp_path / "repo", "init", "-q")
+    _git(tmp_path / "repo", "add", ".")
+    _git(tmp_path / "repo", "update-index", "--chmod=+x", "skills/demo/bin/run.sh")
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "missing"))
+    assert logical_executable_metadata(skill_dir) == {"bin/run.sh"}
+    assert logical_executable_metadata(tmp_path) == frozenset()
+
+
+def test_windows_skill_mode_uses_git_index_without_metadata(
     workspace: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from aikito.workspace import resources
-
     skill_dir = workspace / "skills/demo"
     _write(skill_dir / "SKILL.md", "demo\n")
     _write(skill_dir / "run.sh", "echo\n")
-
     monkeypatch.setattr(resources, "is_windows", lambda: True)
     monkeypatch.setattr(
         resources,
-        "git_executable_metadata",
-        lambda directory: frozenset({"run.sh"}),
+        "logical_executable_metadata",
+        lambda directory: frozenset({"run.sh", "gone.sh"}),
     )
-    snap = snapshot_workspace(workspace)
-    assert snap.resources["skill:demo"].mode_fingerprint is not None
-    assert snap.resources[
-        "skill:demo"
-    ].mode_fingerprint != resources.executable_fingerprint(frozenset())
+    mode = snapshot_workspace(workspace).resources["skill:demo"].mode_fingerprint
+    assert mode == executable_fingerprint({"run.sh"})

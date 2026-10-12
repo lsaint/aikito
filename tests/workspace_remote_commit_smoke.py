@@ -150,7 +150,6 @@ def exercise(base: Path, *, verify_only: bool) -> None:
             (
                 TreeEntry("SKILL.md", "# Portable 你好\r\n".encode()),
                 TreeEntry("run.sh", b"echo portable\n", True),
-                TreeEntry("empty"),
             )
         ),
         "opaque-member": MemberPayload(),

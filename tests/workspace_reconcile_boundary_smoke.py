@@ -67,7 +67,7 @@ def exercise(base: Path) -> None:
     assert not run(a).changes
     assert remote.read().revision == revision
     assert (a / "skills/portable/run.sh").read_bytes() == b"echo changed\n"
-    assert (b / "skills/portable/empty").is_dir()
+    assert not (b / "skills/portable/empty").exists()
 
     # Ambiguous historical skill hashes are refused before any state advances.
     for path, preview, error in (

@@ -256,8 +256,9 @@ the original cause. Local transaction I/O failures retain their existing behavio
 Transport hashes are over the versioned canonical payload encoding. They do
 not replace logical fingerprints. Encodings must distinguish bytes, dates,
 times, datetimes, typed arrays/tables, and literal dotted TOML keys. Tree
-encoding sorts normalized relative paths, preserves explicit empty directories,
-and carries executable flags. Absolute paths, `..`, symlinks, special nodes,
+encoding contains only regular files: it sorts normalized relative paths, carries
+executable flags, and leaves directories implicit, so empty directories are not
+transported. Absolute paths, `..`, symlinks, special nodes,
 duplicate paths, and unsafe target-platform collisions are rejected by clients
 before materialization. Existing scanner exclusions remain in force.
 
@@ -358,8 +359,9 @@ payload size no longer limits the center; see [capacity](http-transport.md#capac
 ## Skill fingerprint decision and compatibility
 
 Stage zero chooses **content-only** skill fingerprints on all platforms. A tree
-hash is SHA-256 of sorted newline-separated records `f <path> <byte hash>` and
-`d <path>` for explicit empty directories. Execute bits stay outside that hash.
+hash is SHA-256 of sorted newline-separated records `f <path> <byte hash>`.
+Empty directories are ignored because Git checkouts cannot preserve them.
+Execute bits stay outside that hash.
 Skill resources carry a separate mode fingerprint over the sorted paths of
 executable files; all other files are implicitly nonexecutable. A mode-only edit
 syncs as a skill update. Portable payloads carry and validate those flags.
@@ -415,12 +417,14 @@ and never constructs a backend from a path embedded in the plan.
 
 Tree paths reject traversal, absolute/drive paths, separators unsafe on Windows,
 reserved Windows names, symlinks/special nodes, duplicates, and case/Unicode
-collisions, including directory-prefix aliases. Empty-directory nodes cannot
-have descendants. Scanner exclusions apply before capture. The additional
+collisions, including directory-prefix aliases. A file path cannot also be a
+directory prefix of another path. Scanner exclusions apply before capture. The additional
 reserved artifact `.aikito-executable.json` stores executable paths on Windows;
 it is excluded from logical fingerprints and portable tree entries. The local
 transaction copies only its validated canonical metadata, rejecting extra
-fields and unsafe nodes. Windows recapture reads these logical flags; POSIX
+fields and unsafe nodes. Windows recapture reads these logical flags; when the
+artifact is absent, as in a fresh Git checkout, it falls back to `100755` modes
+in the enclosing Git index (ignoring inherited `GIT_*` variables). POSIX
 materialization applies them as native modes and writes no metadata artifact.
 Missing paths left after a local deletion are ignored during mode scanning and
 recapture, so a stale metadata entry cannot block sync or recreate a deleted

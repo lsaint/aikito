@@ -17,16 +17,16 @@ from dataclasses import dataclass
 from datetime import date, time
 from typing import TypeAlias
 
-from .layout import content_digest
 from .resources import (
+    Resource,
     RESOURCE_STORAGE,
     SKILL_EXECUTABLE_METADATA,
-    Resource,
     has_credential_bytes,
     inspect_resource_bytes,
     is_ignored_name,
     value_fingerprint,
 )
+from .layout import content_digest
 from .skill_metadata import executable_fingerprint
 from .toml_render import TomlValue, _toml_value
 
@@ -104,17 +104,15 @@ def validate_tree_path(path: str) -> None:
 
 @dataclass(frozen=True)
 class TreeEntry:
+    """A regular file in a portable skill tree; directories are implicit."""
+
     path: str
-    data: bytes | None = None
+    data: bytes
     executable: bool = False
 
     def __post_init__(self):
         validate_tree_path(self.path)
-        if (
-            type(self.executable) is not bool
-            or (self.data is not None and type(self.data) is not bytes)
-            or (self.data is None and self.executable)
-        ):
+        if type(self.executable) is not bool or type(self.data) is not bytes:
             raise PayloadError("Invalid tree node type or executable flag")
 
 
@@ -145,8 +143,8 @@ class TreePayload:
         for path in paths:
             parts = path.split("/")
             if any("/".join(parts[:i]) in paths for i in range(1, len(parts))):
-                raise PayloadError("File or empty directory has descendants")
-        if not any(e.path == "SKILL.md" and e.data is not None for e in self.entries):
+                raise PayloadError("File has descendants")
+        if not any(e.path == "SKILL.md" for e in self.entries):
             raise PayloadError("Skill payload lacks a regular SKILL.md")
 
 
@@ -175,9 +173,7 @@ def encode_payload(payload: ResourcePayload) -> bytes:
             "entries": [
                 {
                     "path": e.path,
-                    "data": None
-                    if e.data is None
-                    else base64.b64encode(e.data).decode("ascii"),
+                    "data": base64.b64encode(e.data).decode("ascii"),
                     "executable": e.executable,
                 }
                 for e in payload.entries
@@ -232,11 +228,7 @@ def decode_payload(encoded: bytes, expected_hash: str) -> ResourcePayload:
             for node in raw["entries"]:
                 if set(node) != {"path", "data", "executable"}:
                     raise PayloadError("Invalid tree fields")
-                data = (
-                    None
-                    if node["data"] is None
-                    else base64.b64decode(node["data"], validate=True)
-                )
+                data = base64.b64decode(node["data"], validate=True)
                 nodes.append(TreeEntry(node["path"], data, node["executable"]))
             payload = TreePayload(tuple(nodes))
         elif kind == "member" and set(raw) == {"version", "type"}:
@@ -279,27 +271,10 @@ def inspect_payload(
     } and isinstance(payload, MemberPayload):
         return "", resource.references
     if resource.kind == "skill" and isinstance(payload, TreePayload):
-        records = [
-            f"f {e.path} {content_digest(e.data)}"
-            for e in payload.entries
-            if e.data is not None
-        ]
-        file_fingerprint = hashlib.sha256(
+        records = [f"f {e.path} {content_digest(e.data)}" for e in payload.entries]
+        return hashlib.sha256(
             "\n".join(sorted(records)).encode("utf-8")
-        ).hexdigest()
-        if resource.fingerprint != file_fingerprint:
-            all_records = [
-                f"d {e.path}"
-                if e.data is None
-                else f"f {e.path} {content_digest(e.data)}"
-                for e in payload.entries
-            ]
-            legacy_fingerprint = hashlib.sha256(
-                "\n".join(sorted(all_records)).encode("utf-8")
-            ).hexdigest()
-            if legacy_fingerprint == resource.fingerprint:
-                return legacy_fingerprint, resource.references
-        return file_fingerprint, resource.references
+        ).hexdigest(), resource.references
     if resource.kind not in {
         "config",
         "project-field",
@@ -335,14 +310,12 @@ def credential_payload(payload: ResourcePayload) -> bool:
     if isinstance(payload, FilePayload):
         return has_credential_bytes(payload.data)
     if isinstance(payload, TreePayload):
-        return any(
-            has_credential_bytes(e.data) for e in payload.entries if e.data is not None
-        )
+        return any(has_credential_bytes(e.data) for e in payload.entries)
     if isinstance(payload, TomlPayload):
         field = payload.field()
         key = field.path[-1].rsplit(".", 1)[-1]
         return has_credential_bytes(
-            f"{key} = {_toml_value(field.value)}\n".encode()
+            f"{key} = {_toml_value(field.value)}\n".encode("utf-8")
         )
     return False
 

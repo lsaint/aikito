@@ -102,6 +102,10 @@ def run_smoke(base: Path) -> None:
         # 5. Workspace A: create a new note
         smoke_note = ws_a / "memory/notes/smoke-idea.md"
         smoke_note.write_text("Durable smoke test idea\n", encoding="utf-8")
+        # Empty directories are not part of a skill, so they must not sync.
+        smoke_skill = ws_a / "skills/smoke-skill"
+        (smoke_skill / "empty").mkdir(parents=True)
+        (smoke_skill / "SKILL.md").write_text("# Smoke skill\n", encoding="utf-8")
 
         res = run_cli(
             ["remote", "sync", "--apply"],
@@ -110,7 +114,7 @@ def run_smoke(base: Path) -> None:
             env_vars=env_auth,
         )
         assert res.returncode == 0, f"Upload note failed: {res.stderr}\n{res.stdout}"
-        assert "Applied:   1" in res.stdout
+        assert "Applied:   2" in res.stdout
         assert "Remaining:" not in res.stdout
 
         # 6. Workspace B: preview sync with dry-run
@@ -140,6 +144,20 @@ def run_smoke(base: Path) -> None:
         )
         content = (ws_b / "memory/notes/smoke-idea.md").read_text(encoding="utf-8")
         assert content == "Durable smoke test idea\n", f"Unexpected content: {content}"
+        assert (ws_b / "skills/smoke-skill/SKILL.md").is_file()
+        assert not (ws_b / "skills/smoke-skill/empty").exists()
+
+        # 7b. Adding an empty directory does not create a remote revision
+        revision = backend.read().revision
+        (ws_b / "skills/smoke-skill/other-empty").mkdir()
+        res = run_cli(
+            ["remote", "sync", "--apply"],
+            workspace=ws_b,
+            home=home,
+            env_vars=env_auth,
+        )
+        assert res.returncode == 0, f"Resync B failed: {res.stderr}\n{res.stdout}"
+        assert backend.read().revision == revision, "Empty directory was synced"
 
         # 8. Workspace B: sync with invalid token fails with clear message
         res_bad_auth = run_cli(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import stat
 import subprocess
 from pathlib import Path
@@ -71,25 +72,40 @@ def write_executable_metadata(path: Path, executable) -> None:
     )
 
 
-def git_executable_metadata(directory: Path) -> frozenset[str]:
-    """Query git index for files with executable mode (100755) under directory."""
+def _git_executable_paths(directory: Path) -> frozenset[str]:
+    """Read executable files under directory from the enclosing Git index."""
+    env = {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
     try:
-        res = subprocess.run(
-            ["git", "ls-files", "-s", "."],
+        result = subprocess.run(
+            ["git", "ls-files", "-s", "-z", "--", "."],
+            cwd=directory,
+            env=env,
             capture_output=True,
-            text=True,
-            cwd=str(directory),
             check=False,
-            timeout=3.0,
+            timeout=5,
         )
-        if res.returncode != 0:
-            return frozenset()
-        executables: list[str] = []
-        for line in res.stdout.splitlines():
-            parts = line.split("\t", 1)
-            if len(parts) == 2 and parts[0].startswith("100755"):
-                git_path = parts[1].strip().replace("\\", "/")
-                executables.append(git_path)
-        return frozenset(executables)
-    except (subprocess.SubprocessError, OSError):
+    except (OSError, subprocess.SubprocessError):
         return frozenset()
+    if result.returncode != 0:
+        return frozenset()
+    executable = set()
+    for record in result.stdout.split(b"\0"):
+        info, _, name = record.partition(b"\t")
+        if info.startswith(b"100755 ") and name:
+            executable.add(os.fsdecode(name))
+    return frozenset(executable)
+
+
+def logical_executable_metadata(directory: Path) -> frozenset[str]:
+    """Return logical executable paths on hosts without native execute bits.
+
+    The reserved metadata file is authoritative. A fresh Git checkout lacks it,
+    so fall back to the Git index modes instead of treating every file as
+    nonexecutable.
+    """
+    path = directory / SKILL_EXECUTABLE_METADATA
+    if not os.path.lexists(path):
+        return _git_executable_paths(directory)
+    return read_executable_metadata(path)

@@ -150,7 +150,7 @@ def test_add_update_delete_and_repeat_across_two_replicas(tmp_path):
     assert "memory:notes/a.md" not in _state(b)["base"]
 
 
-def test_skill_directory_is_one_resource_including_empty_directories(tmp_path):
+def test_skill_directory_is_one_resource_ignoring_empty_directories(tmp_path):
     a, remote, home = _pair(tmp_path)
     skill = a / "skills/example"
     (skill / "empty").mkdir(parents=True)
@@ -158,7 +158,12 @@ def test_skill_directory_is_one_resource_including_empty_directories(tmp_path):
     _round(a, remote, home)
     b = _workspace(tmp_path / "b")
     _round(b, remote, home)
-    assert (b / "skills/example/empty").is_dir()
+    assert (b / "skills/example/SKILL.md").is_file()
+    assert not (b / "skills/example/empty").exists()
+    revision = remote.read().revision
+    (b / "skills/example/other-empty").mkdir()
+    _round(b, remote, home)
+    assert remote.read().revision == revision
     (b / "skills/example/SKILL.md").write_text("# Updated\n")
     _round(b, remote, home)
     _round(a, remote, home)

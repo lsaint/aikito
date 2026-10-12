@@ -405,10 +405,7 @@ def archive_conflict_loser(
                 dest_path.mkdir(parents=True, exist_ok=True)
                 for entry in payload.entries:
                     entry_dest = dest_path / entry.path
-                    if entry.data is not None:
-                        _atomic_write_bytes(entry_dest, entry.data)
-                    else:
-                        entry_dest.mkdir(parents=True, exist_ok=True)
+                    _atomic_write_bytes(entry_dest, entry.data)
             elif isinstance(payload, TomlPayload):
                 _atomic_write_bytes(dest_path, payload.text.encode("utf-8"))
             else:

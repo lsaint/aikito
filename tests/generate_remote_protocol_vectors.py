@@ -104,7 +104,6 @@ def generate_vectors() -> dict[str, bytes]:
                 (
                     TreeEntry("SKILL.md", b"# Portable\n"),
                     TreeEntry("run.sh", b"echo test\n", True),
-                    TreeEntry("empty", None, False),
                 )
             ),
         ),
