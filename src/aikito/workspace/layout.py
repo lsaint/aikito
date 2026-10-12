@@ -21,6 +21,13 @@ _AGENT_HEADER = re.compile(r"(?m)^\[agents\.([a-z0-9][a-z0-9-]*)\][ \t]*$")
 _SUBAGENT_HEADER = re.compile(r"(?m)^\[subagents\.([a-z0-9][a-z0-9-]*)\][ \t]*$")
 
 
+def content_digest(content: bytes) -> str:
+    """Hash file bytes, ignoring CRLF/LF differences for text content."""
+    if b"\0" not in content:
+        content = content.replace(b"\r\n", b"\n")
+    return hashlib.sha256(content).hexdigest()
+
+
 class WorkspaceLayoutError(ValueError):
     """The workspace needs migration or has an invalid resource layout."""
 
@@ -498,7 +505,7 @@ def apply_migration(plan: MigrationPlan, home: Path) -> None:
                         kind,
                         source,
                         before.fingerprint if before else None,
-                        hashlib.sha256(source.read_bytes()).hexdigest(),
+                        content_digest(source.read_bytes()),
                     )
                 )
             marker = changes.pop()

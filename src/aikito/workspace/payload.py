@@ -26,6 +26,7 @@ from .resources import (
     is_ignored_name,
     value_fingerprint,
 )
+from .layout import content_digest
 from .skill_metadata import executable_fingerprint
 from .toml_render import TomlValue, _toml_value
 
@@ -279,9 +280,7 @@ def inspect_payload(
         return "", resource.references
     if resource.kind == "skill" and isinstance(payload, TreePayload):
         records = [
-            f"d {e.path}"
-            if e.data is None
-            else f"f {e.path} {hashlib.sha256(e.data).hexdigest()}"
+            f"d {e.path}" if e.data is None else f"f {e.path} {content_digest(e.data)}"
             for e in payload.entries
         ]
         return hashlib.sha256(

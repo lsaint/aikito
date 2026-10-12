@@ -211,3 +211,10 @@ def test_inbox_follows_configured_path(workspace: Path) -> None:
     _write(workspace / "inbox/sub/deep.md", "# Deep\n")
     resources = snapshot_workspace(workspace).resources
     assert {"inbox:idea.md", "inbox:sub/deep.md"} <= resources.keys()
+
+
+def test_content_digest_ignores_crlf_for_text_only() -> None:
+    from aikito.workspace.layout import content_digest
+
+    assert content_digest(b"a\r\nb\r\n") == content_digest(b"a\nb\n")
+    assert content_digest(b"a\r\n\0") != content_digest(b"a\n\0")

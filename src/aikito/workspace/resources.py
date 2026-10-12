@@ -31,6 +31,7 @@ from ..project_config import get_project_candidate_paths
 from ..subagent import SUBAGENT_NAME_PATTERN
 from ..templating import BUNDLED_SKILL_NAMES
 from .layout import (
+    content_digest,
     WorkspaceLayoutError,
     parse_subagent_file,
     parse_subagent_text,
@@ -296,12 +297,12 @@ def inspect_resource_bytes(
     """Apply scanner semantics directly to a standalone file's bytes."""
     try:
         if resource.kind not in {"agent", "mcp", "subagent"}:
-            return hashlib.sha256(content).hexdigest(), resource.references
+            return content_digest(content), resource.references
         if resource.kind == "subagent":
             metadata, body = parse_subagent_text(content.decode("utf-8"))
             return value_fingerprint(
                 {
-                    "instructions": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+                    "instructions": content_digest(body.encode("utf-8")),
                     "table": metadata,
                 }
             ), _agent_references(metadata)
@@ -437,7 +438,7 @@ class _Scanner:
 
     def file_digest(self, path: Path) -> str | None:
         content = self.read(path)
-        return None if content is None else hashlib.sha256(content).hexdigest()
+        return None if content is None else content_digest(content)
 
     def toml(self, path: Path) -> dict[str, Any] | None:
         content = self.read(path)
@@ -695,7 +696,7 @@ def _scan_subagents(scanner: _Scanner, directory: Path) -> None:
             continue
         fingerprint = value_fingerprint(
             {
-                "instructions": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+                "instructions": content_digest(body.encode("utf-8")),
                 "table": metadata,
             }
         )
