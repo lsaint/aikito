@@ -40,6 +40,11 @@ TEMPLATE_FILES: list[tuple[str, str, str]] = [
     ("skills.toml", "skills.toml", "Global skills config"),
     ("global/AGENTS.md", "global/AGENTS.md", "Global agent instructions"),
     (".gitignore", "gitignore", "Workspace .gitignore with leading slashes"),
+    (
+        ".gitattributes",
+        "gitattributes",
+        "Workspace .gitattributes enforcing LF line endings",
+    ),
     ("layout.toml", "layout.toml", "Workspace resource layout version"),
 ]
 
