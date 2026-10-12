@@ -33,12 +33,16 @@ from .payload import (
 )
 from .resource_write import ResourceContent, ResourceWrite, prepare_resource_writes
 from .resources import (
+    SKILL_EXECUTABLE_METADATA,
     Resource,
     WorkspaceSnapshot,
-    SKILL_EXECUTABLE_METADATA,
     is_ignored_name,
 )
-from .skill_metadata import read_executable_metadata, write_executable_metadata
+from .skill_metadata import (
+    git_executable_metadata,
+    read_executable_metadata,
+    write_executable_metadata,
+)
 from .transactions import Change, PathPolicy, entry_type
 
 
@@ -72,6 +76,8 @@ def _check_ancestors(path: Path) -> None:
 def _execution_metadata(root: Path) -> frozenset[str]:
     path = root / SKILL_EXECUTABLE_METADATA
     if entry_type(path) == "missing":
+        if is_windows():
+            return git_executable_metadata(root)
         return frozenset()
     try:
         names = read_executable_metadata(path)

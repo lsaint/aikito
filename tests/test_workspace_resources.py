@@ -218,3 +218,35 @@ def test_content_digest_ignores_crlf_for_text_only() -> None:
 
     assert content_digest(b"a\r\nb\r\n") == content_digest(b"a\nb\n")
     assert content_digest(b"a\r\n\0") != content_digest(b"a\n\0")
+
+
+def test_skill_tree_digest_ignores_empty_directories(workspace: Path) -> None:
+    skill_dir = workspace / "skills/demo"
+    _write(skill_dir / "SKILL.md", "demo\n")
+    before = snapshot_workspace(workspace).resources["skill:demo"]
+    (skill_dir / "empty_dir").mkdir()
+    (skill_dir / "nested/sub_empty").mkdir(parents=True)
+    after = snapshot_workspace(workspace).resources["skill:demo"]
+    assert after.fingerprint == before.fingerprint
+
+
+def test_windows_skill_mode_falls_back_to_git_index(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from aikito.workspace import resources
+
+    skill_dir = workspace / "skills/demo"
+    _write(skill_dir / "SKILL.md", "demo\n")
+    _write(skill_dir / "run.sh", "echo\n")
+
+    monkeypatch.setattr(resources, "is_windows", lambda: True)
+    monkeypatch.setattr(
+        resources,
+        "git_executable_metadata",
+        lambda directory: frozenset({"run.sh"}),
+    )
+    snap = snapshot_workspace(workspace)
+    assert snap.resources["skill:demo"].mode_fingerprint is not None
+    assert snap.resources[
+        "skill:demo"
+    ].mode_fingerprint != resources.executable_fingerprint(frozenset())

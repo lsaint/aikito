@@ -31,8 +31,8 @@ from ..project_config import get_project_candidate_paths
 from ..subagent import SUBAGENT_NAME_PATTERN
 from ..templating import BUNDLED_SKILL_NAMES
 from .layout import (
-    content_digest,
     WorkspaceLayoutError,
+    content_digest,
     parse_subagent_file,
     parse_subagent_text,
     require_current_layout,
@@ -40,6 +40,7 @@ from .layout import (
 from .skill_metadata import (
     SKILL_EXECUTABLE_METADATA,
     executable_fingerprint,
+    git_executable_metadata,
     read_executable_metadata,
 )
 
@@ -473,10 +474,11 @@ class _Scanner:
         visit(directory)
         try:
             if is_windows():
-                executable = (
-                    read_executable_metadata(directory / SKILL_EXECUTABLE_METADATA)
-                    & files.keys()
-                )
+                metadata_path = directory / SKILL_EXECUTABLE_METADATA
+                if metadata_path.is_file():
+                    executable = read_executable_metadata(metadata_path) & files.keys()
+                else:
+                    executable = git_executable_metadata(directory) & files.keys()
             else:
                 executable = {
                     name
@@ -495,8 +497,6 @@ class _Scanner:
 
     def _collect_tree(self, base: Path, directory: Path, entries: list[str]) -> None:
         children = self.children(directory)
-        if not children and directory != base:
-            entries.append(f"d {directory.relative_to(base).as_posix()}")
         for child in children:
             kind = _entry_type(child)
             if kind == "directory":

@@ -17,16 +17,16 @@ from dataclasses import dataclass
 from datetime import date, time
 from typing import TypeAlias
 
+from .layout import content_digest
 from .resources import (
-    Resource,
     RESOURCE_STORAGE,
     SKILL_EXECUTABLE_METADATA,
+    Resource,
     has_credential_bytes,
     inspect_resource_bytes,
     is_ignored_name,
     value_fingerprint,
 )
-from .layout import content_digest
 from .skill_metadata import executable_fingerprint
 from .toml_render import TomlValue, _toml_value
 
@@ -280,12 +280,26 @@ def inspect_payload(
         return "", resource.references
     if resource.kind == "skill" and isinstance(payload, TreePayload):
         records = [
-            f"d {e.path}" if e.data is None else f"f {e.path} {content_digest(e.data)}"
+            f"f {e.path} {content_digest(e.data)}"
             for e in payload.entries
+            if e.data is not None
         ]
-        return hashlib.sha256(
+        file_fingerprint = hashlib.sha256(
             "\n".join(sorted(records)).encode("utf-8")
-        ).hexdigest(), resource.references
+        ).hexdigest()
+        if resource.fingerprint != file_fingerprint:
+            all_records = [
+                f"d {e.path}"
+                if e.data is None
+                else f"f {e.path} {content_digest(e.data)}"
+                for e in payload.entries
+            ]
+            legacy_fingerprint = hashlib.sha256(
+                "\n".join(sorted(all_records)).encode("utf-8")
+            ).hexdigest()
+            if legacy_fingerprint == resource.fingerprint:
+                return legacy_fingerprint, resource.references
+        return file_fingerprint, resource.references
     if resource.kind not in {
         "config",
         "project-field",
@@ -328,7 +342,7 @@ def credential_payload(payload: ResourcePayload) -> bool:
         field = payload.field()
         key = field.path[-1].rsplit(".", 1)[-1]
         return has_credential_bytes(
-            f"{key} = {_toml_value(field.value)}\n".encode("utf-8")
+            f"{key} = {_toml_value(field.value)}\n".encode()
         )
     return False
 

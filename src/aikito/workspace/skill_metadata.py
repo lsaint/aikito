@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import stat
+import subprocess
 from pathlib import Path
 
 from ..compat import is_reparse_point
@@ -68,3 +69,27 @@ def write_executable_metadata(path: Path, executable) -> None:
         encoding="utf-8",
         newline="\n",
     )
+
+
+def git_executable_metadata(directory: Path) -> frozenset[str]:
+    """Query git index for files with executable mode (100755) under directory."""
+    try:
+        res = subprocess.run(
+            ["git", "ls-files", "-s", "."],
+            capture_output=True,
+            text=True,
+            cwd=str(directory),
+            check=False,
+            timeout=3.0,
+        )
+        if res.returncode != 0:
+            return frozenset()
+        executables: list[str] = []
+        for line in res.stdout.splitlines():
+            parts = line.split("\t", 1)
+            if len(parts) == 2 and parts[0].startswith("100755"):
+                git_path = parts[1].strip().replace("\\", "/")
+                executables.append(git_path)
+        return frozenset(executables)
+    except (subprocess.SubprocessError, OSError):
+        return frozenset()
