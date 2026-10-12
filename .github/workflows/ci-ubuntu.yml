@@ -154,6 +154,7 @@ jobs:
           test -f ${{ runner.temp }}/aikito-ws/config.toml
           test -f ${{ runner.temp }}/aikito-ws/layout.toml
           test -f ${{ runner.temp }}/aikito-ws/agents/codex.toml
+          test -f ${{ runner.temp }}/aikito-ws/.gitattributes
           grep -F "Run 'aikito sync'" ${{ runner.temp }}/init-workspace.out
           AIKITO_DIR=${{ runner.temp }}/aikito-ws \
             python3 -m aikito git status \
@@ -630,6 +631,7 @@ jobs:
           test -f ${{ runner.temp }}/wheel-ws/config.toml
           test -f ${{ runner.temp }}/wheel-ws/layout.toml
           test -f ${{ runner.temp }}/wheel-ws/agents/codex.toml
+          test -f ${{ runner.temp }}/wheel-ws/.gitattributes
           test -f ${{ runner.temp }}/wheel-ws/skills/aikito/SKILL.md
           test -f \
             ${{ runner.temp }}/wheel-ws/skills/aikito/references/adoption.md

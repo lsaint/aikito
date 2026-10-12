@@ -79,6 +79,7 @@ jobs:
           AIKITO_DIR=$WS python3 -m aikito init workspace "$WS"
           test -f "$WS/layout.toml"
           test -f "$WS/agents/codex.toml"
+          test -f "$WS/.gitattributes"
           AIKITO_DIR=$WS python3 -m aikito sync global | tee ${{ runner.temp }}/macos-sync-global.out
           grep -F "3 Agent skill entries across 8 consumers" \
             ${{ runner.temp }}/macos-sync-global.out

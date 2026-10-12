@@ -187,6 +187,7 @@ jobs:
           $initOutput = python -m aikito init workspace "$wsDir"
           if (-not (Test-Path (Join-Path $wsDir "layout.toml"))) { throw "Layout marker missing" }
           if (-not (Test-Path (Join-Path $wsDir "agents/codex.toml"))) { throw "Codex Agent file missing" }
+          if (-not (Test-Path (Join-Path $wsDir ".gitattributes"))) { throw ".gitattributes file missing" }
           $initOutput | Write-Output
           $initOutput | Select-String "Run 'aikito sync'"
           $gitStatus = python -m aikito git status

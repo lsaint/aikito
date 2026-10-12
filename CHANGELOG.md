@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.58.1] - 2026-10-12
+
+### Added
+
+- Added `.gitattributes` template enforcing consistent LF line endings in newly initialized workspaces.
+
+### Fixed
+
+- Normalized CRLF line endings to LF when calculating resource fingerprints and migration digests for text content, preventing false drift reports on Windows.
+
 ## [1.58.0] - 2026-10-11
 
 ### Added
@@ -1132,7 +1142,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.58.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.58.1...HEAD
+[1.58.1]: https://github.com/lsaint/aikito/compare/v1.58.0...v1.58.1
 [1.58.0]: https://github.com/lsaint/aikito/compare/v1.57.7...v1.58.0
 [1.57.7]: https://github.com/lsaint/aikito/compare/v1.57.6...v1.57.7
 [1.57.6]: https://github.com/lsaint/aikito/compare/v1.57.5...v1.57.6
