@@ -374,7 +374,7 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                 ):
                     cmd_remote_watch(args_watch)
 
-                self.assertIn("Applied 1 change(s)", stdout_watch_a.getvalue())
+                self.assertIn("[SYNC] (rev 1) push memory:notes/auto-note.md", stdout_watch_a.getvalue())
 
                 # Scheduler B steps once
                 stdout_watch_b = io.StringIO()
@@ -386,7 +386,7 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                 ):
                     cmd_remote_watch(args_watch)
 
-                self.assertIn("Applied 1 change(s)", stdout_watch_b.getvalue())
+                self.assertIn("[SYNC] (rev 2) pull memory:notes/auto-note.md", stdout_watch_b.getvalue())
                 note_b = ws_b / "memory/notes/auto-note.md"
                 self.assertTrue(note_b.exists())
                 self.assertEqual(note_b.read_text(encoding="utf-8"), "Created on A\n")
@@ -646,6 +646,51 @@ class AutoSyncEndToEndTest(unittest.TestCase):
 
                 self.assertGreater(len(result.blocked_items), 0)
                 self.assertEqual(scheduler.state, AutoSyncState.ATTENTION_REQUIRED)
+
+    def test_scheduler_deduplicates_blocked_logging(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            ws = _workspace(base / "ws")
+            home = base / "home"
+            backend = FilesystemRemote.create(base / "center")
+
+            with HTTPRemoteServer(backend, token=TOKEN) as server:
+                args_bind = self.parser.parse_args(
+                    ["remote", "bind", server.url, "--token-env", AUTH.env]
+                )
+                with (
+                    patch("aikito.remote_cli.resolve_workspace", return_value=ws),
+                    patch("pathlib.Path.home", return_value=home),
+                    patch.dict(os.environ, ENV),
+                ):
+                    cmd_remote_bind(args_bind)
+
+                secret_note = ws / "memory/notes/secret.md"
+                secret_note.write_text(
+                    "api_key: 12345678901234567890\n", encoding="utf-8"
+                )
+
+                from aikito.remote_service import open_bound_remote
+
+                remote = open_bound_remote(ws, environ=ENV)
+                logged = []
+                scheduler = AutoSyncScheduler(ws, remote, home, logger=logged.append)
+
+                # Round 1: Logs [BLOCKED]
+                scheduler.step()
+                blocked_logs = [msg for msg in logged if msg.startswith("[BLOCKED]")]
+                self.assertEqual(len(blocked_logs), 1)
+
+                # Round 2: Unchanged state, suppresses duplicate log
+                scheduler.step()
+                blocked_logs_2 = [msg for msg in logged if msg.startswith("[BLOCKED]")]
+                self.assertEqual(len(blocked_logs_2), 1)
+
+                # Remove the secret file: Round 3 should clear and log info
+                secret_note.unlink()
+                scheduler.step()
+                info_cleared = [msg for msg in logged if "cleared" in msg]
+                self.assertEqual(len(info_cleared), 1)
 
 
 if __name__ == "__main__":

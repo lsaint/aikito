@@ -908,6 +908,20 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         default="auto",
         help="Service manager mode: auto, system, or process",
     )
+    p_remote_status.add_argument(
+        "--tail",
+        nargs="?",
+        const=10,
+        type=int,
+        default=5,
+        help="Number of recent log lines to display (default: 5, or 10 if specified without count)",
+    )
+    p_remote_status.add_argument(
+        "-f",
+        "--follow",
+        action="store_true",
+        help="Continuously follow live worker log lines (press Ctrl+C to exit)",
+    )
     add_color_args(p_remote_status)
     p_remote_status.set_defaults(func=cmd_remote_status)
 

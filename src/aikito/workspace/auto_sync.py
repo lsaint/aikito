@@ -656,6 +656,11 @@ class AutoSyncScheduler:
             "conflicts": 0,
             "pending": 0,
         }
+        self._last_logged_blocked: set[tuple[str, str]] = set()
+        self._last_logged_conflicts: set[tuple[str, str]] = set()
+        self._last_logged_findings: set[str] = set()
+        self._last_logged_stop_reason: str | None = None
+
         existing = load_worker_status(self.workspace)
         if existing and isinstance(existing, dict):
             for k in ("last_success", "last_revision"):
@@ -767,33 +772,76 @@ class AutoSyncScheduler:
             result = plan
 
         if result.applied_items:
-            self.logger(
-                f"[SYNC] Applied {len(result.applied_items)} change(s) (revision: {result.revision})"
-            )
+            max_log_items = 20
+            for item in result.applied_items[:max_log_items]:
+                target = getattr(item, "target", None)
+                target_norm = str(target).upper() if target else ""
+                if target_norm == "LOCAL":
+                    direction = "pull"
+                elif target_norm == "REMOTE":
+                    direction = "push"
+                else:
+                    direction = str(target).lower() if target else "sync"
+                self.logger(
+                    f"[SYNC] (rev {result.revision}) {direction} {item.id}"
+                )
+            if len(result.applied_items) > max_log_items:
+                self.logger(
+                    f"[SYNC] (rev {result.revision}) ... and {len(result.applied_items) - max_log_items} more change(s)"
+                )
 
         # Check for blocked items, findings, stop reasons (Fix Issue 5)
+        current_findings = set(result.findings)
+        if current_findings != self._last_logged_findings:
+            new_findings = current_findings - self._last_logged_findings
+            if new_findings:
+                self.logger(
+                    f"[ERROR] Synchronization blocked by security findings: {', '.join(sorted(new_findings))}"
+                )
+            self._last_logged_findings = current_findings
+
         if result.findings:
-            self.logger(
-                f"[ERROR] Synchronization blocked by security findings: {', '.join(result.findings)}"
-            )
             attention_reasons.append(f"Security findings: {', '.join(result.findings)}")
 
-        if result.blocked_items:
+        current_blocked = {
+            (item.id, item.reason or "security policy") for item in result.blocked_items
+        }
+        if current_blocked != self._last_logged_blocked:
+            new_blocked = current_blocked - self._last_logged_blocked
             for item in result.blocked_items:
-                self.logger(
-                    f"[BLOCKED] Resource {item.id} is blocked: {item.reason or 'security policy'}"
-                )
+                if (item.id, item.reason or "security policy") in new_blocked:
+                    self.logger(
+                        f"[BLOCKED] Resource {item.id} is blocked: {item.reason or 'security policy'}"
+                    )
+            unblocked = self._last_logged_blocked - current_blocked
+            if unblocked and not current_blocked:
+                self.logger("[INFO] All previously blocked resources have been cleared")
+            self._last_logged_blocked = current_blocked
+
+        if result.blocked_items:
             attention_reasons.append(f"{len(result.blocked_items)} resource(s) blocked")
 
-        if result.conflicts:
+        current_conflicts = {
+            (item.id, item.reason or "unresolved") for item in result.conflicts
+        }
+        if current_conflicts != self._last_logged_conflicts:
+            new_conflicts = current_conflicts - self._last_logged_conflicts
             for item in result.conflicts:
-                self.logger(
-                    f"[CONFLICT] Resource {item.id} has unresolved conflict: {item.reason or 'unresolved'}"
-                )
+                if (item.id, item.reason or "unresolved") in new_conflicts:
+                    self.logger(
+                        f"[CONFLICT] Resource {item.id} has unresolved conflict: {item.reason or 'unresolved'}"
+                    )
+            self._last_logged_conflicts = current_conflicts
+
+        if result.conflicts:
             attention_reasons.append(f"{len(result.conflicts)} unresolved conflict(s)")
 
+        if result.stop_reason != self._last_logged_stop_reason:
+            if result.stop_reason:
+                self.logger(f"[WARN] Synchronization stopped: {result.stop_reason}")
+            self._last_logged_stop_reason = result.stop_reason
+
         if result.stop_reason:
-            self.logger(f"[WARN] Synchronization stopped: {result.stop_reason}")
             attention_reasons.append(f"Stopped: {result.stop_reason}")
 
         if result.deferred:

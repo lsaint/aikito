@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import getpass
+import io
 import json
 import ssl
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +27,7 @@ from .remote_service import (
 from .render import render_remote_sync_plan
 from .workspace.auto_sync import AutoSyncWorkerRunning
 from .workspace.paths import resolve_workspace
+from .workspace.service import tail_log
 from .workspace.reconcile import (
     InterruptedRoundRecovered,
     WorkspaceReconcileError,
@@ -125,7 +129,12 @@ def _explain_remote_error(
     return f"Failed: {target}"
 
 
-def render_remote_status(status: dict[str, Any]) -> str:
+def render_remote_status(
+    status: dict[str, Any],
+    *,
+    tail_lines: int | None = 5,
+    following: bool = False,
+) -> str:
     """Format structured remote and background service status for terminal output."""
     ws = status["workspace"]
     svc = status.get("service", {})
@@ -181,6 +190,25 @@ def render_remote_status(status: dict[str, Any]) -> str:
         f"  Conflicts:       {conflicts}",
         f"  Last error:      {last_err}",
     ]
+
+    log_path_str = svc.get("log_path")
+    if log_path_str:
+        log_path = Path(log_path_str)
+        lines.extend(["", f"Log file: {log_path}"])
+        if tail_lines is None or tail_lines > 0:
+            act_header = (
+                "Recent activity (following live logs, press Ctrl+C to exit):"
+                if following
+                else "Recent activity:"
+            )
+            lines.append(act_header)
+            recent = tail_log(log_path, max_lines=tail_lines or 5)
+            if recent:
+                for rline in recent.splitlines():
+                    lines.append(f"  {rline}")
+            else:
+                lines.append("  (no recent activity logged)")
+
     return "\n".join(lines)
 
 
@@ -291,8 +319,15 @@ def cmd_remote_watch(args: argparse.Namespace) -> None:
             or msg.startswith("[ERROR]")
             or msg.startswith("[CONFLICT]")
             or msg.startswith("[SYNC]")
+            or msg.startswith("[BLOCKED]")
+            or msg.startswith("[WARN]")
+            or msg.startswith("  •")
         ):
-            print(msg)
+            if msg.startswith("["):
+                ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                print(f"{ts} {msg}", flush=True)
+            else:
+                print(msg, flush=True)
 
     try:
         watch_workspace_remote(
@@ -399,8 +434,33 @@ def cmd_remote_stop(args: argparse.Namespace) -> None:
         print("[INFO] Auto-sync service is not running.")
 
 
+def _follow_log(log_path: Path) -> None:
+    """Follow and live stream worker log file until interrupted."""
+    try:
+        deadline = time.time() + 3.0
+        while not log_path.exists() and time.time() < deadline:
+            time.sleep(0.2)
+
+        if not log_path.exists():
+            print(f"  (waiting for log file {log_path} to be created...)")
+            while not log_path.exists():
+                time.sleep(0.5)
+
+        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+            f.seek(0, io.SEEK_END)
+            while True:
+                line = f.readline()
+                if line:
+                    sys.stdout.write(f"  {line}")
+                    sys.stdout.flush()
+                else:
+                    time.sleep(0.25)
+    except KeyboardInterrupt:
+        pass
+
+
 def cmd_remote_status(args: argparse.Namespace) -> None:
-    """Handle 'aikito remote status [--workspace <PATH>] [--json] [--mode <auto|system|process>]'."""
+    """Handle 'aikito remote status [--workspace <PATH>] [--json] [--mode <auto|system|process>] [--tail [N]] [-f | --follow]'."""
     home = Path.home()
     workspace = _resolve_cli_workspace(args, home)
     if not is_recognized_workspace(workspace):
@@ -417,8 +477,17 @@ def cmd_remote_status(args: argparse.Namespace) -> None:
 
     if as_json:
         print(json.dumps(status, indent=2, sort_keys=True))
-    else:
-        print(render_remote_status(status))
+        return
+
+    tail_lines = getattr(args, "tail", 5)
+    follow = getattr(args, "follow", False)
+
+    print(render_remote_status(status, tail_lines=tail_lines, following=follow))
+
+    if follow:
+        log_path_str = status.get("service", {}).get("log_path")
+        if log_path_str:
+            _follow_log(Path(log_path_str))
 
 
 def cmd_remote_credential(args: argparse.Namespace) -> None:

@@ -337,6 +337,9 @@ def test_cmd_remote_status_json_and_text(
     assert "https://127.0.0.1:8443/test" in captured.out
     assert "Last revision:   7" in captured.out
     assert "Sync ID:         aaaaaaaa...aaaa" in captured.out
+    assert "Log file:" in captured.out
+    assert "Recent activity:" in captured.out
+    assert "(no recent activity logged)" in captured.out
 
     # 2. JSON status
     args_json = parser.parse_args(
@@ -349,6 +352,58 @@ def test_cmd_remote_status_json_and_text(
     assert data["binding"]["sync_id"] == "a" * 32
     assert data["last_revision"] == 7
     assert data["service"]["running"] is False
+
+
+def test_cmd_remote_status_recent_activity_and_tail(
+    fake_workspace: Path, fake_home: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from aikito.workspace.remote_binding import save_remote_binding
+    from aikito.workspace.resource_state import WORKER_LOG_STATE, state_path
+
+    binding = RemoteBinding(
+        version=1,
+        endpoint="https://127.0.0.1:8443/test",
+        sync_id="a" * 32,
+        auth=RemoteAuth("bearer_env", "AIKITO_REMOTE_TOKEN"),
+    )
+    save_remote_binding(fake_workspace, binding, home=fake_home)
+
+    log_path = state_path(fake_workspace, WORKER_LOG_STATE, create=True)
+    log_path.write_text(
+        "2026-10-12 20:00:00 [SYNC] (rev 1) pull memory/note1.md\n"
+        "2026-10-12 20:05:00 [SYNC] (rev 2) push memory/note2.md\n"
+        "2026-10-12 20:10:00 [SYNC] (rev 3) push memory/note3.md\n",
+        encoding="utf-8",
+    )
+
+    parser = build_parser()
+
+    # Default tail shows recent activity and Log file
+    args = parser.parse_args(["remote", "status", "--workspace", str(fake_workspace)])
+    args.func(args)
+    captured = capsys.readouterr()
+    assert f"Log file: {log_path}" in captured.out
+    assert "Recent activity:" in captured.out
+    assert "memory/note1.md" in captured.out
+    assert "memory/note2.md" in captured.out
+
+    # Specific tail count (--tail 2) shows only last 2 lines
+    args_tail2 = parser.parse_args(
+        ["remote", "status", "--workspace", str(fake_workspace), "--tail", "2"]
+    )
+    args_tail2.func(args_tail2)
+    captured2 = capsys.readouterr()
+    assert "memory/note1.md" not in captured2.out
+    assert "memory/note2.md" in captured2.out
+
+    # --tail 0 hides Recent activity section
+    args_tail0 = parser.parse_args(
+        ["remote", "status", "--workspace", str(fake_workspace), "--tail", "0"]
+    )
+    args_tail0.func(args_tail0)
+    captured0 = capsys.readouterr()
+    assert f"Log file: {log_path}" in captured0.out
+    assert "Recent activity:" not in captured0.out
 
 
 def test_cmd_remote_credential_cli(
