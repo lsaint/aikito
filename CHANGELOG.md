@@ -6,7 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [1.58.2] - 2026-10-12
+## [1.59.0] - 2026-10-13
+
+### Added
+
+- Added `aikito remote restart` command to restart background sync workers gracefully.
+- Added automatic worker re-execution on package upgrades during background scheduled polling.
+- Added log file path and atomic single-line recent activity summary to `aikito remote status` (with `--tail` control).
+- Added `[INFO]` log event when remote auto-sync recovers from network interruption and restores connection.
+
+### Fixed
+
+- Hardened remote worker re-exec argument preservation, signal forwarding, and process management.
+- Hardened worker log rotation against `copytruncate` truncate race conditions.
+- Cleaned up duplicate scheduler log emission and status reporting logic.
 
 ### Fixed
 
@@ -1149,7 +1162,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.58.2...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.59.0...HEAD
+[1.59.0]: https://github.com/lsaint/aikito/compare/v1.58.2...v1.59.0
 [1.58.2]: https://github.com/lsaint/aikito/compare/v1.58.1...v1.58.2
 [1.58.1]: https://github.com/lsaint/aikito/compare/v1.58.0...v1.58.1
 [1.58.0]: https://github.com/lsaint/aikito/compare/v1.57.7...v1.58.0
