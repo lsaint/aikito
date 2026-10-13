@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 from aikito.cli_parser import build_parser
 from aikito.workspace.auto_sync import (
     AutoSyncLifecycleLock,
@@ -664,11 +665,10 @@ def test_get_aikito_command_resolution(
     with patch(
         "subprocess.Popen.communicate",
         side_effect=subprocess.TimeoutExpired(cmd="aikito", timeout=0.01),
-    ) as mock_comm:
-        with patch("subprocess.Popen.kill") as mock_kill:
-            assert svc_mod._is_matching_aikito_bin(hang_bin) is False
-            mock_kill.assert_called_once()
-            assert mock_comm.call_count == 2
+    ) as mock_comm, patch("subprocess.Popen.kill") as mock_kill:
+        assert svc_mod._is_matching_aikito_bin(hang_bin) is False
+        mock_kill.assert_called_once()
+        assert mock_comm.call_count == 2
 
     # 6. When shutil.which returns None
     monkeypatch.setattr("sys.argv", ["pytest"])
@@ -801,3 +801,108 @@ def test_worker_log_rotation(fake_workspace: Path, fake_home: Path) -> None:
     backup_path = log_path.with_name(log_path.name + ".1")
     assert backup_path.exists()
     assert backup_path.read_text(encoding="utf-8") == "x" * 100
+
+
+def test_restart_workspace_remote_service_lifecycle(
+    fake_workspace: Path, fake_home: Path
+) -> None:
+    from aikito.remote_service import restart_workspace_remote_service
+    from aikito.workspace.remote_binding import (
+        RemoteAuth,
+        RemoteBinding,
+        save_remote_binding,
+    )
+
+    binding = RemoteBinding(
+        version=1,
+        endpoint="https://example.com/sync",
+        sync_id="a" * 32,
+        auth=RemoteAuth("bearer_env", "RESTART_TEST_TOKEN"),
+    )
+    save_remote_binding(fake_workspace, binding, home=fake_home)
+
+    class MockManager:
+        def __init__(self) -> None:
+            self.stop_called = False
+            self.start_called = False
+            self.install_called = False
+            self._running = False
+
+        def manager_name(self) -> str:
+            return "mock"
+
+        def get_service_name(self) -> str:
+            return "mock-service"
+
+        def get_log_path(self) -> Path:
+            return fake_workspace / "worker.log"
+
+        def is_running(self) -> tuple[bool, int | None]:
+            return (True, 99999) if self.start_called else (False, None)
+
+        def is_installed(self) -> bool:
+            return True
+
+        def is_stale(self) -> bool:
+            return True
+
+        def install(self) -> None:
+            self.install_called = True
+
+        def stop(self, timeout: float = 35.0) -> None:
+            self.stop_called = True
+
+        def start(self, timeout: float = 5.0) -> None:
+            self.start_called = True
+
+    mgr = MockManager()
+    with patch("aikito.remote_service.get_service_manager", return_value=mgr):
+        res = restart_workspace_remote_service(fake_workspace, home=fake_home)
+        assert mgr.stop_called is True
+        assert mgr.install_called is True
+        assert mgr.start_called is True
+        assert res["pid"] == 99999
+        assert res["service_name"] == "mock-service"
+        assert res["is_running"] is True
+
+
+def test_cmd_remote_restart_cli(
+    fake_workspace: Path, fake_home: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from aikito.remote_cli import cmd_remote_restart
+    from aikito.workspace.remote_binding import (
+        RemoteAuth,
+        RemoteBinding,
+        save_remote_binding,
+    )
+
+    binding = RemoteBinding(
+        version=1,
+        endpoint="https://example.com/sync",
+        sync_id="a" * 32,
+        auth=RemoteAuth("bearer_env", "RESTART_CLI_TOKEN"),
+    )
+    save_remote_binding(fake_workspace, binding, home=fake_home)
+
+    parser = build_parser()
+    args = parser.parse_args(["remote", "restart", "--workspace", str(fake_workspace)])
+    assert args.func == cmd_remote_restart
+
+    mock_res = {
+        "was_running": True,
+        "old_pid": 1111,
+        "pid": 2222,
+        "service_name": "com.aikito.remote.test",
+        "manager_name": "launchd",
+        "log_path": "/path/to/worker.log",
+        "is_running": True,
+    }
+
+    with patch(
+        "aikito.remote_cli.restart_workspace_remote_service", return_value=mock_res
+    ):
+        cmd_remote_restart(args)
+        out = capsys.readouterr().out
+        assert "[SUCCESS] Restarted background auto-sync service" in out
+        assert "PID: 2222" in out
+        assert "/path/to/worker.log" in out

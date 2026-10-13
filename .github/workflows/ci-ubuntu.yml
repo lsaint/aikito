@@ -118,6 +118,9 @@ jobs:
           python3 -m aikito remote bind --help
           python3 -m aikito remote sync --help
           python3 -m aikito remote watch --help
+          python3 -m aikito remote start --help
+          python3 -m aikito remote restart --help
+          python3 -m aikito remote stop --help
           python3 -m aikito remote status --help
           python3 -m aikito show --help
           python3 -m aikito show inbox --help

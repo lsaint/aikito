@@ -13,13 +13,14 @@ import json
 import os
 import shutil
 import signal
+import subprocess
 import sys
 import threading
 import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -92,6 +93,55 @@ def _atomic_write_bytes(dest: Path, data: bytes) -> None:
                 tmp_path.unlink()
             except Exception:
                 pass
+
+
+def get_installed_aikito_version(workspace: Path | None = None) -> str | None:
+    """Detect the version of Aikito currently installed on the system."""
+    candidates: list[list[str]] = []
+    aikito_bin = shutil.which("aikito")
+    if aikito_bin:
+        candidates.append([aikito_bin])
+    if sys.argv and sys.argv[0]:
+        argv0 = shutil.which(sys.argv[0]) or sys.argv[0]
+        if "aikito" in Path(argv0).name.lower() and [argv0] not in candidates:
+            candidates.append([argv0])
+    candidates.append([sys.executable, "-m", "aikito"])
+
+    for cmd in candidates:
+        try:
+            res = subprocess.run(
+                [*cmd, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=3.0,
+            )
+            if res.returncode == 0:
+                for token in res.stdout.split():
+                    cleaned = token.strip("(),;\"'").lstrip("v")
+                    if cleaned and cleaned[0].isdigit() and "." in cleaned:
+                        return cleaned
+        except Exception:
+            continue
+    return None
+
+
+def check_installed_version_differs(
+    current_version: str | None = None,
+    workspace: Path | None = None,
+) -> str | None:
+    """Check if the installed Aikito version differs from the current running version.
+
+    Returns the new installed version string if different, or None if unchanged or undetectable.
+    """
+    if current_version is None:
+        from .. import __version__
+
+        current_version = __version__
+
+    installed = get_installed_aikito_version(workspace)
+    if installed and installed != current_version:
+        return installed
+    return None
 
 
 def _is_network_transient_error(exc: BaseException) -> bool:
@@ -339,7 +389,7 @@ def archive_conflict_loser(
 ) -> ArchiveResult:
     """Archive the losing side of a conflicted resource to .local/sync-conflicts."""
     if timestamp is None:
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
 
     try:
         canonical = local_resource_for_id(item_id, "0" * 64)
@@ -446,7 +496,7 @@ def plan_conflict_resolutions(
 ) -> tuple[dict[str, str], dict[str, ConflictResolution]]:
     """Determine winner/loser for all conflicts and archive the loser."""
     if timestamp is None:
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
 
     resolutions: dict[str, str] = {}
     details: dict[str, ConflictResolution] = {}
@@ -625,6 +675,7 @@ class AutoSyncScheduler:
         debounce_delay: float = 0.5,
         scan_interval: float = 1.0,
         fallback_scan_interval: float = 30.0,
+        version_check_interval: float = 60.0,
         on_status_change: Callable[[AutoSyncState, str | None], None] | None = None,
         logger: Callable[[str], None] | None = None,
     ) -> None:
@@ -636,6 +687,7 @@ class AutoSyncScheduler:
         self.debounce_delay = debounce_delay
         self.scan_interval = scan_interval
         self.fallback_scan_interval = fallback_scan_interval
+        self.version_check_interval = version_check_interval
         self.on_status_change = on_status_change
         self.logger = logger or (lambda msg: None)
 
@@ -645,6 +697,8 @@ class AutoSyncScheduler:
         self._event_seq = 0
         self._processed_seq = 0
         self._stopped = False
+        self._reexec_requested = False
+        self._reexec_target_version: str | None = None
 
         self._status: dict[str, Any] = {
             "state": AutoSyncState.IDLE.value,
@@ -720,7 +774,7 @@ class AutoSyncScheduler:
     def step(self) -> ReconcilePlan:
         """Run a single check and reconciliation step, resolving any conflicts."""
         self._rotate_log()
-        self._status["last_checked"] = datetime.now(timezone.utc).isoformat()
+        self._status["last_checked"] = datetime.now(UTC).isoformat()
         self._set_state(AutoSyncState.SYNCING)
 
         if self.remote is None and self._remote_opener is not None:
@@ -855,7 +909,7 @@ class AutoSyncScheduler:
                 AutoSyncState.ATTENTION_REQUIRED, "; ".join(attention_reasons)
             )
         else:
-            self._status["last_success"] = datetime.now(timezone.utc).isoformat()
+            self._status["last_success"] = datetime.now(UTC).isoformat()
             if (
                 hasattr(result, "remote_snapshot")
                 and result.remote_snapshot is not None
@@ -897,6 +951,7 @@ class AutoSyncScheduler:
             max_backoff = 300.0
             last_remote_revision: int | None = None
             last_full_scan = 0.0
+            last_version_check = time.monotonic()
 
             try:
                 # Initial convergence step
@@ -920,6 +975,22 @@ class AutoSyncScheduler:
                     if self._check_stop_requested() or self._stopped:
                         break
 
+                    if self.version_check_interval > 0:
+                        now = time.monotonic()
+                        if now - last_version_check >= self.version_check_interval:
+                            last_version_check = now
+                            new_version = check_installed_version_differs(
+                                workspace=self.workspace
+                            )
+                            if new_version:
+                                self.logger(
+                                    f"[INFO] Detected updated Aikito version ({new_version}); reloading worker..."
+                                )
+                                self._reexec_requested = True
+                                self._reexec_target_version = new_version
+                                self.stop()
+                                break
+
                     if self.state in (
                         AutoSyncState.RETRY_WAIT,
                         AutoSyncState.ATTENTION_REQUIRED,
@@ -940,14 +1011,10 @@ class AutoSyncScheduler:
 
                     should_step = False
 
-                    if local_triggered:
-                        should_step = True
-                    elif self.state in (
+                    if local_triggered or self.state in (
                         AutoSyncState.RETRY_WAIT,
                         AutoSyncState.ATTENTION_REQUIRED,
-                    ):
-                        should_step = True
-                    elif self.remote is None:
+                    ) or self.remote is None:
                         should_step = True
                     else:
                         # Serial remote polling in main thread
@@ -956,9 +1023,7 @@ class AutoSyncScheduler:
                             if (
                                 last_remote_revision is None
                                 or remote_snapshot.revision != last_remote_revision
-                            ):
-                                should_step = True
-                            elif (
+                            ) or (
                                 time.monotonic() - last_full_scan
                                 >= self.fallback_scan_interval
                             ):
@@ -1020,6 +1085,47 @@ class AutoSyncScheduler:
                 self._watcher.stop()
                 self._set_state(AutoSyncState.STOPPED)
                 self.logger("[INFO] Auto-sync worker stopped")
+
+        if self._reexec_requested:
+            self._do_reexec()
+
+    def _do_reexec(self) -> None:
+        """Replace the current worker process with an updated Aikito process."""
+        self.logger(f"[INFO] Reloading worker process for {self.workspace}...")
+        try:
+            from .service import get_aikito_command
+
+            cmd = get_aikito_command(
+                self.workspace,
+                target_version=self._reexec_target_version,
+            )
+            if self.poll_interval != 5.0:
+                cmd.extend(["--poll-interval", str(self.poll_interval)])
+            if self.debounce_delay != 0.5:
+                cmd.extend(["--debounce-ms", str(int(self.debounce_delay * 1000))])
+            if self.version_check_interval != 60.0:
+                cmd.extend(
+                    ["--version-check-interval", str(self.version_check_interval)]
+                )
+
+            sys.stdout.flush()
+            sys.stderr.flush()
+
+            if is_windows():
+                detached_flags = getattr(
+                    subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200
+                ) | getattr(subprocess, "DETACHED_PROCESS", 0x8)
+                subprocess.Popen(
+                    cmd,
+                    cwd=str(self.workspace),
+                    creationflags=detached_flags,
+                )
+                sys.exit(0)
+            else:
+                os.execv(cmd[0], cmd)
+        except Exception as exc:
+            self.logger(f"[ERROR] Failed to reload worker process: {exc}")
+            sys.exit(1)
 
     def stop(self) -> None:
         """Signal the scheduler loop to terminate."""

@@ -116,6 +116,9 @@ jobs:
           python -m aikito remote bind --help
           python -m aikito remote sync --help
           python -m aikito remote watch --help
+          python -m aikito remote start --help
+          python -m aikito remote restart --help
+          python -m aikito remote stop --help
           python -m aikito remote status --help
           python -m aikito invalid-subcommand 2>$null
           if ($LASTEXITCODE -eq 0) { throw "aikito did not propagate non-zero exit code on invalid subcommand" }

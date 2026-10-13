@@ -34,15 +34,20 @@ def get_workspace_slug(workspace: Path) -> str:
     return f"{name_clean}-{digest}"
 
 
-def _is_matching_aikito_bin(bin_path: Path | str) -> bool:
-    """Check if binary path exists, has aikito name, and matches current package version."""
+def _is_matching_aikito_bin(
+    bin_path: Path | str, target_version: str | None = None
+) -> bool:
+    """Check if binary path exists, has aikito name, and matches package version."""
     try:
         p = Path(bin_path)
         if not p.is_file():
             return False
         if p.name.lower() not in ("aikito", "aikito.exe", "aikito.cmd", "aikito.bat"):
             return False
-        from .. import __version__
+        if target_version is None:
+            from .. import __version__
+
+            target_version = __version__
 
         proc = subprocess.Popen(
             [str(p), "--version"],
@@ -66,18 +71,21 @@ def _is_matching_aikito_bin(bin_path: Path | str) -> bool:
 
         if proc.returncode == 0:
             tokens = [t.strip("(),;\"'").lstrip("v") for t in stdout.split()]
-            return __version__ in tokens
+            return target_version in tokens
     except Exception:
         pass
     return False
 
 
-def get_aikito_command(workspace: Path) -> list[str]:
+def get_aikito_command(
+    workspace: Path,
+    target_version: str | None = None,
+) -> list[str]:
     """Resolve stable CLI command arguments for running remote watch.
 
     Priority:
-    1. sys.argv[0] if it is a stable console script matching current version.
-    2. shutil.which('aikito') on PATH, verified to match current package version.
+    1. sys.argv[0] if it is a stable console script matching target version.
+    2. shutil.which('aikito') on PATH, verified to match target version.
     3. Fallback to sys.executable -m aikito.
     """
     if sys.argv and sys.argv[0]:
@@ -86,11 +94,13 @@ def get_aikito_command(workspace: Path) -> list[str]:
             resolved = shutil.which(sys.argv[0])
             if resolved:
                 argv0 = Path(resolved)
-        if _is_matching_aikito_bin(argv0):
+        if _is_matching_aikito_bin(argv0, target_version=target_version):
             return [str(argv0), "remote", "watch", "--workspace", str(workspace)]
 
     aikito_bin = shutil.which("aikito")
-    if aikito_bin and _is_matching_aikito_bin(aikito_bin):
+    if aikito_bin and _is_matching_aikito_bin(
+        aikito_bin, target_version=target_version
+    ):
         return [aikito_bin, "remote", "watch", "--workspace", str(workspace)]
 
     return [

@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
 import getpass
 import io
 import json
 import ssl
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +18,7 @@ from .remote_service import (
     bind_workspace_remote,
     get_workspace_remote_binding,
     get_workspace_remote_status,
+    restart_workspace_remote_service,
     save_workspace_remote_credential,
     start_workspace_remote_service,
     stop_workspace_remote_service,
@@ -27,7 +28,6 @@ from .remote_service import (
 from .render import render_remote_sync_plan
 from .workspace.auto_sync import AutoSyncWorkerRunning
 from .workspace.paths import resolve_workspace
-from .workspace.service import tail_log
 from .workspace.reconcile import (
     InterruptedRoundRecovered,
     WorkspaceReconcileError,
@@ -52,6 +52,7 @@ from .workspace.remote_store import (
     StoreUnavailable,
 )
 from .workspace.remote_transport import TransportNotDelivered, TransportRejected
+from .workspace.service import tail_log
 
 EXIT_SUCCESS = 0
 EXIT_FAILURE = 1
@@ -310,6 +311,7 @@ def cmd_remote_watch(args: argparse.Namespace) -> None:
     token_env = binding.auth.env
     poll_interval = getattr(args, "poll_interval", 5.0)
     debounce_delay = getattr(args, "debounce_ms", 500) / 1000.0
+    version_check_interval = getattr(args, "version_check_interval", 60.0)
     once = getattr(args, "once", False)
     verbose = getattr(args, "verbose", False)
 
@@ -335,6 +337,7 @@ def cmd_remote_watch(args: argparse.Namespace) -> None:
             home=home,
             poll_interval=poll_interval,
             debounce_delay=debounce_delay,
+            version_check_interval=version_check_interval,
             once=once,
             logger=log,
         )
@@ -397,6 +400,42 @@ def cmd_remote_start(args: argparse.Namespace) -> None:
         return
 
     print(f"[SUCCESS] Started background auto-sync service for workspace '{workspace}'")
+    print(f"  Service type: {res['manager_name']} ({res['service_name']})")
+    status_msg = f"running (PID: {res['pid']})" if res.get("pid") else "started"
+    print(f"  Status:       {status_msg}")
+    print(f"  Log file:     {res['log_path']}")
+
+
+def cmd_remote_restart(args: argparse.Namespace) -> None:
+    """Handle 'aikito remote restart [--workspace <PATH>] [--mode <auto|system|process>]'."""
+    home = Path.home()
+    workspace = _resolve_cli_workspace(args, home)
+    if not is_recognized_workspace(workspace):
+        print(
+            f"[ERROR] '{workspace}' is not a recognized Aikito workspace. Run 'aikito init workspace' first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    binding = get_workspace_remote_binding(workspace)
+    if binding is None:
+        print(
+            "[ERROR] No remote binding configured for this workspace. Run 'aikito remote bind <endpoint>' first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    mode = getattr(args, "mode", "auto")
+    try:
+        res = restart_workspace_remote_service(workspace, home=home, mode=mode)
+    except Exception as exc:
+        print(
+            f"[ERROR] Failed to restart remote service: {_explain_remote_error(exc, endpoint=binding.endpoint, token_env=binding.auth.env)}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print(f"[SUCCESS] Restarted background auto-sync service for workspace '{workspace}'")
     print(f"  Service type: {res['manager_name']} ({res['service_name']})")
     status_msg = f"running (PID: {res['pid']})" if res.get("pid") else "started"
     print(f"  Status:       {status_msg}")

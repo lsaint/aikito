@@ -692,6 +692,101 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                 info_cleared = [msg for msg in logged if "cleared" in msg]
                 self.assertEqual(len(info_cleared), 1)
 
+    def test_get_installed_aikito_version_and_diff(self):
+        import subprocess
+
+        from aikito.workspace.auto_sync import (
+            check_installed_version_differs,
+            get_installed_aikito_version,
+        )
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout="aikito 1.60.0\n"
+            )
+            v = get_installed_aikito_version()
+            self.assertEqual(v, "1.60.0")
+
+            # Same version -> None
+            diff_same = check_installed_version_differs(current_version="1.60.0")
+            self.assertIsNone(diff_same)
+
+            # Different version -> returns new version
+            diff_new = check_installed_version_differs(current_version="1.58.2")
+            self.assertEqual(diff_new, "1.60.0")
+
+    def test_scheduler_version_check_triggers_reexec(self):
+        from aikito.workspace.auto_sync import is_worker_running
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            ws = _workspace(base / "ws")
+            home = base / "home"
+
+            logged = []
+            scheduler = AutoSyncScheduler(
+                ws,
+                None,
+                home,
+                poll_interval=0.05,
+                version_check_interval=0.01,
+                logger=logged.append,
+            )
+
+            with (
+                patch(
+                    "aikito.workspace.auto_sync.check_installed_version_differs",
+                    return_value="1.59.0",
+                ),
+                patch.object(scheduler, "_do_reexec") as mock_reexec,
+            ):
+                scheduler.run()
+
+                self.assertTrue(scheduler._reexec_requested)
+                self.assertEqual(scheduler._reexec_target_version, "1.59.0")
+                mock_reexec.assert_called_once()
+                reload_logs = [msg for msg in logged if "Detected updated Aikito version (1.59.0)" in msg]
+                self.assertEqual(len(reload_logs), 1)
+
+                # Verify lifecycle lock was released
+                running, _ = is_worker_running(ws)
+                self.assertFalse(running)
+
+    def test_do_reexec_constructs_command_and_executes(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            ws = _workspace(base / "ws")
+            home = base / "home"
+
+            logged = []
+            scheduler = AutoSyncScheduler(
+                ws,
+                None,
+                home,
+                poll_interval=10.0,
+                debounce_delay=1.0,
+                version_check_interval=120.0,
+                logger=logged.append,
+            )
+            scheduler._reexec_target_version = "1.59.0"
+
+            with (
+                patch("aikito.workspace.service.get_aikito_command", return_value=["aikito", "remote", "watch", "--workspace", str(ws)]),
+                patch("os.execv") as mock_execv,
+                patch("sys.exit"),
+            ):
+                scheduler._do_reexec()
+                mock_execv.assert_called_once()
+                exec_cmd = mock_execv.call_args[0][1]
+                self.assertEqual(exec_cmd[0], "aikito")
+                self.assertIn("watch", exec_cmd)
+                self.assertIn("--poll-interval", exec_cmd)
+                self.assertIn("10.0", exec_cmd)
+                self.assertIn("--debounce-ms", exec_cmd)
+                self.assertIn("1000", exec_cmd)
+                self.assertIn("--version-check-interval", exec_cmd)
+                self.assertIn("120.0", exec_cmd)
+
 
 if __name__ == "__main__":
     unittest.main()

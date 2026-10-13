@@ -73,6 +73,7 @@ def _get_handlers(handlers: dict[str, Any] | None = None) -> dict[str, Any]:
     from .remote_cli import (
         cmd_remote_bind,
         cmd_remote_credential,
+        cmd_remote_restart,
         cmd_remote_start,
         cmd_remote_status,
         cmd_remote_stop,
@@ -129,6 +130,7 @@ def _get_handlers(handlers: dict[str, Any] | None = None) -> dict[str, Any]:
     }
     resolved["cmd_remote_bind"] = cmd_remote_bind
     resolved["cmd_remote_credential"] = cmd_remote_credential
+    resolved["cmd_remote_restart"] = cmd_remote_restart
     resolved["cmd_remote_start"] = cmd_remote_start
     resolved["cmd_remote_status"] = cmd_remote_status
     resolved["cmd_remote_stop"] = cmd_remote_stop
@@ -165,6 +167,7 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     cmd_project_sync = h["cmd_project_sync"]
     cmd_remote_bind = h["cmd_remote_bind"]
     cmd_remote_credential = h["cmd_remote_credential"]
+    cmd_remote_restart = h["cmd_remote_restart"]
     cmd_remote_start = h["cmd_remote_start"]
     cmd_remote_status = h["cmd_remote_status"]
     cmd_remote_stop = h["cmd_remote_stop"]
@@ -837,6 +840,12 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         help="Show detailed synchronization log messages",
     )
     p_remote_watch.add_argument(
+        "--version-check-interval",
+        type=float,
+        default=60.0,
+        help="Interval in seconds to check for installed package updates (0 to disable, default: 60.0)",
+    )
+    p_remote_watch.add_argument(
         "--workspace",
         type=Path,
         default=None,
@@ -864,6 +873,26 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     )
     add_color_args(p_remote_start)
     p_remote_start.set_defaults(func=cmd_remote_start)
+
+    # remote restart [--workspace <PATH>] [--mode <auto|system|process>]
+    p_remote_restart = remote_subparsers.add_parser(
+        "restart",
+        help="Restart background automatic synchronization service",
+    )
+    p_remote_restart.add_argument(
+        "--workspace",
+        type=Path,
+        default=None,
+        help="Target workspace directory (default: resolved active workspace)",
+    )
+    p_remote_restart.add_argument(
+        "--mode",
+        choices=["auto", "system", "process"],
+        default="auto",
+        help="Service manager mode: auto, system, or process",
+    )
+    add_color_args(p_remote_restart)
+    p_remote_restart.set_defaults(func=cmd_remote_restart)
 
     # remote stop [--workspace <PATH>] [--mode <auto|system|process>]
     p_remote_stop = remote_subparsers.add_parser(

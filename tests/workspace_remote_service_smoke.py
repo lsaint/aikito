@@ -220,7 +220,26 @@ def run_smoke(base: Path) -> None:
         assert "Recent activity:" in res_stat_detail.stdout
         assert "smoke-idea.md" in res_stat_detail.stdout
 
-        # 8. Stop background service
+        # 8. Restart background service while running
+        res_restart = run_cli(
+            ["remote", "restart", "--mode", "process"],
+            workspace=ws_a,
+            home=home,
+        )
+        assert res_restart.returncode == 0, f"Restart failed: {res_restart.stderr}"
+        assert "[SUCCESS] Restarted background auto-sync service" in res_restart.stdout
+
+        # Verify service is still running after restart
+        res_stat_restarted = run_cli(
+            ["remote", "status", "--json", "--mode", "process"],
+            workspace=ws_a,
+            home=home,
+        )
+        assert res_stat_restarted.returncode == 0
+        stat_restarted = json.loads(res_stat_restarted.stdout)
+        assert stat_restarted["service"]["running"] is True
+
+        # 9. Stop background service
         res_stop = run_cli(
             ["remote", "stop", "--mode", "process"],
             workspace=ws_a,

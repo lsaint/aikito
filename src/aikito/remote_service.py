@@ -77,6 +77,7 @@ def watch_workspace_remote(
     environ: Mapping[str, str] | None = None,
     poll_interval: float = 5.0,
     debounce_delay: float = 0.5,
+    version_check_interval: float = 60.0,
     once: bool = False,
     logger: Callable[[str], None] | None = None,
 ) -> None:
@@ -100,6 +101,7 @@ def watch_workspace_remote(
         remote_opener=remote_opener,
         poll_interval=poll_interval,
         debounce_delay=debounce_delay,
+        version_check_interval=version_check_interval,
         logger=logger,
     )
     scheduler.run(once=once)
@@ -136,6 +138,39 @@ def start_workspace_remote_service(
         "service_name": manager.get_service_name(),
         "manager_name": manager.manager_name(),
         "log_path": str(manager.get_log_path()),
+    }
+
+
+def restart_workspace_remote_service(
+    workspace: Path,
+    *,
+    home: Path | None = None,
+    mode: str = "auto",
+) -> dict[str, Any]:
+    """Restart the background synchronization service idempotently."""
+    binding = get_workspace_remote_binding(workspace)
+    if binding is None:
+        raise RemoteBindingMissing("Remote binding is missing")
+
+    manager = get_service_manager(workspace, home=home, mode=mode)
+    was_running, old_pid = manager.is_running()
+    if was_running or manager.is_installed():
+        manager.stop(timeout=35.0)
+
+    if not manager.is_installed() or manager.is_stale():
+        manager.install()
+
+    manager.start(timeout=5.0)
+    running, pid = manager.is_running()
+
+    return {
+        "was_running": was_running,
+        "old_pid": old_pid,
+        "pid": pid,
+        "service_name": manager.get_service_name(),
+        "manager_name": manager.manager_name(),
+        "log_path": str(manager.get_log_path()),
+        "is_running": running,
     }
 
 
