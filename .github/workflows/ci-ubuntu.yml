@@ -78,7 +78,7 @@ jobs:
 
       - name: Build and verify public site
         run: |
-          uv pip install --system -r requirements-docs.txt pytest
+          uv pip install --system -r requirements-docs.txt pytest pytest-xdist
           mkdocs build --strict
           test -f site/index.html
           test -f site/guide/index.html
@@ -584,7 +584,7 @@ jobs:
         env:
           PYTHONPATH: ""  # override job-level PYTHONPATH so wheel install is tested, not src/
         run: |
-          python -m pip install --upgrade build hatchling pytest twine
+          python -m pip install --upgrade build hatchling pytest pytest-xdist twine
           python -m build
           python -m twine check --strict dist/*
           python3 -c "

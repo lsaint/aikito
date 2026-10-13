@@ -75,7 +75,7 @@ jobs:
           "
 
       - name: Install build tools and test dependencies
-        run: python -m pip install --upgrade build hatchling pytest twine
+        run: python -m pip install --upgrade build hatchling pytest pytest-xdist twine
 
       - name: Run test suite
         env:
