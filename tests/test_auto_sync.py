@@ -860,8 +860,9 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                 self.assertIn("120.0", resolved)
                 self.assertIn("--verbose", resolved)
 
-            # 2. Test _do_reexec
+            # 2. Test _do_reexec (POSIX branch)
             with (
+                patch("aikito.workspace.auto_sync.is_windows", return_value=False),
                 patch("os.execv") as mock_execv,
                 patch("sys.exit"),
             ):
@@ -889,7 +890,8 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                 self.assertIn("stderr", kwargs)
                 self.assertIsNotNone(kwargs["stdout"])
                 self.assertIs(kwargs["stdout"], kwargs["stderr"])
-                kwargs["stdout"].close()
+                if hasattr(kwargs["stdout"], "close"):
+                    kwargs["stdout"].close()
 
     def test_scheduler_logs_connection_restored_upon_recovery(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

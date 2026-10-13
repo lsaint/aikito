@@ -1009,8 +1009,13 @@ def test_follow_log_handles_rotation(
         cycle += 1
         if cycle == 1:
             rotated = log_path.with_name(log_path.name + ".1")
-            log_path.rename(rotated)
-            log_path.write_text("rotated line 2\n", encoding="utf-8")
+            try:
+                log_path.rename(rotated)
+                log_path.write_text("rotated line 2\n", encoding="utf-8")
+            except OSError:
+                # Windows locks open files; copytruncate rotation simulates scheduler rotation
+                shutil.copyfile(log_path, rotated)
+                log_path.write_text("rotated line 2\n", encoding="utf-8")
         elif cycle >= 3:
             raise KeyboardInterrupt
 
