@@ -186,3 +186,31 @@ replacing local changes.
 Use `aikito status` for the aggregate view and the resource-specific status
 commands for details. See [Safety model](safety.md) for write boundaries and
 recovery expectations.
+
+## Remote Storage & Hosted Services
+
+While Aikito is local-first and functions without a daemon or hosted backend,
+its workspace reconciliation engine is built on top of a transport-neutral,
+serialized remote protocol. This architecture makes it possible to build
+self-hosted or cloud-backed resource centers that synchronize seamlessly
+with standard Aikito clients.
+
+Developers looking to implement an Aikito-compatible remote center or cloud
+service should refer to the following specifications:
+
+- **[Remote Protocol](architecture/remote-protocol.md)**: Defines the wire
+  envelope schema, protocol versioning, canonical JSON encoding, and error
+  handling semantics.
+- **[HTTP Transport](architecture/http-transport.md)**: Details the single-POST
+  transport contract (`application/octet-stream`), header policies, timeout
+  rules, and status code behavior (including pre-dispatch 401/403 handling).
+- **[Remote Store Boundary](architecture/remote-store-boundary.md)**: Documents
+  the commit identity model, snapshot exchanges, receipt cursors (`ReceiptCursor`),
+  CAS semantics, and crash recovery invariants (`INV-SYNC-*`).
+- **[Remote Binding](architecture/remote-binding.md)**: Explains client-side
+  workspace pinning (`binding.json`), authentication tokens, and center identity
+  matching.
+- **Reference implementations**: See `src/aikito/workspace/remote_protocol.py`
+  for `RemoteProtocolHandler` and `tests/http_remote_server.py` for a lightweight
+  loopback HTTP remote server implementation.
+

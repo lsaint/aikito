@@ -137,6 +137,7 @@ Aikito 遵循 Local-first 原则与透明设计：
 - [CLI 命令参考](docs/cli-reference.md)：命令、参数与 Shell 补全。
 - [Chat Distiller](docs/chat-distiller.md)：将浏览器 AI 对话沉淀为 Inbox 笔记。
 - [故障排查](docs/troubleshooting.md)：解决冲突与同步漂移。
+- [远程协议与服务端开发](docs/architecture/remote-protocol.md)：了解同步协议规范，自建远程存储中心或云端同步服务。
 
 ## 关注作者
 
