@@ -90,7 +90,7 @@ def test_startup_timeout_reaps_process(tmp_path, monkeypatch):
         command("-c", "import time; time.sleep(30)", "{root}"),
     )
     with pytest.raises(RuntimeError, match="announce"):
-        with external_store(tmp_path / "root", startup_timeout=1):
+        with external_store(tmp_path / "root", startup_timeout=0.1):
             raise AssertionError("Silent server started")
     assert len(started) == 1
     assert started[0].poll() is not None

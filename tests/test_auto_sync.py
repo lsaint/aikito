@@ -733,6 +733,8 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                 logger=logged.append,
             )
 
+            mock_step = Mock()
+            mock_step.remote_snapshot.revision = 1
             with (
                 patch(
                     "aikito.workspace.auto_sync.check_installed_version_differs",
@@ -744,6 +746,7 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                     return_value=["aikito", "remote", "watch", "--workspace", str(ws)],
                 ),
                 patch.object(scheduler, "_do_reexec") as mock_reexec,
+                patch.object(scheduler, "step", return_value=mock_step),
             ):
                 scheduler.run()
 
@@ -772,8 +775,8 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                 ws,
                 None,
                 home,
-                poll_interval=0.05,
-                version_check_interval=0.01,
+                poll_interval=0.01,
+                version_check_interval=0.005,
                 logger=logged.append,
             )
 
@@ -788,6 +791,8 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                 scheduler.stop()
                 return None
 
+            mock_step = Mock()
+            mock_step.remote_snapshot.revision = 1
             with (
                 patch(
                     "aikito.workspace.auto_sync.check_installed_version_differs",
@@ -797,6 +802,7 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                     scheduler, "_resolve_reexec_command", return_value=None
                 ) as mock_resolve,
                 patch.object(scheduler, "_do_reexec") as mock_reexec,
+                patch.object(scheduler, "step", return_value=mock_step),
             ):
                 scheduler.run()
 
