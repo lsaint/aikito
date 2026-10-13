@@ -699,6 +699,7 @@ class AutoSyncScheduler:
         self._stopped = False
         self._reexec_requested = False
         self._reexec_target_version: str | None = None
+        self._connection_unavailable = False
 
         self._status: dict[str, Any] = {
             "state": AutoSyncState.IDLE.value,
@@ -962,6 +963,7 @@ class AutoSyncScheduler:
                     backoff = 5.0
                 except Exception as exc:
                     if _is_network_transient_error(exc):
+                        self._connection_unavailable = True
                         self._set_state(AutoSyncState.RETRY_WAIT, str(exc))
                         self.logger(
                             f"[WARN] Connection unavailable, retrying in {backoff:.0f}s: {exc}"
@@ -1020,6 +1022,10 @@ class AutoSyncScheduler:
                         # Serial remote polling in main thread
                         try:
                             remote_snapshot = self.remote.read()
+                            if self._connection_unavailable:
+                                self._connection_unavailable = False
+                                self.logger("[INFO] Connection restored")
+                                backoff = 5.0
                             if (
                                 last_remote_revision is None
                                 or remote_snapshot.revision != last_remote_revision
@@ -1030,6 +1036,7 @@ class AutoSyncScheduler:
                                 should_step = True
                         except Exception as exc:
                             if _is_network_transient_error(exc):
+                                self._connection_unavailable = True
                                 self._set_state(AutoSyncState.RETRY_WAIT, str(exc))
                                 self.logger(
                                     f"[WARN] Connection unavailable, retrying in {backoff:.0f}s: {exc}"
@@ -1049,6 +1056,9 @@ class AutoSyncScheduler:
 
                     try:
                         result = self.step()
+                        if self._connection_unavailable:
+                            self._connection_unavailable = False
+                            self.logger("[INFO] Connection restored")
                         last_remote_revision = result.remote_snapshot.revision
                         last_full_scan = time.monotonic()
                         backoff = 5.0
@@ -1061,6 +1071,7 @@ class AutoSyncScheduler:
                         # Do NOT set _wake_event on exception! Unprocessed events remain
                         # tracked in _event_seq and will be processed upon retry when backoff expires.
                         if _is_network_transient_error(exc):
+                            self._connection_unavailable = True
                             self._set_state(AutoSyncState.RETRY_WAIT, str(exc))
                             self.logger(
                                 f"[WARN] Connection unavailable, retrying in {backoff:.0f}s: {exc}"

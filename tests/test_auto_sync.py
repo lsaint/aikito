@@ -7,7 +7,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from http_remote_server import HTTPRemoteServer
 from workspace_reconcile_smoke import _workspace
@@ -786,6 +786,50 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                 self.assertIn("1000", exec_cmd)
                 self.assertIn("--version-check-interval", exec_cmd)
                 self.assertIn("120.0", exec_cmd)
+
+    def test_scheduler_logs_connection_restored_upon_recovery(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            ws = _workspace(base / "ws")
+            home = base / "home"
+
+            logged = []
+            scheduler = AutoSyncScheduler(
+                ws,
+                None,
+                home,
+                poll_interval=0.01,
+                version_check_interval=0,
+                logger=logged.append,
+            )
+
+            calls = []
+
+            def flaky_step():
+                calls.append(1)
+                if len(calls) == 1:
+                    raise ConnectionError("Temporary connection failure")
+                scheduler.stop()
+                res = Mock()
+                res.remote_snapshot.revision = 1
+                return res
+
+            with patch.object(scheduler, "step", side_effect=flaky_step):
+                # Trigger wake event after brief pause to avoid waiting for backoff
+                def wake_quickly():
+                    time.sleep(0.02)
+                    scheduler._wake_event.set()
+
+                waker = threading.Thread(target=wake_quickly)
+                waker.start()
+                scheduler.run()
+                waker.join()
+
+                warn_logs = [msg for msg in logged if "[WARN] Connection unavailable" in msg]
+                self.assertEqual(len(warn_logs), 1)
+
+                restored_logs = [msg for msg in logged if "[INFO] Connection restored" in msg]
+                self.assertEqual(len(restored_logs), 1)
 
 
 if __name__ == "__main__":
