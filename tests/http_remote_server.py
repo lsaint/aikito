@@ -19,6 +19,27 @@ from aikito.workspace.remote_protocol import RemoteProtocolHandler, decode_reque
 
 
 class _FastThreadingHTTPServer(ThreadingHTTPServer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._active_threads: set[threading.Thread] = set()
+        self._active_lock = threading.Lock()
+
+    def process_request_thread(self, request, client_address):
+        t = threading.current_thread()
+        with self._active_lock:
+            self._active_threads.add(t)
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            with self._active_lock:
+                self._active_threads.discard(t)
+
+    def join_active_threads(self, timeout: float = 2.0):
+        with self._active_lock:
+            threads = list(self._active_threads)
+        for t in threads:
+            t.join(timeout=timeout)
+
     def server_bind(self):
         socketserver.TCPServer.server_bind(self)
         host, port = self.server_address[:2]
@@ -227,6 +248,7 @@ class HTTPRemoteServer:
         self._stopping.set()
         self._server.shutdown()
         self._server.server_close()
+        self._server.join_active_threads(timeout=2.0)
         self._thread.join(timeout=5)
         if self._thread.is_alive():
             raise RuntimeError("HTTP test server did not stop")

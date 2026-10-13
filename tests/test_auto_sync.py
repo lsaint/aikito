@@ -576,7 +576,7 @@ class AutoSyncEndToEndTest(unittest.TestCase):
         from aikito.workspace.remote_protocol import Operation
         from aikito.workspace.serialized_remote import SerializedRemoteStore
 
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
             base = Path(tmp_dir)
             ws = _workspace(base / "ws")
             home = base / "home"
@@ -613,7 +613,7 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                 self.assertEqual(scheduler.state, AutoSyncState.IDLE)
 
     def test_step_handles_blocked_resources_and_sets_attention(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
             base = Path(tmp_dir)
             ws = _workspace(base / "ws")
             home = base / "home"
@@ -646,7 +646,7 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                 self.assertEqual(scheduler.state, AutoSyncState.ATTENTION_REQUIRED)
 
     def test_scheduler_deduplicates_blocked_logging(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
             base = Path(tmp_dir)
             ws = _workspace(base / "ws")
             home = base / "home"
