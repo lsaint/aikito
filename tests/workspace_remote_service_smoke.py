@@ -210,15 +210,26 @@ def run_smoke(base: Path) -> None:
         )
 
         # Verify text status includes synced note in Recent activity via --tail
-        res_stat_detail = run_cli(
-            ["remote", "status", "--mode", "process", "--tail", "5"],
-            workspace=ws_a,
-            home=home,
-        )
+        log_synced = False
+        deadline_log = time.monotonic() + 5.0
+        while time.monotonic() < deadline_log:
+            res_stat_detail = run_cli(
+                ["remote", "status", "--mode", "process", "--tail", "5"],
+                workspace=ws_a,
+                home=home,
+            )
+            if (
+                res_stat_detail.returncode == 0
+                and "smoke-idea.md" in res_stat_detail.stdout
+            ):
+                log_synced = True
+                break
+            time.sleep(0.5)
+
         assert res_stat_detail.returncode == 0
         assert "Log file:" in res_stat_detail.stdout
         assert "Recent activity:" in res_stat_detail.stdout
-        assert "smoke-idea.md" in res_stat_detail.stdout
+        assert log_synced, f"Recent activity log did not contain smoke-idea.md: {res_stat_detail.stdout}"
 
         # 8. Restart background service while running
         res_restart = run_cli(
