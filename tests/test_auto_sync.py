@@ -290,7 +290,7 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                 ws,
                 mock_remote,
                 home,
-                poll_interval=0.05,
+                poll_interval=0.01,
                 fallback_scan_interval=10.0,
             )
             step_calls = 0
@@ -309,9 +309,7 @@ class AutoSyncEndToEndTest(unittest.TestCase):
             t = threading.Thread(target=scheduler.run, daemon=True)
             t.start()
             try:
-                # Wait 0.3s: without fix, this would loop hundreds of thousands of times.
-                # With proper backoff, call count must be strictly bounded.
-                time.sleep(0.3)
+                time.sleep(0.08)
                 self.assertLessEqual(step_calls, 3)
             finally:
                 scheduler.stop()

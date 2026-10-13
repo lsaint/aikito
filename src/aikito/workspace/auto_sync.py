@@ -556,6 +556,7 @@ class LocalWatcher:
         self.debounce_delay = debounce_delay
         self.scan_interval = scan_interval
         self._running = False
+        self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._debounce_timer: threading.Timer | None = None
         self._lock = threading.Lock()
@@ -629,7 +630,8 @@ class LocalWatcher:
 
     def _polled_loop(self) -> None:
         while self._running:
-            time.sleep(self.scan_interval)
+            if self._stop_event.wait(self.scan_interval):
+                break
             if not self._running:
                 break
             current = self._scan_managed_mtimes()
@@ -641,6 +643,7 @@ class LocalWatcher:
         if self._running:
             return
         self._running = True
+        self._stop_event.clear()
         self._known_mtimes = self._scan_managed_mtimes()
         self._thread = threading.Thread(
             target=self._polled_loop,
@@ -651,6 +654,7 @@ class LocalWatcher:
 
     def stop(self) -> None:
         self._running = False
+        self._stop_event.set()
         with self._lock:
             if self._debounce_timer is not None:
                 self._debounce_timer.cancel()
@@ -1192,3 +1196,4 @@ class AutoSyncScheduler:
         """Signal the scheduler loop to terminate."""
         self._stopped = True
         self._wake_event.set()
+        self._watcher.stop()

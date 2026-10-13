@@ -226,7 +226,7 @@ class BaseServiceManager(abc.ABC):
         deadline = time.monotonic() + timeout
         running, pid = self.is_running()
         while not running and time.monotonic() < deadline:
-            time.sleep(0.15)
+            time.sleep(0.05)
             running, pid = self.is_running()
 
         if not running:

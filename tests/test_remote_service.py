@@ -567,7 +567,7 @@ def test_service_manager_start_timeout_raises_with_log(
     with patch.object(mgr, "start_service"):
         # Worker lock is never acquired, timeout should raise with log tail
         with pytest.raises(RuntimeError) as exc_info:
-            mgr.start(timeout=0.2)
+            mgr.start(timeout=0.06)
         err = str(exc_info.value)
         assert "Background auto-sync service failed to acquire worker lock" in err
         assert str(log_path) in err
