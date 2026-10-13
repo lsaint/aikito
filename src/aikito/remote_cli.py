@@ -437,7 +437,9 @@ def cmd_remote_restart(args: argparse.Namespace) -> None:
         )
         sys.exit(1)
 
-    print(f"[SUCCESS] Restarted background auto-sync service for workspace '{workspace}'")
+    print(
+        f"[SUCCESS] Restarted background auto-sync service for workspace '{workspace}'"
+    )
     print(f"  Service type: {res['manager_name']} ({res['service_name']})")
     status_msg = f"running (PID: {res['pid']})" if res.get("pid") else "started"
     print(f"  Status:       {status_msg}")
@@ -505,7 +507,10 @@ def _follow_log(log_path: Path) -> None:
                         try:
                             new_stat = log_path.stat()
                             reopened = False
-                            if current_inode is not None and new_stat.st_ino != current_inode:
+                            if (
+                                current_inode is not None
+                                and new_stat.st_ino != current_inode
+                            ):
                                 reopened = True
                             elif new_stat.st_size < f.tell():
                                 reopened = True
@@ -525,6 +530,7 @@ def _follow_log(log_path: Path) -> None:
                                 current_stat = os.fstat(f.fileno())
                                 current_inode = getattr(current_stat, "st_ino", None)
                                 current_mtime = getattr(current_stat, "st_mtime_ns", 0)
+                                continue
                         except OSError:
                             pass
         finally:

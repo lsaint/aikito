@@ -664,10 +664,13 @@ def test_get_aikito_command_resolution(
     monkeypatch.setattr("sys.argv", ["pytest"])
     from aikito.workspace import service as svc_mod
 
-    with patch(
-        "subprocess.Popen.communicate",
-        side_effect=subprocess.TimeoutExpired(cmd="aikito", timeout=0.01),
-    ) as mock_comm, patch("subprocess.Popen.kill") as mock_kill:
+    with (
+        patch(
+            "subprocess.Popen.communicate",
+            side_effect=subprocess.TimeoutExpired(cmd="aikito", timeout=0.01),
+        ) as mock_comm,
+        patch("subprocess.Popen.kill") as mock_kill,
+    ):
         assert svc_mod._is_matching_aikito_bin(hang_bin) is False
         mock_kill.assert_called_once()
         assert mock_comm.call_count == 2
@@ -1019,7 +1022,7 @@ def test_follow_log_handles_rotation(
                 with open(log_path, "r+", encoding="utf-8", errors="replace") as f:
                     f.truncate(0)
                     f.write("rotated line 2\n")
-        elif cycle >= 3:
+        elif cycle >= 5 or any("rotated line 2" in line for line in lines_emitted):
             raise KeyboardInterrupt
 
     monkeypatch.setattr(time, "sleep", fake_sleep)
