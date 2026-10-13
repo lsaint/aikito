@@ -9,6 +9,7 @@ import plistlib
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -801,6 +802,8 @@ def test_worker_log_rotation(fake_workspace: Path, fake_home: Path) -> None:
     backup_path = log_path.with_name(log_path.name + ".1")
     assert backup_path.exists()
     assert backup_path.read_text(encoding="utf-8") == "x" * 100
+    assert log_path.exists()
+    assert log_path.read_text(encoding="utf-8") == ""
 
 
 def test_restart_workspace_remote_service_lifecycle(
@@ -838,7 +841,7 @@ def test_restart_workspace_remote_service_lifecycle(
             return fake_workspace / "worker.log"
 
         def is_running(self) -> tuple[bool, int | None]:
-            return (True, 99999) if self.start_called else (False, None)
+            return (True, 99999) if self.start_called else (True, 12345)
 
         def is_installed(self) -> bool:
             return True
@@ -853,6 +856,8 @@ def test_restart_workspace_remote_service_lifecycle(
             self.stop_called = True
 
         def start(self, timeout: float = 5.0) -> None:
+            if not self.is_installed() or self.is_stale():
+                self.install()
             self.start_called = True
 
     mgr = MockManager()
@@ -906,3 +911,111 @@ def test_cmd_remote_restart_cli(
         assert "[SUCCESS] Restarted background auto-sync service" in out
         assert "PID: 2222" in out
         assert "/path/to/worker.log" in out
+
+
+def test_cmd_remote_status_negative_tail(
+    fake_workspace: Path,
+) -> None:
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            ["remote", "status", "--workspace", str(fake_workspace), "--tail", "-1"]
+        )
+
+
+def test_cmd_remote_status_json_follow_conflict(
+    fake_workspace: Path, fake_home: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from aikito.remote_cli import cmd_remote_status
+
+    parser = build_parser()
+    args = parser.parse_args(
+        ["remote", "status", "--workspace", str(fake_workspace), "--json", "-f"]
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        cmd_remote_status(args)
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "[ERROR] Cannot combine --json with --follow (-f)." in captured.err
+
+
+def test_cmd_remote_watch_logger_emits_info_without_verbose(
+    fake_workspace: Path,
+    fake_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from aikito.remote_cli import cmd_remote_watch
+    from aikito.workspace.remote_binding import (
+        RemoteAuth,
+        RemoteBinding,
+        save_remote_binding,
+    )
+
+    binding = RemoteBinding(
+        version=1,
+        endpoint="https://example.com/sync",
+        sync_id="a" * 32,
+        auth=RemoteAuth("bearer_env", "TEST_TOKEN"),
+    )
+    save_remote_binding(fake_workspace, binding, home=fake_home)
+
+    def mock_watch(*args: Any, **kwargs: Any) -> None:
+        logger = kwargs.get("logger")
+        if logger:
+            logger("[INFO] Connection restored")
+            logger("[SYNC] (rev 1) pull note.md")
+            logger("[WARN] Connection unavailable, retrying in 5s: error")
+            logger("[INFO] All previously blocked resources have been cleared")
+            logger("unrecognized debug message")
+
+    monkeypatch.setattr("aikito.remote_cli.watch_workspace_remote", mock_watch)
+
+    parser = build_parser()
+    args = parser.parse_args(["remote", "watch", "--workspace", str(fake_workspace)])
+    cmd_remote_watch(args)
+    captured = capsys.readouterr()
+    assert "[INFO] Connection restored" in captured.out
+    assert "[SYNC] (rev 1) pull note.md" in captured.out
+    assert "[WARN] Connection unavailable, retrying in 5s: error" in captured.out
+    assert "[INFO] All previously blocked resources have been cleared" in captured.out
+    assert "unrecognized debug message" not in captured.out
+
+
+def test_follow_log_handles_rotation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sys
+    import time
+
+    from aikito.remote_cli import _follow_log
+
+    log_path = tmp_path / "worker.log"
+    log_path.write_text("initial line 1\n", encoding="utf-8")
+
+    lines_emitted = []
+
+    def fake_write(s: str) -> int:
+        lines_emitted.append(s)
+        return len(s)
+
+    monkeypatch.setattr(sys.stdout, "write", fake_write)
+    monkeypatch.setattr(sys.stdout, "flush", lambda: None)
+
+    cycle = 0
+
+    def fake_sleep(duration: float) -> None:
+        nonlocal cycle
+        cycle += 1
+        if cycle == 1:
+            rotated = log_path.with_name(log_path.name + ".1")
+            log_path.rename(rotated)
+            log_path.write_text("rotated line 2\n", encoding="utf-8")
+        elif cycle >= 3:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(time, "sleep", fake_sleep)
+
+    _follow_log(log_path)
+    output_str = "".join(lines_emitted)
+    assert "rotated line 2" in output_str

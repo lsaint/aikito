@@ -95,7 +95,7 @@ def _atomic_write_bytes(dest: Path, data: bytes) -> None:
                 pass
 
 
-def get_installed_aikito_version(workspace: Path | None = None) -> str | None:
+def get_installed_aikito_version() -> str | None:
     """Detect the version of Aikito currently installed on the system."""
     candidates: list[list[str]] = []
     aikito_bin = shutil.which("aikito")
@@ -113,7 +113,7 @@ def get_installed_aikito_version(workspace: Path | None = None) -> str | None:
                 [*cmd, "--version"],
                 capture_output=True,
                 text=True,
-                timeout=3.0,
+                timeout=1.0,
             )
             if res.returncode == 0:
                 for token in res.stdout.split():
@@ -127,7 +127,6 @@ def get_installed_aikito_version(workspace: Path | None = None) -> str | None:
 
 def check_installed_version_differs(
     current_version: str | None = None,
-    workspace: Path | None = None,
 ) -> str | None:
     """Check if the installed Aikito version differs from the current running version.
 
@@ -138,7 +137,7 @@ def check_installed_version_differs(
 
         current_version = __version__
 
-    installed = get_installed_aikito_version(workspace)
+    installed = get_installed_aikito_version()
     if installed and installed != current_version:
         return installed
     return None
@@ -676,6 +675,7 @@ class AutoSyncScheduler:
         scan_interval: float = 1.0,
         fallback_scan_interval: float = 30.0,
         version_check_interval: float = 60.0,
+        verbose: bool = False,
         on_status_change: Callable[[AutoSyncState, str | None], None] | None = None,
         logger: Callable[[str], None] | None = None,
     ) -> None:
@@ -688,6 +688,7 @@ class AutoSyncScheduler:
         self.scan_interval = scan_interval
         self.fallback_scan_interval = fallback_scan_interval
         self.version_check_interval = version_check_interval
+        self.verbose = verbose
         self.on_status_change = on_status_change
         self.logger = logger or (lambda msg: None)
 
@@ -699,6 +700,8 @@ class AutoSyncScheduler:
         self._stopped = False
         self._reexec_requested = False
         self._reexec_target_version: str | None = None
+        self._reexec_cmd: list[str] | None = None
+        self._failed_reexec_versions: set[str] = set()
         self._connection_unavailable = False
 
         self._status: dict[str, Any] = {
@@ -746,10 +749,22 @@ class AutoSyncScheduler:
             return
         try:
             if log_path.stat().st_size >= max_bytes:
+                sys.stdout.flush()
+                sys.stderr.flush()
                 backup = log_path.with_name(log_path.name + ".1")
-                if backup.exists():
-                    backup.unlink()
-                log_path.rename(backup)
+                try:
+                    shutil.copyfile(log_path, backup)
+                except Exception:
+                    pass
+                try:
+                    with open(log_path, "r+", encoding="utf-8", errors="replace") as f:
+                        f.truncate(0)
+                except Exception:
+                    try:
+                        with open(log_path, "w", encoding="utf-8") as f:
+                            pass
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -981,17 +996,28 @@ class AutoSyncScheduler:
                         now = time.monotonic()
                         if now - last_version_check >= self.version_check_interval:
                             last_version_check = now
-                            new_version = check_installed_version_differs(
-                                workspace=self.workspace
-                            )
-                            if new_version:
-                                self.logger(
-                                    f"[INFO] Detected updated Aikito version ({new_version}); reloading worker..."
+                            new_version = check_installed_version_differs()
+                            if (
+                                new_version
+                                and new_version not in self._failed_reexec_versions
+                            ):
+                                candidate_cmd = self._resolve_reexec_command(
+                                    new_version
                                 )
-                                self._reexec_requested = True
-                                self._reexec_target_version = new_version
-                                self.stop()
-                                break
+                                if candidate_cmd is not None:
+                                    self.logger(
+                                        f"[INFO] Detected updated Aikito version {new_version}; reloading worker..."
+                                    )
+                                    self._reexec_requested = True
+                                    self._reexec_cmd = candidate_cmd
+                                    self._reexec_target_version = new_version
+                                    self.stop()
+                                    break
+                                else:
+                                    self._failed_reexec_versions.add(new_version)
+                                    self.logger(
+                                        f"[WARN] Detected updated version {new_version} but candidate executable is invalid; skipping reload"
+                                    )
 
                     if self.state in (
                         AutoSyncState.RETRY_WAIT,
@@ -1097,37 +1123,61 @@ class AutoSyncScheduler:
                 self._set_state(AutoSyncState.STOPPED)
                 self.logger("[INFO] Auto-sync worker stopped")
 
-        if self._reexec_requested:
-            self._do_reexec()
+        if self._reexec_requested and self._reexec_cmd:
+            self._do_reexec(self._reexec_cmd)
 
-    def _do_reexec(self) -> None:
+    def _resolve_reexec_command(self, target_version: str) -> list[str] | None:
+        """Resolve and verify an executable command matching the target version."""
+        from .service import get_aikito_command, is_matching_aikito_command
+
+        cmd = get_aikito_command(self.workspace, target_version=target_version)
+        if not cmd:
+            return None
+
+        # Check if the resolved executable command actually matches target_version
+        cmd_prefix = (
+            [cmd[0], "-m", "aikito"]
+            if len(cmd) >= 3 and cmd[1:3] == ["-m", "aikito"]
+            else [cmd[0]]
+        )
+        if not is_matching_aikito_command(
+            cmd_prefix, target_version=target_version
+        ):
+            return None
+
+        full_cmd = list(cmd)
+        if self.poll_interval != 5.0:
+            full_cmd.extend(["--poll-interval", str(self.poll_interval)])
+        if self.debounce_delay != 0.5:
+            full_cmd.extend(["--debounce-ms", str(int(self.debounce_delay * 1000))])
+        if self.version_check_interval != 60.0:
+            full_cmd.extend(
+                ["--version-check-interval", str(self.version_check_interval)]
+            )
+        if self.verbose:
+            full_cmd.append("--verbose")
+
+        return full_cmd
+
+    def _do_reexec(self, cmd: list[str]) -> None:
         """Replace the current worker process with an updated Aikito process."""
         self.logger(f"[INFO] Reloading worker process for {self.workspace}...")
         try:
-            from .service import get_aikito_command
-
-            cmd = get_aikito_command(
-                self.workspace,
-                target_version=self._reexec_target_version,
-            )
-            if self.poll_interval != 5.0:
-                cmd.extend(["--poll-interval", str(self.poll_interval)])
-            if self.debounce_delay != 0.5:
-                cmd.extend(["--debounce-ms", str(int(self.debounce_delay * 1000))])
-            if self.version_check_interval != 60.0:
-                cmd.extend(
-                    ["--version-check-interval", str(self.version_check_interval)]
-                )
-
             sys.stdout.flush()
             sys.stderr.flush()
 
             if is_windows():
+                from .resource_state import WORKER_LOG_STATE, state_path
+
+                log_path = state_path(self.workspace, WORKER_LOG_STATE, create=True)
+                log_file = open(log_path, "a", encoding="utf-8")
                 detached_flags = getattr(
                     subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200
                 ) | getattr(subprocess, "DETACHED_PROCESS", 0x8)
                 subprocess.Popen(
                     cmd,
+                    stdout=log_file,
+                    stderr=log_file,
                     cwd=str(self.workspace),
                     creationflags=detached_flags,
                 )

@@ -36,6 +36,17 @@ def resolve_color_flags(args: argparse.Namespace) -> tuple[bool, bool]:
     return use_unicode, use_color
 
 
+def _non_negative_int(value: str) -> int:
+    """Validate that integer argument is non-negative (>= 0)."""
+    try:
+        val = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid integer value: '{value}'")
+    if val < 0:
+        raise argparse.ArgumentTypeError(f"line count must be >= 0, got {val}")
+    return val
+
+
 class AikitoSubParsersAction(argparse._SubParsersAction):
     """Subparsers action that falls back to 'help' for subparser description."""
 
@@ -929,7 +940,7 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     p_remote_status.add_argument(
         "--json",
         action="store_true",
-        help="Output status report in JSON format",
+        help="Output status report in JSON format (incompatible with --follow)",
     )
     p_remote_status.add_argument(
         "--mode",
@@ -941,7 +952,7 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         "--tail",
         nargs="?",
         const=10,
-        type=int,
+        type=_non_negative_int,
         default=5,
         help="Number of recent log lines to display (default: 5, or 10 if specified without count)",
     )
@@ -949,7 +960,7 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         "-f",
         "--follow",
         action="store_true",
-        help="Continuously follow live worker log lines (press Ctrl+C to exit)",
+        help="Continuously follow live worker log lines (press Ctrl+C to exit; incompatible with --json)",
     )
     add_color_args(p_remote_status)
     p_remote_status.set_defaults(func=cmd_remote_status)

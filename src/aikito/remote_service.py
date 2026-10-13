@@ -78,6 +78,7 @@ def watch_workspace_remote(
     poll_interval: float = 5.0,
     debounce_delay: float = 0.5,
     version_check_interval: float = 60.0,
+    verbose: bool = False,
     once: bool = False,
     logger: Callable[[str], None] | None = None,
 ) -> None:
@@ -102,6 +103,7 @@ def watch_workspace_remote(
         poll_interval=poll_interval,
         debounce_delay=debounce_delay,
         version_check_interval=version_check_interval,
+        verbose=verbose,
         logger=logger,
     )
     scheduler.run(once=once)
@@ -154,11 +156,8 @@ def restart_workspace_remote_service(
 
     manager = get_service_manager(workspace, home=home, mode=mode)
     was_running, old_pid = manager.is_running()
-    if was_running or manager.is_installed():
+    if was_running:
         manager.stop(timeout=35.0)
-
-    if not manager.is_installed() or manager.is_stale():
-        manager.install()
 
     manager.start(timeout=5.0)
     running, pid = manager.is_running()

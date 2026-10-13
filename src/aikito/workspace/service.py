@@ -34,29 +34,33 @@ def get_workspace_slug(workspace: Path) -> str:
     return f"{name_clean}-{digest}"
 
 
-def _is_matching_aikito_bin(
-    bin_path: Path | str, target_version: str | None = None
+def is_matching_aikito_command(
+    cmd: list[str] | str | Path,
+    target_version: str | None = None,
 ) -> bool:
-    """Check if binary path exists, has aikito name, and matches package version."""
+    """Check if command arguments or binary execute and match target version."""
     try:
-        p = Path(bin_path)
-        if not p.is_file():
+        cmd_list = [str(cmd)] if isinstance(cmd, (str, Path)) else list(cmd)
+        if not cmd_list:
             return False
-        if p.name.lower() not in ("aikito", "aikito.exe", "aikito.cmd", "aikito.bat"):
+
+        bin_path = Path(cmd_list[0])
+        if not bin_path.exists() and shutil.which(cmd_list[0]) is None:
             return False
+
         if target_version is None:
             from .. import __version__
 
             target_version = __version__
 
         proc = subprocess.Popen(
-            [str(p), "--version"],
+            [*cmd_list, "--version"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
         )
         try:
-            stdout, _ = proc.communicate(timeout=2.0)
+            stdout, _ = proc.communicate(timeout=1.0)
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.communicate()
@@ -75,6 +79,21 @@ def _is_matching_aikito_bin(
     except Exception:
         pass
     return False
+
+
+def _is_matching_aikito_bin(
+    bin_path: Path | str, target_version: str | None = None
+) -> bool:
+    """Check if binary path exists, has aikito name, and matches package version."""
+    try:
+        p = Path(bin_path)
+        if not p.is_file():
+            return False
+        if p.name.lower() not in ("aikito", "aikito.exe", "aikito.cmd", "aikito.bat"):
+            return False
+        return is_matching_aikito_command([str(p)], target_version=target_version)
+    except Exception:
+        return False
 
 
 def get_aikito_command(
@@ -116,7 +135,7 @@ def get_aikito_command(
 
 def tail_log(log_path: Path, max_lines: int = 15) -> str:
     """Read last N non-empty lines from worker log file."""
-    if not log_path.exists():
+    if max_lines <= 0 or not log_path.exists():
         return ""
     try:
         content = log_path.read_text(encoding="utf-8", errors="replace")

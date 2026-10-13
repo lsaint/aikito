@@ -6,6 +6,7 @@ import argparse
 import getpass
 import io
 import json
+import os
 import ssl
 import sys
 import time
@@ -196,14 +197,14 @@ def render_remote_status(
     if log_path_str:
         log_path = Path(log_path_str)
         lines.extend(["", f"Log file: {log_path}"])
-        if tail_lines is None or tail_lines > 0:
+        if tail_lines is not None and tail_lines > 0:
             act_header = (
                 "Recent activity (following live logs, press Ctrl+C to exit):"
                 if following
                 else "Recent activity:"
             )
             lines.append(act_header)
-            recent = tail_log(log_path, max_lines=tail_lines or 5)
+            recent = tail_log(log_path, max_lines=tail_lines)
             if recent:
                 for rline in recent.splitlines():
                     lines.append(f"  {rline}")
@@ -323,7 +324,7 @@ def cmd_remote_watch(args: argparse.Namespace) -> None:
             or msg.startswith("[SYNC]")
             or msg.startswith("[BLOCKED]")
             or msg.startswith("[WARN]")
-            or msg.startswith("  •")
+            or msg.startswith("[INFO]")
         ):
             if msg.startswith("["):
                 ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -338,6 +339,7 @@ def cmd_remote_watch(args: argparse.Namespace) -> None:
             poll_interval=poll_interval,
             debounce_delay=debounce_delay,
             version_check_interval=version_check_interval,
+            verbose=verbose,
             once=once,
             logger=log,
         )
@@ -485,8 +487,12 @@ def _follow_log(log_path: Path) -> None:
             while not log_path.exists():
                 time.sleep(0.5)
 
-        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+        f = open(log_path, "r", encoding="utf-8", errors="replace")
+        try:
             f.seek(0, io.SEEK_END)
+            current_stat = os.fstat(f.fileno())
+            current_inode = getattr(current_stat, "st_ino", None)
+
             while True:
                 line = f.readline()
                 if line:
@@ -494,6 +500,23 @@ def _follow_log(log_path: Path) -> None:
                     sys.stdout.flush()
                 else:
                     time.sleep(0.25)
+                    if log_path.exists():
+                        try:
+                            new_stat = log_path.stat()
+                            if (
+                                current_inode is not None
+                                and new_stat.st_ino != current_inode
+                            ) or (new_stat.st_size < f.tell()):
+                                f.close()
+                                f = open(
+                                    log_path, "r", encoding="utf-8", errors="replace"
+                                )
+                                current_stat = os.fstat(f.fileno())
+                                current_inode = getattr(current_stat, "st_ino", None)
+                        except OSError:
+                            pass
+        finally:
+            f.close()
     except KeyboardInterrupt:
         pass
 
@@ -511,15 +534,18 @@ def cmd_remote_status(args: argparse.Namespace) -> None:
 
     mode = getattr(args, "mode", "auto")
     as_json = getattr(args, "json", False)
+    follow = getattr(args, "follow", False)
+    tail_lines = getattr(args, "tail", 5)
+
+    if as_json and follow:
+        print("[ERROR] Cannot combine --json with --follow (-f).", file=sys.stderr)
+        sys.exit(1)
 
     status = get_workspace_remote_status(workspace, home=home, mode=mode)
 
     if as_json:
         print(json.dumps(status, indent=2, sort_keys=True))
         return
-
-    tail_lines = getattr(args, "tail", 5)
-    follow = getattr(args, "follow", False)
 
     print(render_remote_status(status, tail_lines=tail_lines, following=follow))
 
