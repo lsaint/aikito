@@ -1022,6 +1022,12 @@ def test_follow_log_handles_rotation(
                 with open(log_path, "r+", encoding="utf-8", errors="replace") as f:
                     f.truncate(0)
                     f.write("rotated line 2\n")
+            # Ensure mtime advances distinctly even when time.sleep is mocked on fast runners (Windows/NTFS)
+            try:
+                cur_mtime = log_path.stat().st_mtime
+                os.utime(log_path, (cur_mtime + 5, cur_mtime + 5))
+            except OSError:
+                pass
         elif cycle >= 5 or any("rotated line 2" in line for line in lines_emitted):
             raise KeyboardInterrupt
 
