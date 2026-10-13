@@ -53,7 +53,7 @@ jobs:
           enable-cache: true
 
       - name: Install test dependencies
-        run: uv pip install --system pytest
+        run: uv pip install --system pytest pytest-xdist
 
       - name: Run unit tests
         run: python -m pytest
