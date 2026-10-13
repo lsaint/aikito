@@ -492,6 +492,7 @@ def _follow_log(log_path: Path) -> None:
             f.seek(0, io.SEEK_END)
             current_stat = os.fstat(f.fileno())
             current_inode = getattr(current_stat, "st_ino", None)
+            current_mtime = getattr(current_stat, "st_mtime_ns", 0)
 
             while True:
                 line = f.readline()
@@ -503,16 +504,27 @@ def _follow_log(log_path: Path) -> None:
                     if log_path.exists():
                         try:
                             new_stat = log_path.stat()
-                            if (
-                                current_inode is not None
-                                and new_stat.st_ino != current_inode
-                            ) or (new_stat.st_size < f.tell()):
+                            reopened = False
+                            if current_inode is not None and new_stat.st_ino != current_inode:
+                                reopened = True
+                            elif new_stat.st_size < f.tell():
+                                reopened = True
+                            elif (
+                                new_stat.st_size == f.tell()
+                                and getattr(new_stat, "st_mtime_ns", 0) > current_mtime
+                            ):
+                                # On Windows with copytruncate rotation, file may be rewritten
+                                # with new content of similar length; rewind to catch new lines.
+                                reopened = True
+
+                            if reopened:
                                 f.close()
                                 f = open(
                                     log_path, "r", encoding="utf-8", errors="replace"
                                 )
                                 current_stat = os.fstat(f.fileno())
                                 current_inode = getattr(current_stat, "st_ino", None)
+                                current_mtime = getattr(current_stat, "st_mtime_ns", 0)
                         except OSError:
                             pass
         finally:
