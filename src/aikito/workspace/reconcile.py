@@ -9,10 +9,12 @@ durable request and receipt confirm uploaded Base before the next plan.
 from __future__ import annotations
 
 import hashlib
+import os
 import tempfile
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ..config import get_inbox_path
@@ -22,6 +24,7 @@ from . import remote_limits
 from .commit_recovery import recover_pending
 from .merge import compare
 from .payload import (
+    FilePayload,
     PayloadError,
     ResourceDescriptor,
     ResourcePayload,
@@ -56,6 +59,7 @@ from .resource_state import (
     LOCAL_CONFIG,
     PENDING_COMMIT_STATE,
     REPLICA_STATE,
+    SYNC_CONFLICTS_DIR,
     SYNC_KINDS,
     local_resource_for_id,
     state_path,
@@ -811,6 +815,65 @@ def recover_reconciliation(local: Path, remote: RemoteStore, home: Path) -> bool
         raise WorkspaceReconcileError(str(exc)) from exc
 
 
+def _archive_overwritten_remote(
+    plan: ReconcilePlan, remote: RemoteStore, *, timestamp: str
+) -> None:
+    """Keep every remote version that a local UPDATE is about to replace.
+
+    Base equality does not prove the content survives elsewhere: a stale local
+    save can remove the only local copy before the overwrite. Copy the remote
+    version to .local/sync-conflicts before the commit. Failure aborts the round.
+    """
+    overwritten = tuple(
+        item.id
+        for item in plan.changes
+        if item.target == "remote"
+        and item.action == "UPDATE"
+        and item.id in plan.remote_snapshot.resources
+    )
+    if not overwritten:
+        return
+    payloads = remote.fetch(plan.remote_snapshot, list(overwritten))
+    archive_root = plan.local / SYNC_CONFLICTS_DIR / timestamp
+    for identity in overwritten:
+        payload = payloads.get(identity)
+        if payload is None:
+            raise WorkspaceReconcileError(
+                f"Cannot archive overwritten remote version: {identity}"
+            )
+        dest = archive_root / _archive_relative_path(identity)
+        if isinstance(payload, FilePayload):
+            _write_archive_bytes(dest, payload.data)
+        elif isinstance(payload, TreePayload):
+            for entry in payload.entries:
+                _write_archive_bytes(dest / entry.path, entry.data)
+        elif isinstance(payload, TomlPayload):
+            _write_archive_bytes(dest, payload.text.encode("utf-8"))
+        else:
+            raise WorkspaceReconcileError(f"Unsupported archive payload for {identity}")
+
+
+def _archive_relative_path(identity: str) -> Path:
+    try:
+        canonical = local_resource_for_id(identity, "0" * 64)
+    except WorkspaceCoreError:
+        return Path(identity.replace(":", "/"))
+    if canonical.parts:
+        return Path(canonical.parts[0].path)
+    return Path(identity.replace(":", "/"))
+
+
+def _write_archive_bytes(dest: Path, data: bytes) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = dest.parent / f".tmp-{dest.name}-{uuid.uuid4().hex}"
+    try:
+        tmp_path.write_bytes(data)
+        os.replace(tmp_path, dest)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+
 def apply_reconcile_plan(
     plan: ReconcilePlan, home: Path, *, remote: RemoteStore
 ) -> None:
@@ -893,6 +956,12 @@ def apply_reconcile_plan(
                 pending = result = None
                 replica_id = plan.state.replica_id if plan.state else uuid.uuid4().hex
                 if mutations:
+                    # Archive before the commit: a failure here must abort the round.
+                    _archive_overwritten_remote(
+                        plan,
+                        remote,
+                        timestamp=datetime.now(UTC).strftime("%Y%m%d-%H%M%S"),
+                    )
                     safe = tuple(
                         item.id
                         for item in plan.items
