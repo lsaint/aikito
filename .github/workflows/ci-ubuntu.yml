@@ -289,6 +289,12 @@ jobs:
           test -f "$BINDING/checked.txt"
           test ! -e "$BINDING/local/.local/state/aikito/workspace-reconcile/pending.json"
           ! grep -Fq 'binding-smoke-secret' "$BINDING/local/.local/state/aikito/workspace-reconcile/binding.json"
+          REMOTE_FORMAT_SMOKE=${{ runner.temp }}/remote-format-smoke
+          python3 tests/workspace_remote_format_smoke.py "$REMOTE_FORMAT_SMOKE"
+          test -f "$REMOTE_FORMAT_SMOKE/checked.txt"
+          test -f "$REMOTE_FORMAT_SMOKE/encrypted-v1/local/memory/notes/retained.md"
+          test ! -e "$REMOTE_FORMAT_SMOKE/encrypted-v1/fresh/.local/state/aikito/workspace-reconcile/binding.json"
+          test ! -e "$REMOTE_FORMAT_SMOKE/future/fresh/.local/state/aikito/workspace-reconcile/binding.json"
           REMOTE_CLI_SMOKE=${{ runner.temp }}/remote-cli-smoke
           python3 tests/workspace_remote_cli_smoke.py "$REMOTE_CLI_SMOKE"
           test -f "$REMOTE_CLI_SMOKE/ws_a/.local/state/aikito/workspace-reconcile/binding.json"

@@ -615,3 +615,15 @@ smokes exercise remote and local crash recovery, receipt persistence, and encodi
 reload on all three OS workflows. `workspace_revision_smoke.py` also verifies that
 legacy batch calls and bare snapshots are refused and NOOP preserves revision; its
 `contract-cleanup.json` artifact is asserted by each workflow.
+
+## Unsupported encrypted resource formats
+
+The plaintext client rejects snapshots containing `format:encrypted-v1` or
+resource IDs starting with `e1:` using the local `encrypted_store_unsupported`
+error. The guard runs before logical resource decoding, binding persistence,
+or replay of an unaccepted pending request. It does not fetch unsupported
+headers or modify the Remote Protocol or content-blind storage validation.
+A receipt resolved while the store remains supported can finish without an
+additional snapshot read. Locally completed pending requests can still be
+cleaned up offline. This guard does not implement encrypted resources,
+key recovery, or migration.

@@ -26,11 +26,12 @@ from .remote_binding import (
     validate_binding_endpoint,
 )
 from .remote_credentials import resolve_credential
+from .remote_format import require_plaintext_snapshot
 from .remote_store import (
     CommitRequest,
     CommitResult,
-    RemoteSnapshot,
     RecoveryRequired,
+    RemoteSnapshot,
     RemoteStore,
     StoreIdentityMismatch,
 )
@@ -74,6 +75,7 @@ class BoundRemote:
         self._verified = False
         snapshot = self._remote.read()
         self._check_identity(snapshot.sync_id)
+        require_plaintext_snapshot(snapshot)
         self._verified = True
         return snapshot
 
@@ -82,11 +84,13 @@ class BoundRemote:
     ) -> Mapping[str, ResourcePayload]:
         self._verify()
         self._check_identity(expected.sync_id)
+        require_plaintext_snapshot(expected)
         return self._remote.fetch(expected, ids)
 
     def commit(self, request: CommitRequest) -> CommitResult:
         self._verify()
         self._check_identity(request.expected.sync_id)
+        require_plaintext_snapshot(request.expected)
         result = self._remote.commit(request)
         self._check_identity(result.sync_id)
         return result
@@ -157,6 +161,7 @@ def bind_remote(
         if load_remote_binding(workspace) is not None:
             raise RemoteBindingExists("Remote binding already exists")
         snapshot = remote.read()
+        require_plaintext_snapshot(snapshot)
         binding = RemoteBinding(1, endpoint, snapshot.sync_id, auth)
         save_remote_binding(workspace, binding, home=home)
         return binding

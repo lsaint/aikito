@@ -19,6 +19,22 @@ from ..config import get_inbox_path
 from ..init import is_recognized_workspace
 from ..skill_state import WorkspaceWriterLock
 from . import remote_limits
+from .commit_recovery import recover_pending
+from .merge import compare
+from .payload import (
+    PayloadError,
+    ResourceDescriptor,
+    ResourcePayload,
+    TomlPayload,
+    TreePayload,
+    credential_payload,
+    encode_payload,
+    payload_hash,
+    tree_mode_fingerprint,
+    validate_payload,
+)
+from .payload_io import capture_mutations, capture_resources, prepare_payload_writes
+from .pending_commit import PendingCommitStore
 from .reconcile_budget import (
     CHANGES,
     check_manifest,
@@ -27,25 +43,25 @@ from .reconcile_budget import (
     operation_dependencies,
     select_round,
 )
+from .remote_format import require_plaintext_snapshot
 from .remote_protocol import encode_commit_request as encode_protocol_commit_request
-from .transactions import (
-    StateUpdate,
-    WorkspaceCoreError,
-    apply,
-    entry_type,
-    has_pending,
-    recover,
-    validate_resource_path,
+from .remote_store import RemoteSnapshot, RemoteStore, SnapshotExpired, StoreError
+from .remote_wire import (
+    build_commit_request,
+    committed_snapshot,
+    validate_commit_result,
 )
-from .merge import compare
+from .replica_state import ReplicaState, load_replica_state
+from .resource_state import (
+    LOCAL_CONFIG,
+    PENDING_COMMIT_STATE,
+    REPLICA_STATE,
+    SYNC_KINDS,
+    local_resource_for_id,
+    state_path,
+)
 from .resource_state import (
     REPLICA_POLICY as RECONCILE_POLICY,
-    REPLICA_STATE,
-    PENDING_COMMIT_STATE,
-    SYNC_KINDS,
-    LOCAL_CONFIG,
-    state_path,
-    local_resource_for_id,
 )
 from .resource_write import (
     ResourceContent,
@@ -57,34 +73,21 @@ from .resource_write import (
 )
 from .resources import (
     Resource,
-    WorkspaceSnapshot,
     WorkspaceResourceError,
+    WorkspaceSnapshot,
     physical_kind,
     snapshot_workspace,
 )
-from .remote_store import RemoteStore, RemoteSnapshot, SnapshotExpired, StoreError
-from .remote_wire import (
-    build_commit_request,
-    committed_snapshot,
-    validate_commit_result,
-)
-from .pending_commit import PendingCommitStore
-from .commit_recovery import recover_pending
-from .payload import (
-    ResourceDescriptor,
-    ResourcePayload,
-    TreePayload,
-    tree_mode_fingerprint,
-    TomlPayload,
-    PayloadError,
-    credential_payload,
-    encode_payload,
-    payload_hash,
-    validate_payload,
-)
-from .payload_io import capture_mutations, capture_resources, prepare_payload_writes
-from .replica_state import ReplicaState, load_replica_state
 from .templates import template_fingerprints
+from .transactions import (
+    StateUpdate,
+    WorkspaceCoreError,
+    apply,
+    entry_type,
+    has_pending,
+    recover,
+    validate_resource_path,
+)
 
 
 class WorkspaceReconcileError(WorkspaceCoreError):
@@ -472,7 +475,7 @@ def _resolve_items(
     its own choice. All inferred changes go through ordinary safety checks.
     """
     items = {item.id: item for item in proposed}
-    pending = list(sorted(choices.items()))
+    pending = sorted(choices.items())
     for identity, side in pending:
         items[identity] = _select_version(identity, side, local, remote)
     visited = set()
@@ -574,6 +577,7 @@ def build_reconcile_plan(
         if has_pending((local,), policy=RECONCILE_POLICY):
             raise WorkspaceReconcileError("Pending round needs recovery before preview")
         center = remote.read()
+        require_plaintext_snapshot(center)
         state, state_text = _read_state(local, center)
         snapshot = snapshot_workspace(local)
         check_manifest(center)

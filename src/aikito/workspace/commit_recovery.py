@@ -9,6 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from .pending_commit import PendingCommitStore
+from .remote_format import require_plaintext_snapshot
 from .remote_store import RecoveryRequired, RemoteStore, SnapshotExpired
 from .remote_wire import validate_commit_result
 from .replica_state import load_replica_state
@@ -25,6 +26,7 @@ def recover_pending(local: Path, remote: RemoteStore, home: Path) -> bool:
         store.clear(pending)
         return True
     request = pending.request
+    require_plaintext_snapshot(request.expected)
     args = (
         request.expected.sync_id,
         request.client_id,
@@ -37,6 +39,9 @@ def recover_pending(local: Path, remote: RemoteStore, home: Path) -> bool:
         remote.recover()
         result = remote.resolve_commit(*args)
     if result is None:
+        # Accepted receipts need no extra read. Unaccepted requests must not
+        # be replayed into a store that changed its resource format.
+        require_plaintext_snapshot(remote.read())
         try:
             result = remote.commit(request)
         except SnapshotExpired as exc:
