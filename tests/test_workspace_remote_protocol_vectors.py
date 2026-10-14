@@ -20,7 +20,9 @@ def test_vectors_match_regeneration():
             if path.name == "manifest.json"
             else path.read_bytes()
         )
+        # The encrypted resource fixture has separate Python and external consumers.
         for path in DEFAULT_DIRECTORY.iterdir()
+        if path.name != "encrypted-v1.json"
     } == generate_vectors()
 
 

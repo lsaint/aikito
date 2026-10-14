@@ -81,6 +81,7 @@ def _get_handlers(handlers: dict[str, Any] | None = None) -> dict[str, Any]:
     if handlers is not None:
         return handlers
     from . import cli
+    from .remote_key_cli import cmd_remote_key
     from .remote_cli import (
         cmd_remote_bind,
         cmd_remote_credential,
@@ -139,6 +140,7 @@ def _get_handlers(handlers: dict[str, Any] | None = None) -> dict[str, Any]:
             "cmd_web",
         )
     }
+    resolved["cmd_remote_key"] = cmd_remote_key
     resolved["cmd_remote_bind"] = cmd_remote_bind
     resolved["cmd_remote_credential"] = cmd_remote_credential
     resolved["cmd_remote_restart"] = cmd_remote_restart
@@ -184,6 +186,7 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     cmd_remote_stop = h["cmd_remote_stop"]
     cmd_remote_sync = h["cmd_remote_sync"]
     cmd_remote_watch = h["cmd_remote_watch"]
+    cmd_remote_key = h["cmd_remote_key"]
     cmd_rename_memory = h["cmd_rename_memory"]
     cmd_rm_inbox = h["cmd_rm_inbox"]
     cmd_rm_mcp = h["cmd_rm_mcp"]
@@ -964,6 +967,20 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     )
     add_color_args(p_remote_status)
     p_remote_status.set_defaults(func=cmd_remote_status)
+
+    # Local device key recovery never changes the bound store or its format.
+    p_remote_key = remote_subparsers.add_parser("key", help="Manage local encrypted-remote device keys")
+    key_subparsers = p_remote_key.add_subparsers(dest="key_action", required=True)
+    p_key_path = key_subparsers.add_parser("path", help="Display the device key storage path without reading keys")
+    p_key_path.add_argument("--vault-id", help="Display the path for a public vault identity")
+    p_key_path.add_argument("--workspace", help="Workspace whose boundary must be preserved")
+    p_key_path.set_defaults(func=cmd_remote_key)
+    p_key_recover = key_subparsers.add_parser("recover", help="Recover a device key from a canonical recovery header")
+    p_key_recover.add_argument("--header", required=True, help="File containing the public canonical recovery header")
+    p_key_recover.add_argument("--sync-id", required=True, help="Expected remote store protocol identity")
+    p_key_recover.add_argument("--workspace", required=True, help="Initialized local workspace; keys are stored outside it")
+    p_key_recover.add_argument("--recovery-fd", type=int, help="Read the recovery code from this descriptor instead of a secure terminal")
+    p_key_recover.set_defaults(func=cmd_remote_key)
 
     # remote credential {set,list,path}
     p_remote_cred = remote_subparsers.add_parser(

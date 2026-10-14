@@ -12,6 +12,9 @@ requires-python = ">=3.12"
 authors = [{ name = "lsaint" }]
 dependencies = []
 
+[project.optional-dependencies]
+encrypted = ["cryptography>=46"]
+
 [project.urls]
 Homepage = "https://github.com/lsaint/aikito"
 Repository = "https://github.com/lsaint/aikito"

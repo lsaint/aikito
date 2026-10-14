@@ -34,6 +34,27 @@ jobs:
       - name: Run macOS unit tests
         run: python -m pytest
 
+      - name: Verify encrypted optional dependency
+        run: |
+          uv pip install --system '.[encrypted]'
+          python -m pytest tests/test_workspace_encrypted_remote_core.py tests/test_workspace_device_keys.py tests/test_workspace_encrypted_remote.py tests/test_remote_key_cli.py
+
+
+      - name: Local encrypted recovery and dependency-free CLI smoke
+        run: |
+          ENCRYPTED_SMOKE=${{ runner.temp }}/encrypted-foundation
+          python3 -m venv "$ENCRYPTED_SMOKE/core-env"
+          "$ENCRYPTED_SMOKE/core-env/bin/python" tests/workspace_encrypted_core_smoke.py "$ENCRYPTED_SMOKE/core-check"
+          test -f "$ENCRYPTED_SMOKE/core-check/checked.txt"
+          test -f "$ENCRYPTED_SMOKE/core-check/workspace/layout.toml"
+          test ! -e "$ENCRYPTED_SMOKE/core-check/config/aikito/encrypted-remote/keys"
+          uv pip install --system '.[encrypted]'
+          python3 tests/workspace_encrypted_remote_smoke.py "$ENCRYPTED_SMOKE/encrypted-check"
+          test -f "$ENCRYPTED_SMOKE/encrypted-check/checked.txt"
+          test -f "$ENCRYPTED_SMOKE/encrypted-check/workspace/layout.toml"
+          test -f "$ENCRYPTED_SMOKE/encrypted-check/config/aikito/encrypted-remote/keys/00112233445566778899aabbccddeeff.key"
+          test ! -e "$ENCRYPTED_SMOKE/encrypted-check/workspace/.local/state/aikito/workspace-reconcile/pending.json"
+
       - name: Agent detection and adapter reuse CLI smoke
         run: python tests/agent_adapters_smoke.py
 

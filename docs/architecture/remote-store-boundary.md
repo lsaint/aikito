@@ -618,15 +618,15 @@ legacy batch calls and bare snapshots are refused and NOOP preserves revision; i
 
 ## Unsupported encrypted resource formats
 
-The plaintext client rejects snapshots containing `format:encrypted-v1` or
-resource IDs starting with `e1:` using the local `encrypted_store_unsupported`
+The plaintext client rejects snapshots containing any `format:` resource or
+resource IDs starting with `e<N>:` (ASCII digits) using the local `encrypted_store_unsupported`
 error. The guard runs before logical resource decoding, binding persistence,
 or replay of an unaccepted pending request. It does not fetch unsupported
 headers or modify the Remote Protocol or content-blind storage validation.
 A receipt resolved while the store remains supported can finish without an
 additional snapshot read. Locally completed pending requests can still be
-cleaned up offline. This guard does not implement encrypted resources,
-key recovery, or migration.
+cleaned up offline. The guard remains active even when the encrypted extra is installed: the sync
+engine does not yet support encrypted resources or migration.
 
 ## Recoverable remote replacements
 
@@ -644,3 +644,30 @@ file or tree, `resource.json` stores its logical ID and original portable payloa
 This retains TOML field paths and tree execution flags even when several resources
 share a physical file. An archive write failure aborts before pending persistence
 and remote commit. Archive directories are checked for unsafe symlinks.
+
+## Local encrypted foundation
+
+The optional `aikito[encrypted]` extra adds only `cryptography`; ordinary commands
+and the format guard retain zero runtime dependencies. HKDF-SHA256 Collection
+keys, opaque IDs and fingerprints, authenticated AES-256-GCM envelopes, recovery
+headers, and metadata authentication are local primitives. Four portable payload
+containers use the existing semantic and credential validation after decryption.
+Verified unchanged resources reuse their existing ciphertext.
+
+`aikito remote key recover` accepts a public recovery header, its Store `sync_id`,
+and an initialized `--workspace`. Enter the recovery code at the secure terminal
+prompt, or supply an explicit `--recovery-fd`. Secrets are never command arguments
+or environment variables. This command does not contact a Store or enable sync.
+
+Device keys use owner-only files outside the workspace, under the existing Aikito
+user configuration directory in `encrypted-remote/keys/<vault_id>.key`. POSIX
+files require mode `0600`; Windows uses owner-only ACLs. Unsafe permissions,
+symlinks, hard links, corrupt records, and a different key for an existing vault
+are refused. Saving the same key is idempotent. Native system keychain backends
+are future optional enhancements, and Homebrew extra packaging is still pending.
+Home backups may contain these keys. All devices and the recovery code lost means
+the Vault cannot be decrypted. Regenerating a code preserves the VRK, so an old
+code plus an old recovery header still works; revocation requires future VRK rotation.
+
+The frozen `tests/fixtures/remote_protocol_vectors/encrypted-v1.json` fixture is
+shared with an independent external Go consumer; its keys are test values only.

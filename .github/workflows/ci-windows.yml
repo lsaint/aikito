@@ -50,6 +50,17 @@ jobs:
         shell: pwsh
         run: python -m pytest -n auto --basetemp="$env:RUNNER_TEMP\pytest" tests/test_workspace.py tests/test_workspace_characterization.py tests/test_workspace_import.py tests/test_workspace_import_conflicts.py tests/test_workspace_inspection_golden.py tests/test_workspace_layout.py tests/test_workspace_payload.py tests/test_workspace_resources.py tests/test_workspace_revision.py tests/test_workspace_sync_golden.py tests/test_workspace_sync_plan.py
 
+      - name: Verify encrypted core without optional dependency
+        if: matrix.group == 'workspace-remote'
+        run: python -m pytest tests/test_workspace_encrypted_remote_core.py tests/test_workspace_device_keys.py
+
+
+      - name: Verify encrypted optional dependency
+        if: matrix.group == 'workspace-remote'
+        run: |
+          uv pip install --system '.[encrypted]'
+          python -m pytest tests/test_workspace_encrypted_remote_core.py tests/test_workspace_device_keys.py tests/test_workspace_encrypted_remote.py tests/test_remote_key_cli.py
+
       - name: Run workspace remote and protocol unit tests
         if: matrix.group == 'workspace-remote'
         shell: pwsh
@@ -1013,6 +1024,28 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Local encrypted recovery and dependency-free CLI smoke
+        if: matrix.group == 'core'
+        shell: pwsh
+        run: |
+          $encryptedBase = Join-Path $env:RUNNER_TEMP "encrypted-foundation"
+          python -m venv "$encryptedBase/core-env"
+          if ($LASTEXITCODE -ne 0) { throw "Core environment creation failed" }
+          & "$encryptedBase/core-env/Scripts/python.exe" tests/workspace_encrypted_core_smoke.py "$encryptedBase/core-check"
+          if ($LASTEXITCODE -ne 0) { throw "Dependency-free CLI smoke failed" }
+          foreach ($relative in @("checked.txt", "workspace/layout.toml")) {
+            if (!(Test-Path "$encryptedBase/core-check/$relative" -PathType Leaf)) { throw "Missing core artifact: $relative" }
+          }
+          if (Test-Path "$encryptedBase/core-check/config/aikito/encrypted-remote/keys") { throw "Core smoke wrote keys" }
+          python -m pip install '.[encrypted]'
+          if ($LASTEXITCODE -ne 0) { throw "Encrypted extra installation failed" }
+          python tests/workspace_encrypted_remote_smoke.py "$encryptedBase/encrypted-check"
+          if ($LASTEXITCODE -ne 0) { throw "Local encrypted recovery failed" }
+          foreach ($relative in @("checked.txt", "workspace/layout.toml", "config/aikito/encrypted-remote/keys/00112233445566778899aabbccddeeff.key")) {
+            if (!(Test-Path "$encryptedBase/encrypted-check/$relative" -PathType Leaf)) { throw "Missing encrypted artifact: $relative" }
+          }
+          if (Test-Path "$encryptedBase/encrypted-check/workspace/.local/state/aikito/workspace-reconcile/pending.json") { throw "Recovery wrote sync state" }
 
       - name: Bounded multi-round reconciliation
         if: matrix.group == 'core'

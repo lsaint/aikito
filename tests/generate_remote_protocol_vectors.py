@@ -260,7 +260,7 @@ def main():
                 else path.read_bytes()
             )
             for path in args.output.iterdir()
-            if path.is_file()
+            if path.is_file() and path.name != "encrypted-v1.json"
         }
         if existing != artifacts:
             raise SystemExit(

@@ -566,3 +566,21 @@ visible for explicit selection.
 
 Installation via `brew install lsaint/tap/aikito` automatically installs
 Zsh, Bash, and Fish completions without modifying `~/.zshrc`.
+
+## Local Encrypted Recovery
+
+These commands manage a local device key. Encrypted synchronization and migration
+are not yet available; the unsupported-format guard still applies.
+
+```bash
+python -m pip install 'aikito[encrypted]'
+aikito remote key path --workspace ~/aikito
+aikito remote key recover --header recovery-header.json --sync-id STORE_SYNC_ID --workspace ~/aikito
+```
+
+The recovery command prompts without echo. Automation must provide an explicit
+`--recovery-fd`; the code must not appear in arguments or environment variables.
+The header is public metadata, while the recovery code is secret. Device keys are
+saved outside workspace and Git; home backups may include them. See the
+[Remote Store Boundary](architecture/remote-store-boundary.md#local-encrypted-foundation)
+for storage and recovery limits.
