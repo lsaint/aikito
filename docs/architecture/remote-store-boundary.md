@@ -742,3 +742,29 @@ convert a nonempty plaintext Store.
 The explicit encrypted CLI path supports fresh-device recovery with only Store
 Token and recovery code. Ordinary plaintext sync guards remain active; no real
 Store migration is enabled by these code changes.
+
+
+### Fenced representation migration
+
+The migration engine reads an identity-pinned raw Store and keeps the existing
+logical reconciliation Base unchanged. A separate migration client owns its
+receipt chain and an authenticated metadata epoch/client/token fence. Copying
+parents before children and deleting children before parents preserves every
+mixed snapshot's references. Both halves of an atomic dependency cycle must fit
+a bounded request; ciphertext expansion and the peak doubled graph are checked
+before publishing the first marker.
+
+Only an explicit unlocked takeover changes ownership. New owners reconstruct the
+complete graph from current plaintext and authenticated ciphertext, rather than
+requiring another device's journal. Local progress is an AES-GCM encrypted record
+with a fresh HKDF salt/key and nonce for each write; its AAD binds Store and Vault
+identity. Rollback plaintext requests are encrypted at rest in this record.
+Durable exact requests, receipt lookup and full-snapshot CAS preserve uncertain
+commits across restarts. Neither direction resets workspace files or Git history.
+
+Production write operations are gated until a published format-guard release and
+its compatibility CI establish an actual minimum version. Test fixtures bypass
+this gate only on loopback with a fixed dummy token. No override is shipped in the
+product. Historical unreferenced server objects can be removed separately under
+exclusive offline administrator ownership; retained plaintext backups and OS
+snapshots remain outside encryption's scope.

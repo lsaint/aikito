@@ -1017,6 +1017,18 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         help="Apply bounded encrypted reconciliation rounds",
     )
     p_key_sync.set_defaults(func=cmd_remote_key)
+    p_key_migrate = key_subparsers.add_parser(
+        "migrate", help="Preview or resume fenced encryption migration and rollback"
+    )
+    p_key_migrate.add_argument("--workspace", required=True, help="Initialized bound workspace")
+    migration_mode = p_key_migrate.add_mutually_exclusive_group(required=True)
+    migration_mode.add_argument("--dry-run", action="store_true", help="Validate without writing")
+    migration_mode.add_argument("--apply", action="store_true", help="Apply bounded migration rounds")
+    p_key_migrate.add_argument("--rollback", action="store_true", help="Explicitly restore plaintext representation")
+    p_key_migrate.add_argument("--takeover", action="store_true", help="Explicitly claim a new migration epoch")
+    p_key_migrate.add_argument("--max-rounds", type=int, default=1024, help="Maximum bounded rounds (1-1024)")
+    p_key_migrate.add_argument("--recovery-output-fd", type=int, help="Write the one-time recovery code to this explicit descriptor")
+    p_key_migrate.set_defaults(func=cmd_remote_key)
     p_key_recover = key_subparsers.add_parser(
         "recover", help="Recover a device key from a canonical recovery header"
     )

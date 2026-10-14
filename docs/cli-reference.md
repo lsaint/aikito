@@ -604,7 +604,7 @@ verified descriptors are not downloaded again.
 
 This command does not change remote data, business files, bindings, pending or
 Replica Base. An incomplete view cannot authorize deletions or writes. Ordinary
-`remote sync` still refuses encrypted stores; migration, takeover and scoped export remain future work. A `migrating` header pauses inspection.
+`remote sync` still refuses encrypted stores; scoped export remains future work. A `migrating` header pauses inspection.
 
 ### Encrypted Synchronization and Empty Store Initialization
 
@@ -642,5 +642,49 @@ Initialization also retains its public header request across response loss. A CA
 loser must recover the winning Vault; retrying cannot replace it.
 
 Ordinary `remote sync` and ordinary bind continue to guard encrypted Stores. Use
-the explicit encrypted path after recovery. Existing plaintext migration, takeover,
-rollback, historical plaintext cleanup and scoped key export are separate work.
+the explicit encrypted path after recovery. Use the explicit migration commands below for plaintext representation changes.
+Historical server cleanup and scoped key export have separate administrator boundaries.
+
+### In-place Migration, Takeover and Rollback
+
+Preview an existing bound plaintext Store after ordinary synchronization and a
+clean, committed workspace Git baseline:
+
+```bash
+aikito remote key migrate --dry-run --workspace ~/aikito
+```
+
+Write operations currently fail with `encrypted_migration_release_required`
+before opening the remote. The minimum eligible format-guard release has not yet
+been published and verified; there is no user override for this gate. After that
+release is established, the explicit operations are:
+
+```bash
+aikito remote key migrate --apply --workspace ~/aikito
+aikito remote key migrate --apply --takeover --workspace ~/aikito
+aikito remote key migrate --apply --rollback --workspace ~/aikito
+```
+
+Initial migration requires matching local resources, Replica Base and remote
+revision, no pending commit, byte-identical portable payloads and a clean Git
+baseline. Preflight checks ciphertext expansion, the peak mixed manifest and
+atomic dependency-group budgets before publishing the marker. Migration preserves
+business files, logical Base, Store identity and the ordinary client's receipt.
+The one-time recovery code uses a secure terminal or explicit
+`--recovery-output-fd`. Keep this output private.
+
+Each round copies one dependency group before deleting old resources in reverse
+dependency order. The authenticated `migrating` header pauses ordinary devices.
+Ownership is a CAS epoch/client/token fence with no automatic timeout. An unlocked
+new device can reconstruct progress from the remote and explicitly take over;
+the old owner stops on a changed fence. `--max-rounds 1..1024` bounds an invocation;
+exit status 2 means paused, so rerun without `--takeover` to resume the same epoch.
+Requests are persisted before dispatch and receipt lookup resolves uncertainty
+before identical retries. The local migration journal is itself encrypted,
+including rollback requests that necessarily carry plaintext on the wire.
+
+Rollback explicitly restores the plaintext representation and removes the marker
+only after the whole plaintext graph is complete. It does not reset business
+files or Git history. Migration and rollback affect the current snapshot; old
+server objects, backups and filesystem snapshots need separate administrator
+retention or cleanup. Scoped key export remains separate work.

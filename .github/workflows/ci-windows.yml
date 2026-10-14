@@ -59,7 +59,7 @@ jobs:
         if: matrix.group == 'workspace-remote'
         run: |
           uv pip install --system '.[encrypted]'
-          python -m pytest tests/test_workspace_encrypted_remote_core.py tests/test_workspace_device_keys.py tests/test_workspace_encrypted_remote.py tests/test_remote_key_cli.py tests/test_workspace_encrypted_discovery.py tests/test_workspace_encrypted_sync.py
+          python -m pytest tests/test_workspace_encrypted_remote_core.py tests/test_workspace_device_keys.py tests/test_workspace_encrypted_remote.py tests/test_remote_key_cli.py tests/test_workspace_encrypted_discovery.py tests/test_workspace_encrypted_sync.py tests/test_workspace_encrypted_migration.py
 
       - name: Run workspace remote and protocol unit tests
         if: matrix.group == 'workspace-remote'
@@ -1060,6 +1060,13 @@ jobs:
           }
           if (Test-Path "$encryptedBase/sync-check/workspace-2/.local/state/aikito/workspace-reconcile/pending.json") { throw "Encrypted sync left pending" }
           if (Test-Path "$encryptedBase/sync-check/workspace-2/memory/notes/e2ee.md") { throw "Encrypted deletion failed" }
+          python tests/workspace_encrypted_migration_smoke.py "$encryptedBase/migration-check"
+          if ($LASTEXITCODE -ne 0) { throw "Encrypted migration smoke failed" }
+          foreach ($relative in @("checked.txt", "workspace-0/memory/notes/migrate.md", "workspace-0/.local/state/aikito/workspace-reconcile/replica.json")) {
+            if (!(Test-Path "$encryptedBase/migration-check/$relative" -PathType Leaf)) { throw "Missing migration artifact: $relative" }
+          }
+          if (Test-Path "$encryptedBase/migration-check/workspace-1/.local/state/aikito/encrypted-migration.json") { throw "Migration left a journal" }
+          if (Test-Path "$encryptedBase/migration-check/workspace-1/.local/state/aikito/encrypted-discovery.json") { throw "Rollback left an encrypted checkpoint" }
 
       - name: Bounded multi-round reconciliation
         if: matrix.group == 'core'
