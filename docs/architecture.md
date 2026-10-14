@@ -189,6 +189,12 @@ recovery expectations.
 
 ## Remote Storage & Hosted Services
 
+> [!NOTE]
+> Aikito does not require a dedicated server. By default, synchronization
+> across machines is handled through Git. Implementing or running a custom
+> remote server is entirely optional, intended for environments that want a
+> private backend or custom cloud sync service.
+
 While Aikito is local-first and functions without a daemon or hosted backend,
 its workspace reconciliation engine is built on top of a transport-neutral,
 serialized remote protocol. This architecture makes it possible to build

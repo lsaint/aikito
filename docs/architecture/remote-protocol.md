@@ -1,5 +1,10 @@
 # Remote Protocol
 
+> [!NOTE]
+> Aikito does not require a dedicated server to synchronize. By default,
+> multi-machine synchronization is handled through Git. Developing a custom
+> private service or self-hosted backend is entirely optional.
+
 The Remote Protocol is Aikito's internal, transport-neutral serialized contract
 between a client adapter and a resource-center backend. It carries the
 `RemoteStore` domain operations across a byte boundary without exposing any

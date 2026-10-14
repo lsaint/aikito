@@ -148,7 +148,7 @@ Visit the full [documentation site](https://lsaint.github.io/aikito/guide/) or d
 - [CLI reference](docs/cli-reference.md): commands, options, and shell completion.
 - [Chat Distiller](docs/chat-distiller.md): distill browser AI chats into Markdown notes in your Inbox.
 - [Troubleshooting](docs/troubleshooting.md): resolving conflicts and synchronization drift.
-- [Remote protocol & self-hosting](docs/architecture/remote-protocol.md): building custom remote centers or cloud sync backends.
+- [Remote protocol & self-hosting (optional)](docs/architecture/remote-protocol.md): building custom private services or cloud sync backends.
 
 ## Support
 
