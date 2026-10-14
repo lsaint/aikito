@@ -975,6 +975,14 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     p_key_path.add_argument("--vault-id", help="Display the path for a public vault identity")
     p_key_path.add_argument("--workspace", help="Workspace whose boundary must be preserved")
     p_key_path.set_defaults(func=cmd_remote_key)
+    p_key_inspect = key_subparsers.add_parser(
+        "inspect", help="Discover encrypted resources in one bounded read-only round"
+    )
+    p_key_inspect.add_argument(
+        "--workspace", required=True,
+        help="Initialized workspace with an existing remote binding",
+    )
+    p_key_inspect.set_defaults(func=cmd_remote_key)
     p_key_recover = key_subparsers.add_parser("recover", help="Recover a device key from a canonical recovery header")
     p_key_recover.add_argument("--header", required=True, help="File containing the public canonical recovery header")
     p_key_recover.add_argument("--sync-id", required=True, help="Expected remote store protocol identity")

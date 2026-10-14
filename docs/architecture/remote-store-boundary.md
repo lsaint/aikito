@@ -671,3 +671,37 @@ code plus an old recovery header still works; revocation requires future VRK rot
 
 The frozen `tests/fixtures/remote_protocol_vectors/encrypted-v1.json` fixture is
 shared with an independent external Go consumer; its keys are test values only.
+
+## Bounded encrypted discovery
+
+`remote key inspect` opens a separate identity-pinned reader with only `read` and
+`fetch` operations. It authenticates the format header using the external device
+key before interpreting any resource as a logical type. A missing key or a
+migration header stops before downloading business resources. Existing binding
+and automatic sync guards retain their behavior.
+
+A round downloads at most 32 business resources. Header and business fetches share
+request/response byte limits, including the full snapshot manifest. Unchanged
+verified descriptors reuse a local authenticated map. An individual resource that
+cannot fit fails explicitly instead of being deferred indefinitely. Discovery
+never expands reference closure by downloading outside the selected scope.
+
+Private-tag resources are discovered first; authenticated `project` members
+introduce project Memory tags in subsequent rounds. Unknown tags fail closed after
+private discovery. Descriptor targets must exist in the opaque manifest; decrypted
+references are verified against each descriptor. A complete logical view also
+passes `missing_references`. Unknown resource types are not imported.
+
+The local `.local/state/aikito/encrypted-discovery.json` checkpoint stores verified
+logical descriptions and opaque descriptors, never payloads or keys. HKDF-SHA256
+with the local-only `aikito.discovery-state` domain and the Vault salt derives its
+HMAC key; canonical JSON and the MAC bind version, `sync_id`, `vault_id` and entries.
+The checkpoint is authenticated before reuse, filtered by current descriptors,
+and atomically saved under the existing workspace lock only after a successful
+round. A failed fetch, tamper or identity mismatch preserves previous progress.
+This map is client-local state, not a remote protocol format or Replica Base.
+Incomplete snapshots cannot authorize writes, pairing or absence/deletion decisions.
+
+Initialization CAS, ciphertext pending/retry and encrypted reconciliation remain
+separate integration steps. Inspection does not publish a format marker or migrate
+real stores.

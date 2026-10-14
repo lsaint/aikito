@@ -54,6 +54,9 @@ def main(base: Path):
         "encrypted_dependency_missing" in result.stderr
         and "aikito[encrypted]" in result.stderr
     )
+    inspect = run(["remote", "key", "inspect", "--workspace", str(workspace)])
+    assert inspect.returncode != 0 and "encrypted_dependency_missing" in inspect.stderr
+    assert not (workspace / ".local/state/aikito/encrypted-discovery.json").exists()
     assert not (config / "aikito/encrypted-remote/keys").exists()
     (base / "checked.txt").write_text("Core CLI works without encrypted extra\n")
     print("[SUCCESS] Core CLI works without encrypted extra")

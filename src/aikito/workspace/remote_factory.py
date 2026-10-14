@@ -165,3 +165,43 @@ def bind_remote(
         binding = RemoteBinding(1, endpoint, snapshot.sync_id, auth)
         save_remote_binding(workspace, binding, home=home)
         return binding
+
+
+class BoundRemoteReader:
+    """Explicit inspection can read encrypted data but has no write capability."""
+
+    def __init__(self, remote: RemoteStore, sync_id: str):
+        self._remote, self._sync_id = remote, sync_id
+        self._verified = False
+
+    def read(self) -> RemoteSnapshot:
+        self._verified = False
+        snapshot = self._remote.read()
+        if snapshot.sync_id != self._sync_id:
+            raise StoreIdentityMismatch("Remote binding identity mismatch")
+        self._verified = True
+        return snapshot
+
+    def fetch(
+        self, expected: RemoteSnapshot, ids: Collection[str]
+    ) -> Mapping[str, ResourcePayload]:
+        if not self._verified:
+            self.read()
+        if expected.sync_id != self._sync_id:
+            raise StoreIdentityMismatch("Remote binding identity mismatch")
+        return self._remote.fetch(expected, ids)
+
+
+def open_bound_reader(
+    workspace: Path,
+    *,
+    home: Path | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> BoundRemoteReader:
+    binding = load_remote_binding(workspace)
+    if binding is None:
+        raise RemoteBindingMissing("Remote binding is missing")
+    return BoundRemoteReader(
+        _open_remote(binding.endpoint, binding.auth, environ, home=home),
+        binding.sync_id,
+    )

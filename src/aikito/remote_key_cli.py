@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .workspace.remote_format import EncryptedStoreUnsupported
 from .init import is_recognized_workspace
+from .workspace.encrypted_discovery import inspect_bound_workspace
 from .workspace.device_keys import DeviceKeyStore
 from .workspace.encrypted_remote import (
     MAX_METADATA_BYTES,
@@ -38,6 +39,13 @@ def cmd_remote_key(args: argparse.Namespace) -> None:
                 "Recovery requires --workspace pointing to an initialized workspace."
             )
         require_encrypted_support()
+        if args.key_action == "inspect":
+            result = inspect_bound_workspace(workspace, home=home)
+            status = "complete" if result.complete else "incomplete"
+            print(
+                f"[SUCCESS] Encrypted discovery {status}: verified={len(result.resources)}, remaining={result.remaining}, fetched={result.fetched}, revision={result.snapshot.revision}"
+            )
+            return
         with Path(args.header).open("rb") as stream:
             encoded = stream.read(MAX_METADATA_BYTES + 1)
         if args.recovery_fd is not None:

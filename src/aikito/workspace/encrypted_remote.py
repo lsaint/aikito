@@ -628,3 +628,8 @@ def metadata_resource(encoded: bytes):
         payload_hash(payload),
         len(encode_payload(payload)),
     ), payload
+
+
+def metadata_vault_id(encoded: bytes) -> str:
+    """Locate a device key; callers must authenticate metadata before using it."""
+    return _metadata(encoded)["vault_id"]

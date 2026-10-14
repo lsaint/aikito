@@ -584,3 +584,25 @@ The header is public metadata, while the recovery code is secret. Device keys ar
 saved outside workspace and Git; home backups may include them. See the
 [Remote Store Boundary](architecture/remote-store-boundary.md#local-encrypted-foundation)
 for storage and recovery limits.
+
+### Bounded Encrypted Discovery
+
+For an initialized workspace with an existing remote binding and a recovered
+device key, inspect one read-only discovery round:
+
+```bash
+aikito remote key inspect --workspace ~/aikito
+```
+
+Repeat until the output says `complete`. Each invocation authenticates the format
+header and verifies at most 32 business resources within the shared fetch byte
+budget. Private resources bootstrap project identities before project Memory is
+discovered. Output includes counts and revision, without content or logical names.
+The authenticated local map allows separate CLI processes to resume; unchanged
+verified descriptors are not downloaded again.
+
+This command does not change remote data, business files, bindings, pending or
+Replica Base. An incomplete view cannot authorize deletions or writes. Ordinary
+`remote sync` still refuses encrypted stores; encrypted binding/bootstrap, upload,
+recovery of ciphertext pending requests, initialization CAS and migration remain
+future work. A `migrating` header pauses inspection.

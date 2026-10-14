@@ -59,7 +59,7 @@ jobs:
         if: matrix.group == 'workspace-remote'
         run: |
           uv pip install --system '.[encrypted]'
-          python -m pytest tests/test_workspace_encrypted_remote_core.py tests/test_workspace_device_keys.py tests/test_workspace_encrypted_remote.py tests/test_remote_key_cli.py
+          python -m pytest tests/test_workspace_encrypted_remote_core.py tests/test_workspace_device_keys.py tests/test_workspace_encrypted_remote.py tests/test_remote_key_cli.py tests/test_workspace_encrypted_discovery.py
 
       - name: Run workspace remote and protocol unit tests
         if: matrix.group == 'workspace-remote'
@@ -1046,6 +1046,13 @@ jobs:
             if (!(Test-Path "$encryptedBase/encrypted-check/$relative" -PathType Leaf)) { throw "Missing encrypted artifact: $relative" }
           }
           if (Test-Path "$encryptedBase/encrypted-check/workspace/.local/state/aikito/workspace-reconcile/pending.json") { throw "Recovery wrote sync state" }
+          python tests/workspace_encrypted_discovery_smoke.py "$encryptedBase/discovery-check"
+          if ($LASTEXITCODE -ne 0) { throw "Encrypted discovery smoke failed" }
+          foreach ($relative in @("checked.txt", "workspace/.local/state/aikito/encrypted-discovery.json")) {
+            if (!(Test-Path "$encryptedBase/discovery-check/$relative" -PathType Leaf)) { throw "Missing discovery artifact: $relative" }
+          }
+          if (Test-Path "$encryptedBase/discovery-check/workspace/.local/state/aikito/workspace-reconcile/pending.json") { throw "Discovery wrote pending" }
+          if (Test-Path "$encryptedBase/discovery-check/workspace/memory/notes/00.md") { throw "Discovery wrote business content" }
 
       - name: Bounded multi-round reconciliation
         if: matrix.group == 'core'
