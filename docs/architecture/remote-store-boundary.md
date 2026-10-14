@@ -625,8 +625,8 @@ or replay of an unaccepted pending request. It does not fetch unsupported
 headers or modify the Remote Protocol or content-blind storage validation.
 A receipt resolved while the store remains supported can finish without an
 additional snapshot read. Locally completed pending requests can still be
-cleaned up offline. The guard remains active even when the encrypted extra is installed: the sync
-engine does not yet support encrypted resources or migration.
+cleaned up offline. The guard remains active even when the encrypted extra is installed: ordinary
+sync remains plaintext-only. The explicit encrypted path below does not weaken it.
 
 ## Recoverable remote replacements
 
@@ -702,6 +702,43 @@ round. A failed fetch, tamper or identity mismatch preserves previous progress.
 This map is client-local state, not a remote protocol format or Replica Base.
 Incomplete snapshots cannot authorize writes, pairing or absence/deletion decisions.
 
-Initialization CAS, ciphertext pending/retry and encrypted reconciliation remain
-separate integration steps. Inspection does not publish a format marker or migrate
-real stores.
+Inspection remains a read-only command. The explicit encrypted sync/initialization
+path below provides reconciliation; neither path migrates nonempty real stores.
+
+## Encrypted planner and wire requests
+
+The encrypted codec presents a complete authenticated logical snapshot to the
+existing planner. Discovery checkpoint version 2 also authenticates plaintext
+payload hash/size descriptors; version 1 maps are accepted and those missing
+payload descriptors are reverified in bounded rounds. The checkpoint stores no
+payload or key. Unknown discovery and business application occupy separate rounds
+under the same limits, so an incomplete view never authorizes absence or writes.
+An unchanged in-memory authenticated header is reused, with any changed header
+reauthenticated before data or mutation processing.
+
+Dependency/config logic uses logical IDs. Budget cost uses the full opaque
+snapshot including the format resource, opaque references and encrypted container
+sizes; header fetch cost is reserved too. Exact encrypted mutations are prepared
+for sizing, reused during capture, then persisted before transport. Format metadata
+never enters business deletion, merge, pairing or Replica Base.
+
+Pending envelope version 2 contains the exact wire request and public `vault_id`,
+alongside the existing local logical replica state/scope. No plaintext business
+payloads, recovery code or VRK enter it. The unaccepted retry checks current format
+and Vault, then resends the same request ID, nonce, ciphertext and digest. Accepted
+receipts decrypt and validate captured uploads before confirming logical Base;
+DELETE IDs are derived from the safe logical scope. No historical content is
+fetched during receipt confirmation. Later local edits remain untouched. Completed
+pending records can be cleared using existing local completion evidence.
+
+Explicit empty-Store initialization delivers the recovery code securely, saves the
+external device key and persists the public-header CAS request before sending.
+Only one concurrent initializer wins. A definite losing CAS clears its request
+without replacing the winning header or deleting possibly referenced device keys.
+Response loss reuses the persisted request and never redisplays the recovery code.
+A failed output channel cannot publish a format marker. Initialization does not
+convert a nonempty plaintext Store.
+
+The explicit encrypted CLI path supports fresh-device recovery with only Store
+Token and recovery code. Ordinary plaintext sync guards remain active; no real
+Store migration is enabled by these code changes.

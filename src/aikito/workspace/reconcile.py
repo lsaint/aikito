@@ -712,12 +712,18 @@ def build_reconcile_plan(
         proposed = _resolve_items(items, choices, a, b) if choices else compared
         dependencies = operation_dependencies(proposed, a, b)
         proposed, upload_descriptors = _budget_uploads(proposed, local_content, a)
+        wire_budget = (
+            remote.prepare_wire_budget(proposed, local_content, a, upload_descriptors)
+            if hasattr(remote, "prepare_wire_budget")
+            else None
+        )
         selected = select_round(
             proposed,
             dependencies,
             center,
             upload_descriptors,
             state.receipt_cursor if state else None,
+            _wire=wire_budget,
         )
         if not _inspect_payloads:
             return ReconcilePlan(
@@ -999,6 +1005,15 @@ def apply_reconcile_plan(
                         if plan.state
                         else None,
                     )
+                    logical_request = request
+                    vault_id = None
+                    confirmed_resources = None
+                    if hasattr(remote, "encode_request"):
+                        request = remote.encode_request(request)
+                        vault_id = remote.vault.vault_id
+                        confirmed_resources = remote.confirm_request(
+                            request, vault_id, safe
+                        )
                     # Reject before persisting: recovery can only resend this exact
                     # request, so an oversized pending request could never progress.
                     if (
@@ -1017,6 +1032,7 @@ def apply_reconcile_plan(
                         unpaired_ids=frozenset(item.id for item in plan.items)
                         if plan.state is None
                         else plan.state.unpaired_ids,
+                        vault_id=vault_id,
                     )
                     try:
                         result = remote.commit(request)
@@ -1024,7 +1040,7 @@ def apply_reconcile_plan(
                         pending_store.clear(pending, rejected=exc)
                         raise
                     validate_commit_result(request, result)
-                    center = committed_snapshot(request)
+                    center = committed_snapshot(logical_request)
                 else:
                     center = plan.remote_snapshot
                 center_resources = _center_resources(center)
@@ -1066,6 +1082,7 @@ def apply_reconcile_plan(
                         result,
                         state,
                         changes=local_changes,
+                        confirmed_resources=confirmed_resources,
                         verify=lambda: verify_resource_snapshot(
                             snapshot_workspace(plan.local), expected
                         ),

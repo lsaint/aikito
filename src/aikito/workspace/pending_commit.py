@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -75,6 +76,7 @@ class PendingCommit:
     replica_state_text: str
     safe_resource_ids: tuple[str, ...]
     excluded_resource_ids: tuple[str, ...] = ()
+    vault_id: str | None = None
 
     def __post_init__(self):
         encode_commit_request(self.request)
@@ -98,14 +100,27 @@ class PendingCommit:
                 raise PendingCommitError("Duplicate pending resource scope")
             object.__setattr__(self, name, tuple(sorted(values)))
         safe, excluded = set(self.safe_resource_ids), set(self.excluded_resource_ids)
-        if safe & excluded or not {m.id for m in self.request.mutations} <= safe:
+        encrypted = self.vault_id is not None
+        if encrypted and (
+            type(self.vault_id) is not str
+            or not re.fullmatch(r"[0-9a-f]{32}", self.vault_id)
+            or "format:encrypted-v1" not in self.request.expected.resources
+            or any(
+                not re.fullmatch(r"e1:[0-9a-f]{32}:[0-9a-f]{64}", m.id)
+                for m in self.request.mutations
+            )
+        ):
+            raise PendingCommitError("Invalid encrypted pending identity")
+        if safe & excluded or (
+            not encrypted and not {m.id for m in self.request.mutations} <= safe
+        ):
             raise PendingCommitError(
                 "Pending uploads must belong to the safe resource scope"
             )
 
     def encode(self) -> str:
         body = {
-            "version": 1,
+            "version": 2 if self.vault_id is not None else 1,
             "request": base64.b64encode(encode_commit_request(self.request)).decode(
                 "ascii"
             ),
@@ -113,6 +128,8 @@ class PendingCommit:
             "safe_resource_ids": list(self.safe_resource_ids),
             "excluded_resource_ids": list(self.excluded_resource_ids),
         }
+        if self.vault_id is not None:
+            body["vault_id"] = self.vault_id
         return _canonical(
             {
                 **body,
@@ -126,17 +143,27 @@ class PendingCommit:
     def decode(cls, text: str | bytes) -> PendingCommit:
         try:
             raw = decode_state_json(text)
-            if type(raw) is not dict or set(raw) != {
+            if type(raw) is not dict:
+                raise PendingCommitError("Invalid pending envelope fields")
+            fields = {
                 "version",
                 "request",
                 "replica_state",
                 "safe_resource_ids",
                 "excluded_resource_ids",
                 "envelope_digest",
-            }:
+            }
+            if raw.get("version") == 2:
+                fields.add("vault_id")
+            if set(raw) != fields:
                 raise PendingCommitError("Invalid pending envelope fields")
-            if type(raw["version"]) is not int or raw["version"] != 1:
+            if type(raw["version"]) is not int or raw["version"] not in (1, 2):
                 raise PendingCommitError("Unsupported pending envelope version")
+            if raw["version"] == 2 and (
+                type(raw["vault_id"]) is not str
+                or not re.fullmatch(r"[0-9a-f]{32}", raw["vault_id"])
+            ):
+                raise PendingCommitError("Invalid encrypted pending vault identity")
             digest = raw.pop("envelope_digest")
             if digest != hashlib.sha256(_canonical(raw).encode("utf-8")).hexdigest():
                 raise PendingCommitError("Pending envelope checksum mismatch")
@@ -152,6 +179,7 @@ class PendingCommit:
                 raw["replica_state"],
                 tuple(raw["safe_resource_ids"]),
                 tuple(raw["excluded_resource_ids"]),
+                raw.get("vault_id"),
             )
             if (
                 list(pending.safe_resource_ids) != raw["safe_resource_ids"]
@@ -228,6 +256,7 @@ class PendingCommitStore:
         safe_resource_ids: tuple[str, ...],
         excluded_resource_ids: tuple[str, ...] = (),
         unpaired_ids: frozenset[str] = frozenset(),
+        vault_id: str | None = None,
     ) -> PendingCommit:
         with self._locked():
             if self._load() is not None:
@@ -243,7 +272,7 @@ class PendingCommitStore:
                 )
             text = before if before is not None else state.encode()
             pending = PendingCommit(
-                request, text, safe_resource_ids, excluded_resource_ids
+                request, text, safe_resource_ids, excluded_resource_ids, vault_id
             )
             state_path(self.local, PENDING_COMMIT_STATE, create=True)
             states = []
@@ -261,6 +290,7 @@ class PendingCommitStore:
         *,
         changes: tuple[Change, ...] = (),
         verify: Callable[[], None] | None = None,
+        confirmed_resources: dict | None = None,
     ) -> ReplicaState:
         """Commit verified local writes, Base, cursor and marker in one journal."""
         with self._locked():
@@ -293,9 +323,23 @@ class PendingCommitStore:
                 raise PendingCommitError(
                     "Completion changed pairing outside the safe resource scope"
                 )
-            for mutation in pending.request.mutations:
-                resource = state.base.get(mutation.id)
-                after = mutation.after
+            if pending.vault_id is not None:
+                if (
+                    confirmed_resources is None
+                    or not set(confirmed_resources) <= set(pending.safe_resource_ids)
+                    or len(confirmed_resources) != len(pending.request.mutations)
+                ):
+                    raise PendingCommitError(
+                        "Encrypted completion requires authenticated logical resources"
+                    )
+                confirmations = confirmed_resources.items()
+            else:
+                confirmations = (
+                    (mutation.id, mutation.after)
+                    for mutation in pending.request.mutations
+                )
+            for identity, after in confirmations:
+                resource = state.base.get(identity)
                 if (after is None and resource is not None) or (
                     after is not None
                     and (

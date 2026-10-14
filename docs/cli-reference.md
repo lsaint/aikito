@@ -569,8 +569,9 @@ Zsh, Bash, and Fish completions without modifying `~/.zshrc`.
 
 ## Local Encrypted Recovery
 
-These commands manage a local device key. Encrypted synchronization and migration
-are not yet available; the unsupported-format guard still applies.
+These commands manage a local device key. Local header recovery does not enable
+sync by itself; use the explicit encrypted path below. Ordinary sync retains its
+unsupported-format guard, and plaintext migration remains unavailable.
 
 ```bash
 python -m pip install 'aikito[encrypted]'
@@ -603,6 +604,43 @@ verified descriptors are not downloaded again.
 
 This command does not change remote data, business files, bindings, pending or
 Replica Base. An incomplete view cannot authorize deletions or writes. Ordinary
-`remote sync` still refuses encrypted stores; encrypted binding/bootstrap, upload,
-recovery of ciphertext pending requests, initialization CAS and migration remain
-future work. A `migrating` header pauses inspection.
+`remote sync` still refuses encrypted stores; migration, takeover and scoped export remain future work. A `migrating` header pauses inspection.
+
+### Encrypted Synchronization and Empty Store Initialization
+
+Use the explicit encrypted commands with an existing binding to initialize an
+empty Store. Initialization refuses any Store containing plaintext resources.
+The recovery code is generated independently, delivered once to a secure terminal
+or explicit output descriptor, and never persisted in the workspace or Git.
+
+```bash
+aikito remote key initialize --workspace ~/aikito
+aikito remote key sync --dry-run --workspace ~/aikito
+aikito remote key sync --apply --workspace ~/aikito
+```
+
+Automation must provide `--recovery-output-fd` to initialization; keep that channel
+private. On a fresh device, use the Store Token environment variable and enter the
+recovery code securely to recover and bind directly:
+
+```bash
+aikito remote key recover --endpoint https://remote.example/v1/stores/STORE/remote --workspace ~/aikito
+```
+
+An optional `--sync-id` checks the expected Store identity. The default token source
+is `AIKITO_REMOTE_TOKEN`, changeable with `--token-env`. Recovery codes only enter
+through the secure prompt or explicit `--recovery-fd`; `--header` local recovery
+continues to require `--sync-id` and does not create a binding.
+
+Encrypted sync discovers unknown descriptors in bounded rounds before planning
+business changes. Preview does not write discovery, Base, pending or remote data.
+Apply encrypts uploads before persisting a request. Delivery uncertainty retains
+that exact request; rerun the command to resolve its receipt or resend identical
+bytes. Captured uploads advance logical Base without overwriting newer local edits.
+Later applied local edits win and replaced remote versions are archived locally.
+Initialization also retains its public header request across response loss. A CAS
+loser must recover the winning Vault; retrying cannot replace it.
+
+Ordinary `remote sync` and ordinary bind continue to guard encrypted Stores. Use
+the explicit encrypted path after recovery. Existing plaintext migration, takeover,
+rollback, historical plaintext cleanup and scoped key export are separate work.

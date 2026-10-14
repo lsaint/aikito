@@ -968,8 +968,8 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     add_color_args(p_remote_status)
     p_remote_status.set_defaults(func=cmd_remote_status)
 
-    # Local device key recovery never changes the bound store or its format.
-    p_remote_key = remote_subparsers.add_parser("key", help="Manage local encrypted-remote device keys")
+    # Explicit encrypted commands preserve the ordinary plaintext format guard.
+    p_remote_key = remote_subparsers.add_parser("key", help="Manage encrypted keys, recovery and synchronization")
     key_subparsers = p_remote_key.add_subparsers(dest="key_action", required=True)
     p_key_path = key_subparsers.add_parser("path", help="Display the device key storage path without reading keys")
     p_key_path.add_argument("--vault-id", help="Display the path for a public vault identity")
@@ -983,11 +983,68 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         help="Initialized workspace with an existing remote binding",
     )
     p_key_inspect.set_defaults(func=cmd_remote_key)
-    p_key_recover = key_subparsers.add_parser("recover", help="Recover a device key from a canonical recovery header")
-    p_key_recover.add_argument("--header", required=True, help="File containing the public canonical recovery header")
-    p_key_recover.add_argument("--sync-id", required=True, help="Expected remote store protocol identity")
-    p_key_recover.add_argument("--workspace", required=True, help="Initialized local workspace; keys are stored outside it")
-    p_key_recover.add_argument("--recovery-fd", type=int, help="Read the recovery code from this descriptor instead of a secure terminal")
+    p_key_initialize = key_subparsers.add_parser(
+        "initialize", help="Initialize encryption on an empty bound Store using CAS"
+    )
+    p_key_initialize.add_argument(
+        "--workspace",
+        required=True,
+        help="Initialized workspace with an existing binding",
+    )
+    p_key_initialize.add_argument(
+        "--recovery-output-fd",
+        type=int,
+        help="Write the one-time recovery code to this explicit descriptor",
+    )
+    p_key_initialize.set_defaults(func=cmd_remote_key)
+    p_key_sync = key_subparsers.add_parser(
+        "sync", help="Synchronize an encrypted bound Store"
+    )
+    p_key_sync.add_argument(
+        "--workspace",
+        required=True,
+        help="Initialized workspace with an existing binding",
+    )
+    encrypted_mode = p_key_sync.add_mutually_exclusive_group(required=True)
+    encrypted_mode.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview without changing local or remote state",
+    )
+    encrypted_mode.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply bounded encrypted reconciliation rounds",
+    )
+    p_key_sync.set_defaults(func=cmd_remote_key)
+    p_key_recover = key_subparsers.add_parser(
+        "recover", help="Recover a device key from a canonical recovery header"
+    )
+    recovery_source = p_key_recover.add_mutually_exclusive_group(required=True)
+    recovery_source.add_argument(
+        "--header", help="File containing the public canonical recovery header"
+    )
+    recovery_source.add_argument(
+        "--endpoint", help="Recover and bind directly to an encrypted Store endpoint"
+    )
+    p_key_recover.add_argument(
+        "--sync-id", help="Expected Store identity; required with --header"
+    )
+    p_key_recover.add_argument(
+        "--token-env",
+        default="AIKITO_REMOTE_TOKEN",
+        help="Environment variable containing the Store Bearer Token",
+    )
+    p_key_recover.add_argument(
+        "--workspace",
+        required=True,
+        help="Initialized local workspace; keys are stored outside it",
+    )
+    p_key_recover.add_argument(
+        "--recovery-fd",
+        type=int,
+        help="Read the recovery code from this descriptor instead of a secure terminal",
+    )
     p_key_recover.set_defaults(func=cmd_remote_key)
 
     # remote credential {set,list,path}

@@ -175,18 +175,36 @@ class _Usage:
 class _RoundBudget:
     """Accumulate exact wire costs; payload bytes never enter this calculation."""
 
-    def __init__(self, snapshot, descriptors, cursor):
-        self.commit_base = commit_envelope_size(snapshot, cursor)
-        self.fetch_base = len(encode_fetch_request(snapshot, ()))
-        self.read_base = len(encode_read_response(snapshot))
-        self.response_base = len(encode_fetch_response({}))
-        self.resource_count = len(snapshot.resources)
+    def __init__(self, snapshot, descriptors, cursor, wire=None):
+        (
+            wire_snapshot,
+            wire_descriptors,
+            identities,
+            request_reserve,
+            response_reserve,
+        ) = wire or (
+            snapshot,
+            descriptors,
+            {k: k for k in snapshot.resources.keys() | descriptors.keys()},
+            0,
+            0,
+        )
+        self.commit_base = commit_envelope_size(wire_snapshot, cursor)
+        self.fetch_base = len(encode_fetch_request(wire_snapshot, ())) + request_reserve
+        self.read_base = len(encode_read_response(wire_snapshot))
+        self.response_base = len(encode_fetch_response({})) + response_reserve
+        self.resource_count = len(wire_snapshot.resources)
         self.revision_delta = len(str(snapshot.revision + 1)) - len(
             str(snapshot.revision)
         )
         self.download_costs = {
-            key: (fetch_entry_size(key, descriptor), json_string_size(key))
-            for key, descriptor in snapshot.resources.items()
+            key: (
+                fetch_entry_size(
+                    identities[key], wire_snapshot.resources[identities[key]]
+                ),
+                json_string_size(identities[key]),
+            )
+            for key in snapshot.resources
         }
         self.config_ids = {
             key for key in snapshot.resources if key.startswith("config:")
@@ -199,13 +217,14 @@ class _RoundBudget:
             fetch_ids=sum(self.download_costs[key][1] for key in self.config_ids),
         )
         self.upload_costs = {}
-        for key, after in descriptors.items():
-            before = snapshot.resources.get(key)
+        for key, after in wire_descriptors.items():
+            wire_id = identities[key]
+            before = wire_snapshot.resources.get(wire_id)
             self.upload_costs[key] = _Usage(
                 upload_count=1,
-                upload_bytes=mutation_size(key, before, after),
-                manifest_delta=(descriptor_entry_size(key, after) if after else 0)
-                - (descriptor_entry_size(key, before) if before else 0),
+                upload_bytes=mutation_size(wire_id, before, after),
+                manifest_delta=(descriptor_entry_size(wire_id, after) if after else 0)
+                - (descriptor_entry_size(wire_id, before) if before else 0),
                 resource_delta=int(after is not None) - int(before is not None),
             )
         self.usage = _Usage()
@@ -280,24 +299,33 @@ def select_round(
     snapshot: RemoteSnapshot,
     descriptors: dict[str, ResourceDescriptor | None],
     cursor: ReceiptCursor | None,
+    *,
+    _wire=None,
 ) -> list[ReconcileItem]:
-    check_manifest(snapshot)
-    prospective = dict(snapshot.resources)
-    for key, after in descriptors.items():
+    wire_snapshot, wire_descriptors, identities, _, _ = _wire or (
+        snapshot,
+        descriptors,
+        {k: k for k in snapshot.resources.keys() | descriptors.keys()},
+        0,
+        0,
+    )
+    check_manifest(wire_snapshot)
+    prospective = dict(wire_snapshot.resources)
+    for key, after in wire_descriptors.items():
         if after is None:
-            prospective.pop(key, None)
+            prospective.pop(identities[key], None)
         else:
-            prospective[key] = after
+            prospective[identities[key]] = after
     check_manifest(
         replace(
-            snapshot,
+            wire_snapshot,
             resources=prospective,
-            revision=snapshot.revision + bool(descriptors),
+            revision=wire_snapshot.revision + bool(descriptors),
         )
     )
     by_id = {item.id: item for item in items}
     selected = set()
-    budget = _RoundBudget(snapshot, descriptors, cursor)
+    budget = _RoundBudget(snapshot, descriptors, cursor, _wire)
     for group in atomic_groups(dependencies):
         active = {key for key in group if by_id[key].action in CHANGES}
         if not active:

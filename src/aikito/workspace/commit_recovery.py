@@ -25,6 +25,11 @@ def recover_pending(local: Path, remote: RemoteStore, home: Path) -> bool:
     if pending.completed_by(state):
         store.clear(pending)
         return True
+    if getattr(pending, "vault_id", None) is not None and hasattr(
+        remote, "recover_encrypted_pending"
+    ):
+        remote.recover_encrypted_pending(store, pending, state)
+        return True
     request = pending.request
     require_plaintext_snapshot(request.expected)
     args = (

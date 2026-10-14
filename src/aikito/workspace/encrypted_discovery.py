@@ -69,6 +69,9 @@ class DiscoveredSnapshot:
     remaining: int
     fetched: int
     checkpoint: bytes = field(repr=False)
+    descriptors: Mapping[str, ResourceDescriptor] = field(
+        default_factory=dict, repr=False
+    )
 
     def __post_init__(self):
         object.__setattr__(self, "resources", MappingProxyType(dict(self.resources)))
@@ -112,7 +115,7 @@ def _load_checkpoint(encoded, vault, sync_id):
         return {}
     _require(len(encoded) <= 2 * remote_limits.MAX_REMOTE_RESPONSE_BYTES)
     value = _parse(encoded, ("version", "sync_id", "vault_id", "entries", "mac"))
-    _require(type(value["version"]) is int and value["version"] == 1)
+    _require(type(value["version"]) is int and value["version"] in (1, 2))
     _require(value["sync_id"] == sync_id and value["vault_id"] == vault.vault_id)
     _require(type(value["mac"]) is str and type(value["entries"]) is dict)
     body = {k: v for k, v in value.items() if k != "mac"}
@@ -120,7 +123,10 @@ def _load_checkpoint(encoded, vault, sync_id):
     _require(hmac.compare_digest(value["mac"], mac))
     entries = {}
     for identity, entry in value["entries"].items():
-        _require(type(entry) is dict and set(entry) == {"descriptor", "resource"})
+        fields = {"descriptor", "resource"} | (
+            {"plaintext"} if value["version"] == 2 else set()
+        )
+        _require(type(entry) is dict and set(entry) == fields)
         resources = decode_resources(entry["resource"])
         _require(len(resources) == 1)
         resource = next(iter(resources.values()))
@@ -142,21 +148,34 @@ def _load_checkpoint(encoded, vault, sync_id):
             descriptor.references
             == tuple(sorted({vault.opaque_id(ref) for ref in resource.references}))
         )
-        entries[identity] = (descriptor, resource)
+        plain = (
+            _decode_descriptor(entry["plaintext"]) if value["version"] == 2 else None
+        )
+        if plain is not None:
+            _require(
+                (plain.fingerprint, plain.references, plain.mode_fingerprint)
+                == (
+                    resource.fingerprint,
+                    resource.references,
+                    resource.mode_fingerprint,
+                )
+            )
+        entries[identity] = (descriptor, resource, plain)
     return entries
 
 
 def _encode_checkpoint(entries, vault, sync_id):
     body = {
-        "version": 1,
+        "version": 2,
         "sync_id": sync_id,
         "vault_id": vault.vault_id,
         "entries": {
             identity: {
                 "descriptor": _descriptor(descriptor),
                 "resource": encode_resources({resource.id: resource}),
+                "plaintext": _descriptor(plain),
             }
-            for identity, (descriptor, resource) in entries.items()
+            for identity, (descriptor, resource, plain) in entries.items()
         },
     }
     mac = hmac.new(_checkpoint_key(vault), _canonical(body), hashlib.sha256).hexdigest()
@@ -169,6 +188,8 @@ def discover_encrypted(
     *,
     checkpoint: bytes | None = None,
     maximum: int = MAX_DISCOVERY_RESOURCES,
+    _vault: EncryptedVault | None = None,
+    _header: ResourceDescriptor | None = None,
 ) -> DiscoveredSnapshot:
     """Read one round; verify every descriptor before it enters the logical map.
 
@@ -185,27 +206,19 @@ def discover_encrypted(
             for k in snapshot.resources
         ):
             raise EncryptedStoreUnsupported()
+        cached_header = (
+            _vault is not None
+            and _header is not None
+            and snapshot.resources[FORMAT_RESOURCE_ID] == _header
+        )
+        vault = (
+            _vault
+            if cached_header
+            else unlock_encrypted_snapshot(reader, snapshot, device_keys)
+        )
         business = {
             k: v for k, v in snapshot.resources.items() if k != FORMAT_RESOURCE_ID
         }
-        header_descriptor = snapshot.resources[FORMAT_RESOURCE_ID]
-        _require(
-            header_descriptor.size
-            <= len(encode_payload(FilePayload(bytes(MAX_METADATA_BYTES))))
-        )
-        _require(
-            not header_descriptor.references
-            and header_descriptor.mode_fingerprint is None
-        )
-        header = _fetch(reader, snapshot, (FORMAT_RESOURCE_ID,))[FORMAT_RESOURCE_ID]
-        _require(metadata_resource(header.data)[0] == header_descriptor)
-        vault_id = metadata_vault_id(header.data)
-        key = device_keys.load(vault_id)
-        if key is None:
-            raise EncryptedStoreLocked()
-        metadata = verify_metadata(header.data, key)
-        if metadata["format"] == "migrating":
-            raise EncryptedStoreMigrating()
         _require(all(_OPAQUE.fullmatch(k) for k in business))
         _require(
             all(
@@ -213,27 +226,32 @@ def discover_encrypted(
                 for d in business.values()
             )
         )
-        vault = EncryptedVault(vault_id, key)
         _require(all(set(d.references) <= business.keys() for d in business.values()))
         cached = _load_checkpoint(checkpoint, vault, snapshot.sync_id)
         entries = {k: v for k, v in cached.items() if business.get(k) == v[0]}
         # Only project identities authenticated in private can introduce a tag.
         private_tag = vault.collection("private").tag
         collections = {private_tag: "private"}
-        for descriptor, resource in entries.values():
+        for descriptor, resource, plain in entries.values():
             if resource.kind == "project":
                 collection = f"project/{resource.name}/memory"
                 tag = vault.collection(collection).tag
                 _require(tag not in collections or collections[tag] == collection)
                 collections[tag] = collection
-        remaining = set(business) - entries.keys()
+        remaining = {k for k in business if k not in entries or entries[k][2] is None}
         private = sorted(k for k in remaining if k.split(":")[1] == private_tag)
         # Defer project resources until all private identities have been verified.
         candidates = private if private else sorted(remaining)
         if not private:
             _require(all(k.split(":")[1] in collections for k in candidates))
-        request_cost = len(encode_fetch_request(snapshot, (FORMAT_RESOURCE_ID,)))
-        response_cost = fetch_response_size(snapshot, (FORMAT_RESOURCE_ID,))
+        request_cost = (
+            0
+            if cached_header
+            else len(encode_fetch_request(snapshot, (FORMAT_RESOURCE_ID,)))
+        )
+        response_cost = (
+            0 if cached_header else fetch_response_size(snapshot, (FORMAT_RESOURCE_ID,))
+        )
         selected = []
         for identity in candidates:
             proposed = selected + [identity]
@@ -251,17 +269,30 @@ def discover_encrypted(
         payloads = _fetch(reader, snapshot, tuple(selected)) if selected else {}
         for identity in selected:
             collection = collections[identity.split(":")[1]]
-            resource, _ = vault.decrypt(
+            resource, payload = vault.decrypt(
                 identity,
                 business[identity],
                 payloads[identity],
                 snapshot.sync_id,
                 collection,
             )
-            entries[identity] = (business[identity], resource)
-        resources = {resource.id: resource for _, resource in entries.values()}
-        _require(len(resources) == len(entries))
-        left = len(business) - len(entries)
+            plain = ResourceDescriptor(
+                resource.fingerprint,
+                payload_hash(payload),
+                len(encode_payload(payload)),
+                resource.references,
+                resource.mode_fingerprint,
+            )
+            entries[identity] = (business[identity], resource, plain)
+        resources = {
+            resource.id: resource
+            for _, resource, plain in entries.values()
+            if plain is not None
+        }
+        _require(
+            len(resources) == sum(plain is not None for _, _, plain in entries.values())
+        )
+        left = len(business) - len(resources)
         if not left:
             _require(not missing_references(resources))
         return DiscoveredSnapshot(
@@ -270,6 +301,11 @@ def discover_encrypted(
             left,
             len(selected),
             _encode_checkpoint(entries, vault, snapshot.sync_id),
+            {
+                resource.id: plain
+                for _, resource, plain in entries.values()
+                if plain is not None
+            },
         )
     except (EncryptedRemoteError, EncryptedStoreUnsupported):
         raise
@@ -295,3 +331,29 @@ def inspect_bound_workspace(workspace: Path, *, home: Path) -> DiscoveredSnapsho
         path = state_path(workspace, DISCOVERY_STATE, create=True)
         atomic_text(path, result.checkpoint.decode("utf-8"))
         return result
+
+
+def unlock_encrypted_snapshot(reader, snapshot, device_keys):
+    """Authenticate a pinned header before reading business data or retrying writes."""
+    if FORMAT_RESOURCE_ID not in snapshot.resources or any(
+        k.startswith("format:") and k != FORMAT_RESOURCE_ID for k in snapshot.resources
+    ):
+        raise EncryptedStoreUnsupported()
+    header_descriptor = snapshot.resources[FORMAT_RESOURCE_ID]
+    _require(
+        header_descriptor.size
+        <= len(encode_payload(FilePayload(bytes(MAX_METADATA_BYTES))))
+    )
+    _require(
+        not header_descriptor.references and header_descriptor.mode_fingerprint is None
+    )
+    header = _fetch(reader, snapshot, (FORMAT_RESOURCE_ID,))[FORMAT_RESOURCE_ID]
+    _require(metadata_resource(header.data)[0] == header_descriptor)
+    vault_id = metadata_vault_id(header.data)
+    key = device_keys.load(vault_id)
+    if key is None:
+        raise EncryptedStoreLocked()
+    metadata = verify_metadata(header.data, key)
+    if metadata["format"] == "migrating":
+        raise EncryptedStoreMigrating()
+    return EncryptedVault(vault_id, key)
