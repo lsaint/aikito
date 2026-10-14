@@ -253,6 +253,7 @@ jobs:
           python3 tests/workspace_bounded_reconcile_smoke.py "$BOUNDED"
           test -f "$BOUNDED/right/projects/demo/memory/notes/11.md"
           test -f "$BOUNDED/checked.txt"
+          test -f "$BOUNDED/archive-budget-checked.txt"
 
       - name: Workspace reconcile smoke
         run: |
@@ -297,6 +298,7 @@ jobs:
           test ! -e "$REMOTE_FORMAT_SMOKE/future/fresh/.local/state/aikito/workspace-reconcile/binding.json"
           REMOTE_CLI_SMOKE=${{ runner.temp }}/remote-cli-smoke
           python3 tests/workspace_remote_cli_smoke.py "$REMOTE_CLI_SMOKE"
+          test -f "$REMOTE_CLI_SMOKE/archive-fields-checked.txt"
           test -f "$REMOTE_CLI_SMOKE/ws_a/.local/state/aikito/workspace-reconcile/binding.json"
           test -f "$REMOTE_CLI_SMOKE/ws_b/.local/state/aikito/workspace-reconcile/binding.json"
           test -f "$REMOTE_CLI_SMOKE/ws_b/memory/notes/smoke-idea.md"

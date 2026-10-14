@@ -627,3 +627,20 @@ A receipt resolved while the store remains supported can finish without an
 additional snapshot read. Locally completed pending requests can still be
 cleaned up offline. This guard does not implement encrypted resources,
 key recovery, or migration.
+
+## Recoverable remote replacements
+
+Before uploading an UPDATE, the client fetches and validates the replaced remote
+payload within the same bounded batch as its selected downloads. Planning charges
+the full fetch request and response, including shared config fields once. Apply
+reuses the validated payload cache; archive creation performs no additional fetch.
+An old version that cannot fit alone blocks its operation instead of creating an
+unrecoverable pending request. NOOP, CREATE uploads and pure DELETE rounds do not
+fetch old payloads for archives.
+
+Each archive round gets a unique directory under `.local/sync-conflicts/`, and
+each logical resource gets its own directory inside it. Alongside the readable
+file or tree, `resource.json` stores its logical ID and original portable payload.
+This retains TOML field paths and tree execution flags even when several resources
+share a physical file. An archive write failure aborts before pending persistence
+and remote commit. Archive directories are checked for unsafe symlinks.

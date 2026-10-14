@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Keep replaced remote versions in independent per-round and per-resource archives, including shared TOML fields and portable execution metadata.
+- Include overwrite-archive downloads in reconciliation budgets and reuse validated payloads instead of fetching them again.
 - Reject unsupported encrypted remote snapshots before binding, resource decoding, or retrying unaccepted pending requests.
 
 ## [1.59.0] - 2026-10-13

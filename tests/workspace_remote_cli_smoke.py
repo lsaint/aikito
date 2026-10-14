@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -158,6 +159,38 @@ def run_smoke(base: Path) -> None:
         )
         assert res.returncode == 0, f"Resync B failed: {res.stderr}\n{res.stdout}"
         assert backend.read().revision == revision, "Empty directory was synced"
+
+        # Replacing shared TOML fields must retain each original logical value.
+        for content in (
+            "[memory]\nstale_days = 14\nretention = 50\n",
+            "[memory]\nstale_days = 30\nretention = 90\n",
+        ):
+            (ws_a / "config.toml").write_text(content, encoding="utf-8")
+            res = run_cli(
+                ["remote", "sync", "--apply"],
+                workspace=ws_a,
+                home=home,
+                env_vars=env_auth,
+            )
+            assert res.returncode == 0, res.stderr
+        records = [
+            json.loads(path.read_text())
+            for path in (ws_a / ".local/sync-conflicts").glob("**/resource.json")
+        ]
+        old_fields = {
+            record["id"]: record["payload"]
+            for record in records
+            if record["id"].startswith("config:memory.")
+        }
+        assert old_fields["config:memory.stale_days"]["path"] == [
+            "memory",
+            "stale_days",
+        ]
+        assert old_fields["config:memory.stale_days"]["text"] == "value = 14\n"
+        assert old_fields["config:memory.retention"]["text"] == "value = 50\n"
+        (base / "archive-fields-checked.txt").write_text(
+            "Shared fields remained recoverable\n", encoding="utf-8"
+        )
 
         # 8. Workspace B: sync with invalid token fails with clear message
         res_bad_auth = run_cli(

@@ -1020,7 +1020,7 @@ jobs:
           $boundedBase = Join-Path $env:RUNNER_TEMP "bounded-reconcile"
           python tests/workspace_bounded_reconcile_smoke.py "$boundedBase"
           if ($LASTEXITCODE -ne 0) { throw "Bounded reconciliation failed" }
-          foreach ($relative in @("right\projects\demo\memory\notes\11.md", "checked.txt")) {
+          foreach ($relative in @("right\projects\demo\memory\notes\11.md", "checked.txt", "archive-budget-checked.txt")) {
             if (-not (Test-Path (Join-Path $boundedBase $relative) -PathType Leaf)) { throw "Missing bounded reconciliation output: $relative" }
           }
 
@@ -1144,6 +1144,7 @@ jobs:
           $remoteCliBase = Join-Path $env:RUNNER_TEMP "remote-cli-smoke"
           python tests/workspace_remote_cli_smoke.py "$remoteCliBase"
           if ($LASTEXITCODE -ne 0) { throw "Remote CLI smoke failed" }
+          if (-not (Test-Path (Join-Path $remoteCliBase "archive-fields-checked.txt") -PathType Leaf)) { throw "Shared field archive check missing" }
           foreach ($relative in @("ws_a/.local/state/aikito/workspace-reconcile/binding.json", "ws_b/.local/state/aikito/workspace-reconcile/binding.json", "ws_b/memory/notes/smoke-idea.md", "center/memory/notes/smoke-idea.md", "ws_b/skills/smoke-skill/SKILL.md")) {
             if (-not (Test-Path (Join-Path $remoteCliBase $relative) -PathType Leaf)) { throw "Missing remote CLI smoke artifact: $relative" }
           }

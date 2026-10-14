@@ -9,6 +9,7 @@ durable request and receipt confirm uploaded Base before the next plan.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import tempfile
 import uuid
@@ -87,6 +88,7 @@ from .transactions import (
     StateUpdate,
     WorkspaceCoreError,
     apply,
+    atomic_text,
     entry_type,
     has_pending,
     recover,
@@ -212,7 +214,7 @@ def _plan_payloads(
     items: list[ReconcileItem],
     captured: Mapping[str, ResourcePayload] | None = None,
 ) -> dict[str, ResourcePayload]:
-    """Fetch candidate downloads and fields needed to merge shared config."""
+    """Fetch selected downloads, overwritten versions and shared config fields."""
     needed = needed_downloads(items, resources)
     result = dict(captured or {})
     missing = {key: resources[key] for key in sorted(needed - result.keys())}
@@ -815,9 +817,7 @@ def recover_reconciliation(local: Path, remote: RemoteStore, home: Path) -> bool
         raise WorkspaceReconcileError(str(exc)) from exc
 
 
-def _archive_overwritten_remote(
-    plan: ReconcilePlan, remote: RemoteStore, *, timestamp: str
-) -> None:
+def _archive_overwritten_remote(plan: ReconcilePlan, *, timestamp: str) -> None:
     """Keep every remote version that a local UPDATE is about to replace.
 
     Base equality does not prove the content survives elsewhere: a stale local
@@ -833,15 +833,22 @@ def _archive_overwritten_remote(
     )
     if not overwritten:
         return
-    payloads = remote.fetch(plan.remote_snapshot, list(overwritten))
-    archive_root = plan.local / SYNC_CONFLICTS_DIR / timestamp
+    payloads = {identity: payload for identity, _, payload in plan.payload_cache}
+    # Each round and logical resource owns its archive path. Shared TOML fields
+    # have the same physical path, and second-resolution timestamps can repeat.
+    archive_root = f"{SYNC_CONFLICTS_DIR}/{timestamp}-{uuid.uuid4().hex}"
     for identity in overwritten:
         payload = payloads.get(identity)
         if payload is None:
             raise WorkspaceReconcileError(
                 f"Cannot archive overwritten remote version: {identity}"
             )
-        dest = archive_root / _archive_relative_path(identity)
+        resource_dir = f"{archive_root}/{hashlib.sha256(identity.encode()).hexdigest()}"
+        dest = state_path(
+            plan.local,
+            f"{resource_dir}/{_archive_relative_path(identity).as_posix()}",
+            create=True,
+        )
         if isinstance(payload, FilePayload):
             _write_archive_bytes(dest, payload.data)
         elif isinstance(payload, TreePayload):
@@ -851,6 +858,14 @@ def _archive_overwritten_remote(
             _write_archive_bytes(dest, payload.text.encode("utf-8"))
         else:
             raise WorkspaceReconcileError(f"Unsupported archive payload for {identity}")
+        # The portable payload retains TOML field paths and tree execution flags.
+        atomic_text(
+            state_path(plan.local, f"{resource_dir}/resource.json", create=True),
+            json.dumps(
+                {"id": identity, "payload": json.loads(encode_payload(payload))},
+                sort_keys=True,
+            ),
+        )
 
 
 def _archive_relative_path(identity: str) -> Path:
@@ -867,7 +882,11 @@ def _write_archive_bytes(dest: Path, data: bytes) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = dest.parent / f".tmp-{dest.name}-{uuid.uuid4().hex}"
     try:
-        tmp_path.write_bytes(data)
+        descriptor = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
         os.replace(tmp_path, dest)
     finally:
         if tmp_path.exists():
@@ -958,8 +977,7 @@ def apply_reconcile_plan(
                 if mutations:
                     # Archive before the commit: a failure here must abort the round.
                     _archive_overwritten_remote(
-                        plan,
-                        remote,
+                        fresh,
                         timestamp=datetime.now(UTC).strftime("%Y%m%d-%H%M%S"),
                     )
                     safe = tuple(

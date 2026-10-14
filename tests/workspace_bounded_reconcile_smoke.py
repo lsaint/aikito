@@ -6,6 +6,9 @@ import argparse
 from pathlib import Path
 from unittest.mock import patch
 
+from workspace_loopback_remote import LoopbackTransport
+from workspace_reconcile_smoke import _workspace
+
 from aikito.workspace import remote_limits
 from aikito.workspace.reconcile import run_reconciliation
 from aikito.workspace.remote import FilesystemRemote
@@ -16,8 +19,6 @@ from aikito.workspace.remote_protocol import (
 )
 from aikito.workspace.replica_state import load_replica_state
 from aikito.workspace.serialized_remote import SerializedRemoteStore
-from workspace_loopback_remote import LoopbackTransport
-from workspace_reconcile_smoke import _workspace
 
 
 def exercise(base: Path) -> None:
@@ -54,6 +55,21 @@ def exercise(base: Path) -> None:
         assert second.rounds > 1 and not second.conflicts and not second.deferred
         assert exchanges.count(Operation.FETCH) == second.rounds
         assert not load_replica_state(right)[0].unpaired_ids
+        # Tiny replacements still need bounded downloads of the large old versions.
+        for index in range(12):
+            (left / f"projects/demo/memory/notes/{index:02}.md").write_text(
+                "small\n", encoding="utf-8"
+            )
+        exchanges.clear()
+        replaced = run_reconciliation(left, remote, base / "home", dry_run=False)
+        assert replaced.rounds > 1 and not replaced.stop_reason
+        assert exchanges.count(Operation.FETCH) == replaced.rounds
+        archives = list((left / ".local/sync-conflicts").glob("**/resource.json"))
+        assert len(archives) == 12
+        (base / "archive-budget-checked.txt").write_text(
+            "Archive downloads stayed bounded\n", encoding="utf-8"
+        )
+        run_reconciliation(right, remote, base / "home", dry_run=False)
     for index in range(12):
         relative = f"projects/demo/memory/notes/{index:02}.md"
         assert (left / relative).read_bytes() == (right / relative).read_bytes()

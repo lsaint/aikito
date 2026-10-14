@@ -130,7 +130,15 @@ def needed_downloads(items, resources) -> set[str]:
     needed = {
         item.id
         for item in items
-        if item.action in CHANGES and item.target == "local" and item.after is not None
+        if item.action in CHANGES
+        and (
+            (item.target == "local" and item.after is not None)
+            or (
+                item.target == "remote"
+                and item.action == "UPDATE"
+                and item.id in resources
+            )
+        )
     }
     if any(_needs_config_fields(item) for item in items):
         needed.update(key for key in resources if key.startswith("config:"))
@@ -208,17 +216,13 @@ class _RoundBudget:
         for item in candidates:
             if item.id in self.upload_costs:
                 cost = cost.plus(self.upload_costs[item.id])
-            if (
-                item.target == "local"
-                and item.after is not None
-                and not item.id.startswith("config:")
-            ):
-                response, identity = self.download_costs[item.id]
-                cost = cost.plus(
-                    _Usage(
-                        download_count=1, response_entries=response, fetch_ids=identity
-                    )
-                )
+        # Old upload versions are downloads too: they must be recoverable before
+        # replacement. Config fields are charged once by the shared-config cost.
+        for key in needed_downloads(candidates, self.download_costs) - self.config_ids:
+            response, identity = self.download_costs[key]
+            cost = cost.plus(
+                _Usage(download_count=1, response_entries=response, fetch_ids=identity)
+            )
         config = any(_needs_config_fields(item) for item in candidates)
         if config and (standalone or not self.config_loaded):
             cost = cost.plus(self.config_cost)
