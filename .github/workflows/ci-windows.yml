@@ -126,7 +126,7 @@ jobs:
           $submitPython = Join-Path $env:RUNNER_TEMP "recipient-core-env/Scripts/python.exe"
           & $submitPython tests/workspace_scoped_submit_smoke.py "$submitBase"
           if ($LASTEXITCODE -ne 0) { throw "Scoped submission smoke failed" }
-          foreach ($relative in @("checked.txt", "request.json", "sealed.json", "workspace/layout.toml")) {
+          foreach ($relative in @("checked.txt", "write-checked.txt", "write-request.json", "write-sealed.json", "request.json", "sealed.json", "workspace/layout.toml")) {
             if (!(Test-Path "$submitBase/$relative" -PathType Leaf)) { throw "Missing scoped submission artifact: $relative" }
           }
 
@@ -1105,6 +1105,10 @@ jobs:
           if (Test-Path "$encryptedBase/migration-check/workspace-1/.local/state/aikito/encrypted-migration.json") { throw "Migration left a journal" }
           if (Test-Path "$encryptedBase/migration-check/workspace-1/.local/state/aikito/encrypted-discovery.json") { throw "Rollback left an encrypted checkpoint" }
           python tests/workspace_scoped_export_smoke.py "$encryptedBase/scoped-check"
+          if ($LASTEXITCODE -ne 0) { throw "Scoped read/write export smoke failed" }
+          foreach ($relative in @("scoped-write.json", "write-checked.txt")) {
+            if (!(Test-Path "$encryptedBase/scoped-check/$relative" -PathType Leaf)) { throw "Missing write export artifact: $relative" }
+          }
           if ($LASTEXITCODE -ne 0) { throw "Scoped export smoke failed" }
           foreach ($relative in @("checked.txt", "scoped-read.json", "workspace/layout.toml")) {
             if (!(Test-Path "$encryptedBase/scoped-check/$relative" -PathType Leaf)) { throw "Missing scoped export artifact: $relative" }

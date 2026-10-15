@@ -1023,6 +1023,12 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     p_key_submit.add_argument(
         "--collection", required=True, help="Explicit project/<name>/memory scope"
     )
+    p_key_submit.add_argument(
+        "--permission",
+        choices=("read", "write"),
+        default="read",
+        help="Explicit permission; defaults to read",
+    )
     p_key_submit.set_defaults(func=cmd_remote_key)
     p_key_path = key_subparsers.add_parser(
         "path", help="Display the device key storage path without reading keys"
@@ -1108,7 +1114,7 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     )
     p_key_migrate.set_defaults(func=cmd_remote_key)
     p_key_export = key_subparsers.add_parser(
-        "export", help="Seal one selected project Memory read key to a recipient"
+        "export", help="Seal selected project Memory keys to a recipient"
     )
     p_key_export.add_argument(
         "--workspace", required=True, help="Unlocked bound workspace"
@@ -1126,6 +1132,12 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     )
     p_key_export.add_argument(
         "--output", required=True, help="New encrypted export file; never overwrites"
+    )
+    p_key_export.add_argument(
+        "--permission",
+        choices=("read", "write"),
+        default="read",
+        help="Explicit permission; write includes reading and requires matching authorization",
     )
     p_key_export.set_defaults(func=cmd_remote_key)
     p_key_storage = key_subparsers.add_parser(

@@ -41,12 +41,20 @@ def _read(path):
 
 
 def submit_bound_export(
-    workspace, home, *, origin, package, authorization, expected_account, collection
+    workspace,
+    home,
+    *,
+    origin,
+    package,
+    authorization,
+    expected_account,
+    collection,
+    permission="read",
 ):
     connection = None
     attempted = False
     try:
-        auth = _authorization(_read(authorization), int(time.time()))
+        auth = _authorization(_read(authorization), int(time.time()), permission)
         if (
             auth["account_id"] != expected_account
             or auth["collection_id"] != collection

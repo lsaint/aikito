@@ -229,6 +229,8 @@ jobs:
           test ! -e "$ENCRYPTED_SMOKE/migration-check/workspace-1/.local/state/aikito/encrypted-migration.json"
           test ! -e "$ENCRYPTED_SMOKE/migration-check/workspace-1/.local/state/aikito/encrypted-discovery.json"
           python3 tests/workspace_scoped_export_smoke.py "$ENCRYPTED_SMOKE/scoped-check"
+          test -f "$ENCRYPTED_SMOKE/scoped-check/scoped-write.json"
+          test -f "$ENCRYPTED_SMOKE/scoped-check/write-checked.txt"
           test -f "$ENCRYPTED_SMOKE/scoped-check/checked.txt"
           test -f "$ENCRYPTED_SMOKE/scoped-check/scoped-read.json"
           test -f "$ENCRYPTED_SMOKE/scoped-check/workspace/layout.toml"
@@ -254,6 +256,9 @@ jobs:
           SUBMIT_SMOKE=${{ runner.temp }}/scoped-submit
           "${{ runner.temp }}/recipient-core-env/bin/python" tests/workspace_scoped_submit_smoke.py "$SUBMIT_SMOKE"
           test -f "$SUBMIT_SMOKE/checked.txt"
+          test -f "$SUBMIT_SMOKE/write-checked.txt"
+          test -f "$SUBMIT_SMOKE/write-request.json"
+          test -f "$SUBMIT_SMOKE/write-sealed.json"
           test -f "$SUBMIT_SMOKE/request.json"
           test -f "$SUBMIT_SMOKE/sealed.json"
           test -f "$SUBMIT_SMOKE/workspace/layout.toml"

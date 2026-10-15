@@ -32,7 +32,7 @@ from .workspace.encrypted_sync import (
     run_encrypted_reconciliation,
 )
 from .workspace.encrypted_migration import MAX_MIGRATION_ROUNDS, run_migration
-from .workspace.scoped_export import export_bound_scoped_read
+from .workspace.scoped_export import export_bound_scoped_keys
 from .workspace.device_keys import DeviceKeyStore
 from .workspace.encrypted_remote import (
     MAX_METADATA_BYTES,
@@ -62,9 +62,12 @@ def cmd_remote_key(args: argparse.Namespace) -> None:
                 authorization=args.authorization,
                 expected_account=args.account,
                 collection=args.collection,
+                permission=getattr(args, "permission", "read"),
             )
             if receipt["status"] == "active":
-                print("[SUCCESS] Scoped read grant activated.")
+                print(
+                    f"[SUCCESS] Scoped {getattr(args, 'permission', 'read')} grant activated."
+                )
             else:
                 print(
                     "[SUCCESS] Scoped package verified. Content access is not active."
@@ -105,15 +108,18 @@ def cmd_remote_key(args: argparse.Namespace) -> None:
                 print(f"[SUCCESS] Device key storage: {store.storage(vault.vault_id)}")
             return
         if args.key_action == "export":
-            export_bound_scoped_read(
+            export_bound_scoped_keys(
                 workspace,
                 home,
                 collection_id=args.collection,
                 recipient=args.recipient,
                 authorization=args.authorization,
                 output=args.output,
+                permission=getattr(args, "permission", "read"),
             )
-            print("[SUCCESS] Scoped read key exported.")
+            print(
+                f"[SUCCESS] Scoped {getattr(args, 'permission', 'read')} key exported."
+            )
             return
         if args.key_action == "initialize":
             descriptor = args.recovery_output_fd

@@ -41,6 +41,8 @@ from aikito.workspace.remote_wire import (
 from aikito.workspace.toml_render import TomlValue
 
 DEFAULT_DIRECTORY = Path(__file__).parent / "fixtures/remote_protocol_vectors"
+# Crypto fixtures have independent native-library and cross-language consumers.
+EXTERNAL_CRYPTO_FIXTURES = frozenset({"encrypted-v1.json", "scoped-write-v1.json"})
 
 
 def canonical(value) -> bytes:
@@ -260,7 +262,7 @@ def main():
                 else path.read_bytes()
             )
             for path in args.output.iterdir()
-            if path.is_file() and path.name != "encrypted-v1.json"
+            if path.is_file() and path.name not in EXTERNAL_CRYPTO_FIXTURES
         }
         if existing != artifacts:
             raise SystemExit(

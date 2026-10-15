@@ -220,6 +220,21 @@ def main(base):
         recipient["key_id"] = "changed-recipient"
         run(False, *arguments)
         assert len(posts) == before
+        recipient["key_id"] = "fixture-recipient"
+        mode[0] = "active"
+        auth["permissions"] = ["read", "write"]
+        context["permissions"] = ["read", "write"]
+        authorization.write_bytes(_canonical(auth))
+        sealed.write_bytes(_canonical(packet))
+        before_write = len(posts)
+        run(False, *arguments)
+        assert len(posts) == before_write
+        write_result = run(True, *arguments, "--permission", "write")
+        assert b"Scoped write grant activated" in write_result.stdout
+        assert len(posts) == before_write + 1
+        (base / "write-request.json").write_bytes(_canonical(auth))
+        (base / "write-sealed.json").write_bytes(_canonical(packet))
+        (base / "write-checked.txt").write_text("Explicit write submission verified\n")
         assert state == {
             str(path.relative_to(workspace)): path.read_bytes()
             for path in workspace.rglob("*")

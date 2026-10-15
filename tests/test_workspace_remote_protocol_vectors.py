@@ -3,7 +3,11 @@
 import hashlib
 import json
 
-from generate_remote_protocol_vectors import DEFAULT_DIRECTORY, generate_vectors
+from generate_remote_protocol_vectors import (
+    DEFAULT_DIRECTORY,
+    EXTERNAL_CRYPTO_FIXTURES,
+    generate_vectors,
+)
 
 from aikito.workspace.remote_protocol import (
     ERROR_CODES,
@@ -20,9 +24,9 @@ def test_vectors_match_regeneration():
             if path.name == "manifest.json"
             else path.read_bytes()
         )
-        # The encrypted resource fixture has separate Python and external consumers.
+        # Crypto fixtures have separate Python and external consumers.
         for path in DEFAULT_DIRECTORY.iterdir()
-        if path.name != "encrypted-v1.json"
+        if path.name not in EXTERNAL_CRYPTO_FIXTURES
     } == generate_vectors()
 
 

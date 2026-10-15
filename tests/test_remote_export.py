@@ -210,3 +210,15 @@ def test_active_receipt_is_distinct_from_verification(export_input):
     *_, receipt, run = export_input
     receipt["status"] = "active"
     assert run()["status"] == "active"
+
+
+def test_write_requires_explicit_permission_before_credentials(export_input):
+    auth, packet, path, package, credential, _, connection, _, _, run = export_input
+    auth["permissions"] = ["read", "write"]
+    packet["context"]["permissions"] = ["read", "write"]
+    path.write_bytes(_canonical(auth))
+    package.write_bytes(_canonical(packet))
+    with pytest.raises(submit.ExportSubmissionError):
+        run()
+    credential.assert_not_called()
+    connection.request.assert_not_called()

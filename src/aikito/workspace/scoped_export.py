@@ -1,4 +1,4 @@
-"""One explicitly selected project Memory key, sealed to a recipient.
+"""Explicit project Memory subkeys, sealed to a recipient without implicit upgrades.
 
 This local export does not establish account ownership, authenticate its sender,
 or consume a one-time grant. Receivers must verify those separately. Expiry is
@@ -70,7 +70,7 @@ class ScopedExportInvalid(EncryptedRemoteError):
 
 class ScopedExportDenied(EncryptedRemoteError):
     code = "scoped_export_denied"
-    message = "Only an explicitly selected existing project Memory collection with read permission can be exported."
+    message = "Only explicitly selected project Memory keys with matching permission can be exported."
 
 
 def _hpke():
@@ -107,7 +107,7 @@ def _collection(collection_id):
     return project
 
 
-def _authorization(encoded, now):
+def _authorization(encoded, now, permission="read"):
     _require(type(encoded) is bytes and len(encoded) <= MAX_EXPORT_BYTES)
     auth = _parse(encoded, _AUTH_FIELDS)
     _require(type(auth["version"]) is int and auth["version"] == 1)
@@ -123,7 +123,8 @@ def _authorization(encoded, now):
     _require(type(auth["sync_id"]) is str and bool(auth["sync_id"]))
     validate_vault_id(auth["vault_id"])
     _collection(auth["collection_id"])
-    if auth["permissions"] != ["read"]:
+    expected = {"read": ["read"], "write": ["read", "write"]}.get(permission)
+    if expected is None or auth["permissions"] != expected:
         raise ScopedExportDenied()
     _unb64(auth["nonce"], 32)
     _require(type(auth["expires_at"]) is int and now < auth["expires_at"] <= 2**53 - 1)
@@ -143,18 +144,29 @@ def _recipient(encoded):
     return document, key
 
 
-def _info(context):
-    return _canonical({"domain": "aikito.scoped-read-export", "context": context})
+def _info(context, permission="read"):
+    domain = {
+        "read": "aikito.scoped-read-export",
+        "write": "aikito.scoped-write-export",
+    }[permission]
+    return _canonical({"domain": domain, "context": context})
 
 
-def export_scoped_read(
-    reader, device_keys, *, collection_id, recipient, authorization, now=None
+def _export_scoped(
+    reader,
+    device_keys,
+    *,
+    collection_id,
+    recipient,
+    authorization,
+    permission,
+    now=None,
 ):
     """Authenticate the header, parent and one sample; return only sealed material."""
     suite, PublicKey, _, _ = _hpke()
     now = _now(now)
     project = _collection(collection_id)
-    auth = _authorization(authorization, now)
+    auth = _authorization(authorization, now, permission)
     document, public = _recipient(recipient)
     if (
         auth["collection_id"] != collection_id
@@ -214,22 +226,34 @@ def export_scoped_read(
         parent_project_id=parent,
         recipient_public_key_sha256=hashlib.sha256(public).hexdigest(),
     )
-    plain = _canonical(
-        {
-            "version": 1,
-            "collection_id": collection_id,
-            "content_key": _b64(keys.content),
-        }
-    )
+    material = {
+        "version": 1,
+        "collection_id": collection_id,
+        "content_key": _b64(keys.content),
+    }
+    if permission == "write":
+        material.update(
+            resource_id_key=_b64(keys.resource_id),
+            fingerprint_key=_b64(keys.fingerprint),
+        )
+    plain = _canonical(material)
     try:
         ciphertext = suite.encrypt(
-            plain, PublicKey.from_public_bytes(public), info=_info(context)
+            plain, PublicKey.from_public_bytes(public), info=_info(context, permission)
         )
     except (ValueError, TypeError):
         raise ScopedExportInvalid() from None
     return _canonical(
         {"version": 1, "context": context, "ciphertext": _b64(ciphertext)}
     )
+
+
+def export_scoped_read(reader, device_keys, **kwargs):
+    return _export_scoped(reader, device_keys, permission="read", **kwargs)
+
+
+def export_scoped_write(reader, device_keys, **kwargs):
+    return _export_scoped(reader, device_keys, permission="write", **kwargs)
 
 
 @dataclass(frozen=True)
@@ -343,8 +367,15 @@ def _publish(path, encoded):
         temporary.unlink(missing_ok=True)
 
 
-def export_bound_scoped_read(
-    workspace, home, *, collection_id, recipient, authorization, output
+def export_bound_scoped_keys(
+    workspace,
+    home,
+    *,
+    collection_id,
+    recipient,
+    authorization,
+    output,
+    permission="read",
 ):
     _hpke()
     _collection(collection_id)
@@ -354,17 +385,22 @@ def export_bound_scoped_read(
         recipient=_read_document(recipient), authorization=_read_document(authorization)
     )
     # Validate public inputs before opening a remote or loading any device key.
-    _authorization(documents["authorization"], _now(None))
+    _authorization(documents["authorization"], _now(None), permission)
     _recipient(documents["recipient"])
     binding = load_remote_binding(workspace)
     _require(binding is not None)
     reader = BoundRemoteReader(
         _open_remote(binding.endpoint, binding.auth, None, home=home), binding.sync_id
     )
-    encoded = export_scoped_read(
+    encoded = _export_scoped(
         reader,
         DeviceKeyStore(home=home, workspace=workspace),
         collection_id=collection_id,
+        permission=permission,
         **documents,
     )
     _publish(output, encoded)
+
+
+def export_bound_scoped_read(workspace, home, **kwargs):
+    return export_bound_scoped_keys(workspace, home, permission="read", **kwargs)

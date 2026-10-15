@@ -318,3 +318,105 @@ def test_frozen_python_recipient_opens_cross_language_vector():
     )
     assert opened.content_key.hex() == vector["content_key_hex"]
     assert opened.collection_id == "project/demo/memory"
+
+
+def test_explicit_write_exports_only_three_collection_subkeys(setup):
+    reader, private, recipient, auth = setup
+    auth["permissions"] = ["read", "write"]
+    encoded = scoped.export_scoped_write(
+        reader,
+        KEYS,
+        collection_id=COLLECTION,
+        recipient=_canonical(recipient),
+        authorization=_canonical(auth),
+        now=NOW,
+    )
+    packet = json.loads(encoded)
+    suite, _, PrivateKey, _ = scoped._hpke()
+    body = json.loads(
+        suite.decrypt(
+            scoped._unb64(packet["ciphertext"]),
+            PrivateKey.from_private_bytes(private),
+            info=scoped._info(packet["context"], "write"),
+        )
+    )
+    keys = EncryptedVault(VAULT, KEY).collection(COLLECTION)
+    assert body == {
+        "version": 1,
+        "collection_id": COLLECTION,
+        "content_key": _b64(keys.content),
+        "resource_id_key": _b64(keys.resource_id),
+        "fingerprint_key": _b64(keys.fingerprint),
+    }
+    with pytest.raises(EncryptedRemoteError):
+        scoped.open_scoped_read(
+            encoded, private, authorization=_canonical(auth), now=NOW
+        )
+    with pytest.raises(EncryptedRemoteError):
+        scoped.export_scoped_read(
+            reader,
+            KEYS,
+            collection_id=COLLECTION,
+            recipient=_canonical(recipient),
+            authorization=_canonical(auth),
+            now=NOW,
+        )
+
+
+@pytest.mark.parametrize(
+    "permissions",
+    [
+        ["read"],
+        ["write"],
+        ["memory.write"],
+        ["write", "read"],
+        ["read", "write", "write"],
+    ],
+)
+def test_write_export_requires_exact_independent_permission(setup, permissions):
+    reader, _, recipient, auth = setup
+    auth["permissions"] = permissions
+    with pytest.raises(EncryptedRemoteError):
+        scoped.export_scoped_write(
+            reader,
+            KEYS,
+            collection_id=COLLECTION,
+            recipient=_canonical(recipient),
+            authorization=_canonical(auth),
+            now=NOW,
+        )
+    assert not reader.calls
+
+
+def test_frozen_write_export_native_receiver():
+    path = (
+        Path(__file__).parent / "fixtures/remote_protocol_vectors/scoped-write-v1.json"
+    )
+    vector = json.loads(path.read_bytes())
+    assert vector["test_only"] is True
+    auth, packet = json.loads(vector["authorization"]), json.loads(vector["package"])
+    assert auth["permissions"] == ["read", "write"]
+    suite, _, PrivateKey, _ = scoped._hpke()
+    body = json.loads(
+        suite.decrypt(
+            scoped._unb64(packet["ciphertext"]),
+            PrivateKey.from_private_bytes(
+                bytes.fromhex(vector["recipient_private_hex"])
+            ),
+            info=scoped._info(packet["context"], "write"),
+        )
+    )
+    assert set(body) == {
+        "version",
+        "collection_id",
+        "content_key",
+        "resource_id_key",
+        "fingerprint_key",
+    }
+    for key in ("content", "resource_id", "fingerprint"):
+        assert scoped._unb64(body[key + "_key"]).hex() == vector[key + "_key_hex"]
+
+    keys = EncryptedVault(VAULT, KEY).collection(COLLECTION)
+    assert body["content_key"] == _b64(keys.content)
+    assert body["resource_id_key"] == _b64(keys.resource_id)
+    assert body["fingerprint_key"] == _b64(keys.fingerprint)

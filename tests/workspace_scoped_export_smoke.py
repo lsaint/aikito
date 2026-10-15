@@ -1,5 +1,7 @@
 """Real CLI sealed exports over authenticated HTTP without Store or workspace writes."""
 
+import base64
+import json
 import os
 import subprocess
 import sys
@@ -28,7 +30,7 @@ from aikito.workspace.remote_format import FORMAT_RESOURCE_ID
 from aikito.workspace.remote_store import RemoteSnapshot
 from aikito.workspace.remote_wire import _canonical
 from aikito.workspace.resource_state import local_resource_for_id
-from aikito.workspace.scoped_export import EXPORT_SUITE, _hpke, open_scoped_read
+from aikito.workspace.scoped_export import EXPORT_SUITE, _hpke, _info, open_scoped_read
 
 KEY = bytes(range(32))
 VAULT = "00112233445566778899aabbccddeeff"
@@ -158,7 +160,7 @@ def main(base):
         }
         before = backend.read()
 
-        def export(collection=COLLECTION, name="scoped-read.json"):
+        def export(collection=COLLECTION, name="scoped-read.json", permission="read"):
             output = base / name
             result = command(
                 [
@@ -175,6 +177,8 @@ def main(base):
                     str(auth_path),
                     "--output",
                     str(output),
+                    "--permission",
+                    permission,
                 ]
             )
             return result, output
@@ -221,6 +225,40 @@ def main(base):
             and not target.exists()
             and server.request_count == requests
         )
+        auth["permissions"] = ["read"]
+        auth_path.write_bytes(_canonical(auth))
+        auth["permissions"] = ["read", "write"]
+        auth_path.write_bytes(_canonical(auth))
+        requests = server.request_count
+        denied, target = export(name="implicit-write.json")
+        assert (
+            denied.returncode == 1
+            and not target.exists()
+            and server.request_count == requests
+        )
+        written, write_path = export(name="scoped-write.json", permission="write")
+        assert written.returncode == 0, written.stderr
+        packet = json.loads(write_path.read_bytes())
+        suite, _, PrivateKey, _ = _hpke()
+        material = json.loads(
+            suite.decrypt(
+                base64.b64decode(packet["ciphertext"]),
+                PrivateKey.from_private_bytes(private),
+                info=_info(packet["context"], "write"),
+            )
+        )
+        assert set(material) == {
+            "version",
+            "collection_id",
+            "content_key",
+            "resource_id_key",
+            "fingerprint_key",
+        }
+        scoped = vault.collection(COLLECTION)
+        assert material["content_key"] == _b64(scoped.content)
+        assert material["resource_id_key"] == _b64(scoped.resource_id)
+        assert material["fingerprint_key"] == _b64(scoped.fingerprint)
+        (base / "write-checked.txt").write_text("Explicit write export verified\n")
         auth["permissions"] = ["read"]
         auth_path.write_bytes(_canonical(auth))
         assert backend.read() == before

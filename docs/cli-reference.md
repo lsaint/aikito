@@ -799,8 +799,9 @@ aikito remote key export --workspace ~/aikito \
 ```
 
 The command verifies the Store header, parent Project and one Memory sample,
-then seals only that collection's content key. It refuses `private`, global
-Memory, other resource types, empty collections, migrations and write permissions.
+then seals only the explicitly selected collection keys. The default permission
+is `read`, exporting only its content key. It refuses `private`, global Memory,
+other resource types, empty collections and migrations.
 There is no implicit project, wildcard or plaintext-key output. The output is a
 new owner-only encrypted file; existing files and links are never overwritten.
 Remote data, discovery checkpoints, pending and Replica Base are unchanged.
@@ -830,7 +831,30 @@ collection, including future content until key rotation; expiry cannot erase
 copied keys. Private resources and other projects have independent keys.
 
 
-### Scoped Read Package Submission
+For independent write delegation, obtain a separate authorization whose permissions
+are exactly `["read","write"]` and explicitly select write on both commands:
+
+```bash
+aikito remote key export --workspace ~/aikito --collection project/demo/memory \
+  --permission write --recipient recipient.json --authorization write-request.json \
+  --output scoped-write.json
+aikito remote key submit --workspace ~/aikito --origin https://recipient.example.com \
+  --permission write --package scoped-write.json --authorization write-request.json \
+  --account account-123 --collection project/demo/memory
+```
+
+A write request is rejected by the default read command before loading keys or
+resolving a Store credential; selecting write against a read request is also rejected.
+Write material contains only this collection's content, resource-ID and fingerprint
+subkeys, bound to the independent `aikito.scoped-write-export` HPKE info domain.
+It does not contain the Vault root, collection master, tag key or private keys.
+The fixed parent opaque ID comes from the authenticated local parent Project.
+Receivers must verify all three keys against a real sample and persist/revoke the
+write grant independently. This export does not write any Memory or imply that
+consumer write tools are available.
+
+
+### Scoped Package Submission
 
 Submit an existing sealed package to an explicit HTTPS recipient origin:
 
@@ -858,7 +882,7 @@ pending or Replica Base data is written.
 
 A successful HTTP 202 receipt distinguishes two receiver outcomes:
 `verified` means the package and encrypted sample were checked without durable
-activation; `active` means the receiver saved the scoped read grant. The CLI
+activation; `active` means the receiver saved the scoped grant with the exact requested permissions. The CLI
 prints the corresponding result. An active grant lasts until its stated expiry
 or explicit receiver-side revocation, independently of the submitting device.
 Content endpoints and authorization for individual consumers are separate
