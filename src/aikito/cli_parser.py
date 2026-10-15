@@ -1009,6 +1009,21 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         help="Explicitly replace a changed recipient pin",
     )
     p_key_fetch.set_defaults(func=cmd_remote_key)
+    p_key_submit = key_subparsers.add_parser(
+        "submit",
+        help="Submit one scoped package to a pinned HTTPS recipient for verification",
+    )
+    p_key_submit.add_argument("--workspace", required=True)
+    p_key_submit.add_argument("--origin", required=True)
+    p_key_submit.add_argument("--package", required=True)
+    p_key_submit.add_argument("--authorization", required=True)
+    p_key_submit.add_argument(
+        "--account", required=True, help="Independently selected account ID"
+    )
+    p_key_submit.add_argument(
+        "--collection", required=True, help="Explicit project/<name>/memory scope"
+    )
+    p_key_submit.set_defaults(func=cmd_remote_key)
     p_key_path = key_subparsers.add_parser(
         "path", help="Display the device key storage path without reading keys"
     )

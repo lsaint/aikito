@@ -111,7 +111,11 @@ def _authorization(encoded, now):
     _require(type(encoded) is bytes and len(encoded) <= MAX_EXPORT_BYTES)
     auth = _parse(encoded, _AUTH_FIELDS)
     _require(type(auth["version"]) is int and auth["version"] == 1)
-    for name in ("account_id", "store_id", "recipient_key_id", "grant_id"):
+    _require(
+        type(auth["account_id"]) is str
+        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", auth["account_id"])
+    )
+    for name in ("store_id", "recipient_key_id", "grant_id"):
         _require(
             type(auth[name]) is str
             and re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", auth[name])

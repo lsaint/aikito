@@ -229,3 +229,29 @@ def fetch_recipient(workspace, home, *, origin, output, accept_key_change=False)
     except Exception:
         # Provider bodies, URLs, certificate errors and local paths are untrusted.
         raise RecipientKeyError("recipient_key_unavailable") from None
+
+
+def require_pinned_recipient(workspace, home, origin):
+    """Require a fresh HTTPS document matching existing trust; never auto-pin."""
+    try:
+        origin = canonical_origin(origin)
+        root = get_workspace_config_dir(home) / "remote-recipients"
+        if (
+            not root.is_absolute()
+            or ".." in root.parts
+            or not root.exists()
+            or root.resolve().is_relative_to(Path(workspace).resolve())
+        ):
+            raise ValueError()
+        document = _fetch(origin)
+        _directories(root)
+        path = root / (hashlib.sha256(origin.encode("ascii")).hexdigest() + ".json")
+        with WorkspaceWriterLock(home):
+            previous = _read(path, origin)
+            if previous is None or previous != document:
+                raise RecipientKeyError("recipient_key_changed_or_untrusted")
+        return origin, document
+    except RecipientKeyError:
+        raise
+    except Exception:
+        raise RecipientKeyError("recipient_key_unavailable") from None

@@ -10,6 +10,7 @@ import warnings
 from pathlib import Path
 
 from .skill_state import WorkspaceWriterLock
+from .workspace.remote_export import ExportSubmissionError, submit_bound_export
 from .workspace.recipient_keys import RecipientKeyError, fetch_recipient
 from .workspace.remote_binding import (
     RemoteBinding,
@@ -50,6 +51,20 @@ def cmd_remote_key(args: argparse.Namespace) -> None:
             if getattr(args, "workspace", None)
             else None
         )
+        if args.key_action == "submit":
+            if workspace is None or not is_recognized_workspace(workspace):
+                raise ExportSubmissionError("export_workspace_invalid")
+            submit_bound_export(
+                workspace,
+                home,
+                origin=args.origin,
+                package=args.package,
+                authorization=args.authorization,
+                expected_account=args.account,
+                collection=args.collection,
+            )
+            print("[SUCCESS] Scoped package verified. Content access is not active.")
+            return
         if args.key_action == "fetch":
             if workspace is None or not is_recognized_workspace(workspace):
                 raise RecipientKeyError("recipient_workspace_invalid")
@@ -219,7 +234,7 @@ def cmd_remote_key(args: argparse.Namespace) -> None:
                 if existing is None:
                     save_remote_binding(workspace, new_binding, home=home)
         print("[SUCCESS] Device key recovered. Remote synchronization was not changed.")
-    except RecipientKeyError as exc:
+    except (RecipientKeyError, ExportSubmissionError) as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
         raise SystemExit(1) from None
     except (EncryptedRemoteError, EncryptedStoreUnsupported) as exc:

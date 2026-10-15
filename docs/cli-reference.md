@@ -815,8 +815,8 @@ for HTTPS discovery with local trust continuity.
 The authorization request contains exactly `version:1`, `account_id`, `store_id`,
 `sync_id`, `vault_id`, `collection_id`, `recipient_key_id`, `permissions:["read"]`,
 `grant_id`, `nonce` (Base64 32 bytes) and `expires_at` (future UTC Unix seconds).
-Account, Store, grant and recipient key identifiers use 1–128 ASCII letters,
-digits, dots, underscores or hyphens. Select the collection explicitly and match
+Store, grant and recipient key identifiers use 1–128 ASCII letters,
+digits, dots, underscores or hyphens. Account identifiers also allow colons. Select the collection explicitly and match
 its name and recipient key ID to the request. The encrypted package binds every
 request field, Vault/Store identity, collection Tag, recipient public key hash and
 fixed parent opaque ID. Project names and the content key remain inside HPKE.
@@ -828,3 +828,37 @@ decryption and enforce expiry/revocation. HPKE Base mode does not authenticate
 senders. A recipient holding the content key can read the entire selected
 collection, including future content until key rotation; expiry cannot erase
 copied keys. Private resources and other projects have independent keys.
+
+
+### Scoped Read Package Submission
+
+Submit an existing sealed package to an explicit HTTPS recipient origin:
+
+```bash
+aikito remote key submit --workspace ~/aikito \
+  --origin https://recipient.example.com --package scoped-read.json \
+  --authorization request.json --account account-123 \
+  --collection project/demo/memory
+```
+
+This command works without the encrypted extra. First obtain and inspect the
+recipient's authorization request, then use `remote key fetch` and `remote key
+export` as above. Choose the account and collection independently; submission
+checks both against the request before resolving the bound Store credential.
+It also checks the binding's Store/sync identity, all package context fields,
+and a freshly fetched public key against the existing origin pin. Missing or
+changed pins stop submission; accepting a key change requires a separate fetch.
+
+The command sends one authenticated POST to `/v1/stores/{store}/grants` on the
+explicit origin, using the existing Store Token. It verifies TLS, sends no
+browser Cookie, refuses redirects, and never retries a submission. Keep this
+origin distinct from the Remote endpoint when the recipient uses separate
+listeners. Request/package files must be canonical JSON. No workspace, Remote,
+pending or Replica Base data is written.
+
+A successful HTTP 202 receipt has status `verified`: the recipient checked this
+one-time request and its encrypted sample. Content access is not active. A
+rejected request may already be consumed; a lost or malformed response reports
+`export_outcome_unknown`. Obtain a fresh authorization request rather than
+resending a possibly consumed one. Grant persistence, activation and revocation
+are separate receiver capabilities.
