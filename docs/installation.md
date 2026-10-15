@@ -35,6 +35,14 @@ pipx install aikito
 brew install lsaint/tap/aikito
 ```
 
+The Formula includes the optional encrypted runtime through Homebrew's
+`cryptography` dependency, shared with its Python runtime. Other Python
+installations opt in with `uv tool install 'aikito[encrypted]'` or
+`pipx install 'aikito[encrypted]'`. Ordinary Python installations retain zero
+runtime dependencies. Device keys use owner-only files by default; see
+[optional native storage](cli-reference.md#optional-native-device-key-storage)
+for an explicit switch to OS protection.
+
 ### Windows
 
 Enable Developer Mode in Settings so Aikito can create symbolic links without administrator privileges:

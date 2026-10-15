@@ -969,17 +969,26 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     p_remote_status.set_defaults(func=cmd_remote_status)
 
     # Explicit encrypted commands preserve the ordinary plaintext format guard.
-    p_remote_key = remote_subparsers.add_parser("key", help="Manage encrypted keys, recovery and synchronization")
+    p_remote_key = remote_subparsers.add_parser(
+        "key", help="Manage encrypted keys, recovery and synchronization"
+    )
     key_subparsers = p_remote_key.add_subparsers(dest="key_action", required=True)
-    p_key_path = key_subparsers.add_parser("path", help="Display the device key storage path without reading keys")
-    p_key_path.add_argument("--vault-id", help="Display the path for a public vault identity")
-    p_key_path.add_argument("--workspace", help="Workspace whose boundary must be preserved")
+    p_key_path = key_subparsers.add_parser(
+        "path", help="Display the device key storage path without reading keys"
+    )
+    p_key_path.add_argument(
+        "--vault-id", help="Display the path for a public vault identity"
+    )
+    p_key_path.add_argument(
+        "--workspace", help="Workspace whose boundary must be preserved"
+    )
     p_key_path.set_defaults(func=cmd_remote_key)
     p_key_inspect = key_subparsers.add_parser(
         "inspect", help="Discover encrypted resources in one bounded read-only round"
     )
     p_key_inspect.add_argument(
-        "--workspace", required=True,
+        "--workspace",
+        required=True,
         help="Initialized workspace with an existing remote binding",
     )
     p_key_inspect.set_defaults(func=cmd_remote_key)
@@ -1020,24 +1029,63 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     p_key_migrate = key_subparsers.add_parser(
         "migrate", help="Preview or resume fenced encryption migration and rollback"
     )
-    p_key_migrate.add_argument("--workspace", required=True, help="Initialized bound workspace")
+    p_key_migrate.add_argument(
+        "--workspace", required=True, help="Initialized bound workspace"
+    )
     migration_mode = p_key_migrate.add_mutually_exclusive_group(required=True)
-    migration_mode.add_argument("--dry-run", action="store_true", help="Validate without writing")
-    migration_mode.add_argument("--apply", action="store_true", help="Apply bounded migration rounds")
-    p_key_migrate.add_argument("--rollback", action="store_true", help="Explicitly restore plaintext representation")
-    p_key_migrate.add_argument("--takeover", action="store_true", help="Explicitly claim a new migration epoch")
-    p_key_migrate.add_argument("--max-rounds", type=int, default=1024, help="Maximum bounded rounds (1-1024)")
-    p_key_migrate.add_argument("--recovery-output-fd", type=int, help="Write the one-time recovery code to this explicit descriptor")
+    migration_mode.add_argument(
+        "--dry-run", action="store_true", help="Validate without writing"
+    )
+    migration_mode.add_argument(
+        "--apply", action="store_true", help="Apply bounded migration rounds"
+    )
+    p_key_migrate.add_argument(
+        "--rollback",
+        action="store_true",
+        help="Explicitly restore plaintext representation",
+    )
+    p_key_migrate.add_argument(
+        "--takeover", action="store_true", help="Explicitly claim a new migration epoch"
+    )
+    p_key_migrate.add_argument(
+        "--max-rounds", type=int, default=1024, help="Maximum bounded rounds (1-1024)"
+    )
+    p_key_migrate.add_argument(
+        "--recovery-output-fd",
+        type=int,
+        help="Write the one-time recovery code to this explicit descriptor",
+    )
     p_key_migrate.set_defaults(func=cmd_remote_key)
     p_key_export = key_subparsers.add_parser(
         "export", help="Seal one selected project Memory read key to a recipient"
     )
-    p_key_export.add_argument("--workspace", required=True, help="Unlocked bound workspace")
-    p_key_export.add_argument("--collection", required=True, help="Explicit project/<name>/memory collection")
-    p_key_export.add_argument("--recipient", required=True, help="Trusted recipient public key JSON file")
-    p_key_export.add_argument("--authorization", required=True, help="Canonical single-use authorization request JSON file")
-    p_key_export.add_argument("--output", required=True, help="New encrypted export file; never overwrites")
+    p_key_export.add_argument(
+        "--workspace", required=True, help="Unlocked bound workspace"
+    )
+    p_key_export.add_argument(
+        "--collection", required=True, help="Explicit project/<name>/memory collection"
+    )
+    p_key_export.add_argument(
+        "--recipient", required=True, help="Trusted recipient public key JSON file"
+    )
+    p_key_export.add_argument(
+        "--authorization",
+        required=True,
+        help="Canonical single-use authorization request JSON file",
+    )
+    p_key_export.add_argument(
+        "--output", required=True, help="New encrypted export file; never overwrites"
+    )
     p_key_export.set_defaults(func=cmd_remote_key)
+    p_key_storage = key_subparsers.add_parser(
+        "storage",
+        help="Explicitly select file or native protection for an unlocked Vault",
+    )
+    p_key_storage.add_argument(
+        "--workspace", required=True, help="Unlocked bound workspace"
+    )
+    p_key_storage.add_argument("--backend", choices=("file", "native"), required=True)
+    p_key_storage.set_defaults(func=cmd_remote_key)
     p_key_recover = key_subparsers.add_parser(
         "recover", help="Recover a device key from a canonical recovery header"
     )
@@ -1065,6 +1113,11 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         "--recovery-fd",
         type=int,
         help="Read the recovery code from this descriptor instead of a secure terminal",
+    )
+    p_key_recover.add_argument(
+        "--file-storage",
+        action="store_true",
+        help="Explicitly restore a verified native record to owner-only file storage",
     )
     p_key_recover.set_defaults(func=cmd_remote_key)
 

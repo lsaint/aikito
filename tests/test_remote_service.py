@@ -701,9 +701,11 @@ def test_save_keychain_implementations(monkeypatch: pytest.MonkeyPatch) -> None:
         save_keychain("MY_TEST_KEY", "secret-value-123")
         cmd = mock_run.call_args[0][0]
         assert "security" in cmd[0]
-        assert "add-generic-password" in cmd
-        assert "MY_TEST_KEY" in cmd
-        assert "secret-value-123" in cmd
+        assert cmd == ["/usr/bin/security", "-i"]
+        assert "secret-value-123" not in cmd
+        stdin = mock_run.call_args.kwargs["input"]
+        assert "add-generic-password" in stdin
+        assert "MY_TEST_KEY" in stdin and "secret-value-123" in stdin
 
     # Test linux
     monkeypatch.setattr(sys, "platform", "linux")

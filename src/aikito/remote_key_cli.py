@@ -17,7 +17,7 @@ from .workspace.remote_binding import (
     save_remote_binding,
 )
 from .workspace.remote_factory import _open_remote, BoundRemoteReader
-from .workspace.encrypted_discovery import _fetch
+from .workspace.encrypted_discovery import _fetch, unlock_encrypted_snapshot
 from .workspace.encrypted_remote import metadata_resource
 from .workspace.remote_format import FORMAT_RESOURCE_ID
 from .workspace.payload import FilePayload, encode_payload
@@ -58,6 +58,19 @@ def cmd_remote_key(args: argparse.Namespace) -> None:
                 "Recovery requires --workspace pointing to an initialized workspace."
             )
         require_encrypted_support()
+        if args.key_action == "storage":
+            binding = load_remote_binding(workspace)
+            if binding is None:
+                raise ValueError("Storage requires an existing binding.")
+            with WorkspaceWriterLock(home):
+                reader = BoundRemoteReader(
+                    _open_remote(binding.endpoint, binding.auth, None, home=home),
+                    binding.sync_id,
+                )
+                vault = unlock_encrypted_snapshot(reader, reader.read(), store)
+                store.set_storage(vault.vault_id, args.backend)
+                print(f"[SUCCESS] Device key storage: {store.storage(vault.vault_id)}")
+            return
         if args.key_action == "export":
             export_bound_scoped_read(
                 workspace,
@@ -181,7 +194,10 @@ def cmd_remote_key(args: argparse.Namespace) -> None:
                 warnings.simplefilter("error", getpass.GetPassWarning)
                 text = getpass.getpass("Recovery code: ")
         vault = recover_vault(encoded, sync_id, decode_recovery_code(text))
-        store.save(vault.vault_id, vault.vrk)
+        if getattr(args, "file_storage", False):
+            store.recover_file(vault.vault_id, vault.vrk)
+        else:
+            store.save(vault.vault_id, vault.vrk)
         if new_binding is not None:
             with WorkspaceWriterLock(home):
                 existing = load_remote_binding(workspace)

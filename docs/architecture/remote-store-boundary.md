@@ -663,8 +663,18 @@ Device keys use owner-only files outside the workspace, under the existing Aikit
 user configuration directory in `encrypted-remote/keys/<vault_id>.key`. POSIX
 files require mode `0600`; Windows uses owner-only ACLs. Unsafe permissions,
 symlinks, hard links, corrupt records, and a different key for an existing vault
-are refused. Saving the same key is idempotent. Native system keychain backends
-are future optional enhancements, and Homebrew extra packaging is still pending.
+are refused. Saving the same key is idempotent. Explicit `remote key storage
+--backend native|file` authenticates the bound Store before changing storage.
+Native protection uses macOS SecurityTool over stdin, current-user Windows DPAPI,
+or Linux Secret Service with `secret-tool` and `gdbus`. Locked/unavailable stores
+fail closed without fallback. The default file format remains Base64 VRK; an
+owner-only canonical v2 record instead contains the Vault, backend, keyed
+commitment and an optional DPAPI blob. No plaintext VRK remains in that record.
+Read-back succeeds before atomic publication; different existing keys are never
+overwritten. A verified recovery with `--file-storage` can replace an unavailable
+native record only when the recovered key matches its commitment. Unreferenced
+native items are not deleted automatically. Homebrew shares its Python runtime
+with the core cryptography Formula; Formula tests require AES-GCM and native HPKE.
 Home backups may contain these keys. All devices and the recovery code lost means
 the Vault cannot be decrypted. Regenerating a code preserves the VRK, so an old
 code plus an old recovery header still works; revocation requires future VRK rotation.

@@ -19,6 +19,8 @@ from pathlib import Path
 
 from ..compat import get_workspace_config_dir, is_windows
 from .remote_access import RemoteCredentialError
+from .encrypted_remote import KeyStorageUnavailable
+from .native_keys import macos_command
 from .remote_binding import RemoteAuth
 
 
@@ -202,22 +204,14 @@ def save_keychain(key: str, value: str) -> None:
         raise RemoteCredentialError("OS keychain is not supported on Windows")
 
     if sys.platform == "darwin":
-        cmd = [
-            "/usr/bin/security",
-            "add-generic-password",
-            "-U",
-            "-s",
-            "aikito",
-            "-a",
-            key,
-            "-w",
-            value,
-        ]
-        res = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if res.returncode != 0:
-            raise RemoteCredentialError(
-                f"Failed to save credential to macOS keychain: {res.stderr.strip() or res.stdout.strip()}"
+        try:
+            macos_command(
+                ["add-generic-password", "-U", "-s", "aikito", "-a", key, "-w", value]
             )
+        except KeyStorageUnavailable:
+            raise RemoteCredentialError(
+                "Operating system keychain is unavailable."
+            ) from None
     elif sys.platform.startswith("linux"):
         secret_tool = shutil.which("secret-tool")
         if not secret_tool:
@@ -229,9 +223,7 @@ def save_keychain(key: str, value: str) -> None:
             cmd, input=value, text=True, capture_output=True, check=False
         )
         if res.returncode != 0:
-            raise RemoteCredentialError(
-                f"Failed to save credential to Linux keyring: {res.stderr.strip() or res.stdout.strip()}"
-            )
+            raise RemoteCredentialError("Operating system keychain is unavailable.")
     else:
         raise RemoteCredentialError(f"OS keychain is not supported on {sys.platform}")
 

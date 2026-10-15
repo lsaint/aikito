@@ -586,6 +586,40 @@ saved outside workspace and Git; home backups may include them. See the
 [Remote Store Boundary](architecture/remote-store-boundary.md#local-encrypted-foundation)
 for storage and recovery limits.
 
+### Optional Native Device Key Storage
+
+Files remain the default. On a bound, unlocked encrypted Store, explicitly select
+OS protection or return to a file:
+
+```bash
+aikito remote key storage --workspace ~/aikito --backend native
+aikito remote key storage --workspace ~/aikito --backend file
+```
+
+macOS uses an unlocked default Keychain; Windows uses current-user DPAPI; Linux
+requires `secret-tool`, `gdbus`, a session D-Bus and an unlocked default Secret
+Service collection. Missing tools, a locked store or access denial stop with
+`key_storage_unavailable`. There is no automatic fallback or unlock prompt.
+The operation authenticates the remote header, reads back the protected key and
+atomically switches the local record. It does not change remote content or Base.
+Native items are retained when switching to files because other workspaces may
+use them. Older clients cannot read native records; explicitly switch to files
+before downgrading.
+
+If the native backend is unavailable, use the recovery code to explicitly restore
+file storage. A verified header and matching Vault key are required:
+
+```bash
+aikito remote key recover --workspace ~/aikito --header recovery-header.json \
+  --sync-id STORE_SYNC_ID --file-storage
+```
+
+File storage uses owner-only permissions. Home backups include the raw key file
+or its protected native reference/blob. DPAPI blobs depend on the user's Windows
+profile; a copied keychain reference alone cannot unlock another machine. Keep
+the recovery code separately. Homebrew installs the encrypted runtime by default;
+other Python installations opt in with `aikito[encrypted]`.
+
 ### Bounded Encrypted Discovery
 
 For an initialized workspace with an existing remote binding and a recovered

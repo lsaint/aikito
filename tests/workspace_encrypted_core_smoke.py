@@ -47,6 +47,7 @@ def main(base: Path):
             str(workspace),
             "--recovery-fd",
             "0",
+            "--file-storage",
         ]
     )
     assert result.returncode != 0
@@ -54,6 +55,18 @@ def main(base: Path):
         "encrypted_dependency_missing" in result.stderr
         and "aikito[encrypted]" in result.stderr
     )
+    stored = run(
+        [
+            "remote",
+            "key",
+            "storage",
+            "--workspace",
+            str(workspace),
+            "--backend",
+            "native",
+        ]
+    )
+    assert stored.returncode != 0 and "encrypted_dependency_missing" in stored.stderr
     inspect = run(["remote", "key", "inspect", "--workspace", str(workspace)])
     assert inspect.returncode != 0 and "encrypted_dependency_missing" in inspect.stderr
     exported = run(
