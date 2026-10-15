@@ -81,6 +81,7 @@ def _get_handlers(handlers: dict[str, Any] | None = None) -> dict[str, Any]:
     if handlers is not None:
         return handlers
     from . import cli
+    from .remote_claim_cli import cmd_remote_claim
     from .remote_key_cli import cmd_remote_key
     from .remote_cli import (
         cmd_remote_bind,
@@ -140,6 +141,7 @@ def _get_handlers(handlers: dict[str, Any] | None = None) -> dict[str, Any]:
             "cmd_web",
         )
     }
+    resolved["cmd_remote_claim"] = cmd_remote_claim
     resolved["cmd_remote_key"] = cmd_remote_key
     resolved["cmd_remote_bind"] = cmd_remote_bind
     resolved["cmd_remote_credential"] = cmd_remote_credential
@@ -186,6 +188,7 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     cmd_remote_stop = h["cmd_remote_stop"]
     cmd_remote_sync = h["cmd_remote_sync"]
     cmd_remote_watch = h["cmd_remote_watch"]
+    cmd_remote_claim = h["cmd_remote_claim"]
     cmd_remote_key = h["cmd_remote_key"]
     cmd_rename_memory = h["cmd_rename_memory"]
     cmd_rm_inbox = h["cmd_rm_inbox"]
@@ -967,6 +970,14 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     )
     add_color_args(p_remote_status)
     p_remote_status.set_defaults(func=cmd_remote_status)
+
+    p_remote_claim = remote_subparsers.add_parser(
+        "claim", help="Prove ownership of the bound HTTPS Store to an explicit account"
+    )
+    p_remote_claim.add_argument("--workspace", required=True, type=Path)
+    p_remote_claim.add_argument("--challenge", required=True, type=Path, help="Short-lived ownership challenge JSON file")
+    p_remote_claim.add_argument("--account", required=True, help="Independently selected account ID")
+    p_remote_claim.set_defaults(func=cmd_remote_claim)
 
     # Explicit encrypted commands preserve the ordinary plaintext format guard.
     p_remote_key = remote_subparsers.add_parser(

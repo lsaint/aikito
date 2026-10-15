@@ -104,6 +104,17 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: HTTPS Store ownership proof CLI smoke
+        shell: pwsh
+        run: |
+          $claimBase = Join-Path $env:RUNNER_TEMP "remote-claim"
+          python tests/workspace_remote_claim_smoke.py "$claimBase"
+          if ($LASTEXITCODE -ne 0) { throw "Store ownership proof failed" }
+          foreach ($relative in @("checked.txt", "claim.out", "challenge.json", "workspace/layout.toml")) {
+            if (!(Test-Path "$claimBase/$relative" -PathType Leaf)) { throw "Missing claim artifact: $relative" }
+          }
+          if (Test-Path "$claimBase/workspace/.local/state/aikito/workspace-reconcile/pending.json") { throw "Claim wrote pending" }
+
       - name: Agent detection and adapter reuse CLI smoke
         shell: pwsh
         run: python tests/agent_adapters_smoke.py

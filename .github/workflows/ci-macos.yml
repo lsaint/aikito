@@ -91,6 +91,16 @@ jobs:
           test ! -e "$ENCRYPTED_SMOKE/scoped-check/migration-denied.json"
           test ! -e "$ENCRYPTED_SMOKE/scoped-check/workspace/.local/state/aikito/encrypted-discovery.json"
 
+      - name: HTTPS Store ownership proof CLI smoke
+        run: |
+          CLAIM_SMOKE=${{ runner.temp }}/remote-claim
+          python3 tests/workspace_remote_claim_smoke.py "$CLAIM_SMOKE"
+          test -f "$CLAIM_SMOKE/checked.txt"
+          test -f "$CLAIM_SMOKE/claim.out"
+          test -f "$CLAIM_SMOKE/challenge.json"
+          test -f "$CLAIM_SMOKE/workspace/layout.toml"
+          test ! -e "$CLAIM_SMOKE/workspace/.local/state/aikito/workspace-reconcile/pending.json"
+
       - name: Agent detection and adapter reuse CLI smoke
         run: python tests/agent_adapters_smoke.py
 

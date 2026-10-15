@@ -567,6 +567,32 @@ visible for explicit selection.
 Installation via `brew install lsaint/tap/aikito` automatically installs
 Zsh, Bash, and Fish completions without modifying `~/.zshrc`.
 
+## Store Ownership Proof
+
+With a bound HTTPS Store, submit a short-lived ownership challenge to the same
+service. Select the account independently of the challenge file:
+
+```bash
+aikito remote claim --workspace ~/aikito --challenge ownership-challenge.json \
+  --account account-123
+```
+
+This uses the existing Store credential reference. It does not log into an
+account, export content keys, enable synchronization or grant access to Memory.
+The service must support the claim endpoint and issue the challenge from an
+authenticated account session. A challenge file alone does not authenticate its
+account label; verify the account ID in your authenticated session before passing
+`--account`. The service checks the expected account before changing ownership.
+
+The file contains version 1, `challenge_id`, `account_id`, `store_id`, `sync_id`
+and UTC Unix `expires_at`. Unknown fields, wrong identity/account, expired or
+more than five-minute challenges are rejected before resolving credentials.
+The destination is derived exclusively from the existing HTTPS binding; the
+file cannot choose a URL. Requests never follow redirects, and response loss is
+reported as `claim_outcome_unknown` without retries. Check the account's Store
+status before attempting another claim. Workspace content, Base, binding and
+pending state stay unchanged.
+
 ## Local Encrypted Recovery
 
 These commands manage a local device key. Local header recovery does not enable
