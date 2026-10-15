@@ -1029,6 +1029,15 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     p_key_migrate.add_argument("--max-rounds", type=int, default=1024, help="Maximum bounded rounds (1-1024)")
     p_key_migrate.add_argument("--recovery-output-fd", type=int, help="Write the one-time recovery code to this explicit descriptor")
     p_key_migrate.set_defaults(func=cmd_remote_key)
+    p_key_export = key_subparsers.add_parser(
+        "export", help="Seal one selected project Memory read key to a recipient"
+    )
+    p_key_export.add_argument("--workspace", required=True, help="Unlocked bound workspace")
+    p_key_export.add_argument("--collection", required=True, help="Explicit project/<name>/memory collection")
+    p_key_export.add_argument("--recipient", required=True, help="Trusted recipient public key JSON file")
+    p_key_export.add_argument("--authorization", required=True, help="Canonical single-use authorization request JSON file")
+    p_key_export.add_argument("--output", required=True, help="New encrypted export file; never overwrites")
+    p_key_export.set_defaults(func=cmd_remote_key)
     p_key_recover = key_subparsers.add_parser(
         "recover", help="Recover a device key from a canonical recovery header"
     )

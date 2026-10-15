@@ -30,6 +30,7 @@ from .workspace.encrypted_sync import (
     run_encrypted_reconciliation,
 )
 from .workspace.encrypted_migration import MAX_MIGRATION_ROUNDS, run_migration
+from .workspace.scoped_export import export_bound_scoped_read
 from .workspace.device_keys import DeviceKeyStore
 from .workspace.encrypted_remote import (
     MAX_METADATA_BYTES,
@@ -57,6 +58,17 @@ def cmd_remote_key(args: argparse.Namespace) -> None:
                 "Recovery requires --workspace pointing to an initialized workspace."
             )
         require_encrypted_support()
+        if args.key_action == "export":
+            export_bound_scoped_read(
+                workspace,
+                home,
+                collection_id=args.collection,
+                recipient=args.recipient,
+                authorization=args.authorization,
+                output=args.output,
+            )
+            print("[SUCCESS] Scoped read key exported.")
+            return
         if args.key_action == "initialize":
             descriptor = args.recovery_output_fd
             if descriptor is None:

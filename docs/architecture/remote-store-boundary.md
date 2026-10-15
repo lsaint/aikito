@@ -768,3 +768,24 @@ this gate only on loopback with a fixed dummy token. No override is shipped in t
 product. Historical unreferenced server objects can be removed separately under
 exclusive offline administrator ownership; retained plaintext backups and OS
 snapshots remain outside encryption's scope.
+
+
+### Scoped read material
+
+`scoped_export` exposes one sealed project Memory read export and its receiver.
+It uses native RFC 9180 HPKE from the existing optional cryptography dependency
+(minimum 47). Only the collection content key leaves the device, encrypted to an
+explicit trusted recipient; neither VRK, collection master, tag key nor ID and
+fingerprint keys are exported. Private/global resources and write permissions
+are rejected. The header, parent Project and one Memory sample are authenticated
+before export within shared fetch budgets, without changing reconciliation state.
+
+The receiving reader shares the authenticated content decoder with full-vault
+sync. It verifies transport, AEAD, schema and resource semantics plus the granted
+Tag and parent. It cannot recompute keyed IDs/fingerprints or private mappings;
+only the full-vault caller performs those additional checks. Authorization fields
+and a recipient-key hash are bound through HPKE info. No sender-authentication,
+account proof, nonce consumption, trusted HTTPS key discovery or revocation
+service is implied by producing a local file. Those remain receiver obligations.
+The one-message HPKE fixture is shared with an independent test-only receiver;
+the Remote contract and resource ciphertext format stay unchanged.

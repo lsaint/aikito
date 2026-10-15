@@ -604,7 +604,7 @@ verified descriptors are not downloaded again.
 
 This command does not change remote data, business files, bindings, pending or
 Replica Base. An incomplete view cannot authorize deletions or writes. Ordinary
-`remote sync` still refuses encrypted stores; scoped export remains future work. A `migrating` header pauses inspection.
+`remote sync` still refuses encrypted stores; scoped read export is described below. A `migrating` header pauses inspection.
 
 ### Encrypted Synchronization and Empty Store Initialization
 
@@ -643,7 +643,7 @@ loser must recover the winning Vault; retrying cannot replace it.
 
 Ordinary `remote sync` and ordinary bind continue to guard encrypted Stores. Use
 the explicit encrypted path after recovery. Use the explicit migration commands below for plaintext representation changes.
-Historical server cleanup and scoped key export have separate administrator boundaries.
+Historical server cleanup has a separate administrator boundary.
 
 ### In-place Migration, Takeover and Rollback
 
@@ -687,4 +687,48 @@ Rollback explicitly restores the plaintext representation and removes the marker
 only after the whole plaintext graph is complete. It does not reset business
 files or Git history. Migration and rollback affect the current snapshot; old
 server objects, backups and filesystem snapshots need separate administrator
-retention or cleanup. Scoped key export remains separate work.
+retention or cleanup. Scoped read export is described below.
+
+
+### Scoped Read Key Export
+
+Export one explicitly selected existing project Memory collection to a trusted
+recipient's X25519 public key. This requires `aikito[encrypted]` with
+`cryptography>=47`, an existing binding and the external device key:
+
+```bash
+aikito remote key export --workspace ~/aikito \
+  --collection project/demo/memory \
+  --recipient recipient.json --authorization request.json \
+  --output scoped-read.json
+```
+
+The command verifies the Store header, parent Project and one Memory sample,
+then seals only that collection's content key. It refuses `private`, global
+Memory, other resource types, empty collections, migrations and write permissions.
+There is no implicit project, wildcard or plaintext-key output. The output is a
+new owner-only encrypted file; existing files and links are never overwritten.
+Remote data, discovery checkpoints, pending and Replica Base are unchanged.
+
+Both inputs use canonical JSON (sorted keys, compact UTF-8, no trailing newline).
+The recipient document contains exactly `version:1`,
+`algorithm:"hpke-x25519-hkdf-sha256-a256gcm"`, `key_id` and `public_key` (standard
+Base64 raw 32-byte key). Obtain this document from a trusted source; this local
+command does not discover, pin or authenticate a remote recipient.
+
+The authorization request contains exactly `version:1`, `account_id`, `store_id`,
+`sync_id`, `vault_id`, `collection_id`, `recipient_key_id`, `permissions:["read"]`,
+`grant_id`, `nonce` (Base64 32 bytes) and `expires_at` (future UTC Unix seconds).
+Account, Store, grant and recipient key identifiers use 1–128 ASCII letters,
+digits, dots, underscores or hyphens. Select the collection explicitly and match
+its name and recipient key ID to the request. The encrypted package binds every
+request field, Vault/Store identity, collection Tag, recipient public key hash and
+fixed parent opaque ID. Project names and the content key remain inside HPKE.
+
+Export creates a local package; it does not activate a grant, prove account
+ownership or consume a one-time nonce. Receivers must separately authenticate the
+sender and trusted request, verify Store ownership, reject replay, test resource
+decryption and enforce expiry/revocation. HPKE Base mode does not authenticate
+senders. A recipient holding the content key can read the entire selected
+collection, including future content until key rotation; expiry cannot erase
+copied keys. Private resources and other projects have independent keys.

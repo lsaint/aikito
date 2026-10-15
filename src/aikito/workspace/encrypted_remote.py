@@ -263,6 +263,22 @@ def _inner(resource, payload):
     }
 
 
+def resource_aad(vault_id, sync_id, resource_id, tag, descriptor):
+    _sync(sync_id)
+    return _domain(
+        "aikito.resource-aad",
+        algorithm=SUITE,
+        collection_tag=tag,
+        fingerprint=descriptor.fingerprint,
+        key_version=1,
+        mode_fingerprint=descriptor.mode_fingerprint,
+        references=list(descriptor.references),
+        resource_id=resource_id,
+        sync_id=sync_id,
+        vault_id=vault_id,
+    )
+
+
 @dataclass(frozen=True)
 class EncryptedVault:
     vault_id: str
@@ -279,19 +295,7 @@ class EncryptedVault:
         return self.collection(collection_for_id(logical_id)).opaque_id(logical_id)
 
     def _aad(self, sync_id, resource_id, tag, descriptor):
-        _sync(sync_id)
-        return _domain(
-            "aikito.resource-aad",
-            algorithm=SUITE,
-            collection_tag=tag,
-            fingerprint=descriptor.fingerprint,
-            key_version=1,
-            mode_fingerprint=descriptor.mode_fingerprint,
-            references=list(descriptor.references),
-            resource_id=resource_id,
-            sync_id=sync_id,
-            vault_id=self.vault_id,
-        )
+        return resource_aad(self.vault_id, sync_id, resource_id, tag, descriptor)
 
     def encrypt(
         self,
@@ -350,98 +354,113 @@ class EncryptedVault:
         except (ValueError, TypeError, AttributeError):
             raise EncryptedRemoteError() from None
 
-    def decrypt(
-        self,
-        remote_id: str,
-        descriptor: ResourceDescriptor,
-        outer: FilePayload,
-        sync_id: str,
-        collection_id: str,
-    ):
-        AESGCM, _, _, InvalidTag = _crypto()
-        try:
-            _require(
-                type(outer) is FilePayload and type(descriptor) is ResourceDescriptor
-            )
-            _require(descriptor.size <= remote_limits.MAX_RESOURCE_PAYLOAD_BYTES)
-            _require(
-                len(encode_payload(outer)) == descriptor.size
-                and payload_hash(outer) == descriptor.content_hash
-            )
-            _require(descriptor.references == tuple(sorted(set(descriptor.references))))
-            envelope = _parse(
-                outer.data,
-                ("algorithm", "ciphertext", "key_version", "nonce", "salt", "version"),
-            )
-            _version(envelope)
-            keys = self.collection(collection_id)
-            _require(
-                type(remote_id) is str
-                and re.fullmatch(r"e1:[0-9a-f]{32}:[0-9a-f]{64}", remote_id)
-            )
-            _require(remote_id.split(":")[1] == keys.tag)
-            dek = _hkdf(
-                keys.content,
-                _unb64(envelope["salt"], 32),
-                _domain("aikito.content-aead"),
-            )
-            plaintext = AESGCM(dek).decrypt(
-                _unb64(envelope["nonce"], 12),
-                _unb64(envelope["ciphertext"]),
-                _canonical(self._aad(sync_id, remote_id, keys.tag, descriptor)),
-            )
-            inner = _parse(
-                plaintext,
-                (
-                    "fingerprint",
-                    "key_version",
-                    "logical_id",
-                    "logical_parts",
-                    "mode_fingerprint",
-                    "payload",
-                    "references",
-                    "resource_type",
-                    "schema_version",
-                ),
-            )
-            _require(
-                type(inner["key_version"]) is int
-                and inner["key_version"] == 1
-                and type(inner["schema_version"]) is int
-                and inner["schema_version"] == 1
-            )
-            _require(
-                type(inner["references"]) is list
-                and all(type(ref) is str for ref in inner["references"])
-            )
-            resource = local_resource_for_id(inner["logical_id"], inner["fingerprint"])
-            _require(
-                resource.kind == inner["resource_type"]
-                and collection_for_id(resource.id) == collection_id
-            )
-            resource = replace(
-                resource,
-                references=tuple(inner["references"]),
-                mode_fingerprint=inner["mode_fingerprint"],
-            )
-            raw = _unb64(inner["payload"])
-            payload = decode_payload(raw, hashlib.sha256(raw).hexdigest())
-            resource = _logical(resource, payload)
-            _require(inner == _inner(resource, payload))
-            _require(remote_id == keys.opaque_id(resource.id))
-            _require(
-                (descriptor.fingerprint, descriptor.mode_fingerprint)
-                == keys.fingerprints(resource.fingerprint, resource.mode_fingerprint)
-            )
-            _require(
-                descriptor.references
-                == tuple(sorted({self.opaque_id(ref) for ref in resource.references}))
-            )
-            return resource, payload
-        except (EncryptedDependencyMissing, EncryptedStoreUnsupported):
-            raise
-        except (ValueError, TypeError, AttributeError, KeyError, InvalidTag):
-            raise EncryptedRemoteError() from None
+    def decrypt(self, remote_id, descriptor, outer, sync_id, collection_id):
+        keys = self.collection(collection_id)
+        resource, payload = decrypt_collection_content(
+            keys.content,
+            self.vault_id,
+            keys.tag,
+            remote_id,
+            descriptor,
+            outer,
+            sync_id,
+            collection_id,
+        )
+        _require(remote_id == keys.opaque_id(resource.id))
+        _require(
+            (descriptor.fingerprint, descriptor.mode_fingerprint)
+            == keys.fingerprints(resource.fingerprint, resource.mode_fingerprint)
+        )
+        _require(
+            descriptor.references
+            == tuple(sorted({self.opaque_id(ref) for ref in resource.references}))
+        )
+        return resource, payload
+
+
+def decrypt_collection_content(
+    content_key: bytes,
+    vault_id: str,
+    tag: str,
+    remote_id: str,
+    descriptor: ResourceDescriptor,
+    outer: FilePayload,
+    sync_id: str,
+    collection_id: str,
+):
+    """Authenticate content and semantics; callers enforce scope and keyed mappings."""
+    AESGCM, _, _, InvalidTag = _crypto()
+    try:
+        _require(type(outer) is FilePayload and type(descriptor) is ResourceDescriptor)
+        _require(descriptor.size <= remote_limits.MAX_RESOURCE_PAYLOAD_BYTES)
+        _require(
+            len(encode_payload(outer)) == descriptor.size
+            and payload_hash(outer) == descriptor.content_hash
+        )
+        _require(descriptor.references == tuple(sorted(set(descriptor.references))))
+        envelope = _parse(
+            outer.data,
+            ("algorithm", "ciphertext", "key_version", "nonce", "salt", "version"),
+        )
+        _version(envelope)
+        _require(
+            type(remote_id) is str
+            and re.fullmatch(r"e1:[0-9a-f]{32}:[0-9a-f]{64}", remote_id)
+        )
+        _require(remote_id.split(":")[1] == tag)
+        dek = _hkdf(
+            content_key,
+            _unb64(envelope["salt"], 32),
+            _domain("aikito.content-aead"),
+        )
+        plaintext = AESGCM(dek).decrypt(
+            _unb64(envelope["nonce"], 12),
+            _unb64(envelope["ciphertext"]),
+            _canonical(resource_aad(vault_id, sync_id, remote_id, tag, descriptor)),
+        )
+        inner = _parse(
+            plaintext,
+            (
+                "fingerprint",
+                "key_version",
+                "logical_id",
+                "logical_parts",
+                "mode_fingerprint",
+                "payload",
+                "references",
+                "resource_type",
+                "schema_version",
+            ),
+        )
+        _require(
+            type(inner["key_version"]) is int
+            and inner["key_version"] == 1
+            and type(inner["schema_version"]) is int
+            and inner["schema_version"] == 1
+        )
+        _require(
+            type(inner["references"]) is list
+            and all(type(ref) is str for ref in inner["references"])
+        )
+        resource = local_resource_for_id(inner["logical_id"], inner["fingerprint"])
+        _require(
+            resource.kind == inner["resource_type"]
+            and collection_for_id(resource.id) == collection_id
+        )
+        resource = replace(
+            resource,
+            references=tuple(inner["references"]),
+            mode_fingerprint=inner["mode_fingerprint"],
+        )
+        raw = _unb64(inner["payload"])
+        payload = decode_payload(raw, hashlib.sha256(raw).hexdigest())
+        resource = _logical(resource, payload)
+        _require(inner == _inner(resource, payload))
+        return resource, payload
+    except (EncryptedDependencyMissing, EncryptedStoreUnsupported):
+        raise
+    except (ValueError, TypeError, AttributeError, KeyError, InvalidTag):
+        raise EncryptedRemoteError() from None
 
 
 def encode_recovery_code(code: bytes) -> str:

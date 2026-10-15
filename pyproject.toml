@@ -13,7 +13,7 @@ authors = [{ name = "lsaint" }]
 dependencies = []
 
 [project.optional-dependencies]
-encrypted = ["cryptography>=46"]
+encrypted = ["cryptography>=47"]
 
 [project.urls]
 Homepage = "https://github.com/lsaint/aikito"

@@ -56,6 +56,27 @@ def main(base: Path):
     )
     inspect = run(["remote", "key", "inspect", "--workspace", str(workspace)])
     assert inspect.returncode != 0 and "encrypted_dependency_missing" in inspect.stderr
+    exported = run(
+        [
+            "remote",
+            "key",
+            "export",
+            "--workspace",
+            str(workspace),
+            "--collection",
+            "project/demo/memory",
+            "--recipient",
+            "missing-recipient.json",
+            "--authorization",
+            "missing-request.json",
+            "--output",
+            str(base / "never-written.json"),
+        ]
+    )
+    assert (
+        exported.returncode != 0 and "encrypted_dependency_missing" in exported.stderr
+    )
+    assert not (base / "never-written.json").exists()
     assert not (workspace / ".local/state/aikito/encrypted-discovery.json").exists()
     assert not (config / "aikito/encrypted-remote/keys").exists()
     (base / "checked.txt").write_text("Core CLI works without encrypted extra\n")

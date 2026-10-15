@@ -59,7 +59,7 @@ jobs:
         if: matrix.group == 'workspace-remote'
         run: |
           uv pip install --system '.[encrypted]'
-          python -m pytest tests/test_workspace_encrypted_remote_core.py tests/test_workspace_device_keys.py tests/test_workspace_encrypted_remote.py tests/test_remote_key_cli.py tests/test_workspace_encrypted_discovery.py tests/test_workspace_encrypted_sync.py tests/test_workspace_encrypted_migration.py
+          python -m pytest tests/test_workspace_encrypted_remote_core.py tests/test_workspace_device_keys.py tests/test_workspace_encrypted_remote.py tests/test_remote_key_cli.py tests/test_workspace_encrypted_discovery.py tests/test_workspace_encrypted_sync.py tests/test_workspace_encrypted_migration.py tests/test_workspace_scoped_export.py
 
       - name: Run workspace remote and protocol unit tests
         if: matrix.group == 'workspace-remote'
@@ -1067,6 +1067,14 @@ jobs:
           }
           if (Test-Path "$encryptedBase/migration-check/workspace-1/.local/state/aikito/encrypted-migration.json") { throw "Migration left a journal" }
           if (Test-Path "$encryptedBase/migration-check/workspace-1/.local/state/aikito/encrypted-discovery.json") { throw "Rollback left an encrypted checkpoint" }
+          python tests/workspace_scoped_export_smoke.py "$encryptedBase/scoped-check"
+          if ($LASTEXITCODE -ne 0) { throw "Scoped export smoke failed" }
+          foreach ($relative in @("checked.txt", "scoped-read.json", "workspace/layout.toml")) {
+            if (!(Test-Path "$encryptedBase/scoped-check/$relative" -PathType Leaf)) { throw "Missing scoped export artifact: $relative" }
+          }
+          foreach ($relative in @("denied.json", "write-denied.json", "migration-denied.json", "workspace/.local/state/aikito/encrypted-discovery.json")) {
+            if (Test-Path "$encryptedBase/scoped-check/$relative") { throw "Unexpected scoped export artifact: $relative" }
+          }
 
       - name: Bounded multi-round reconciliation
         if: matrix.group == 'core'
