@@ -59,7 +59,7 @@ jobs:
         if: matrix.group == 'workspace-remote'
         run: |
           uv pip install --system '.[encrypted]'
-          python -m pytest tests/test_workspace_encrypted_remote_core.py tests/test_workspace_device_keys.py tests/test_workspace_native_keys.py tests/test_workspace_encrypted_remote.py tests/test_remote_key_cli.py tests/test_workspace_encrypted_discovery.py tests/test_workspace_encrypted_sync.py tests/test_workspace_encrypted_migration.py tests/test_workspace_scoped_export.py
+          python -m pytest tests/test_workspace_encrypted_remote_core.py tests/test_workspace_device_keys.py tests/test_workspace_native_keys.py tests/test_workspace_encrypted_remote.py tests/test_remote_key_cli.py tests/test_workspace_encrypted_discovery.py tests/test_workspace_encrypted_sync.py tests/test_workspace_encrypted_migration.py tests/test_workspace_scoped_export.py tests/test_recipient_keys.py
 
       - name: Run workspace remote and protocol unit tests
         if: matrix.group == 'workspace-remote'
@@ -103,6 +103,21 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: HTTPS recipient trust CLI smoke without optional dependencies
+        shell: pwsh
+        run: |
+          $recipientBase = Join-Path $env:RUNNER_TEMP "recipient-keys"
+          $recipientPython = Join-Path $env:RUNNER_TEMP "recipient-core-env/Scripts/python.exe"
+          python -m venv "$env:RUNNER_TEMP/recipient-core-env"
+          & $recipientPython tests/workspace_recipient_key_smoke.py "$recipientBase"
+          if ($LASTEXITCODE -ne 0) { throw "Recipient trust smoke failed" }
+          foreach ($relative in @("checked.txt", "recipient.json", "accepted.json", "workspace/layout.toml")) {
+            if (!(Test-Path "$recipientBase/$relative" -PathType Leaf)) { throw "Missing recipient artifact: $relative" }
+          }
+          foreach ($relative in @("changed.json", "untrusted.json")) {
+            if (Test-Path "$recipientBase/$relative") { throw "Rejected recipient output exists: $relative" }
+          }
 
       - name: HTTPS Store ownership proof CLI smoke
         shell: pwsh

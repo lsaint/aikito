@@ -975,8 +975,15 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         "claim", help="Prove ownership of the bound HTTPS Store to an explicit account"
     )
     p_remote_claim.add_argument("--workspace", required=True, type=Path)
-    p_remote_claim.add_argument("--challenge", required=True, type=Path, help="Short-lived ownership challenge JSON file")
-    p_remote_claim.add_argument("--account", required=True, help="Independently selected account ID")
+    p_remote_claim.add_argument(
+        "--challenge",
+        required=True,
+        type=Path,
+        help="Short-lived ownership challenge JSON file",
+    )
+    p_remote_claim.add_argument(
+        "--account", required=True, help="Independently selected account ID"
+    )
     p_remote_claim.set_defaults(func=cmd_remote_claim)
 
     # Explicit encrypted commands preserve the ordinary plaintext format guard.
@@ -984,6 +991,24 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         "key", help="Manage encrypted keys, recovery and synchronization"
     )
     key_subparsers = p_remote_key.add_subparsers(dest="key_action", required=True)
+    p_key_fetch = key_subparsers.add_parser(
+        "fetch", help="Fetch and pin a recipient public key from a fixed HTTPS origin"
+    )
+    p_key_fetch.add_argument(
+        "--workspace", required=True, help="Initialized workspace boundary"
+    )
+    p_key_fetch.add_argument(
+        "--origin", required=True, help="Fixed HTTPS recipient origin"
+    )
+    p_key_fetch.add_argument(
+        "--output", required=True, help="New recipient public key JSON file"
+    )
+    p_key_fetch.add_argument(
+        "--accept-key-change",
+        action="store_true",
+        help="Explicitly replace a changed recipient pin",
+    )
+    p_key_fetch.set_defaults(func=cmd_remote_key)
     p_key_path = key_subparsers.add_parser(
         "path", help="Display the device key storage path without reading keys"
     )

@@ -10,6 +10,7 @@ import warnings
 from pathlib import Path
 
 from .skill_state import WorkspaceWriterLock
+from .workspace.recipient_keys import RecipientKeyError, fetch_recipient
 from .workspace.remote_binding import (
     RemoteBinding,
     RemoteAuth,
@@ -49,6 +50,18 @@ def cmd_remote_key(args: argparse.Namespace) -> None:
             if getattr(args, "workspace", None)
             else None
         )
+        if args.key_action == "fetch":
+            if workspace is None or not is_recognized_workspace(workspace):
+                raise RecipientKeyError("recipient_workspace_invalid")
+            fetch_recipient(
+                workspace,
+                home,
+                origin=args.origin,
+                output=args.output,
+                accept_key_change=args.accept_key_change,
+            )
+            print("[SUCCESS] Recipient public key pinned and saved.")
+            return
         store = DeviceKeyStore(home=home, workspace=workspace)
         if args.key_action == "path":
             print(store.path(args.vault_id) if args.vault_id else store.root)
@@ -206,6 +219,9 @@ def cmd_remote_key(args: argparse.Namespace) -> None:
                 if existing is None:
                     save_remote_binding(workspace, new_binding, home=home)
         print("[SUCCESS] Device key recovered. Remote synchronization was not changed.")
+    except RecipientKeyError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
     except (EncryptedRemoteError, EncryptedStoreUnsupported) as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
         raise SystemExit(1) from None

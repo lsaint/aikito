@@ -750,6 +750,41 @@ server objects, backups and filesystem snapshots need separate administrator
 retention or cleanup. Scoped read export is described below.
 
 
+### HTTPS Recipient Discovery and Trust
+
+Fetch a recipient public key from an explicit HTTPS origin before creating a
+scoped export. This command works without the optional encrypted dependency:
+
+```bash
+aikito remote key fetch --workspace ~/aikito \
+  --origin https://recipient.example.com --output recipient.json
+```
+
+The origin must have no path, query, userinfo or fragment. The fixed request is
+`GET /v1/keys/recipient`; TLS certificates are verified, redirects are rejected,
+and no Store token or browser cookie is sent. The response is a bounded canonical
+recipient JSON document matching the format below.
+
+First use automatically pins the key ID and public key under the local config
+base's `aikito/remote-recipients/`, outside the selected workspace. Repeating with
+the same identity succeeds. Any change to either field stops without creating an
+output or changing the pin. After independently establishing that the change is
+expected, explicitly accept it with a fresh output path:
+
+```bash
+aikito remote key fetch --workspace ~/aikito \
+  --origin https://recipient.example.com --output recipient-new.json \
+  --accept-key-change
+```
+
+There is no manual fingerprint comparison requirement. First use trusts the
+chosen origin and its TLS identity; losing or deleting local pins loses that
+continuity. Corrupt, linked or unsafe pin records fail closed even with the
+acceptance flag. Pins are owner-only and serialized against other local writers.
+The command never overwrites an output file, changes a Remote binding or grants
+content access. A failed output write can follow a successfully saved pin; retry
+using a fresh output path. The resulting document can be passed to key export.
+
 ### Scoped Read Key Export
 
 Export one explicitly selected existing project Memory collection to a trusted
@@ -774,7 +809,8 @@ Both inputs use canonical JSON (sorted keys, compact UTF-8, no trailing newline)
 The recipient document contains exactly `version:1`,
 `algorithm:"hpke-x25519-hkdf-sha256-a256gcm"`, `key_id` and `public_key` (standard
 Base64 raw 32-byte key). Obtain this document from a trusted source; this local
-command does not discover, pin or authenticate a remote recipient.
+export command does not discover or pin a remote recipient; use `remote key fetch`
+for HTTPS discovery with local trust continuity.
 
 The authorization request contains exactly `version:1`, `account_id`, `store_id`,
 `sync_id`, `vault_id`, `collection_id`, `recipient_key_id`, `permissions:["read"]`,
