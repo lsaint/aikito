@@ -177,7 +177,7 @@ def main(base: Path):
         assert key_sync(winner).returncode == 0
         assert (a / note).read_text() == "Later encrypted edit\n"
         assert any(
-            path.read_bytes() == b"Earlier accepted encrypted edit\n"
+            path.read_text(encoding="utf-8") == "Earlier accepted encrypted edit\n"
             for path in (b / ".local/sync-conflicts").rglob("*.md")
         )
         (a / note).unlink()

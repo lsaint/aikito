@@ -324,7 +324,8 @@ def test_later_local_edit_wins_and_replaced_remote_content_is_archived(clients):
     assert (a / NOTE).read_text() == "later local edit\n"
     archives = b / ".local/sync-conflicts"
     assert any(
-        p.read_bytes() == b"earlier accepted edit\n" for p in archives.rglob("*.md")
+        p.read_text(encoding="utf-8") == "earlier accepted edit\n"
+        for p in archives.rglob("*.md")
     )
 
 
@@ -334,10 +335,11 @@ def test_skill_tree_bytes_and_execution_flags_survive_encrypted_sync(clients):
     directory = a / "skills/example"
     directory.mkdir(parents=True)
     (directory / "SKILL.md").write_text("# Example\n")
-    (directory / "run.sh").write_text("echo example\n")
+    (directory / "run.sh").write_bytes(b"echo example\n")
     (directory / "run.sh").chmod(0o755)
     apply(a, ha)
     apply(b, hb)
     assert (b / "skills/example/run.sh").read_bytes() == b"echo example\n"
     if __import__("os").name != "nt":
         assert (b / "skills/example/run.sh").stat().st_mode & 0o111
+
