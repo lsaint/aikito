@@ -143,7 +143,12 @@ class ReplicaState:
             ):
                 raise WorkspaceCoreError("Unsupported replica state version")
             base = decode_resources(raw.get("base"))
-            validate_skill_fingerprint_scheme(raw.get("skill_fingerprint"), base)
+            if any(
+                resource.kind == "skill" and resource.mode_fingerprint is None
+                for resource in base.values()
+            ):
+                raise WorkspaceCoreError("Unsupported skill mode state")
+            validate_skill_fingerprint_scheme(raw.get("skill_fingerprint"))
             marker = None
             if "completion_marker" in raw:
                 value = raw["completion_marker"]

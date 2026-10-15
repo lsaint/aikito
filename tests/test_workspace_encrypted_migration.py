@@ -295,11 +295,12 @@ def test_tampered_encrypted_journal_stops_without_remote_change(setup):
     assert remote.read() == before
 
 
-def test_release_gate_fails_before_opening_remote(monkeypatch, tmp_path):
-    monkeypatch.setattr(migration, "MINIMUM_GUARD_RELEASE", None)
-    opened = Mock(side_effect=AssertionError("No real remote operation before release"))
+def test_device_confirmation_is_required_before_opening_remote(monkeypatch, tmp_path):
+    opened = Mock(
+        side_effect=AssertionError("No remote access without device confirmation")
+    )
     monkeypatch.setattr(migration, "_open_remote", opened)
-    with pytest.raises(migration.MigrationReleaseRequired):
+    with pytest.raises(migration.MigrationDevicesRequired):
         migration.run_migration(tmp_path, tmp_path, deliver_recovery=Mock())
     opened.assert_not_called()
 

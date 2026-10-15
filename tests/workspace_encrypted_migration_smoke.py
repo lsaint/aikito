@@ -39,17 +39,9 @@ def main(base):
             }
         )
 
-    def command(index, args, *, test_driver=False, input=None):
-        executable = (
-            [
-                sys.executable,
-                str(Path(__file__).with_name("workspace_migration_cli.py")),
-            ]
-            if test_driver
-            else [sys.executable, "-m", "aikito"]
-        )
+    def command(index, args, *, input=None):
         return subprocess.run(
-            [*executable, *args],
+            [sys.executable, "-m", "aikito", *args],
             env=environments[index],
             input=input,
             text=True,
@@ -57,11 +49,18 @@ def main(base):
             timeout=60,
         )
 
-    def migrate(index, *args, driver=True):
+    def migrate(index, *args):
         return command(
             index,
-            ["remote", "key", "migrate", "--workspace", str(workspaces[index]), *args],
-            test_driver=driver,
+            [
+                "remote",
+                "key",
+                "migrate",
+                "--workspace",
+                str(workspaces[index]),
+                "--confirm-devices-upgraded",
+                *args,
+            ],
         )
 
     def baseline(index):
@@ -99,13 +98,16 @@ def main(base):
         original = backend.read()
         payloads = backend.fetch(original, original.resources)
         requests = server.request_count
-        gated = migrate(0, "--apply", driver=False)
+        unconfirmed = command(
+            0,
+            ["remote", "key", "migrate", "--workspace", str(workspaces[0]), "--apply"],
+        )
         assert (
-            gated.returncode == 1
-            and "encrypted_migration_release_required" in gated.stderr
+            unconfirmed.returncode == 1
+            and "encrypted_migration_devices_required" in unconfirmed.stderr
         )
         assert server.request_count == requests
-        preview = migrate(0, "--dry-run", driver=False)
+        preview = migrate(0, "--dry-run")
         assert preview.returncode == 0, preview.stderr
         assert (
             backend.read() == original
@@ -184,6 +186,9 @@ def main(base):
         assert backend.fetch(restored, restored.resources) == payloads
         assert note.read_text() == "private migration smoke payload\n"
         assert not (workspaces[1] / MIGRATION_STATE).exists()
+    (base / "production-cli-checked.txt").write_text(
+        "Real CLI migration, takeover and rollback passed\n"
+    )
     (base / "checked.txt").write_text(
         "Migration, takeover, exact retries and rollback verified\n"
     )

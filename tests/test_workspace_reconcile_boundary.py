@@ -25,7 +25,7 @@ def test_cross_platform_skill_round_trip_and_legacy_refusal(tmp_path: Path):
 
 
 @pytest.mark.parametrize("target", ["center", "replica"])
-def test_legacy_state_without_skills_remains_readable(tmp_path: Path, target: str):
+def test_state_without_fingerprint_scheme_is_rejected(tmp_path: Path, target: str):
     local = _workspace(tmp_path / "local")
     backend = FilesystemBackend(tmp_path / "center")
     backend.run(local, tmp_path / "home")
@@ -37,9 +37,12 @@ def test_legacy_state_without_skills_remains_readable(tmp_path: Path, target: st
     raw = json.loads(path.read_text())
     raw.pop("skill_fingerprint")
     path.write_text(json.dumps(raw), encoding="utf-8")
-    before = files(local), backend.checkpoint()
-    backend.plan(local)
-    assert before == (files(local), backend.checkpoint())
+    before = path.read_bytes()
+    with pytest.raises(
+        WorkspaceReconcileError, match="Unsupported skill fingerprint scheme"
+    ):
+        backend.plan(local)
+    assert path.read_bytes() == before
 
 
 @pytest.mark.parametrize("scheme", ["future-v99", "", 1, False, {}, []])
@@ -47,7 +50,7 @@ def test_unknown_fingerprint_scheme_is_not_silently_accepted(scheme):
     with pytest.raises(
         WorkspaceCoreError, match="Unsupported skill fingerprint scheme"
     ):
-        validate_skill_fingerprint_scheme(scheme, {})
+        validate_skill_fingerprint_scheme(scheme)
 
 
 def test_new_state_records_portable_scheme(tmp_path: Path):

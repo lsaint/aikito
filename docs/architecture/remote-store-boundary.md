@@ -132,11 +132,11 @@ publication/cleanup are `CommitOutcomeUnknown`, not definite rejection. The
 memory backend publishes its snapshot, payloads and receipt history together
 under its mutex and makes no durability promise across process restart.
 
-`replica_state.ReplicaState` retains version-2 read compatibility and adds an
-optional receipt cursor and completion marker. The marker binds sync ID,
-request ID and mutation digest; it must agree with the cursor. Existing state
-without these fields remains readable without being rewritten. Center identity
-and replica revision validation still belongs to the client.
+`replica_state.ReplicaState` uses version 2 with a receipt cursor and completion
+marker once a commit has been accepted. Before any accepted commit these fields
+can be absent. The marker binds sync ID, request ID and mutation digest and must
+agree with the cursor. Center identity and replica revision validation belong to
+the client.
 
 `pending_commit.PendingCommitStore` provides persist/load/complete/clear. Its
 versioned `pending.json` envelope stores the exact canonical request, original
@@ -356,7 +356,7 @@ integer and must match the encoded payload, independently of its transport hash.
 The descriptor manifest still limits resource counts, even though aggregate
 payload size no longer limits the center; see [capacity](http-transport.md#capacity-and-framing).
 
-## Skill fingerprint decision and compatibility
+## Skill fingerprint and state validation
 
 Stage zero chooses **content-only** skill fingerprints on all platforms. A tree
 hash is SHA-256 of sorted newline-separated records `f <path> <byte hash>`.
@@ -366,22 +366,12 @@ Skill resources carry a separate mode fingerprint over the sorted paths of
 executable files; all other files are implicitly nonexecutable. A mode-only edit
 syncs as a skill update. Portable payloads carry and validate those flags.
 
-New center and replica state records include `skill_fingerprint: "content-v1"`.
-State version remains 2 because the content fingerprint scheme is unchanged. A
-historical record without the marker and with skill resources is refused,
-even if those particular skills have no scripts: its old Base cannot establish
-which permission view originally produced the hash. No Base is reset and no
-manifest is rewritten. Preserve both, then explicitly create a new center and
-pair fresh replicas after reviewing resources; copying old Base into a new
-pair is not a migration. Historical records with no skills remain readable and
-gain the marker on the next state write. Unknown schemes are always refused.
-An existing `content-v1` skill Base without a mode fingerprint is seeded from
-the live mode when both sides agree. When they differ, reconciliation reports a
-resource conflict instead of guessing which side changed first; resolution
-records the chosen mode in Base.
+Center and replica state require `skill_fingerprint: "content-v1"`.
+Missing or unknown schemes are refused, including states without skills.
+A skill Base must also include its executable mode fingerprint; it is never
+seeded from live files. Unsupported state is left intact for explicit operator
+handling, without resetting Base or rewriting a manifest.
 
-Reconciliation is internal and has no public CLI. The mode Base can be filled
-from agreeing current states without a separate migration command.
 `workspace_reconcile_boundary_smoke.py` exercises
 mode-only upload, cross-platform download, reverse content edits and NOOP,
 and verifies legacy refusal is read-only. It does not merely compare separate
@@ -445,7 +435,7 @@ unsafe paths/nodes, and Windows-to-POSIX flag preservation through local copies.
 | --- | --- |
 | `exercise_behavior(base, backend)` in `workspace_reconcile_acceptance.py` | Shared engine behavior on both backends: all admitted resources create/update/delete/recreate, credential-safe subsets, convergence, conflict Base, stale local/center plans, host-local inbox paths, local journal recovery, center-accepted/local-failed transactions, replica relocation, repeat NOOP. Shared assertions access no center directory. |
 | `exercise(base)` wrapper and `FilesystemBackend` | Filesystem orchestration and center relocation; storage checkpoints inspect files only within the driver. |
-| `test_workspace_reconcile_boundary.py` | Portable skill behavior and schema compatibility. The injected center-change test pins refusal between read and download staging with no local/Base write. |
+| `test_workspace_reconcile_boundary.py` | Portable skill behavior and current schema validation. The injected center-change test pins refusal between read and download staging with no local/Base write. |
 | Existing conditional batch / competing-writer / empty-batch tests in `test_workspace_reconcile.py` | Shared portable storage guarantees now run in test_workspace_remote_store_contract.py on filesystem and memory stores; plaintext semantic defenses remain filesystem-specific. |
 | Credential / reference / shared TOML / conflict / local safety tests in `test_workspace_reconcile*.py` | Client behavior: test_workspace_reconcile_resources.py parameterizes standalone/shared TOML, typed values, memberships, references, credentials, local recovery and conflict resolutions across both backends. Hash and read/fetch race cases in test_workspace_remote_store.py also run on both. Direct center plaintext parsing/rejection belongs to filesystem defense. |
 | test_workspace_reconcile_filesystem.py plus existing center manifest parsing, `resource_for_id`, `verify_contents` and root overlap tests | Filesystem-specific defense and lifecycle. Local journal recovery remains shared engine behavior. |
@@ -473,11 +463,10 @@ through the existing recoverable center transaction. Receipt-aware commits
 reject empty batches and all accepted batches publish receipts. Recovery is explicit and requires
 replanning when it repaired a transaction.
 
-The existing version-1/version-2 center schema, identity, layout, and journal
-remain supported under the skill compatibility rules above. New manifests also
-record `payload_hashes`, protecting executable metadata as well as content.
-Legacy manifests without hashes are verified semantically and captured read-only;
-a later nonempty commit records hashes. An empty commit is invalid and does not rewrite them.
+Only the current version-2 filesystem center schema is accepted. Manifests
+require the fingerprint scheme, payload hashes, shared values and receipt history.
+Old versions or incomplete manifests are rejected without rewriting them.
+Payload hashes protect executable metadata as well as content.
 Stored hash mismatch is refused without resetting state or Base. The historical
 path-based `content()` and three-argument commit are replaced by fetch and
 portable mutation commit; Import keeps its independent local path adapter.
@@ -522,10 +511,10 @@ The full two-replica behavior scenario runs once per backend in the CI smoke
 jobs. The filesystem smoke also checks center relocation. Pytest covers focused
 client and storage behavior without rerunning the full scenario.
 `test_workspace_reconcile_resources.py` uses the same two-backend fixture for
-client behavior and never accesses center paths. Manifest compatibility,
+client behavior and never accesses center paths. Current manifest validation,
 unmanaged center files, shared-value layout, and center journal interruption
-live in `test_workspace_reconcile_filesystem.py`. Existing legacy filesystem
-regressions remain useful as backend-specific checks alongside the shared suites.
+live in `test_workspace_reconcile_filesystem.py`. Unsupported filesystem state
+is refused without automatic upgrades.
 
 The acceptance script deliberately fails local download and Base writes after
 a simultaneous upload has been accepted by the center. The accepted revision
@@ -719,8 +708,7 @@ path below provides reconciliation; neither path migrates nonempty real stores.
 
 The encrypted codec presents a complete authenticated logical snapshot to the
 existing planner. Discovery checkpoint version 2 also authenticates plaintext
-payload hash/size descriptors; version 1 maps are accepted and those missing
-payload descriptors are reverified in bounded rounds. The checkpoint stores no
+payload hash/size descriptors; older maps are rejected instead of upgraded. The checkpoint stores no
 payload or key. Unknown discovery and business application occupy separate rounds
 under the same limits, so an incomplete view never authorizes absence or writes.
 An unchanged in-memory authenticated header is reused, with any changed header
@@ -772,10 +760,11 @@ identity. Rollback plaintext requests are encrypted at rest in this record.
 Durable exact requests, receipt lookup and full-snapshot CAS preserve uncertain
 commits across restarts. Neither direction resets workspace files or Git history.
 
-Production write operations are gated until a published format-guard release and
-its compatibility CI establish an actual minimum version. Test fixtures bypass
-this gate only on loopback with a fixed dummy token. No override is shipped in the
-product. Historical unreferenced server objects can be removed separately under
+Migration writes require `--confirm-devices-upgraded`: the operator must upgrade
+all connected devices and stop automatic synchronization before applying,
+taking over, or rolling back. Missing confirmation is refused before opening the
+remote. This does not automatically verify other devices. Real CLI fixtures use
+the same confirmation and preflight path; no release-gate bypass is retained. Historical unreferenced server objects can be removed separately under
 exclusive offline administrator ownership; retained plaintext backups and OS
 snapshots remain outside encryption's scope.
 

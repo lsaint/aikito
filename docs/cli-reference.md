@@ -714,15 +714,17 @@ clean, committed workspace Git baseline:
 aikito remote key migrate --dry-run --workspace ~/aikito
 ```
 
-Write operations currently fail with `encrypted_migration_release_required`
-before opening the remote. The minimum eligible format-guard release has not yet
-been published and verified; there is no user override for this gate. After that
-release is established, the explicit operations are:
+Before writing, upgrade every device connected to the Store and stop automatic
+synchronization on all devices. Confirm this explicitly with
+`--confirm-devices-upgraded`; without it, apply stops with
+`encrypted_migration_devices_required` before opening the remote. This is an
+operator confirmation, not automatic verification of other devices. No published
+release is required. The explicit operations are:
 
 ```bash
-aikito remote key migrate --apply --workspace ~/aikito
-aikito remote key migrate --apply --takeover --workspace ~/aikito
-aikito remote key migrate --apply --rollback --workspace ~/aikito
+aikito remote key migrate --apply --confirm-devices-upgraded --workspace ~/aikito
+aikito remote key migrate --apply --confirm-devices-upgraded --takeover --workspace ~/aikito
+aikito remote key migrate --apply --confirm-devices-upgraded --rollback --workspace ~/aikito
 ```
 
 Initial migration requires matching local resources, Replica Base and remote
@@ -880,10 +882,9 @@ origin distinct from the Remote endpoint when the recipient uses separate
 listeners. Request/package files must be canonical JSON. No workspace, Remote,
 pending or Replica Base data is written.
 
-A successful HTTP 202 receipt distinguishes two receiver outcomes:
-`verified` means the package and encrypted sample were checked without durable
-activation; `active` means the receiver saved the scoped grant with the exact requested permissions. The CLI
-prints the corresponding result. An active grant lasts until its stated expiry
+A successful HTTP 202 receipt must report `active`: the receiver saved the
+scoped grant with the exact requested permissions. Verification-only receipts
+are rejected; the CLI reports activation only after validating the complete receipt. An active grant lasts until its stated expiry
 or explicit receiver-side revocation, independently of the submitting device.
 Content endpoints and authorization for individual consumers are separate
 receiver capabilities.

@@ -78,6 +78,7 @@ jobs:
           test ! -e "$ENCRYPTED_SMOKE/sync-check/workspace-2/memory/notes/e2ee.md"
           python3 tests/workspace_encrypted_migration_smoke.py "$ENCRYPTED_SMOKE/migration-check"
           test -f "$ENCRYPTED_SMOKE/migration-check/checked.txt"
+          test -f "$ENCRYPTED_SMOKE/migration-check/production-cli-checked.txt"
           test -f "$ENCRYPTED_SMOKE/migration-check/workspace-0/memory/notes/migrate.md"
           test -f "$ENCRYPTED_SMOKE/migration-check/workspace-0/.local/state/aikito/workspace-reconcile/replica.json"
           test ! -e "$ENCRYPTED_SMOKE/migration-check/workspace-1/.local/state/aikito/encrypted-migration.json"

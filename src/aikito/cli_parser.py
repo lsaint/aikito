@@ -1112,6 +1112,11 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         type=int,
         help="Write the one-time recovery code to this explicit descriptor",
     )
+    p_key_migrate.add_argument(
+        "--confirm-devices-upgraded",
+        action="store_true",
+        help="Confirm all connected devices are upgraded and automatic synchronization is stopped",
+    )
     p_key_migrate.set_defaults(func=cmd_remote_key)
     p_key_export = key_subparsers.add_parser(
         "export", help="Seal selected project Memory keys to a recipient"

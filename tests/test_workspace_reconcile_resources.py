@@ -141,37 +141,18 @@ def test_skill_executable_only_change_syncs_and_survives_content_upload(replicas
     assert script.stat().st_mode & 0o111
 
 
-@pytest.mark.skipif(os.name == "nt", reason="POSIX chmod semantics")
-def test_old_skill_base_uses_current_mode_or_conflicts(replicas):
+def test_skill_base_without_mode_is_rejected_without_rewriting(replicas):
     a, b, remote, home = replicas
     write(a, "skills/tool/SKILL.md", "# Tool\n")
-    write(a, "skills/tool/run.sh", "echo one\n")
     round_trip(a, remote, home)
-    round_trip(b, remote, home)
-
-    def strip_mode(local):
-        path = local / REPLICA_STATE
-        raw = json.loads(path.read_text())
-        raw["base"]["skill:tool"].pop("mode_fingerprint")
-        path.write_text(json.dumps(raw), encoding="utf-8")
-
-    strip_mode(a)
-    assert not build_reconcile_plan(a, remote).changes
-    round_trip(a, remote, home)
-    assert (
-        "mode_fingerprint"
-        in json.loads((a / REPLICA_STATE).read_text())["base"]["skill:tool"]
-    )
-
-    strip_mode(b)
-    script = a / "skills/tool/run.sh"
-    script.chmod(script.stat().st_mode | 0o111)
-    round_trip(a, remote, home)
-    assert [item.id for item in build_reconcile_plan(b, remote).conflicts] == [
-        "skill:tool"
-    ]
-    round_trip(b, remote, home, resolutions={"skill:tool": "remote"})
-    assert (b / "skills/tool/run.sh").stat().st_mode & 0o111
+    path = a / REPLICA_STATE
+    raw = json.loads(path.read_text())
+    raw["base"]["skill:tool"].pop("mode_fingerprint")
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    before = path.read_bytes()
+    with pytest.raises(WorkspaceReconcileError, match="Unsupported skill mode state"):
+        build_reconcile_plan(a, remote)
+    assert path.read_bytes() == before
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX chmod semantics")

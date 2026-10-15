@@ -624,28 +624,9 @@ def build_reconcile_plan(
                 left.fingerprint if left else None,
                 right.fingerprint if right else None,
             )
-            ambiguous_mode = False
-            if (
-                ancestor
-                and ancestor.kind == "skill"
-                and ancestor.mode_fingerprint is None
-            ):
-                # An old Base has no executable ancestor. Equal live modes can
-                # seed it; disagreement must be resolved explicitly.
-                modes = {
-                    resource.mode_fingerprint
-                    for resource in (left, right)
-                    if resource is not None
-                }
-                if len(modes) == 1:
-                    ancestor = replace(ancestor, mode_fingerprint=modes.pop())
-                else:
-                    ambiguous_mode = True
             first_pairing = state is None or identity in state.unpaired_ids
             reference = (
-                frozenset()
-                if ambiguous_mode
-                else frozenset({_resource_version(ancestor)})
+                frozenset({_resource_version(ancestor)})
                 if ancestor
                 else template_fingerprints(identity)
                 if first_pairing

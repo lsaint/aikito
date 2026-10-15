@@ -115,7 +115,7 @@ def _load_checkpoint(encoded, vault, sync_id):
         return {}
     _require(len(encoded) <= 2 * remote_limits.MAX_REMOTE_RESPONSE_BYTES)
     value = _parse(encoded, ("version", "sync_id", "vault_id", "entries", "mac"))
-    _require(type(value["version"]) is int and value["version"] in (1, 2))
+    _require(type(value["version"]) is int and value["version"] == 2)
     _require(value["sync_id"] == sync_id and value["vault_id"] == vault.vault_id)
     _require(type(value["mac"]) is str and type(value["entries"]) is dict)
     body = {k: v for k, v in value.items() if k != "mac"}
@@ -123,9 +123,7 @@ def _load_checkpoint(encoded, vault, sync_id):
     _require(hmac.compare_digest(value["mac"], mac))
     entries = {}
     for identity, entry in value["entries"].items():
-        fields = {"descriptor", "resource"} | (
-            {"plaintext"} if value["version"] == 2 else set()
-        )
+        fields = {"descriptor", "resource", "plaintext"}
         _require(type(entry) is dict and set(entry) == fields)
         resources = decode_resources(entry["resource"])
         _require(len(resources) == 1)
@@ -148,18 +146,12 @@ def _load_checkpoint(encoded, vault, sync_id):
             descriptor.references
             == tuple(sorted({vault.opaque_id(ref) for ref in resource.references}))
         )
-        plain = (
-            _decode_descriptor(entry["plaintext"]) if value["version"] == 2 else None
+        plain = _decode_descriptor(entry["plaintext"])
+        _require(type(plain) is ResourceDescriptor)
+        _require(
+            (plain.fingerprint, plain.references, plain.mode_fingerprint)
+            == (resource.fingerprint, resource.references, resource.mode_fingerprint)
         )
-        if plain is not None:
-            _require(
-                (plain.fingerprint, plain.references, plain.mode_fingerprint)
-                == (
-                    resource.fingerprint,
-                    resource.references,
-                    resource.mode_fingerprint,
-                )
-            )
         entries[identity] = (descriptor, resource, plain)
     return entries
 
@@ -238,7 +230,7 @@ def discover_encrypted(
                 tag = vault.collection(collection).tag
                 _require(tag not in collections or collections[tag] == collection)
                 collections[tag] = collection
-        remaining = {k for k in business if k not in entries or entries[k][2] is None}
+        remaining = business.keys() - entries.keys()
         private = sorted(k for k in remaining if k.split(":")[1] == private_tag)
         # Defer project resources until all private identities have been verified.
         candidates = private if private else sorted(remaining)
@@ -284,14 +276,8 @@ def discover_encrypted(
                 resource.mode_fingerprint,
             )
             entries[identity] = (business[identity], resource, plain)
-        resources = {
-            resource.id: resource
-            for _, resource, plain in entries.values()
-            if plain is not None
-        }
-        _require(
-            len(resources) == sum(plain is not None for _, _, plain in entries.values())
-        )
+        resources = {resource.id: resource for _, resource, _ in entries.values()}
+        _require(len(resources) == len(entries))
         left = len(business) - len(resources)
         if not left:
             _require(not missing_references(resources))
@@ -301,11 +287,7 @@ def discover_encrypted(
             left,
             len(selected),
             _encode_checkpoint(entries, vault, snapshot.sync_id),
-            {
-                resource.id: plain
-                for _, resource, plain in entries.values()
-                if plain is not None
-            },
+            {resource.id: plain for _, resource, plain in entries.values()},
         )
     except (EncryptedRemoteError, EncryptedStoreUnsupported):
         raise

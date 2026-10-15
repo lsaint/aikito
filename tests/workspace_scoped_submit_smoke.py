@@ -58,7 +58,7 @@ def main(base):
         "context": context,
         "ciphertext": base64.b64encode(b"x" * 48).decode(),
     }
-    mode, posts = ["verified"], []
+    mode, posts = ["active"], []
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -101,7 +101,7 @@ def main(base):
                     "expires_at",
                 )
             }
-            receipt["status"] = "active" if mode[0] == "active" else "verified"
+            receipt["status"] = "verified" if mode[0] == "verified" else "active"
             if mode[0] == "wrong-receipt":
                 receipt["account_id"] = "attacker"
             raw = _canonical(receipt)
@@ -203,15 +203,15 @@ def main(base):
         }
         run(True, *arguments)
         assert len(posts) == 1
-        mode[0] = "active"
-        run(True, *arguments)
+        mode[0] = "verified"
+        run(False, *arguments)
         assert len(posts) == 2
         for failure in ("redirect", "wrong-receipt"):
             mode[0] = failure
             before = len(posts)
             run(False, *arguments)
             assert len(posts) == before + 1
-        mode[0] = "verified"
+        mode[0] = "active"
         bad = list(arguments)
         bad[bad.index(auth["account_id"])] = "attacker"
         before = len(posts)

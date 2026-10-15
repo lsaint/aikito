@@ -54,7 +54,7 @@ def cmd_remote_key(args: argparse.Namespace) -> None:
         if args.key_action == "submit":
             if workspace is None or not is_recognized_workspace(workspace):
                 raise ExportSubmissionError("export_workspace_invalid")
-            receipt = submit_bound_export(
+            submit_bound_export(
                 workspace,
                 home,
                 origin=args.origin,
@@ -64,14 +64,7 @@ def cmd_remote_key(args: argparse.Namespace) -> None:
                 collection=args.collection,
                 permission=getattr(args, "permission", "read"),
             )
-            if receipt["status"] == "active":
-                print(
-                    f"[SUCCESS] Scoped {getattr(args, 'permission', 'read')} grant activated."
-                )
-            else:
-                print(
-                    "[SUCCESS] Scoped package verified. Content access is not active."
-                )
+            print(f"[SUCCESS] Scoped {args.permission} grant activated.")
             return
         if args.key_action == "fetch":
             if workspace is None or not is_recognized_workspace(workspace):
@@ -169,6 +162,7 @@ def cmd_remote_key(args: argparse.Namespace) -> None:
                 dry_run=args.dry_run,
                 maximum=args.max_rounds,
                 deliver_recovery=deliver_migration,
+                devices_upgraded=args.confirm_devices_upgraded,
             )
             print(
                 f"[SUCCESS] Migration {result.status}: resources={result.resources}, rounds={result.rounds}, epoch={result.epoch}",

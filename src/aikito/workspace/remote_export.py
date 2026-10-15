@@ -140,9 +140,7 @@ def submit_bound_export(
                 "expires_at",
             )
         }
-        if receipt.get("status") not in ("verified", "active"):
-            raise ValueError()
-        expected["status"] = receipt["status"]
+        expected["status"] = "active"
         if _canonical(receipt) != _canonical(expected):
             raise ValueError()
         return receipt

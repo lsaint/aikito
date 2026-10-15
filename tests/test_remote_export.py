@@ -75,7 +75,7 @@ def export_input(tmp_path, monkeypatch):
             "expires_at",
         )
     }
-    receipt["status"] = "verified"
+    receipt["status"] = "active"
 
     class Response:
         status = 202
@@ -206,10 +206,11 @@ def test_invalid_receipt_is_unknown_outcome(export_input):
     connection.request.assert_called_once()
 
 
-def test_active_receipt_is_distinct_from_verification(export_input):
+def test_verification_only_receipt_is_rejected(export_input):
     *_, receipt, run = export_input
-    receipt["status"] = "active"
-    assert run()["status"] == "active"
+    receipt["status"] = "verified"
+    with pytest.raises(submit.ExportSubmissionError, match="export_outcome_unknown"):
+        run()
 
 
 def test_write_requires_explicit_permission_before_credentials(export_input):

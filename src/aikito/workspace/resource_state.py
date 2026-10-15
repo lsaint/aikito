@@ -206,13 +206,9 @@ def decode_revision(state: dict[str, object]) -> int:
     return revision
 
 
-def validate_skill_fingerprint_scheme(
-    scheme: object, resources: dict[str, Resource]
-) -> None:
+def validate_skill_fingerprint_scheme(scheme: object) -> None:
     """Refuse ambiguous old skill hashes without rewriting historical state."""
     if scheme == SKILL_FINGERPRINT_SCHEME:
-        return
-    if scheme is None and not any(r.kind == "skill" for r in resources.values()):
         return
     raise WorkspaceCoreError(
         "Unsupported skill fingerprint scheme; preserve the existing center and "

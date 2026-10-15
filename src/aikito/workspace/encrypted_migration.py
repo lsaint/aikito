@@ -16,7 +16,6 @@ import uuid
 from dataclasses import dataclass
 from contextlib import nullcontext
 
-from .. import __version__
 from ..skill_state import WorkspaceWriterLock
 from . import remote_limits
 from .device_keys import DeviceKeyStore
@@ -86,14 +85,12 @@ from .transactions import atomic_text, atomic_unlink, entry_type
 MIGRATION_STATE = ".local/state/aikito/encrypted-migration.json"
 MAX_MIGRATION_ROUNDS = 1024
 MAX_MIGRATION_RESOURCES = 32
-# Set only after a guard release and its compatibility CI are verified.
-MINIMUM_GUARD_RELEASE: str | None = None
 _OPAQUE = re.compile(r"e1:[0-9a-f]{32}:[0-9a-f]{64}\Z")
 
 
-class MigrationReleaseRequired(EncryptedRemoteError):
-    code = "encrypted_migration_release_required"
-    message = "Migration requires a published format-guard release and compatibility verification."
+class MigrationDevicesRequired(EncryptedRemoteError):
+    code = "encrypted_migration_devices_required"
+    message = "Confirm every connected device is upgraded and automatic synchronization is stopped before migration."
 
 
 class MigrationPreflightFailed(EncryptedRemoteError):
@@ -126,18 +123,6 @@ class MigrationResult:
     rounds: int
     resources: int
     epoch: int | None
-
-
-def require_migration_release():
-    if MINIMUM_GUARD_RELEASE is None:
-        raise MigrationReleaseRequired()
-
-    def version(value):
-        _require(type(value) is str and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", value))
-        return tuple(map(int, value.split(".")))
-
-    if version(__version__) < version(MINIMUM_GUARD_RELEASE):
-        raise MigrationReleaseRequired()
 
 
 def rewrite_metadata(encoded, key, *, migration=None):
@@ -1013,9 +998,10 @@ def run_migration(
     dry_run=False,
     maximum=MAX_MIGRATION_ROUNDS,
     deliver_recovery=None,
+    devices_upgraded=False,
 ):
-    if not dry_run:
-        require_migration_release()
+    if not dry_run and devices_upgraded is not True:
+        raise MigrationDevicesRequired()
     binding = load_remote_binding(workspace)
     _require(binding is not None)
     remote = _open_remote(binding.endpoint, binding.auth, None, home=home)

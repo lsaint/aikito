@@ -121,7 +121,7 @@ class _CenterState:
     revision: int
     resources: dict[str, Resource]
     values: dict[str, TomlValue] = field(default_factory=dict)
-    payload_hashes: dict[str, str] | None = field(default_factory=dict)
+    payload_hashes: dict[str, str] = field(default_factory=dict)
     receipts: ReceiptHistory | None = None
 
 
@@ -236,8 +236,6 @@ class FilesystemRemote:
         self,
         resources: dict[str, Resource],
         values: dict[str, TomlValue] | None = None,
-        *,
-        legacy: bool = False,
     ) -> WorkspaceSnapshot:
         values = values or {}
         scalar_ids = {
@@ -347,17 +345,7 @@ class FilesystemRemote:
                     raise WorkspaceCoreError(
                         f"Resource center executable state changed: {resource.id}"
                     )
-        external = (
-            frozenset(
-                ref
-                for resource in resources.values()
-                for ref in resource.references
-                if ref.startswith("project:")
-            )
-            if legacy
-            else frozenset()
-        )
-        if missing_references(resources, external=external):
+        if missing_references(resources):
             raise WorkspaceCoreError("Invalid center resource references")
         return WorkspaceSnapshot(self.root, resources, (), ())
 
@@ -375,13 +363,16 @@ class FilesystemRemote:
         if (
             not isinstance(raw, dict)
             or type(raw.get("version")) is not int
-            or raw.get("version") not in (1, 2)
+            or raw.get("version") != 2
+            or type(raw.get("payload_hashes")) is not dict
+            or type(raw.get("values")) is not dict
+            or "receipts" not in raw
             or not valid_identity(raw.get("sync_id"))
         ):
             raise WorkspaceCoreError("Invalid resource center state")
         revision = decode_revision(raw)
         resources = decode_resources(raw.get("resources"))
-        validate_skill_fingerprint_scheme(raw.get("skill_fingerprint"), resources)
+        validate_skill_fingerprint_scheme(raw.get("skill_fingerprint"))
         try:
             values = {
                 key: TomlValue.decode(value)
@@ -389,7 +380,7 @@ class FilesystemRemote:
             }
         except (ValueError, AttributeError, TypeError) as exc:
             raise WorkspaceCoreError("Invalid center field values") from exc
-        self.verify_contents(resources, values, legacy=raw["version"] == 1)
+        self.verify_contents(resources, values)
         if path.read_bytes() != before:
             raise WorkspaceCoreError("Resource center changed during read; run again")
         return _CenterState(
@@ -397,11 +388,11 @@ class FilesystemRemote:
             revision,
             resources,
             values,
-            raw.get("payload_hashes"),
+            raw["payload_hashes"],
             ReceiptHistory.decode(
                 raw["sync_id"],
                 revision,
-                raw.get("receipts", {"version": 1, "latest": {}}),
+                raw["receipts"],
             ),
         )
 
@@ -443,7 +434,7 @@ class FilesystemRemote:
             if has_pending((self.root,), policy=RECONCILE_POLICY):
                 raise RecoveryRequired("Pending center transaction needs recovery")
             hashes = {key: payload_hash(payload) for key, payload in payloads.items()}
-            if state.payload_hashes is not None and state.payload_hashes != hashes:
+            if state.payload_hashes != hashes:
                 raise InvalidContent("Resource center payload integrity mismatch")
             snapshot = RemoteSnapshot(
                 state.sync_id,

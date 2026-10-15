@@ -142,18 +142,16 @@ def test_fetch_missing_content_and_corrupt_manifest_fail_without_writes(tmp_path
     assert files(remote.root) == before
 
 
-def test_legacy_manifest_gains_hashes_only_on_commit(tmp_path):
+def test_missing_manifest_hashes_are_rejected_without_rewriting(tmp_path):
     remote = FilesystemRemote.create(tmp_path / "center")
     manifest = remote.root / REMOTE_STATE
     raw = json.loads(manifest.read_text())
     raw.pop("payload_hashes")
     manifest.write_text(json.dumps(raw))
     before = files(remote.root)
-    snapshot = remote.read()
-    remote.fetch(snapshot, [])
-    assert before == files(remote.root)
-    publish_batch(remote, snapshot, [mutation()])
-    assert json.loads(manifest.read_text())["payload_hashes"]
+    with pytest.raises(InvalidContent, match="Invalid resource center state"):
+        remote.read()
+    assert files(remote.root) == before
 
 
 @pytest.mark.parametrize("relation", ["same", "inside", "ancestor"])

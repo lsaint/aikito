@@ -1,5 +1,7 @@
 """Discovery authenticates data before names, graphs or resumable maps are used."""
 
+import hashlib
+import hmac
 import json
 from dataclasses import replace
 from types import SimpleNamespace
@@ -293,3 +295,21 @@ def test_invalid_metadata_authentication_is_refused_before_business_fetch(reader
     with pytest.raises(EncryptedRemoteError):
         discovery.discover_encrypted(reader, KEYS)
     assert reader.calls == [(FORMAT_RESOURCE_ID,)]
+
+
+def test_authenticated_old_checkpoint_is_rejected():
+    reader = Reader([("memory:notes/note.md", FilePayload(b"content\n"))])
+    result = discovery.discover_encrypted(reader, KEYS)
+    raw = json.loads(result.checkpoint)
+    raw["version"] = 1
+    for entry in raw["entries"].values():
+        entry.pop("plaintext")
+    body = {key: value for key, value in raw.items() if key != "mac"}
+    raw["mac"] = hmac.new(
+        discovery._checkpoint_key(EncryptedVault(VAULT, KEY)),
+        _canonical(body), hashlib.sha256,
+    ).hexdigest()
+    before = len(reader.calls)
+    with pytest.raises(EncryptedRemoteError):
+        discovery.discover_encrypted(reader, KEYS, checkpoint=_canonical(raw))
+    assert reader.calls[before:] == [(FORMAT_RESOURCE_ID,)]

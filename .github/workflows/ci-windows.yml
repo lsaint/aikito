@@ -1099,7 +1099,7 @@ jobs:
           if (Test-Path "$encryptedBase/sync-check/workspace-2/memory/notes/e2ee.md") { throw "Encrypted deletion failed" }
           python tests/workspace_encrypted_migration_smoke.py "$encryptedBase/migration-check"
           if ($LASTEXITCODE -ne 0) { throw "Encrypted migration smoke failed" }
-          foreach ($relative in @("checked.txt", "workspace-0/memory/notes/migrate.md", "workspace-0/.local/state/aikito/workspace-reconcile/replica.json")) {
+          foreach ($relative in @("checked.txt", "production-cli-checked.txt", "workspace-0/memory/notes/migrate.md", "workspace-0/.local/state/aikito/workspace-reconcile/replica.json")) {
             if (!(Test-Path "$encryptedBase/migration-check/$relative" -PathType Leaf)) { throw "Missing migration artifact: $relative" }
           }
           if (Test-Path "$encryptedBase/migration-check/workspace-1/.local/state/aikito/encrypted-migration.json") { throw "Migration left a journal" }
