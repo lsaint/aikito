@@ -101,7 +101,7 @@ def main(base):
                     "expires_at",
                 )
             }
-            receipt["status"] = "verified"
+            receipt["status"] = "active" if mode[0] == "active" else "verified"
             if mode[0] == "wrong-receipt":
                 receipt["account_id"] = "attacker"
             raw = _canonical(receipt)
@@ -203,6 +203,9 @@ def main(base):
         }
         run(True, *arguments)
         assert len(posts) == 1
+        mode[0] = "active"
+        run(True, *arguments)
+        assert len(posts) == 2
         for failure in ("redirect", "wrong-receipt"):
             mode[0] = failure
             before = len(posts)

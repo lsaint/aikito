@@ -204,3 +204,9 @@ def test_invalid_receipt_is_unknown_outcome(export_input):
     with pytest.raises(submit.ExportSubmissionError, match="export_outcome_unknown"):
         run()
     connection.request.assert_called_once()
+
+
+def test_active_receipt_is_distinct_from_verification(export_input):
+    *_, receipt, run = export_input
+    receipt["status"] = "active"
+    assert run()["status"] == "active"

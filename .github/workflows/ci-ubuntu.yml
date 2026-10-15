@@ -249,7 +249,7 @@ jobs:
           test ! -e "$RECIPIENT_SMOKE/changed.json"
           test ! -e "$RECIPIENT_SMOKE/untrusted.json"
 
-      - name: Scoped package submission CLI smoke without optional dependencies
+      - name: Scoped package submission and activation CLI smoke without optional dependencies
         run: |
           SUBMIT_SMOKE=${{ runner.temp }}/scoped-submit
           "${{ runner.temp }}/recipient-core-env/bin/python" tests/workspace_scoped_submit_smoke.py "$SUBMIT_SMOKE"

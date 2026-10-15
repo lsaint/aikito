@@ -54,7 +54,7 @@ def cmd_remote_key(args: argparse.Namespace) -> None:
         if args.key_action == "submit":
             if workspace is None or not is_recognized_workspace(workspace):
                 raise ExportSubmissionError("export_workspace_invalid")
-            submit_bound_export(
+            receipt = submit_bound_export(
                 workspace,
                 home,
                 origin=args.origin,
@@ -63,7 +63,12 @@ def cmd_remote_key(args: argparse.Namespace) -> None:
                 expected_account=args.account,
                 collection=args.collection,
             )
-            print("[SUCCESS] Scoped package verified. Content access is not active.")
+            if receipt["status"] == "active":
+                print("[SUCCESS] Scoped read grant activated.")
+            else:
+                print(
+                    "[SUCCESS] Scoped package verified. Content access is not active."
+                )
             return
         if args.key_action == "fetch":
             if workspace is None or not is_recognized_workspace(workspace):

@@ -119,7 +119,7 @@ jobs:
             if (Test-Path "$recipientBase/$relative") { throw "Rejected recipient output exists: $relative" }
           }
 
-      - name: Scoped package submission CLI smoke without optional dependencies
+      - name: Scoped package submission and activation CLI smoke without optional dependencies
         shell: pwsh
         run: |
           $submitBase = Join-Path $env:RUNNER_TEMP "scoped-submit"

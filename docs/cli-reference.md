@@ -856,9 +856,15 @@ origin distinct from the Remote endpoint when the recipient uses separate
 listeners. Request/package files must be canonical JSON. No workspace, Remote,
 pending or Replica Base data is written.
 
-A successful HTTP 202 receipt has status `verified`: the recipient checked this
-one-time request and its encrypted sample. Content access is not active. A
-rejected request may already be consumed; a lost or malformed response reports
-`export_outcome_unknown`. Obtain a fresh authorization request rather than
-resending a possibly consumed one. Grant persistence, activation and revocation
-are separate receiver capabilities.
+A successful HTTP 202 receipt distinguishes two receiver outcomes:
+`verified` means the package and encrypted sample were checked without durable
+activation; `active` means the receiver saved the scoped read grant. The CLI
+prints the corresponding result. An active grant lasts until its stated expiry
+or explicit receiver-side revocation, independently of the submitting device.
+Content endpoints and authorization for individual consumers are separate
+receiver capabilities.
+
+A rejected request may already be consumed; a lost or malformed response reports
+`export_outcome_unknown`. Check the receiver's grant list before requesting a
+fresh authorization. Submission never retries or follows redirects. Receivers
+must enforce revocation and must not restore revoked keys from backups.

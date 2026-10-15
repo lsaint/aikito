@@ -1,7 +1,7 @@
 """Submit a scoped package only to an explicitly pinned HTTPS recipient.
 
 Account and collection choices are independent of the downloaded request. A
-verification receipt is not an active content grant. POSTs are never retried.
+receipt distinguishes verification from durable activation. POSTs are never retried.
 """
 
 from __future__ import annotations
@@ -132,7 +132,9 @@ def submit_bound_export(
                 "expires_at",
             )
         }
-        expected["status"] = "verified"
+        if receipt.get("status") not in ("verified", "active"):
+            raise ValueError()
+        expected["status"] = receipt["status"]
         if _canonical(receipt) != _canonical(expected):
             raise ValueError()
         return receipt
