@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <header><div class="brand"><img src="/assets/logo.svg" alt=""><strong>Aikito</strong></div><span id="workspace"></span><span id="health">Loading…</span></header>
+  <header><a class="brand" href="/" aria-label="Workspace home"><img src="/assets/logo.svg" alt=""><strong>Aikito</strong></a><span id="workspace"></span><span id="health">Loading…</span></header>
   <main>
     <nav id="explorer" aria-label="Resource Explorer"></nav>
     <div class="resizer" id="resizer-left" title="Drag to resize"></div>
@@ -19,7 +19,7 @@
   <footer>
     <span id="version"></span>
     <div class="footer-actions">
-      <span>localhost · read-only</span>
+      <span>localhost · local console</span>
       <a
         class="support-link"
         href="https://lsaint.github.io/donation/?utm_source=aikito&amp;utm_medium=web&amp;utm_campaign=support"
@@ -35,6 +35,7 @@
     </div>
   </footer>
   <script src="/marked.umd.js"></script>
+  <script src="/memory-access.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

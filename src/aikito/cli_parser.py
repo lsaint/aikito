@@ -541,7 +541,7 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
 
     p_web = subparsers.add_parser(
         "web",
-        help="Start the read-only local Web Console",
+        help="Start the local Web Console",
     )
     p_web.add_argument(
         "--port",

@@ -1,4 +1,4 @@
-"""Read-only local Web Console for an Aikito workspace."""
+"""Local resource inspection and explicit project Memory delegation."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import functools
 import json
 import mimetypes
 import re
+import secrets
 import threading
 import tomllib
 from datetime import date, datetime
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
+from .console_access import ConsoleAccess
 from .config import get_inbox_path, load_workspace_config
 from .diff import collect_drift_diffs
 from .doctor import run_doctor
@@ -89,6 +91,7 @@ class ConsoleData:
         self.aikito_dir = aikito_dir.resolve()
         self.home = home.resolve()
         self.version = version
+        self.access = ConsoleAccess(self.aikito_dir, self.home)
 
     def overview(self) -> dict[str, Any]:
         status = get_status_report_data(self.aikito_dir, self.home)
@@ -243,6 +246,7 @@ class ConsoleData:
                 "scope": f"Project: {name}",
                 "trust": "Canonical",
                 "content": _json_value(project),
+                "memory_access_project": name,
             }
         if kind == "agents":
             row = next(
@@ -366,6 +370,9 @@ def make_handler(data: ConsoleData, web_dir: Path) -> type[BaseHTTPRequestHandle
         def do_GET(self) -> None:
             path = unquote(urlsplit(self.path).path)
             try:
+                if not self._local_request():
+                    self._json({"error": "Local console origin required"}, 403)
+                    return
                 if path.startswith("/api/"):
                     self._api(path)
                 else:
@@ -375,9 +382,77 @@ def make_handler(data: ConsoleData, web_dir: Path) -> type[BaseHTTPRequestHandle
             except Exception as exc:
                 self._json({"error": str(exc)}, 500)
 
+        def _local_request(self, mutation: bool = False) -> bool:
+            authority = f"127.0.0.1:{self.server.server_port}"
+            origin = f"http://{authority}"
+            return (
+                self.headers.get_all("Host") == [authority]
+                and self.headers.get("Sec-Fetch-Site") != "cross-site"
+                and (
+                    self.headers.get_all("Origin") == [origin]
+                    if mutation
+                    else self.headers.get_all("Origin", []) in ([], [origin])
+                )
+                and (
+                    not mutation
+                    or secrets.compare_digest(
+                        self.headers.get("X-Aikito-Console-Token", "").encode(),
+                        data.access.token.encode(),
+                    )
+                )
+            )
+
+        def do_POST(self) -> None:
+            if not self._local_request(mutation=True):
+                self._json({"error": "Local console confirmation required"}, 403)
+                return
+            try:
+                if self.headers.get_all("Content-Type") != [
+                    "application/json"
+                ] or self.headers.get_all("Transfer-Encoding"):
+                    raise ValueError()
+                lengths = self.headers.get_all("Content-Length", [])
+                if (
+                    len(lengths) != 1
+                    or not lengths[0].isascii()
+                    or not lengths[0].isdecimal()
+                    or int(lengths[0]) > 65536
+                ):
+                    raise ValueError()
+                body = json.loads(self.rfile.read(int(lengths[0])))
+                if type(body) is not dict:
+                    raise ValueError()
+                parts = unquote(urlsplit(self.path).path).split("/")
+                if urlsplit(self.path).query:
+                    raise ValueError()
+                if (
+                    len(parts) == 5
+                    and parts[1:3] == ["api", "projects"]
+                    and parts[4] == "access"
+                    and set(body) == {"origin", "permission"}
+                ):
+                    result = data.access.begin(
+                        parts[3], body["origin"], body["permission"]
+                    )
+                elif len(parts) == 5 and parts[1:3] == ["api", "access"]:
+                    result = data.access.perform(parts[3], parts[4], body)
+                else:
+                    raise ValueError()
+                self._json(result)
+            except Exception:
+                # Network/provider exceptions can contain credentials or bodies.
+                self._json(
+                    {
+                        "error": "Access operation failed. Check login, binding and recipient availability; refresh status before retrying."
+                    },
+                    400,
+                )
+
         def _api(self, path: str) -> None:
             parts = [part for part in path.removeprefix("/api/").split("/") if part]
-            if parts == ["overview"]:
+            if parts == ["console-session"]:
+                self._json({"token": data.access.token})
+            elif parts == ["overview"]:
                 self._json(data.overview())
             elif parts == ["doctor"]:
                 self._json(data.doctor())
@@ -400,6 +475,9 @@ def make_handler(data: ConsoleData, web_dir: Path) -> type[BaseHTTPRequestHandle
             self.send_response(200)
             self.send_header("Content-Type", f"{content_type}; charset=utf-8")
             self.send_header("Content-Length", str(len(payload)))
+            self.send_header(
+                "Content-Security-Policy", "frame-ancestors 'none'; base-uri 'none'"
+            )
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(payload)
@@ -409,6 +487,9 @@ def make_handler(data: ConsoleData, web_dir: Path) -> type[BaseHTTPRequestHandle
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(payload)))
+            self.send_header(
+                "Content-Security-Policy", "frame-ancestors 'none'; base-uri 'none'"
+            )
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()

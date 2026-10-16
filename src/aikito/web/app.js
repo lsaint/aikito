@@ -118,7 +118,39 @@ function markdown(source, wikilinks = {}) {
   }
   return frontmatter + marked.parse(text, { wikilinks });
 }
-function show(detail) {
+let currentView = null;
+const previousViews = [];
+function rememberView(kind, data, remember) {
+  if (remember && currentView) {
+    currentView.scrollTop = content.scrollTop;
+    previousViews.push(currentView);
+    if (previousViews.length > 20) previousViews.shift();
+  }
+  currentView = {kind, data, selected: null, scrollTop: 0};
+  content.scrollTop = 0;
+}
+function selectResource(button) {
+  document.querySelectorAll(".resource.selected").forEach(node => node.classList.remove("selected"));
+  button?.classList.add("selected");
+  if (currentView) currentView.selected = button;
+}
+function addBackButton() {
+  if (!previousViews.length) return;
+  const button = document.createElement("button");
+  button.className = "page-back";
+  button.type = "button";
+  button.textContent = "← Back";
+  button.onclick = () => {
+    const previous = previousViews.pop();
+    if (previous.kind === "workspace") showWorkspace(previous.data, false);
+    else show(previous.data, false);
+    selectResource(previous.selected);
+    content.scrollTop = previous.scrollTop;
+  };
+  content.prepend(button);
+}
+function show(detail, remember = true) {
+  rememberView("detail", detail, remember);
   const switcher=detail.kind === "markdown" ? `<div class="view-switch"><button class="active" data-view="rendered">Rendered</button><button data-view="raw">Raw</button></div>` : "";
   const body=detail.kind === "markdown" ? `<article class="rendered-content">${markdown(detail.content,detail.wikilinks)}</article>` : properties(detail.content);
   content.innerHTML=`<div class="title"><h1>${escapeHtml(detail.name)}</h1><div class="title-meta"><span class="kind-badge">${escapeHtml(detail.kind)}</span>${switcher}</div></div>${body}`;
@@ -129,14 +161,57 @@ function show(detail) {
     if(selected.dataset.view === "raw") { article.className="source-content"; article.textContent=detail.content; }
     if(selected.dataset.view === "rendered") { article.className="rendered-content"; article.innerHTML=markdown(detail.content,detail.wikilinks); }
   };
+  if (detail.memory_access_project) {
+    const project = detail.content;
+    content.innerHTML = `<div class="project-heading"><span class="eyebrow">PROJECT</span><h1>${escapeHtml(detail.name)}</h1>${project.description?.trim() ? `<p>${escapeHtml(project.description.trim())}</p>` : ""}</div><div class="project-metrics"><div><strong>${escapeHtml(project.memory_notes_count)}</strong><span>Memory notes</span></div><div><strong>${escapeHtml(project.skills_count)}</strong><span>Skills</span></div><div><strong>${escapeHtml(project.runtime_status)}</strong><span>Local resources</span></div></div><section class="access-card"><div class="access-card-icon" aria-hidden="true">↗</div><div><span class="eyebrow">MEMORY ACCESS</span><h2>Choose who can use this project's Memory</h2><p>Connect a recipient to view or change access. Your other projects, inbox and global resources stay private.</p><button class="memory-access-button">Manage access <span aria-hidden="true">→</span></button></div></section><details class="project-details"><summary>Project details</summary>${properties(project)}</details>`;
+    content.querySelector(".memory-access-button").onclick = () => openMemoryAccess(detail.memory_access_project);
+  }
+  addBackButton();
   governance.innerHTML=`<h2>Governance</h2>${properties({Source:detail.source,Scope:detail.scope,Trust:detail.trust,Updated:detail.updated,Freshness:detail.freshness_days == null ? undefined : `${detail.freshness_days} days / ${detail.stale_after_days} days`})}`;
 }
-async function openResource(kind,item,button) { document.querySelectorAll(".resource").forEach(node=>node.classList.remove("selected")); button.classList.add("selected"); try { show(await get(`/api/${kind}/${encodeURI(id(kind,item))}`)); } catch(error) { content.innerHTML=`<p>${escapeHtml(error.message)}</p>`; } }
-content.addEventListener("click",async event=>{ const link=event.target.closest("a.wikilink"); if(!link) return; event.preventDefault(); try { const detail=await get(`/api/${link.dataset.kind}/${encodeURI(link.dataset.name)}`); show(detail); const button=[...document.querySelectorAll(".resource[data-kind]")].find(item=>item.dataset.kind === link.dataset.kind && item.dataset.name === link.dataset.name); if(button) { document.querySelectorAll(".resource").forEach(item=>item.classList.remove("selected")); button.classList.add("selected"); for(const parent of button.closest(".group").querySelectorAll("details")) { if(parent.contains(button)) parent.open=true; } } } catch(error) { content.innerHTML=`<p>${escapeHtml(error.message)}</p>`; } });
+async function openResource(kind,item,button) {
+  try {
+    const detail = await get(`/api/${kind}/${encodeURI(id(kind,item))}`);
+    show(detail);
+    selectResource(button);
+  } catch(error) { content.innerHTML=`<p>${escapeHtml(error.message)}</p>`; }
+}
+content.addEventListener("click", async event => {
+  const link = event.target.closest("a.wikilink");
+  if (!link) return;
+  event.preventDefault();
+  try {
+    const detail = await get(`/api/${link.dataset.kind}/${encodeURI(link.dataset.name)}`);
+    show(detail);
+    const button = [...document.querySelectorAll(".resource[data-kind]")].find(item => item.dataset.kind === link.dataset.kind && item.dataset.name === link.dataset.name);
+    selectResource(button);
+    if (button) {
+      for (const parent of button.closest(".group").querySelectorAll("details")) {
+        if (parent.contains(button)) parent.open = true;
+      }
+    }
+  } catch(error) { content.innerHTML=`<p>${escapeHtml(error.message)}</p>`; }
+});
+function showWorkspace(overview, remember = true) {
+  rememberView("workspace", overview, remember);
+  selectResource(null);
+  governance.innerHTML = '<h2>Governance</h2><p class="muted">Select a resource.</p>';
+  content.innerHTML = `<div class="project-heading"><span class="eyebrow">YOUR WORKSPACE</span><h1>Context, in one place.</h1><p>Browse your projects and decide how their Memory is shared.</p></div><div class="project-grid">${overview.projects.map(project => `<section class="project-card"><h2><button class="project-open" data-project-open="${escapeAttribute(project.name)}">${escapeHtml(project.name)}</button></h2>${project.description?.trim() ? `<p>${escapeHtml(project.description.trim())}</p>` : ""}<div class="project-card-meta">${escapeHtml(project.memory_notes_count)} Memory notes · ${escapeHtml(project.skills_count)} skills</div><div class="project-card-actions"><button data-project-access="${escapeAttribute(project.name)}">Access control</button></div></section>`).join("") || '<p>No projects registered yet.</p>'}</div>`;
+  content.querySelectorAll("[data-project-open]").forEach(button => button.onclick = async () => {
+    try {
+      show(await get(`/api/projects/${encodeURIComponent(button.dataset.projectOpen)}`));
+      selectResource(document.querySelector(`.resource[data-kind="projects"][data-name="${CSS.escape(button.dataset.projectOpen)}"]`));
+    }
+    catch (error) { content.textContent = error.message; }
+  });
+  content.querySelectorAll("[data-project-access]").forEach(button => button.onclick = () => openMemoryAccess(button.dataset.projectAccess));
+  addBackButton();
+}
+
 async function renderGroup(title,entries) {
   const section=document.createElement("section"); section.className="group"; section.innerHTML=`<div class="group-label">${title}</div>`;
   for (const [kind,name] of entries) {
-    if(kind === "doctor" || kind === "diff") { const button=document.createElement("button"); button.className="resource"; button.textContent=name; button.onclick=async()=>{ const report=await get(`/api/${kind}`); show({name,kind:"properties",source:`aikito ${kind}`,scope:"Workspace",trust:"Live diagnostics",content:report}); }; section.append(button); continue; }
+    if(kind === "doctor" || kind === "diff") { const button=document.createElement("button"); button.className="resource"; button.textContent=name; button.onclick=async()=>{ const report=await get(`/api/${kind}`); show({name,kind:"properties",source:`aikito ${kind}`,scope:"Workspace",trust:"Live diagnostics",content:report}); selectResource(button); }; section.append(button); continue; }
     const items=await get(`/api/${kind}`);
     const disclosure=document.createElement("details"); disclosure.className="resource-group";
     const heading=document.createElement("summary"); heading.innerHTML=`<span>${escapeHtml(name)}</span><span class="count">${items.length}</span>`; disclosure.append(heading);
@@ -154,7 +229,7 @@ async function renderGroup(title,entries) {
   }
   explorer.append(section);
 }
-(async()=>{ try { const overview=await get("/api/overview"); document.querySelector("#workspace").textContent=overview.workspace; document.querySelector("#version").textContent=`Aikito ${overview.version}`; const health=document.querySelector("#health"); health.textContent=overview.healthy ? "Healthy" : `${overview.counts.issues} issues`; health.className=overview.healthy ? "ok" : "issue"; for(const group of groups) await renderGroup(...group); } catch(error) { explorer.textContent=error.message; } })();
+(async()=>{ try { const overview=await get("/api/overview"); document.querySelector("#workspace").textContent=overview.workspace; document.querySelector("#version").textContent=`Aikito ${overview.version}`; const health=document.querySelector("#health"); health.textContent=overview.healthy ? "Healthy" : `${overview.counts.issues} issues`; health.className=overview.healthy ? "ok" : "issue"; showWorkspace(overview); for(const group of groups) await renderGroup(...group); } catch(error) { explorer.textContent=error.message; } })();
 document.addEventListener("scroll", event => {
   const element = event.target === document ? document.documentElement : event.target;
   if (!element || !element.classList) return;

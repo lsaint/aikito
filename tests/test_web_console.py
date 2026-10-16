@@ -91,6 +91,78 @@ name_style = "verbatim"
         with urllib.request.urlopen(self.base_url + path) as response:
             return json.load(response)
 
+    def test_mutations_require_local_origin_and_console_token(self):
+        token = self.get_json("/api/console-session")["token"]
+        payload = json.dumps(
+            {"origin": "https://recipient.example", "permission": "read"}
+        ).encode()
+        for origin, secret in [
+            ("https://attacker.example", token),
+            (self.base_url, "wrong"),
+            (None, token),
+        ]:
+            headers = {
+                "Content-Type": "application/json",
+                "X-Aikito-Console-Token": secret,
+            }
+            if origin:
+                headers["Origin"] = origin
+            request = urllib.request.Request(
+                self.base_url + "/api/projects/demo/access",
+                data=payload,
+                headers=headers,
+            )
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                urllib.request.urlopen(request)
+            self.assertEqual(error.exception.code, 403)
+        with mock.patch(
+            "aikito.console_access.ConsoleAccess.begin",
+            return_value={"intent_id": "test"},
+        ) as begin:
+            request = urllib.request.Request(
+                self.base_url + "/api/projects/demo/access",
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Origin": self.base_url,
+                    "X-Aikito-Console-Token": token,
+                },
+            )
+            with urllib.request.urlopen(request) as response:
+                self.assertEqual(json.load(response), {"intent_id": "test"})
+            begin.assert_called_once_with("demo", "https://recipient.example", "read")
+
+    def test_rebinding_host_and_cross_origin_session_are_rejected(self):
+        for headers in [
+            {"Host": "attacker.example"},
+            {"Origin": "https://attacker.example"},
+        ]:
+            request = urllib.request.Request(
+                self.base_url + "/api/console-session", headers=headers
+            )
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                urllib.request.urlopen(request)
+            self.assertEqual(error.exception.code, 403)
+
+    def test_access_errors_do_not_expose_provider_secrets(self):
+        token = self.get_json("/api/console-session")["token"]
+        with mock.patch(
+            "aikito.console_access.ConsoleAccess.begin",
+            side_effect=RuntimeError("PRIVATE_TOKEN"),
+        ):
+            request = urllib.request.Request(
+                self.base_url + "/api/projects/demo/access",
+                data=b'{"origin":"https://recipient.example","permission":"read"}',
+                headers={
+                    "Content-Type": "application/json",
+                    "Origin": self.base_url,
+                    "X-Aikito-Console-Token": token,
+                },
+            )
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                urllib.request.urlopen(request)
+            self.assertNotIn("PRIVATE_TOKEN", error.exception.read().decode())
+
     def render_markdown(self, source: str, wikilinks: dict) -> str:
         if shutil.which("node") is None:
             raise unittest.SkipTest("Node.js is not installed on this system")

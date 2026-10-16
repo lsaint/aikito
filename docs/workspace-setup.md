@@ -104,7 +104,7 @@ write boundaries.
 should display the adopted canonical resources without changing the original
 Agent-native files.
 
-Optionally run `aikito web` to browse resources and status in the read-only local
+Optionally run `aikito web` to browse resources and status in the local
 Web Console.
 
 Next: [Synchronize and verify the existing setup](sync-existing-setup.md).

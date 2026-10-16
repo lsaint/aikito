@@ -2,7 +2,7 @@
 
 ## `aikito web`
 
-Start the read-only local Web Console on `127.0.0.1:8765`:
+Start the local Web Console on `127.0.0.1:8765`:
 
 ```bash
 aikito web
@@ -11,7 +11,22 @@ aikito web --no-open
 ```
 
 The Console browses canonical resources and governance status. It does not
-modify workspace files or expose MCP secret values.
+modify workspace files or expose MCP secret values. Project cards include
+**Memory access**: choose an HTTPS recipient and read-only or read/write access,
+sign in at the recipient, then confirm the displayed account and project.
+The recipient must support the `/local-console` browser page and the existing
+scoped delegation protocol. New Store ownership is proved with the existing
+bound credential only after confirmation. Grants last up to 30 days; consumer
+connections require separate authorization. Status and revocation use the
+recipient's same-origin browser session, never a copied account cookie.
+
+Account cookies and CSRF tokens stay at the recipient origin. Device keys and
+Store credentials stay in the local process; only the selected project's sealed
+subkeys are submitted. Local confirmation endpoints require the exact loopback
+origin and a per-console token. No wildcard/global authorization, automatic write
+upgrade or recipient-key-change acceptance is provided. A failed or uncertain
+submission is not retried; refresh status, then reconnect if another request is
+needed. Restarting the console loses its short-lived requests, not active grants.
 
 ![Aikito Web Console](assets/aikito-web-console.png)
 
