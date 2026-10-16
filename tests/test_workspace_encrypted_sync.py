@@ -343,3 +343,22 @@ def test_skill_tree_bytes_and_execution_flags_survive_encrypted_sync(clients):
     if __import__("os").name != "nt":
         assert (b / "skills/example/run.sh").stat().st_mode & 0o111
 
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_reconciliation_reports_real_stages(clients, dry_run):
+    remote, a, ha, b, hb = clients
+    initialize(clients)
+    before = remote.read()
+    stages = []
+    sync.run_encrypted_reconciliation(a, ha, dry_run=dry_run, on_progress=stages.append)
+    assert stages[0] == "Opening remote connection"
+    assert any(
+        stage.startswith("Reading and decrypting remote resources (")
+        for stage in stages
+    )
+    assert "Comparing local resources" in stages
+    if dry_run:
+        assert remote.read() == before
+        assert not any(stage.startswith("Uploading") for stage in stages)
+    else:
+        assert any(stage.startswith("Uploading") for stage in stages)

@@ -158,6 +158,13 @@ def main(base: Path):
         (a / note).write_text('password = "test-only-credential-1234567890"\n')
         preview_before = backend.read()
         preview = key_sync(winner, "--dry-run")
+        assert preview.returncode == 0, preview.stderr
+        assert "Remote sync plan" in preview.stdout
+        assert "Reading and decrypting" not in preview.stdout
+        assert "\033[" not in preview.stdout
+        (base / "progress-checked.txt").write_text(
+            "Redirected sync preview contains only the final plan\n"
+        )
         assert preview.returncode == 0 and backend.read() == preview_before
         assert not (a / ".local/state/aikito/encrypted-discovery.json").exists()
         first = key_sync(winner)

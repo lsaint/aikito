@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import secrets
 import uuid
+from collections.abc import Callable
 from contextlib import nullcontext
 from dataclasses import replace
 
@@ -71,13 +72,16 @@ class EncryptedDiscoveryPending(EncryptedRemoteError):
 
 
 class EncryptedRemote:
-    def __init__(self, remote, sync_id, workspace, home, *, persist=True):
+    def __init__(
+        self, remote, sync_id, workspace, home, *, persist=True, on_progress=None
+    ):
         self.wire = remote
         self.sync_id = sync_id
         self.workspace, self.home = workspace, home
         self.keys = DeviceKeyStore(home=home, workspace=workspace)
         self.reader = BoundRemoteReader(remote, sync_id)
         self.persist = persist
+        self.on_progress = on_progress
         path = state_path(workspace, DISCOVERY_STATE)
         self.checkpoint = None
         if entry_type(path) == "file":
@@ -90,10 +94,16 @@ class EncryptedRemote:
         self.logical = None
         self.prepared = {}
 
+    def _report(self, stage):
+        if self.on_progress:
+            self.on_progress(stage)
+
     def validate_replica(self, local):
         self.wire.validate_replica(local)
 
     def prepare(self):
+        verified = len(self.view.resources) if self.view else 0
+        self._report(f"Reading and decrypting remote resources ({verified} verified)")
         view = discover_encrypted(
             self.reader,
             self.keys,
@@ -125,10 +135,12 @@ class EncryptedRemote:
     def read(self):
         for _ in range(MAX_ENCRYPTED_ROUNDS):
             if self.prepare() and not self.view.fetched:
+                self._report("Comparing local resources")
                 return self.logical
         raise DiscoveryBudgetExceeded()
 
     def fetch(self, expected, ids):
+        self._report(f"Downloading and checking {len(ids)} resources")
         if expected != self.logical:
             raise SnapshotExpired("Encrypted logical view changed")
         opaque = {self.vault.opaque_id(identity): identity for identity in ids}
@@ -239,6 +251,7 @@ class EncryptedRemote:
         return result
 
     def commit(self, request):
+        self._report(f"Uploading {len(request.mutations)} resource changes")
         # This is already the persisted wire request: never encrypt at send time.
         _require(request.expected.sync_id == self.sync_id)
         current = self.reader.read()
@@ -301,15 +314,31 @@ class EncryptedRemote:
         store.clear(pending)
 
 
-def open_encrypted_remote(workspace, home, *, persist=True, environ=None):
+def open_encrypted_remote(
+    workspace, home, *, persist=True, environ=None, on_progress=None
+):
     binding = load_remote_binding(workspace)
     if binding is None:
         raise EncryptedRemoteError()
     remote = _open_remote(binding.endpoint, binding.auth, environ, home=home)
-    return EncryptedRemote(remote, binding.sync_id, workspace, home, persist=persist)
+    return EncryptedRemote(
+        remote,
+        binding.sync_id,
+        workspace,
+        home,
+        persist=persist,
+        on_progress=on_progress,
+    )
 
 
-def run_encrypted_reconciliation(workspace, home, *, dry_run, environ=None):
+def run_encrypted_reconciliation(
+    workspace,
+    home,
+    *,
+    dry_run,
+    environ=None,
+    on_progress: Callable[[str], None] | None = None,
+):
     from .reconcile import (
         build_reconcile_plan,
         run_reconciliation,
@@ -317,11 +346,14 @@ def run_encrypted_reconciliation(workspace, home, *, dry_run, environ=None):
         WorkspaceReconcileError,
     )
 
+    if on_progress:
+        on_progress("Opening remote connection")
     remote = open_encrypted_remote(
-        workspace, home, persist=not dry_run, environ=environ
+        workspace, home, persist=not dry_run, environ=environ, on_progress=on_progress
     )
     with nullcontext() if dry_run else WorkspaceWriterLock(home):
         if not dry_run:
+            remote._report("Checking interrupted synchronization")
             recover_reconciliation(workspace, remote, home)
         for _ in range(MAX_ENCRYPTED_ROUNDS):
             if not remote.prepare() or remote.view.fetched:

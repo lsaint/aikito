@@ -7,6 +7,7 @@ import getpass
 import io
 import json
 import os
+import shutil
 import ssl
 import sys
 import time
@@ -269,8 +270,23 @@ def cmd_remote_sync(args: argparse.Namespace) -> None:
     dry_run = getattr(args, "dry_run", False)
     verbose = getattr(args, "verbose", False)
 
+    on_progress = None
+    if sys.stdout.isatty():
+
+        def on_progress(stage: str | None) -> None:
+            width = max(1, shutil.get_terminal_size().columns - 1)
+            line = f"{stage}..."[:width] if stage else ""
+            sys.stdout.write(f"\r{line}\033[K")
+            sys.stdout.flush()
+
     try:
-        plan = sync_workspace_remote(workspace, dry_run=dry_run, home=home)
+        try:
+            plan = sync_workspace_remote(
+                workspace, dry_run=dry_run, home=home, on_progress=on_progress
+            )
+        finally:
+            if on_progress:
+                on_progress(None)
     except Exception as exc:
         print(
             f"[ERROR] {_explain_remote_error(exc, endpoint=endpoint, token_env=token_env)}",

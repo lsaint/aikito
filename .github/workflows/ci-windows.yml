@@ -1091,7 +1091,7 @@ jobs:
           if (Test-Path "$encryptedBase/discovery-check/workspace/.local/state/aikito/workspace-reconcile/pending.json") { throw "Discovery wrote pending" }
           if (Test-Path "$encryptedBase/discovery-check/workspace/memory/notes/00.md") { throw "Discovery wrote business content" }
           python tests/workspace_encrypted_sync_smoke.py "$encryptedBase/sync-check"
-          foreach ($relative in @("references-checked.txt", "workspace-2/mcps/docs.toml", "workspace-2/subagents/review.md")) {
+          foreach ($relative in @("references-checked.txt", "progress-checked.txt", "workspace-2/mcps/docs.toml", "workspace-2/subagents/review.md")) {
             if (!(Test-Path "$encryptedBase/sync-check/$relative" -PathType Leaf)) { throw "Missing dynamic reference artifact: $relative" }
           }
           if (!(Test-Path "$encryptedBase/sync-check/credential-checked.txt" -PathType Leaf)) { throw "Missing encrypted credential assertion" }

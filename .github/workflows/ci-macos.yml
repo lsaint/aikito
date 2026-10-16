@@ -74,6 +74,7 @@ jobs:
           test -f "$ENCRYPTED_SMOKE/sync-check/checked.txt"
           test -f "$ENCRYPTED_SMOKE/sync-check/credential-checked.txt"
           test -f "$ENCRYPTED_SMOKE/sync-check/references-checked.txt"
+          test -f "$ENCRYPTED_SMOKE/sync-check/progress-checked.txt"
           test -f "$ENCRYPTED_SMOKE/sync-check/workspace-2/mcps/docs.toml"
           test -f "$ENCRYPTED_SMOKE/sync-check/workspace-2/subagents/review.md"
           test -f "$ENCRYPTED_SMOKE/sync-check/workspace-2/.local/state/aikito/workspace-reconcile/replica.json"

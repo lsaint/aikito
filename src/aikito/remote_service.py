@@ -59,11 +59,12 @@ def sync_workspace_remote(
     dry_run: bool,
     home: Path | None = None,
     environ: Mapping[str, str] | None = None,
+    on_progress: Callable[[str], None] | None = None,
 ) -> ReconcilePlan:
     """Run reconciliation against the bound remote store."""
     home = Path.home() if home is None else home
     return run_encrypted_reconciliation(
-        workspace, home, dry_run=dry_run, environ=environ
+        workspace, home, dry_run=dry_run, environ=environ, on_progress=on_progress
     )
 
 
