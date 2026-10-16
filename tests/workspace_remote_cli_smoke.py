@@ -12,7 +12,8 @@ from pathlib import Path
 from http_remote_server import HTTPRemoteServer
 from workspace_reconcile_smoke import _workspace
 
-from aikito.workspace.remote import FilesystemRemote
+from workspace_memory_remote import InMemoryRemote
+from workspace_encrypted_setup import initialize_cli
 from aikito.workspace.resource_state import REMOTE_BINDING_STATE
 
 TOKEN = "remote-cli-smoke-secret"
@@ -48,7 +49,7 @@ def run_smoke(base: Path) -> None:
     ws_b = _workspace(base / "ws_b")
     home = base / "home"
     home.mkdir(parents=True, exist_ok=True)
-    backend = FilesystemRemote.create(base / "center")
+    backend = InMemoryRemote("11223344556677889900aabbccddeeff")
 
     env_auth = {TOKEN_ENV: TOKEN}
 
@@ -62,7 +63,7 @@ def run_smoke(base: Path) -> None:
         )
         assert res.returncode == 0, f"Bind A failed: {res.stderr}\n{res.stdout}"
         assert "[SUCCESS] Bound workspace to remote store" in res.stdout
-        assert "Run 'aikito remote sync --dry-run' to preview" in res.stdout
+        assert "aikito remote key initialize" in res.stdout
         assert (ws_a / REMOTE_BINDING_STATE).exists(), (
             "Binding state file missing in ws_a"
         )
@@ -88,6 +89,8 @@ def run_smoke(base: Path) -> None:
         assert (ws_b / REMOTE_BINDING_STATE).exists(), (
             "Binding state file missing in ws_b"
         )
+
+        initialize_cli(run_cli, ws_a, home, env_auth)
 
         # 4. Workspace A: initial apply to push default resources
         res = run_cli(
@@ -202,6 +205,9 @@ def run_smoke(base: Path) -> None:
         assert res_bad_auth.returncode == 1, "Expected sync with bad token to fail"
         assert "Remote authentication failed (HTTP 401)" in res_bad_auth.stderr
 
+    (base / "encrypted-manifest.json").write_text(
+        json.dumps(sorted(backend.read().resources))
+    )
     print("[SUCCESS] Remote CLI smoke test passed successfully")
 
 

@@ -31,7 +31,6 @@ from .resource_write import (
     ResourceContent,
     ResourceWrite,
     prepare_resource_writes,
-    credential_resources,
     missing_references,
     toml_conflicts,
     verify_resource_snapshot,
@@ -424,9 +423,7 @@ class FilesystemRemote:
             path = state_path(self.root, REMOTE_STATE)
             before = path.read_bytes()
             state = self._read_state()
-            payloads = capture_resources(
-                self._content(state), list(state.resources), check_credentials=False
-            )
+            payloads = capture_resources(self._content(state), list(state.resources))
             if path.read_bytes() != before:
                 raise SnapshotExpired(
                     "Resource center revision changed during read; replan"
@@ -706,13 +703,6 @@ class FilesystemRemote:
                     standalone.append(
                         replace(write, source_path=Path(canonical.parts[0].path))
                     )
-            if credential_resources(
-                ResourceContent(canonical_content, content.paths, values=values),
-                {write.id for write in writes if write.fingerprint is not None},
-            ):
-                raise WorkspaceCoreError(
-                    "Possible plaintext credential; center commit blocked"
-                )
             overlay = {
                 key: resource
                 for key, resource in resources.items()

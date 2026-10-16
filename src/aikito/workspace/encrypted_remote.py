@@ -23,7 +23,6 @@ from .payload import (
     encode_payload,
     payload_hash,
     validate_payload,
-    credential_payload,
 )
 from .remote_format import EncryptedStoreUnsupported
 from .remote_store import StoreError
@@ -243,7 +242,6 @@ def _logical(resource, payload):
         mode_fingerprint=resource.mode_fingerprint,
     )
     validate_payload(canonical, payload)
-    _require(not credential_payload(payload))
     return canonical
 
 
@@ -501,24 +499,7 @@ def _metadata(encoded):
         type(metadata["metadata_mac"]) is str
         and re.fullmatch(r"[0-9a-f]{64}", metadata["metadata_mac"])
     )
-    _require(metadata["format"] in ("encrypted-v1", "migrating"))
-    migration = metadata["migration"]
-    if metadata["format"] == "encrypted-v1":
-        _require(migration is None)
-    else:
-        _require(
-            type(migration) is dict
-            and set(migration) == {"epoch", "owner_client_id", "token"}
-        )
-        _require(type(migration["epoch"]) is int and migration["epoch"] > 0)
-        _require(
-            type(migration["owner_client_id"]) is str
-            and re.fullmatch(r"[0-9a-f]{32}", migration["owner_client_id"])
-        )
-        _require(
-            type(migration["token"]) is str
-            and re.fullmatch(r"[0-9a-f]{32}", migration["token"])
-        )
+    _require(metadata["format"] == "encrypted-v1" and metadata["migration"] is None)
     recovery = metadata["recovery"]
     _require(
         type(recovery) is dict
@@ -571,9 +552,6 @@ def create_recovery_metadata(
     vault_id: str,
     sync_id: str,
     recovery_code: bytes,
-    *,
-    format="encrypted-v1",
-    migration=None,
 ) -> bytes:
     AESGCM, _, _, _ = _crypto()
     _key(vrk)
@@ -581,10 +559,10 @@ def create_recovery_metadata(
     validate_vault_id(vault_id)
     metadata = {
         "algorithm": SUITE,
-        "format": format,
+        "format": "encrypted-v1",
         "key_version": 1,
         "metadata_mac": "0" * 64,
-        "migration": migration,
+        "migration": None,
         "recovery": {"recovery_id": secrets.token_hex(16), "version": 1},
         "vault_id": vault_id,
         "version": 1,
@@ -634,8 +612,6 @@ def replace_recovery_code(
         metadata["vault_id"],
         sync_id,
         code,
-        format=metadata["format"],
-        migration=metadata["migration"],
     )
 
 

@@ -28,6 +28,7 @@ from aikito.workspace.pending_commit import PendingCommitStore
 from aikito.workspace.reconcile import WorkspaceReconcileError, run_reconciliation
 from aikito.workspace.remote_binding import RemoteAuth
 from aikito.workspace.remote_factory import bind_remote, open_bound_remote
+from aikito.workspace.encrypted_sync import initialize_encrypted_workspace
 from aikito.workspace.remote_protocol import Operation
 from aikito.workspace.resource_state import REMOTE_BINDING_STATE, PENDING_COMMIT_STATE
 
@@ -48,7 +49,10 @@ def main(base):
     )
     if "{config}" not in os.environ["AIKITO_REMOTE_TEST_SERVER_CMD"]:
         raise ValueError("Service acceptance requires {config}")
-    with ExternalServer(base / "center", STORES) as service:
+    with ExternalServer(
+        base / "center",
+        STORES + [{"store_id": "encrypted", "token": TOKEN_A, "opaque_fixture": True}],
+    ) as service:
         isolation(service)
         access_rejections(service)
         restart(service)
@@ -56,7 +60,7 @@ def main(base):
         exercise_behavior(
             base / "acceptance", HTTPBackend(service.remote("beta", TOKEN_B))
         )
-        remote = service.remote("alpha", TOKEN_A)
+        remote = service.remote("encrypted", TOKEN_A)
         local = _workspace(base / "local")
         home = base / "home"
         auth = RemoteAuth("bearer_env", "AIKITO_EXTERNAL_TEST_TOKEN")
@@ -65,16 +69,19 @@ def main(base):
         with HTTPRemoteServer(None, token=TOKEN_A) as relay:
             relay.handler = SimpleNamespace(
                 handle=HTTPTransport(
-                    service.endpoint("alpha"),
+                    service.endpoint("encrypted"),
                     authorization="Bearer " + TOKEN_A,
                 ).exchange
             )
             bind_remote(local, relay.url, auth, home=home, environ=environ)
 
+            os.environ.update(environ)
+            initialize_encrypted_workspace(local, home, lambda code: None)
+
             def run():
                 run_reconciliation(
                     local,
-                    open_bound_remote(local, environ=environ),
+                    open_bound_remote(local, home=home, environ=environ),
                     home,
                     dry_run=False,
                 )
@@ -109,7 +116,8 @@ def main(base):
             assert TOKEN_A not in (local / REMOTE_BINDING_STATE).read_text(
                 encoding="utf-8"
             )
-            fetched = remote.fetch(remote.read(), ["memory:notes/lost-response.md"])
+            logical = open_bound_remote(local, home=home, environ=environ)
+            fetched = logical.fetch(logical.read(), ["memory:notes/lost-response.md"])
             assert fetched["memory:notes/lost-response.md"].data == note.read_bytes()
         (base / "lost-response-checked.txt").write_text(
             "Recovery passed\n", encoding="utf-8"

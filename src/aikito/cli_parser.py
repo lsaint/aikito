@@ -986,7 +986,7 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     )
     p_remote_claim.set_defaults(func=cmd_remote_claim)
 
-    # Explicit encrypted commands preserve the ordinary plaintext format guard.
+    # Remote keys initialize or unlock the single encrypted synchronization path.
     p_remote_key = remote_subparsers.add_parser(
         "key", help="Manage encrypted keys, recovery and synchronization"
     )
@@ -1063,61 +1063,6 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         help="Write the one-time recovery code to this explicit descriptor",
     )
     p_key_initialize.set_defaults(func=cmd_remote_key)
-    p_key_sync = key_subparsers.add_parser(
-        "sync", help="Synchronize an encrypted bound Store"
-    )
-    p_key_sync.add_argument(
-        "--workspace",
-        required=True,
-        help="Initialized workspace with an existing binding",
-    )
-    encrypted_mode = p_key_sync.add_mutually_exclusive_group(required=True)
-    encrypted_mode.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Preview without changing local or remote state",
-    )
-    encrypted_mode.add_argument(
-        "--apply",
-        action="store_true",
-        help="Apply bounded encrypted reconciliation rounds",
-    )
-    p_key_sync.set_defaults(func=cmd_remote_key)
-    p_key_migrate = key_subparsers.add_parser(
-        "migrate", help="Preview or resume fenced encryption migration and rollback"
-    )
-    p_key_migrate.add_argument(
-        "--workspace", required=True, help="Initialized bound workspace"
-    )
-    migration_mode = p_key_migrate.add_mutually_exclusive_group(required=True)
-    migration_mode.add_argument(
-        "--dry-run", action="store_true", help="Validate without writing"
-    )
-    migration_mode.add_argument(
-        "--apply", action="store_true", help="Apply bounded migration rounds"
-    )
-    p_key_migrate.add_argument(
-        "--rollback",
-        action="store_true",
-        help="Explicitly restore plaintext representation",
-    )
-    p_key_migrate.add_argument(
-        "--takeover", action="store_true", help="Explicitly claim a new migration epoch"
-    )
-    p_key_migrate.add_argument(
-        "--max-rounds", type=int, default=1024, help="Maximum bounded rounds (1-1024)"
-    )
-    p_key_migrate.add_argument(
-        "--recovery-output-fd",
-        type=int,
-        help="Write the one-time recovery code to this explicit descriptor",
-    )
-    p_key_migrate.add_argument(
-        "--confirm-devices-upgraded",
-        action="store_true",
-        help="Confirm all connected devices are upgraded and automatic synchronization is stopped",
-    )
-    p_key_migrate.set_defaults(func=cmd_remote_key)
     p_key_export = key_subparsers.add_parser(
         "export", help="Seal selected project Memory keys to a recipient"
     )

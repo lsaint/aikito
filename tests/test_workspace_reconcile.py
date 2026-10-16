@@ -36,7 +36,7 @@ from aikito.workspace.payload import (
     payload_hash,
 )
 from aikito.workspace.payload_io import capture_resources
-from aikito.workspace.remote_store import SnapshotExpired, InvalidContent
+from aikito.workspace.remote_store import SnapshotExpired
 from workspace_store_setup import publish_batch
 
 
@@ -44,7 +44,6 @@ def _commit(remote, expected, content, writes):
     payloads = capture_resources(
         content,
         [w.id for w in writes if w.fingerprint is not None],
-        check_credentials=False,
     )
     mutations = tuple(
         ResourceMutation(
@@ -306,22 +305,15 @@ def test_skill_deletion_cannot_break_local_selection(tmp_path):
     assert not (b / "skills/review").exists()
 
 
-def test_credentials_block_only_upload_and_do_not_advance_base(tmp_path):
+def test_logical_planner_accepts_credentials_for_encrypted_transport(tmp_path):
     a, remote, home = _pair(tmp_path)
     secret = a / "memory/notes/private.md"
-    secret.write_text("api_key = 'abcdefghijklmnopqrstuv'\n")
+    secret.write_text("api_key = 'test-only-abcdefghijklmnopqrstuv'\n")
     _write(a, "safe", "safe")
     plan = _round(a, remote, home)
-    assert [i.id for i in plan.items if i.action == "BLOCKED"] == [
-        "memory:notes/private.md"
-    ]
-    assert "abcdefghijklmnopqrstuv" not in repr(plan.items)
-    assert not (remote.root / "memory/notes/private.md").exists()
-    assert "memory:notes/private.md" not in _state(a)["base"]
-    assert (remote.root / "memory/notes/safe.md").exists()
-    secret.write_text("no secret")
-    _round(a, remote, home)
-    assert (remote.root / "memory/notes/private.md").read_text() == "no secret"
+    assert not plan.blocked_items
+    assert (remote.root / "memory/notes/private.md").read_bytes() == secret.read_bytes()
+    assert "memory:notes/private.md" in _state(a)["base"]
 
 
 def test_conditional_commit_rejects_stale_revision_before_writes(tmp_path):
@@ -517,15 +509,10 @@ def test_center_accepts_layout_independent_content_and_scans_credentials(
     write = ResourceWrite(
         Path(resource.parts[0].path), resource.kind, resource.fingerprint, resource.name
     )
-    if secret:
-        with pytest.raises(InvalidContent, match="credential"):
-            _commit(remote, remote.read(), content, (write,))
-        assert remote.read().revision == 0
-    else:
-        _commit(remote, remote.read(), content, (write,))
-        b = _workspace(tmp_path / "b")
-        _round(b, remote, home)
-        assert (b / "memory/notes/a.md").read_text() == "portable"
+    _commit(remote, remote.read(), content, (write,))
+    b = _workspace(tmp_path / "b")
+    _round(b, remote, home)
+    assert (b / "memory/notes/a.md").read_text() == text
 
 
 def test_seeded_random_replay_through_center(tmp_path):

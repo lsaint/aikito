@@ -26,11 +26,8 @@ from .remote_binding import (
     validate_binding_endpoint,
 )
 from .remote_credentials import resolve_credential
-from .remote_format import require_plaintext_snapshot
+from .remote_format import require_encrypted_snapshot
 from .remote_store import (
-    CommitRequest,
-    CommitResult,
-    RecoveryRequired,
     RemoteSnapshot,
     RemoteStore,
     StoreIdentityMismatch,
@@ -52,74 +49,6 @@ def _open_remote(
     )
 
 
-class BoundRemote:
-    """Verify the pin before sending operation identities to an endpoint."""
-
-    def __init__(self, remote: RemoteStore, sync_id: str) -> None:
-        self._remote = remote
-        self._sync_id = sync_id
-        self._verified = False
-
-    def _check_identity(self, sync_id: str) -> None:
-        if sync_id != self._sync_id:
-            raise StoreIdentityMismatch("Remote binding identity mismatch")
-
-    def _verify(self) -> None:
-        if not self._verified:
-            self.read()
-
-    def validate_replica(self, local: Path) -> None:
-        self._remote.validate_replica(local)
-
-    def read(self) -> RemoteSnapshot:
-        self._verified = False
-        snapshot = self._remote.read()
-        self._check_identity(snapshot.sync_id)
-        require_plaintext_snapshot(snapshot)
-        self._verified = True
-        return snapshot
-
-    def fetch(
-        self, expected: RemoteSnapshot, ids: Collection[str]
-    ) -> Mapping[str, ResourcePayload]:
-        self._verify()
-        self._check_identity(expected.sync_id)
-        require_plaintext_snapshot(expected)
-        return self._remote.fetch(expected, ids)
-
-    def commit(self, request: CommitRequest) -> CommitResult:
-        self._verify()
-        self._check_identity(request.expected.sync_id)
-        require_plaintext_snapshot(request.expected)
-        result = self._remote.commit(request)
-        self._check_identity(result.sync_id)
-        return result
-
-    def resolve_commit(
-        self, sync_id: str, client_id: str, request_id: str, mutation_digest: str
-    ) -> CommitResult | None:
-        self._verify()
-        self._check_identity(sync_id)
-        result = self._remote.resolve_commit(
-            sync_id, client_id, request_id, mutation_digest
-        )
-        if result is not None:
-            self._check_identity(result.sync_id)
-        return result
-
-    def recover(self) -> bool:
-        # Recovery carries no identity, so it may restore an unreadable backend
-        # before the pin is verified; the verification still precedes return.
-        if not self._verified:
-            try:
-                self.read()
-            except RecoveryRequired:
-                recovered = self._remote.recover()
-                self.read()
-                return recovered
-        return self._remote.recover()
-
-
 def open_bound_remote(
     workspace: Path,
     *,
@@ -129,9 +58,13 @@ def open_bound_remote(
     binding = load_remote_binding(workspace)
     if binding is None:
         raise RemoteBindingMissing("Remote binding is missing")
-    return BoundRemote(
+    from .encrypted_sync import EncryptedRemote
+
+    return EncryptedRemote(
         _open_remote(binding.endpoint, binding.auth, environ, home=home),
         binding.sync_id,
+        workspace,
+        Path.home() if home is None else home,
     )
 
 
@@ -141,10 +74,12 @@ def verify_remote_binding(
     home: Path | None = None,
     environ: Mapping[str, str] | None = None,
 ) -> RemoteSnapshot:
-    return BoundRemote(
+    snapshot = BoundRemoteReader(
         _open_remote(binding.endpoint, binding.auth, environ, home=home),
         binding.sync_id,
     ).read()
+    require_encrypted_snapshot(snapshot, allow_empty=True)
+    return snapshot
 
 
 def bind_remote(
@@ -161,7 +96,7 @@ def bind_remote(
         if load_remote_binding(workspace) is not None:
             raise RemoteBindingExists("Remote binding already exists")
         snapshot = remote.read()
-        require_plaintext_snapshot(snapshot)
+        require_encrypted_snapshot(snapshot, allow_empty=True)
         binding = RemoteBinding(1, endpoint, snapshot.sync_id, auth)
         save_remote_binding(workspace, binding, home=home)
         return binding

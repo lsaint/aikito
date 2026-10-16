@@ -12,11 +12,11 @@ from unittest.mock import patch
 
 from http_remote_server import HTTPRemoteServer
 
+from workspace_encrypted_setup import unsupported_header, unchecked_header_resource
 from aikito.workspace.device_keys import DeviceKeyStore
 from aikito.workspace.encrypted_remote import (
     EncryptedVault,
     create_recovery_metadata,
-    metadata_resource,
     _b64,
     EncryptedRemoteError,
 )
@@ -66,18 +66,13 @@ class Reader:
         self.header()
 
     def header(self, migrating=False):
-        encoded = create_recovery_metadata(
-            KEY,
-            VAULT,
-            SYNC,
-            bytes([7]) * 32,
-            format="migrating" if migrating else "encrypted-v1",
-            migration={"epoch": 1, "owner_client_id": "1" * 32, "token": "2" * 32}
+        encoded = (
+            unsupported_header(KEY, VAULT, SYNC, bytes([7]) * 32)
             if migrating
-            else None,
+            else create_recovery_metadata(KEY, VAULT, SYNC, bytes([7]) * 32)
         )
         self.descriptors[FORMAT_RESOURCE_ID], self.payloads[FORMAT_RESOURCE_ID] = (
-            metadata_resource(encoded)
+            unchecked_header_resource(encoded)
         )
 
     def read(self):
@@ -266,7 +261,7 @@ def main(base):
         denied, target = export(name="migration-denied.json")
         assert (
             denied.returncode == 1
-            and "encrypted_store_migrating" in denied.stderr
+            and "encrypted_content_invalid" in denied.stderr
             and not target.exists()
         )
         assert {

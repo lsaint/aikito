@@ -168,3 +168,55 @@ class InMemoryRemote:
     def recover(self) -> bool:
         """No durable transaction exists to recover."""
         return False
+
+
+class DurableTestRemote(InMemoryRemote):
+    """Persist opaque fixture data across test-server restarts, not a product backend."""
+
+    def __init__(self, root):
+        import json
+        import base64
+        from aikito.workspace.remote_wire import _decode_snapshot
+
+        root.mkdir(parents=True, exist_ok=True)
+        self.path = root / "opaque-test-state.json"
+        super().__init__(uuid.uuid4().hex)
+        if self.path.exists():
+            record = json.loads(self.path.read_text())
+            self._snapshot = _decode_snapshot(record["snapshot"])
+            self._payloads = {
+                k: base64.b64decode(v) for k, v in record["payloads"].items()
+            }
+            self._receipts = ReceiptHistory.decode(
+                self._snapshot.sync_id, self._snapshot.revision, record["receipts"]
+            )
+        else:
+            self._save()
+
+    def _save(self):
+        import base64
+        import json
+        from aikito.workspace.remote_wire import _descriptor
+
+        record = {
+            "snapshot": {
+                "sync_id": self._snapshot.sync_id,
+                "revision": self._snapshot.revision,
+                "resources": {
+                    k: _descriptor(v) for k, v in self._snapshot.resources.items()
+                },
+            },
+            "payloads": {
+                k: base64.b64encode(v).decode() for k, v in self._payloads.items()
+            },
+            "receipts": self._receipts.encode(),
+        }
+        staged = self.path.with_suffix(".tmp")
+        staged.write_text(json.dumps(record))
+        staged.replace(self.path)
+
+    def commit(self, request):
+        with self._mutex:
+            result = super().commit(request)
+            self._save()
+            return result

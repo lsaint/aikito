@@ -313,12 +313,18 @@ def test_all_known_kinds_have_closed_collection_assignment():
     assert crypto.collection_for_id("future:resource") == "private"
 
 
-def test_plaintext_credentials_are_rejected():
-    payload = FilePayload(b'api_key = "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"\n')
-    with pytest.raises(crypto.EncryptedRemoteError):
-        crypto.EncryptedVault(VAULT, VRK).encrypt(
-            resource("memory:notes/unsafe.md", payload), payload, SYNC
-        )
+def test_credentials_round_trip_only_inside_ciphertext():
+    payload = FilePayload(
+        b'api_key = "test-only-abcdefghijklmnopqrstuvwxyz1234567890"\n'
+    )
+    vault = crypto.EncryptedVault(VAULT, VRK)
+    logical = resource("memory:notes/credential.md", payload)
+    identity, descriptor, encrypted = vault.encrypt(logical, payload, SYNC)
+    assert payload.data not in encode_payload(encrypted)
+    assert vault.decrypt(identity, descriptor, encrypted, SYNC, "private") == (
+        logical,
+        payload,
+    )
 
 
 def test_encoded_resource_budget_is_enforced(monkeypatch):
@@ -446,16 +452,14 @@ def test_changed_content_never_reuses_verified_old_ciphertext():
     assert vault.decrypt(*new, SYNC, "private")[1] == new_payload
 
 
-def test_migrating_metadata_is_authenticated_and_bounded():
+def test_unsupported_metadata_is_rejected_even_with_a_valid_mac():
+    from workspace_encrypted_setup import unsupported_header
+
     code = bytes.fromhex(INPUT["recovery_code_hex"])
-    migration = {"epoch": 1, "owner_client_id": "1" * 32, "token": "2" * 32}
-    encoded = crypto.create_recovery_metadata(
-        VRK, VAULT, SYNC, code, format="migrating", migration=migration
-    )
-    assert crypto.verify_metadata(encoded, VRK)["migration"] == migration
-    metadata = json.loads(encoded)
-    metadata["migration"]["epoch"] = 2
+    encoded = unsupported_header(VRK, VAULT, SYNC, code)
+    with pytest.raises(crypto.EncryptedRemoteError):
+        crypto.verify_metadata(encoded, VRK)
     with pytest.raises(crypto.RecoveryKeyInvalid):
-        crypto.recover_vault(_canonical(metadata), SYNC, code)
+        crypto.recover_vault(encoded, SYNC, code)
     with pytest.raises(crypto.RecoveryKeyInvalid):
         crypto.recover_vault(b" " * (crypto.MAX_METADATA_BYTES + 1), SYNC, code)

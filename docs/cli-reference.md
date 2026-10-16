@@ -596,8 +596,7 @@ pending state stay unchanged.
 ## Local Encrypted Recovery
 
 These commands manage a local device key. Local header recovery does not enable
-sync by itself; use the explicit encrypted path below. Ordinary sync retains its
-unsupported-format guard, and plaintext migration remains unavailable.
+sync by itself. Ordinary sync uses end-to-end encryption with no plaintext fallback.
 
 ```bash
 python -m pip install 'aikito[encrypted]'
@@ -663,8 +662,7 @@ The authenticated local map allows separate CLI processes to resume; unchanged
 verified descriptors are not downloaded again.
 
 This command does not change remote data, business files, bindings, pending or
-Replica Base. An incomplete view cannot authorize deletions or writes. Ordinary
-`remote sync` still refuses encrypted stores; scoped read export is described below. A `migrating` header pauses inspection.
+Replica Base. An incomplete view cannot authorize deletions or writes. Ordinary `remote sync` uses the same authenticated discovery. Unsupported formats are refused.
 
 ### Encrypted Synchronization and Empty Store Initialization
 
@@ -675,8 +673,8 @@ or explicit output descriptor, and never persisted in the workspace or Git.
 
 ```bash
 aikito remote key initialize --workspace ~/aikito
-aikito remote key sync --dry-run --workspace ~/aikito
-aikito remote key sync --apply --workspace ~/aikito
+aikito remote sync --dry-run --workspace ~/aikito
+aikito remote sync --apply --workspace ~/aikito
 ```
 
 Automation must provide `--recovery-output-fd` to initialization; keep that channel
@@ -701,56 +699,10 @@ Later applied local edits win and replaced remote versions are archived locally.
 Initialization also retains its public header request across response loss. A CAS
 loser must recover the winning Vault; retrying cannot replace it.
 
-Ordinary `remote sync` and ordinary bind continue to guard encrypted Stores. Use
-the explicit encrypted path after recovery. Use the explicit migration commands below for plaintext representation changes.
-Historical server cleanup has a separate administrator boundary.
-
-### In-place Migration, Takeover and Rollback
-
-Preview an existing bound plaintext Store after ordinary synchronization and a
-clean, committed workspace Git baseline:
-
-```bash
-aikito remote key migrate --dry-run --workspace ~/aikito
-```
-
-Before writing, upgrade every device connected to the Store and stop automatic
-synchronization on all devices. Confirm this explicitly with
-`--confirm-devices-upgraded`; without it, apply stops with
-`encrypted_migration_devices_required` before opening the remote. This is an
-operator confirmation, not automatic verification of other devices. No published
-release is required. The explicit operations are:
-
-```bash
-aikito remote key migrate --apply --confirm-devices-upgraded --workspace ~/aikito
-aikito remote key migrate --apply --confirm-devices-upgraded --takeover --workspace ~/aikito
-aikito remote key migrate --apply --confirm-devices-upgraded --rollback --workspace ~/aikito
-```
-
-Initial migration requires matching local resources, Replica Base and remote
-revision, no pending commit, byte-identical portable payloads and a clean Git
-baseline. Preflight checks ciphertext expansion, the peak mixed manifest and
-atomic dependency-group budgets before publishing the marker. Migration preserves
-business files, logical Base, Store identity and the ordinary client's receipt.
-The one-time recovery code uses a secure terminal or explicit
-`--recovery-output-fd`. Keep this output private.
-
-Each round copies one dependency group before deleting old resources in reverse
-dependency order. The authenticated `migrating` header pauses ordinary devices.
-Ownership is a CAS epoch/client/token fence with no automatic timeout. An unlocked
-new device can reconstruct progress from the remote and explicitly take over;
-the old owner stops on a changed fence. `--max-rounds 1..1024` bounds an invocation;
-exit status 2 means paused, so rerun without `--takeover` to resume the same epoch.
-Requests are persisted before dispatch and receipt lookup resolves uncertainty
-before identical retries. The local migration journal is itself encrypted,
-including rollback requests that necessarily carry plaintext on the wire.
-
-Rollback explicitly restores the plaintext representation and removes the marker
-only after the whole plaintext graph is complete. It does not reset business
-files or Git history. Migration and rollback affect the current snapshot; old
-server objects, backups and filesystem snapshots need separate administrator
-retention or cleanup. Scoped read export is described below.
-
+`remote sync`, `remote watch` and the background service all use end-to-end encryption.
+There is no plaintext synchronization, migration or rollback command. Existing plaintext
+Stores must be discarded administratively and devices connected to a new empty Store.
+Local workspace files remain readable and are preserved.
 
 ### HTTPS Recipient Discovery and Trust
 

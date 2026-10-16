@@ -230,7 +230,7 @@ def test_contradictory_reference_choices_do_not_override_each_other(tmp_path, re
 @pytest.mark.parametrize("action", ("CREATE", "UPDATE", "DELETE", "NOOP", "BLOCKED"))
 @pytest.mark.parametrize("side", ("local", "remote"))
 def test_nonconflicting_resolution_is_rejected_without_writes(
-    tmp_path, replicas, action, side
+    tmp_path, replicas, action, side, monkeypatch
 ):
     a, b, remote, home = replicas
     if action in {"UPDATE", "DELETE", "NOOP"}:
@@ -245,6 +245,11 @@ def test_nonconflicting_resolution_is_rejected_without_writes(
             a,
             "memory/notes/n.md",
             'api_key = "abcdefghijklmnop123456"' if action == "BLOCKED" else "new",
+        )
+    if action == "BLOCKED":
+        write(a, "memory/notes/n.md", "x" * 5000)
+        monkeypatch.setattr(
+            "aikito.workspace.remote_limits.MAX_RESOURCE_PAYLOAD_BYTES", 1024
         )
     plan = build_reconcile_plan(a, remote)
     assert next(i for i in plan.items if i.id == "memory:notes/n.md").action == action
@@ -264,9 +269,14 @@ def test_nonconflicting_resolution_is_rejected_without_writes(
     )
 
 
-def test_resolution_inferred_provider_still_checks_credentials(tmp_path, replicas):
+def test_resolution_inferred_provider_still_checks_size_limits(
+    tmp_path, replicas, monkeypatch
+):
     a, b, remote, home = deletion_reference_race(replicas)
-    write(b, "skills/x/SKILL.md", 'api_key = "abcdefghijklmnop123456"')
+    write(b, "skills/x/SKILL.md", "x" * 5000)
+    monkeypatch.setattr(
+        "aikito.workspace.remote_limits.MAX_RESOURCE_PAYLOAD_BYTES", 1024
+    )
     plan = round_trip(b, remote, home, resolutions={"project-skill:demo/x": "local"})
     assert next(i for i in plan.items if i.id == "skill:x").action == "BLOCKED"
     assert (

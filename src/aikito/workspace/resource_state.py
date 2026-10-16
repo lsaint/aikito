@@ -191,7 +191,9 @@ def encode_resources(resources: dict[str, Resource]) -> dict[str, object]:
                 "references": list(resource.references),
                 "mode_fingerprint": resource.mode_fingerprint,
             }
-            if resource.kind == "skill" and resource.mode_fingerprint is not None
+            # MCP and subagent references come from their content, not the ID.
+            if resource.kind in {"mcp", "subagent"}
+            or (resource.kind == "skill" and resource.mode_fingerprint is not None)
             else resource.fingerprint
         )
         for key, resource in sorted(resources.items())

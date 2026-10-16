@@ -12,7 +12,8 @@ from .workspace.auto_sync import (
     load_worker_status,
 )
 from .workspace.pending_commit import PendingCommitStore
-from .workspace.reconcile import ReconcilePlan, run_reconciliation
+from .workspace.reconcile import ReconcilePlan
+from .workspace.encrypted_sync import run_encrypted_reconciliation
 from .workspace.remote_access import RemoteBindingMissing, RemoteCredentialError
 from .workspace.remote_binding import (
     RemoteAuth,
@@ -61,12 +62,8 @@ def sync_workspace_remote(
 ) -> ReconcilePlan:
     """Run reconciliation against the bound remote store."""
     home = Path.home() if home is None else home
-    remote = open_bound_remote(workspace, home=home, environ=environ)
-    return run_reconciliation(
-        workspace,
-        remote,
-        home=home,
-        dry_run=dry_run,
+    return run_encrypted_reconciliation(
+        workspace, home, dry_run=dry_run, environ=environ
     )
 
 

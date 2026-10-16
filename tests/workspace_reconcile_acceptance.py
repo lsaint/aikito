@@ -90,25 +90,15 @@ def exercise_behavior(base: Path, backend: ReconciliationBackend) -> None:
     assert {identity.partition(":")[0] for identity in _resources(a)} == SYNC_KINDS
     assert not (b / "skills/example/empty").exists()
 
-    # Credentials block only their resource; safe neighboring fields still sync.
     text = (a / "config.toml").read_text(encoding="utf-8")
     write(a, "config.toml", text + '[service]\napi_key = "abcdefghijklmnop123456"\n')
-    write(a, "capture-a/credential-safe.md", "safe alongside a blocked field")
-    blocked = apply(a)
-    assert (
-        next(
-            item for item in blocked.items if item.id == "config:service.api_key"
-        ).action
-        == "BLOCKED"
-    )
-    assert "config:service.api_key" not in backend.fingerprints()
-    assert (
-        "config:service.api_key"
-        not in json.loads((a / REPLICA_STATE).read_text())["base"]
-    )
+    write(a, "capture-a/credential-safe.md", "neighboring content")
+    assert not apply(a).blocked_items
     apply(b)
-    assert (b / "capture-b/credential-safe.md").is_file()
-    assert "service" not in tomllib.loads((b / "config.toml").read_text())
+    assert (
+        tomllib.loads((b / "config.toml").read_text())["service"]["api_key"]
+        == "abcdefghijklmnop123456"
+    )
     write(a, "config.toml", text)
     converge()
 

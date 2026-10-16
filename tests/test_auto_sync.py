@@ -1,5 +1,8 @@
 """Tests for auto-sync worker lifecycle lock, watcher, scheduler, and conflict resolution."""
 
+from workspace_memory_remote import InMemoryRemote
+from aikito.workspace.encrypted_sync import initialize_encrypted_workspace
+
 import io
 import os
 import tempfile
@@ -321,7 +324,7 @@ class AutoSyncEndToEndTest(unittest.TestCase):
             ws_a = _workspace(base / "ws_a")
             ws_b = _workspace(base / "ws_b")
             home = base / "home"
-            backend = FilesystemRemote.create(base / "center")
+            backend = InMemoryRemote("11223344556677889900aabbccddeeff")
 
             with HTTPRemoteServer(backend, token=TOKEN) as server:
                 args_bind = self.parser.parse_args(
@@ -333,6 +336,8 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                     patch.dict(os.environ, ENV),
                 ):
                     cmd_remote_bind(args_bind)
+                    if not backend.read().resources:
+                        initialize_encrypted_workspace(ws_a, home, lambda code: None)
 
                 with (
                     patch("aikito.remote_cli.resolve_workspace", return_value=ws_b),
@@ -340,6 +345,8 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                     patch.dict(os.environ, ENV),
                 ):
                     cmd_remote_bind(args_bind)
+                    if not backend.read().resources:
+                        initialize_encrypted_workspace(ws_a, home, lambda code: None)
 
                 # Initialize WS A and WS B via sync --apply
                 args_apply = self.parser.parse_args(["remote", "sync", "--apply"])
@@ -372,7 +379,10 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                 ):
                     cmd_remote_watch(args_watch)
 
-                self.assertIn("[SYNC] (rev 1) push memory:notes/auto-note.md", stdout_watch_a.getvalue())
+                self.assertIn(
+                    "[SYNC] (rev 2) push memory:notes/auto-note.md",
+                    stdout_watch_a.getvalue(),
+                )
 
                 # Scheduler B steps once
                 stdout_watch_b = io.StringIO()
@@ -384,7 +394,10 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                 ):
                     cmd_remote_watch(args_watch)
 
-                self.assertIn("[SYNC] (rev 2) pull memory:notes/auto-note.md", stdout_watch_b.getvalue())
+                self.assertIn(
+                    "[SYNC] (rev 3) pull memory:notes/auto-note.md",
+                    stdout_watch_b.getvalue(),
+                )
                 note_b = ws_b / "memory/notes/auto-note.md"
                 self.assertTrue(note_b.exists())
                 self.assertEqual(note_b.read_text(encoding="utf-8"), "Created on A\n")
@@ -395,7 +408,7 @@ class AutoSyncEndToEndTest(unittest.TestCase):
             ws_a = _workspace(base / "ws_a")
             ws_b = _workspace(base / "ws_b")
             home = base / "home"
-            backend = FilesystemRemote.create(base / "center")
+            backend = InMemoryRemote("11223344556677889900aabbccddeeff")
 
             with HTTPRemoteServer(backend, token=TOKEN) as server:
                 args_bind = self.parser.parse_args(
@@ -408,6 +421,10 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                         patch.dict(os.environ, ENV),
                     ):
                         cmd_remote_bind(args_bind)
+                        if not backend.read().resources:
+                            initialize_encrypted_workspace(
+                                ws_a, home, lambda code: None
+                            )
 
                 args_apply = self.parser.parse_args(["remote", "sync", "--apply"])
                 for ws in (ws_a, ws_b):
@@ -465,7 +482,7 @@ class AutoSyncEndToEndTest(unittest.TestCase):
             ws_a = _workspace(base / "ws_a")
             ws_b = _workspace(base / "ws_b")
             home = base / "home"
-            backend = FilesystemRemote.create(base / "center")
+            backend = InMemoryRemote("11223344556677889900aabbccddeeff")
 
             with HTTPRemoteServer(backend, token=TOKEN) as server:
                 args_bind = self.parser.parse_args(
@@ -478,6 +495,10 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                         patch.dict(os.environ, ENV),
                     ):
                         cmd_remote_bind(args_bind)
+                        if not backend.read().resources:
+                            initialize_encrypted_workspace(
+                                ws_a, home, lambda code: None
+                            )
 
                 # Initialize note on both
                 (ws_a / "memory/notes/delmod.md").write_text(
@@ -616,79 +637,41 @@ class AutoSyncEndToEndTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
             base = Path(tmp_dir)
             ws = _workspace(base / "ws")
-            home = base / "home"
             backend = FilesystemRemote.create(base / "center")
-
-            with HTTPRemoteServer(backend, token=TOKEN) as server:
-                args_bind = self.parser.parse_args(
-                    ["remote", "bind", server.url, "--token-env", AUTH.env]
-                )
-                with (
-                    patch("aikito.remote_cli.resolve_workspace", return_value=ws),
-                    patch("pathlib.Path.home", return_value=home),
-                    patch.dict(os.environ, ENV),
-                ):
-                    cmd_remote_bind(args_bind)
-
-                # Create a file containing a secret to trigger BLOCKED
-                secret_note = ws / "memory/notes/secret.md"
-                secret_note.write_text(
-                    "api_key: 12345678901234567890\n", encoding="utf-8"
-                )
-
-                from aikito.remote_service import open_bound_remote
-
-                remote = open_bound_remote(ws, environ=ENV)
-                scheduler = AutoSyncScheduler(ws, remote, home)
+            (ws / "memory/notes/large.md").write_text("x" * 5000)
+            scheduler = AutoSyncScheduler(ws, backend, base / "home")
+            with patch(
+                "aikito.workspace.remote_limits.MAX_RESOURCE_PAYLOAD_BYTES", 1024
+            ):
                 result = scheduler.step()
-
-                self.assertGreater(len(result.blocked_items), 0)
-                self.assertEqual(scheduler.state, AutoSyncState.ATTENTION_REQUIRED)
+            self.assertGreater(len(result.blocked_items), 0)
+            self.assertEqual(scheduler.state, AutoSyncState.ATTENTION_REQUIRED)
 
     def test_scheduler_deduplicates_blocked_logging(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
             base = Path(tmp_dir)
             ws = _workspace(base / "ws")
-            home = base / "home"
             backend = FilesystemRemote.create(base / "center")
-
-            with HTTPRemoteServer(backend, token=TOKEN) as server:
-                args_bind = self.parser.parse_args(
-                    ["remote", "bind", server.url, "--token-env", AUTH.env]
+            large = ws / "memory/notes/large.md"
+            large.write_text("x" * 5000)
+            logged = []
+            scheduler = AutoSyncScheduler(
+                ws, backend, base / "home", logger=logged.append
+            )
+            with patch(
+                "aikito.workspace.remote_limits.MAX_RESOURCE_PAYLOAD_BYTES", 1024
+            ):
+                scheduler.step()
+                self.assertEqual(
+                    len([m for m in logged if m.startswith("[BLOCKED]")]), 1
                 )
-                with (
-                    patch("aikito.remote_cli.resolve_workspace", return_value=ws),
-                    patch("pathlib.Path.home", return_value=home),
-                    patch.dict(os.environ, ENV),
-                ):
-                    cmd_remote_bind(args_bind)
-
-                secret_note = ws / "memory/notes/secret.md"
-                secret_note.write_text(
-                    "api_key: 12345678901234567890\n", encoding="utf-8"
+                scheduler.step()
+                self.assertEqual(
+                    len([m for m in logged if m.startswith("[BLOCKED]")]), 1
                 )
-
-                from aikito.remote_service import open_bound_remote
-
-                remote = open_bound_remote(ws, environ=ENV)
-                logged = []
-                scheduler = AutoSyncScheduler(ws, remote, home, logger=logged.append)
-
-                # Round 1: Logs [BLOCKED]
+                large.unlink()
                 scheduler.step()
-                blocked_logs = [msg for msg in logged if msg.startswith("[BLOCKED]")]
-                self.assertEqual(len(blocked_logs), 1)
-
-                # Round 2: Unchanged state, suppresses duplicate log
-                scheduler.step()
-                blocked_logs_2 = [msg for msg in logged if msg.startswith("[BLOCKED]")]
-                self.assertEqual(len(blocked_logs_2), 1)
-
-                # Remove the secret file: Round 3 should clear and log info
-                secret_note.unlink()
-                scheduler.step()
-                info_cleared = [msg for msg in logged if "cleared" in msg]
-                self.assertEqual(len(info_cleared), 1)
+            self.assertEqual(len([m for m in logged if "cleared" in m]), 1)
 
     def test_get_installed_aikito_version_and_diff(self):
         import subprocess
@@ -935,10 +918,14 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                 scheduler.run()
                 waker.join()
 
-                warn_logs = [msg for msg in logged if "[WARN] Connection unavailable" in msg]
+                warn_logs = [
+                    msg for msg in logged if "[WARN] Connection unavailable" in msg
+                ]
                 self.assertEqual(len(warn_logs), 1)
 
-                restored_logs = [msg for msg in logged if "[INFO] Connection restored" in msg]
+                restored_logs = [
+                    msg for msg in logged if "[INFO] Connection restored" in msg
+                ]
                 self.assertEqual(len(restored_logs), 1)
 
 

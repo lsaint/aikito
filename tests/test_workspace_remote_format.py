@@ -9,7 +9,7 @@ from aikito.workspace.commit_recovery import recover_pending
 from aikito.workspace.payload import ResourceDescriptor
 from aikito.workspace.reconcile import WorkspaceReconcileError, build_reconcile_plan
 from aikito.workspace.remote_binding import RemoteAuth
-from aikito.workspace.remote_factory import BoundRemote, bind_remote
+from aikito.workspace.remote_factory import bind_remote
 from aikito.workspace.remote_format import (
     FORMAT_RESOURCE_ID,
     EncryptedStoreUnsupported,
@@ -95,47 +95,9 @@ def test_planning_stops_before_replica_and_resource_decoding(
     assert (local / "layout.toml").read_bytes() == before
 
 
-@pytest.mark.parametrize(
-    "operation", ["read", "fetch", "commit", "resolve_commit", "recover"]
-)
-def test_bound_operations_stop_at_verification(operation):
-    remote = Mock(spec=RemoteStore)
-    remote.read.return_value = snapshot(FORMAT_RESOURCE_ID)
-    bound = BoundRemote(remote, "a" * 32)
-    with pytest.raises(EncryptedStoreUnsupported):
-        if operation == "fetch":
-            bound.fetch(snapshot(), ["memory:notes/plain.md"])
-        elif operation == "commit":
-            bound.commit(SimpleNamespace(expected=snapshot()))
-        elif operation == "resolve_commit":
-            bound.resolve_commit("a" * 32, "client", "request", "0" * 64)
-        else:
-            getattr(bound, operation)()
-    remote.fetch.assert_not_called()
-    remote.commit.assert_not_called()
-    remote.resolve_commit.assert_not_called()
-    remote.recover.assert_not_called()
-
-
-def test_failed_read_clears_cached_verification():
-    remote = Mock(spec=RemoteStore)
-    remote.read.side_effect = [
-        snapshot(),
-        snapshot(FORMAT_RESOURCE_ID),
-        snapshot(FORMAT_RESOURCE_ID),
-    ]
-    bound = BoundRemote(remote, "a" * 32)
-    bound.read()
-    with pytest.raises(EncryptedStoreUnsupported):
-        bound.read()
-    with pytest.raises(EncryptedStoreUnsupported):
-        bound.fetch(snapshot(), [])
-    remote.fetch.assert_not_called()
-
-
 def test_binding_refuses_format_before_persisting(tmp_path, monkeypatch):
     remote = Mock(spec=RemoteStore)
-    remote.read.return_value = snapshot(FORMAT_RESOURCE_ID)
+    remote.read.return_value = snapshot("memory:notes/plain.md")
     monkeypatch.setattr(
         "aikito.workspace.remote_factory._open_remote", lambda *args, **kwargs: remote
     )
@@ -177,22 +139,6 @@ def test_pending_retry_retains_original_request_when_format_changed(
     remote.commit.assert_not_called()
     store.clear.assert_not_called()
     store.complete.assert_not_called()
-
-
-@pytest.mark.parametrize("operation", ["fetch", "commit"])
-def test_verified_binding_still_checks_supplied_snapshot(operation):
-    remote = Mock(spec=RemoteStore)
-    remote.read.return_value = snapshot()
-    bound = BoundRemote(remote, "a" * 32)
-    bound.read()
-    expected = snapshot(FORMAT_RESOURCE_ID)
-    with pytest.raises(EncryptedStoreUnsupported):
-        if operation == "fetch":
-            bound.fetch(expected, [FORMAT_RESOURCE_ID])
-        else:
-            bound.commit(SimpleNamespace(expected=expected))
-    remote.fetch.assert_not_called()
-    remote.commit.assert_not_called()
 
 
 def test_locally_completed_pending_is_cleared_without_remote_access(

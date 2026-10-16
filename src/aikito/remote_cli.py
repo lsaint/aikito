@@ -240,7 +240,9 @@ def cmd_remote_bind(args: argparse.Namespace) -> None:
     print(f"[SUCCESS] Bound workspace to remote store at {binding.endpoint}")
     print(f"  Sync ID:   {binding.sync_id}")
     print(f"  Token env: {binding.auth.env}")
-    print("\nNext: Run 'aikito remote sync --dry-run' to preview synchronization.")
+    print(
+        "\nNext: Initialize an empty Store with 'aikito remote key initialize', or recover its device key. Then run 'aikito remote sync --dry-run'."
+    )
 
 
 def cmd_remote_sync(args: argparse.Namespace) -> None:

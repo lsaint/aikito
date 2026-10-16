@@ -7,13 +7,12 @@ import pytest
 from http_remote_server import HTTPRemoteServer
 from workspace_memory_remote import InMemoryRemote
 from workspace_reconcile_smoke import _workspace
-from test_workspace_remote_receipts import request, mutation
+from test_workspace_remote_receipts import request
 
 from aikito.workspace.remote_access import RemoteAccessDenied, RemoteBindingError
 from aikito.workspace.remote_binding import (
     RemoteAuth,
     load_remote_binding,
-    remove_remote_binding,
 )
 from aikito.workspace.remote_factory import (
     bind_remote,
@@ -21,10 +20,9 @@ from aikito.workspace.remote_factory import (
     verify_remote_binding,
     resolve_credential,
 )
-from aikito.workspace.remote_store import StoreIdentityMismatch, RecoveryRequired
+from aikito.workspace.remote_store import StoreIdentityMismatch
 from aikito.workspace.remote_protocol import Operation, decode_request
-from aikito.workspace.pending_commit import PendingCommitStore
-from aikito.workspace.reconcile import run_reconciliation, WorkspaceReconcileError
+from aikito.workspace.reconcile import WorkspaceReconcileError
 from aikito.workspace.resource_state import REMOTE_BINDING_STATE, PENDING_COMMIT_STATE
 
 AUTH = RemoteAuth("bearer_env", "AIKITO_REMOTE_TOKEN")
@@ -55,29 +53,37 @@ def test_missing_binding_is_local_error(tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
-def test_bind_factory_auth_and_secret_safe_errors(tmp_path):
-    home = tmp_path / "home"
+@pytest.fixture
+def bound(tmp_path, monkeypatch):
+    from aikito.workspace.encrypted_sync import initialize_encrypted_workspace
+
+    monkeypatch.setenv(AUTH.env, TOKEN)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("APPDATA", raising=False)
+    local, home = _workspace(tmp_path / "local"), tmp_path / "home"
     backend = InMemoryRemote("a" * 32)
     with HTTPRemoteServer(backend, token=TOKEN) as server:
-        binding = bind_remote(tmp_path, server.url, AUTH, home=home, environ=ENV)
-        assert binding.sync_id == backend.read().sync_id
-        assert load_remote_binding(tmp_path) == binding
-        assert TOKEN not in (tmp_path / REMOTE_BINDING_STATE).read_text()
-        count = server.request_count
-        remote = open_bound_remote(tmp_path, environ=ENV)
-        assert server.request_count == count
-        assert remote.read() == backend.read()
-        assert verify_remote_binding(binding, environ=ENV) == backend.read()
-        assert all(
-            headers["Authorization"] == "Bearer " + TOKEN for headers in server.headers
-        )
-        assert TOKEN not in repr(remote)
-        wrong = open_bound_remote(tmp_path, environ={AUTH.env: "wrong-secret"})
-        with pytest.raises(RemoteAccessDenied) as caught:
-            wrong.read()
-        assert "wrong-secret" not in "".join(traceback.format_exception(caught.value))
-        with pytest.raises(RemoteBindingError, match="already exists"):
-            bind_remote(tmp_path, server.url, AUTH, home=home, environ=ENV)
+        binding = bind_remote(local, server.url, AUTH, home=home, environ=ENV)
+        codes = []
+        initialize_encrypted_workspace(local, home, codes.append)
+        yield local, home, backend, server, binding
+
+
+def test_bind_factory_auth_and_secret_safe_errors(bound):
+    local, home, backend, server, binding = bound
+    assert TOKEN not in (local / REMOTE_BINDING_STATE).read_text()
+    count = server.request_count
+    remote = open_bound_remote(local, home=home, environ=ENV)
+    assert server.request_count == count
+    assert remote.read().resources == {}
+    assert verify_remote_binding(binding, environ=ENV) == backend.read()
+    assert all(h["Authorization"] == "Bearer " + TOKEN for h in server.headers)
+    wrong = open_bound_remote(local, home=home, environ={AUTH.env: "wrong-secret"})
+    with pytest.raises(RemoteAccessDenied) as caught:
+        wrong.read()
+    assert "wrong-secret" not in "".join(traceback.format_exception(caught.value))
+    with pytest.raises(RemoteBindingError, match="already exists"):
+        bind_remote(local, server.url, AUTH, home=home, environ=ENV)
 
 
 def test_failed_bind_persists_nothing(tmp_path):
@@ -90,239 +96,95 @@ def test_failed_bind_persists_nothing(tmp_path):
                 home=tmp_path / "home",
                 environ={AUTH.env: "wrong"},
             )
-        assert load_remote_binding(tmp_path) is None
-        assert server.dispatch_count == 0
+        assert load_remote_binding(tmp_path) is None and server.dispatch_count == 0
 
 
-def test_remote_identity_must_follow_existing_rule(tmp_path):
-    with HTTPRemoteServer(InMemoryRemote("invalid-center")) as server:
-        with pytest.raises(RemoteBindingError):
+def test_plaintext_store_is_refused_before_binding(tmp_path):
+    from aikito.workspace.remote_format import EncryptedStoreUnsupported
+
+    backend = InMemoryRemote("a" * 32)
+    backend.commit(request(backend))
+    with HTTPRemoteServer(backend, token=TOKEN) as server:
+        with pytest.raises(EncryptedStoreUnsupported):
             bind_remote(tmp_path, server.url, AUTH, home=tmp_path / "home", environ=ENV)
         assert load_remote_binding(tmp_path) is None
+        assert all(
+            decode_request(raw).operation == Operation.READ for raw in server.requests
+        )
 
 
-def invoke(remote, operation, snapshot, commit):
-    if operation == Operation.READ:
-        return remote.read()
-    if operation == Operation.FETCH:
-        return remote.fetch(snapshot, [])
-    if operation == Operation.COMMIT:
-        return remote.commit(commit)
-    if operation == Operation.RECOVER:
-        return remote.recover()
-    return remote.resolve_commit(
-        snapshot.sync_id, commit.client_id, commit.request_id, commit.mutation_digest
+def test_uninitialized_store_cannot_synchronize(tmp_path):
+    from aikito.workspace.remote_format import EncryptedStoreUnsupported
+
+    local = _workspace(tmp_path / "local")
+    backend = InMemoryRemote("a" * 32)
+    with HTTPRemoteServer(backend, token=TOKEN) as server:
+        bind_remote(local, server.url, AUTH, home=tmp_path / "home", environ=ENV)
+        with pytest.raises(EncryptedStoreUnsupported):
+            open_bound_remote(local, home=tmp_path / "home", environ=ENV).read()
+        assert not backend.read().resources
+        assert all(
+            decode_request(raw).operation == Operation.READ for raw in server.requests
+        )
+
+
+@pytest.mark.parametrize("operation", ["read", "recover"])
+def test_changed_store_receives_no_identity_bearing_operations(bound, operation):
+    local, home, backend, server, _ = bound
+    remote = open_bound_remote(local, home=home, environ=ENV)
+    remote.read()
+    backend._snapshot = replace(backend.read(), sync_id="b" * 32)
+    start = len(server.requests)
+    with pytest.raises(StoreIdentityMismatch):
+        getattr(remote, operation)()
+    assert all(
+        decode_request(raw).operation == Operation.READ
+        for raw in server.requests[start:]
     )
 
 
-@pytest.mark.parametrize(
-    "operation",
-    [
-        Operation.READ,
-        Operation.FETCH,
-        Operation.COMMIT,
-        Operation.RECOVER,
-        Operation.RESOLVE_COMMIT,
-    ],
-)
-def test_identity_read_precedes_every_first_operation(tmp_path, operation):
-    backend = InMemoryRemote("a" * 32)
-    snapshot = backend.read()
-    commit = request(backend, mutation())
-    with HTTPRemoteServer(backend) as server:
-        bind_remote(tmp_path, server.url, AUTH, home=tmp_path / "home", environ=ENV)
-        remote = open_bound_remote(tmp_path, environ=ENV)
-        server.requests.clear()
-        invoke(remote, operation, snapshot, commit)
-        operations = [decode_request(value).operation for value in server.requests]
-        assert operations == (
-            [Operation.READ]
-            if operation == Operation.READ
-            else [Operation.READ, operation]
-        )
+@pytest.mark.parametrize("fault", ["drop_after_request", "drop_after_handler"])
+def test_encrypted_pending_survives_auth_failures_and_recovers(bound, fault):
+    local, home, backend, server, _ = bound
+    from aikito.remote_service import sync_workspace_remote
+
+    sync_workspace_remote(local, home=home, environ=ENV, dry_run=False)
+    note = local / "memory/notes/private.md"
+    note.write_text('password = "test-only-abcdefghijklmnopqrstuv"\n')
+    server.arm(fault, operation=Operation.COMMIT)
+    with pytest.raises(WorkspaceReconcileError):
+        sync_workspace_remote(local, home=home, environ=ENV, dry_run=False)
+    path = local / PENDING_COMMIT_STATE
+    original = path.read_bytes()
+    assert note.read_bytes() not in original
+    revision = backend.read().revision
+    for credentials in ({}, {AUTH.env: "wrong"}):
+        with pytest.raises(
+            (RemoteBindingError, WorkspaceReconcileError, RemoteAccessDenied)
+        ):
+            sync_workspace_remote(local, home=home, environ=credentials, dry_run=False)
+        assert path.read_bytes() == original and backend.read().revision == revision
+    sync_workspace_remote(local, home=home, environ=ENV, dry_run=False)
+    assert not path.exists()
+    assert all(
+        k == "format:encrypted-v1" or k.startswith("e1:")
+        for k in backend.read().resources
+    )
 
 
-@pytest.mark.parametrize(
-    "operation",
-    [
-        Operation.READ,
-        Operation.FETCH,
-        Operation.COMMIT,
-        Operation.RECOVER,
-        Operation.RESOLVE_COMMIT,
-    ],
-)
-def test_changed_center_never_receives_old_operations(tmp_path, operation):
-    backend = InMemoryRemote("a" * 32)
-    snapshot = backend.read()
-    commit = request(backend, mutation())
-    with HTTPRemoteServer(backend) as server:
-        bind_remote(tmp_path, server.url, AUTH, home=tmp_path / "home", environ=ENV)
-        backend._snapshot = replace(snapshot, sync_id="b" * 32)
-        server.requests.clear()
-        with pytest.raises(StoreIdentityMismatch):
-            invoke(
-                open_bound_remote(tmp_path, environ=ENV), operation, snapshot, commit
-            )
-        assert [decode_request(value).operation for value in server.requests] == [
-            Operation.READ
-        ]
-        assert load_remote_binding(tmp_path).sync_id == "a" * 32
-
-
-def test_each_read_checks_pin_after_initial_verification(tmp_path):
-    backend = InMemoryRemote("a" * 32)
-    with HTTPRemoteServer(backend) as server:
-        bind_remote(tmp_path, server.url, AUTH, home=tmp_path / "home", environ=ENV)
-        remote = open_bound_remote(tmp_path, environ=ENV)
-        remote.read()
-        backend._snapshot = replace(backend.read(), sync_id="b" * 32)
-        with pytest.raises(StoreIdentityMismatch):
-            remote.read()
-        server.requests.clear()
-        with pytest.raises(StoreIdentityMismatch):
-            remote.recover()
-        assert [decode_request(value).operation for value in server.requests] == [
-            Operation.READ
-        ]
-
-
-def _interrupted(monkeypatch, backend):
-    """Fail reads until the identity-free recover call completes."""
-    read, recover = backend.read, backend.recover
-    state = {"pending": True}
-
-    def interrupted_read():
-        if state["pending"]:
-            raise RecoveryRequired("Backend recovery required")
-        return read()
-
-    def complete_recovery():
-        state["pending"] = False
-        recover()
-        return True
-
-    monkeypatch.setattr(backend, "read", interrupted_read)
-    monkeypatch.setattr(backend, "recover", complete_recovery)
-
-
-def _operations(server):
-    return [decode_request(value).operation for value in server.requests]
-
-
-def test_recover_restores_interrupted_backend_then_verifies(tmp_path, monkeypatch):
-    backend = InMemoryRemote("a" * 32)
-    with HTTPRemoteServer(backend) as server:
-        bind_remote(tmp_path, server.url, AUTH, home=tmp_path / "home", environ=ENV)
-        _interrupted(monkeypatch, backend)
-        server.requests.clear()
-        assert open_bound_remote(tmp_path, environ=ENV).recover() is True
-        assert _operations(server) == [
-            Operation.READ,
-            Operation.RECOVER,
-            Operation.READ,
-        ]
-
-
-def test_recovered_backend_with_new_identity_is_rejected(tmp_path, monkeypatch):
-    backend = InMemoryRemote("a" * 32)
-    with HTTPRemoteServer(backend) as server:
-        bind_remote(tmp_path, server.url, AUTH, home=tmp_path / "home", environ=ENV)
-        backend._snapshot = replace(backend.read(), sync_id="b" * 32)
-        _interrupted(monkeypatch, backend)
-        remote = open_bound_remote(tmp_path, environ=ENV)
-        with pytest.raises(StoreIdentityMismatch):
-            remote.recover()
-        server.requests.clear()
-        with pytest.raises(StoreIdentityMismatch):
-            remote.resolve_commit("a" * 32, "client", "c" * 32, "d" * 64)
-        assert Operation.RESOLVE_COMMIT not in _operations(server)
-
-
-def test_identity_bearing_call_never_precedes_verification(tmp_path, monkeypatch):
-    backend = InMemoryRemote("a" * 32)
-    with HTTPRemoteServer(backend) as server:
-        bind_remote(tmp_path, server.url, AUTH, home=tmp_path / "home", environ=ENV)
-        _interrupted(monkeypatch, backend)
-        server.requests.clear()
-        remote = open_bound_remote(tmp_path, environ=ENV)
-        with pytest.raises(RecoveryRequired):
-            remote.resolve_commit("a" * 32, "client", "c" * 32, "d" * 64)
-        assert _operations(server) == [Operation.READ]
-        remote.recover()
-        assert remote.resolve_commit("a" * 32, "client", "c" * 32, "d" * 64) is None
-        assert _operations(server)[-1] == Operation.RESOLVE_COMMIT
-
-
-@pytest.mark.parametrize(
-    "fault", ["reject_401", "reject_403", "http_500", "drop_after_handler"]
-)
-def test_pending_survives_access_failures_and_recovers_on_restart(tmp_path, fault):
-    local, home = _workspace(tmp_path / "local"), tmp_path / "home"
-    backend = InMemoryRemote("a" * 32)
-    with HTTPRemoteServer(backend, token=TOKEN) as server:
-        bind_remote(local, server.url, AUTH, home=home, environ=ENV)
-        run_reconciliation(
-            local, open_bound_remote(local, environ=ENV), home, dry_run=False
-        )
-        (local / "memory/notes/recovery.md").write_text("original", encoding="utf-8")
-        before = backend.read().revision
-        server.arm(fault, operation=Operation.COMMIT)
-        with pytest.raises(WorkspaceReconcileError):
-            run_reconciliation(
-                local, open_bound_remote(local, environ=ENV), home, dry_run=False
-            )
-        path = local / PENDING_COMMIT_STATE
-        text = path.read_bytes()
-        with pytest.raises(RemoteBindingError):
-            open_bound_remote(local, environ={})
-        with pytest.raises(RemoteBindingError, match="pending"):
-            remove_remote_binding(local, home=home)
-        with pytest.raises(WorkspaceReconcileError):
-            run_reconciliation(
-                local,
-                open_bound_remote(local, environ={AUTH.env: "wrong"}),
-                home,
-                dry_run=False,
-            )
-        assert path.read_bytes() == text
-        pending = PendingCommitStore(local, home).load()
-        run_reconciliation(
-            local, open_bound_remote(local, environ=ENV), home, dry_run=False
-        )
-        assert PendingCommitStore(local, home).load() is None
-        assert backend.read().revision == before + 1
-        decoded = [decode_request(value) for value in server.requests]
-        commits = [item.body for item in decoded if item.operation == Operation.COMMIT]
-        assert commits[-1] == pending.request
-        assert sum(
-            item.request_id == pending.request.request_id for item in commits
-        ) == (2 if fault.startswith("reject") else 1)
-
-
-def test_pending_center_replacement_stops_before_resolution(tmp_path):
-    local, home = _workspace(tmp_path / "local"), tmp_path / "home"
-    backend = InMemoryRemote("a" * 32)
-    with HTTPRemoteServer(backend) as server:
-        bind_remote(local, server.url, AUTH, home=home, environ=ENV)
-        run_reconciliation(
-            local, open_bound_remote(local, environ=ENV), home, dry_run=False
-        )
-        (local / "memory/notes/recovery.md").write_text("original", encoding="utf-8")
-        server.arm("drop_after_handler", operation=Operation.COMMIT)
-        with pytest.raises(WorkspaceReconcileError):
-            run_reconciliation(
-                local, open_bound_remote(local, environ=ENV), home, dry_run=False
-            )
-        path = local / PENDING_COMMIT_STATE
-        text = path.read_bytes()
-        backend._snapshot = replace(backend.read(), sync_id="b" * 32)
-        server.requests.clear()
-        with pytest.raises(WorkspaceReconcileError, match="binding identity mismatch"):
-            run_reconciliation(
-                local, open_bound_remote(local, environ=ENV), home, dry_run=False
-            )
-        assert path.read_bytes() == text
-        assert [decode_request(value).operation for value in server.requests] == [
-            Operation.READ
-        ]
+def test_pending_store_replacement_stops_before_receipt_lookup(bound):
+    from aikito.remote_service import sync_workspace_remote
+    local, home, backend, server, _ = bound
+    sync_workspace_remote(local, home=home, environ=ENV, dry_run=False)
+    (local / "memory/notes/retained.md").write_text("Retained unsent content\n")
+    server.arm("drop_after_request", operation=Operation.COMMIT)
+    with pytest.raises(WorkspaceReconcileError):
+        sync_workspace_remote(local, home=home, environ=ENV, dry_run=False)
+    path = local / PENDING_COMMIT_STATE
+    original = path.read_bytes()
+    backend._snapshot = replace(backend.read(), sync_id="b" * 32)
+    start = len(server.requests)
+    with pytest.raises(WorkspaceReconcileError, match="binding identity mismatch"):
+        sync_workspace_remote(local, home=home, environ=ENV, dry_run=False)
+    assert path.read_bytes() == original
+    assert all(decode_request(raw).operation == Operation.READ for raw in server.requests[start:])

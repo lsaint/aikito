@@ -38,7 +38,7 @@ jobs:
           enable-cache: true
 
       - name: Install test dependencies
-        run: uv pip install --system pytest pytest-xdist
+        run: uv pip install --system pytest pytest-xdist '.[encrypted]'
 
       - name: Run core unit tests
         if: matrix.group == 'core'
@@ -59,7 +59,7 @@ jobs:
         if: matrix.group == 'workspace-remote'
         run: |
           uv pip install --system '.[encrypted]'
-          python -m pytest tests/test_workspace_encrypted_remote_core.py tests/test_workspace_device_keys.py tests/test_workspace_native_keys.py tests/test_workspace_encrypted_remote.py tests/test_remote_key_cli.py tests/test_workspace_encrypted_discovery.py tests/test_workspace_encrypted_sync.py tests/test_workspace_encrypted_migration.py tests/test_workspace_scoped_export.py tests/test_recipient_keys.py tests/test_remote_export.py
+          python -m pytest tests/test_workspace_encrypted_remote_core.py tests/test_workspace_device_keys.py tests/test_workspace_native_keys.py tests/test_workspace_encrypted_remote.py tests/test_remote_key_cli.py tests/test_workspace_encrypted_discovery.py tests/test_workspace_encrypted_sync.py tests/test_workspace_scoped_export.py tests/test_recipient_keys.py tests/test_remote_export.py
 
       - name: Run workspace remote and protocol unit tests
         if: matrix.group == 'workspace-remote'
@@ -1091,19 +1091,16 @@ jobs:
           if (Test-Path "$encryptedBase/discovery-check/workspace/.local/state/aikito/workspace-reconcile/pending.json") { throw "Discovery wrote pending" }
           if (Test-Path "$encryptedBase/discovery-check/workspace/memory/notes/00.md") { throw "Discovery wrote business content" }
           python tests/workspace_encrypted_sync_smoke.py "$encryptedBase/sync-check"
+          foreach ($relative in @("references-checked.txt", "workspace-2/mcps/docs.toml", "workspace-2/subagents/review.md")) {
+            if (!(Test-Path "$encryptedBase/sync-check/$relative" -PathType Leaf)) { throw "Missing dynamic reference artifact: $relative" }
+          }
+          if (!(Test-Path "$encryptedBase/sync-check/credential-checked.txt" -PathType Leaf)) { throw "Missing encrypted credential assertion" }
           if ($LASTEXITCODE -ne 0) { throw "Encrypted sync smoke failed" }
           foreach ($relative in @("checked.txt", "workspace-2/.local/state/aikito/workspace-reconcile/replica.json", "workspace-2/.local/state/aikito/encrypted-discovery.json")) {
             if (!(Test-Path "$encryptedBase/sync-check/$relative" -PathType Leaf)) { throw "Missing encrypted sync artifact: $relative" }
           }
           if (Test-Path "$encryptedBase/sync-check/workspace-2/.local/state/aikito/workspace-reconcile/pending.json") { throw "Encrypted sync left pending" }
           if (Test-Path "$encryptedBase/sync-check/workspace-2/memory/notes/e2ee.md") { throw "Encrypted deletion failed" }
-          python tests/workspace_encrypted_migration_smoke.py "$encryptedBase/migration-check"
-          if ($LASTEXITCODE -ne 0) { throw "Encrypted migration smoke failed" }
-          foreach ($relative in @("checked.txt", "production-cli-checked.txt", "workspace-0/memory/notes/migrate.md", "workspace-0/.local/state/aikito/workspace-reconcile/replica.json")) {
-            if (!(Test-Path "$encryptedBase/migration-check/$relative" -PathType Leaf)) { throw "Missing migration artifact: $relative" }
-          }
-          if (Test-Path "$encryptedBase/migration-check/workspace-1/.local/state/aikito/encrypted-migration.json") { throw "Migration left a journal" }
-          if (Test-Path "$encryptedBase/migration-check/workspace-1/.local/state/aikito/encrypted-discovery.json") { throw "Rollback left an encrypted checkpoint" }
           python tests/workspace_scoped_export_smoke.py "$encryptedBase/scoped-check"
           if ($LASTEXITCODE -ne 0) { throw "Scoped read/write export smoke failed" }
           foreach ($relative in @("scoped-write.json", "write-checked.txt")) {
@@ -1243,7 +1240,7 @@ jobs:
           $bindingBase = Join-Path $env:RUNNER_TEMP "remote-binding"
           python tests/workspace_remote_binding_smoke.py "$bindingBase"
           if ($LASTEXITCODE -ne 0) { throw "Remote binding smoke failed" }
-          foreach ($relative in @("local/.local/state/aikito/workspace-reconcile/binding.json", "local/.local/state/aikito/workspace-reconcile/replica.json", "center/memory/notes/binding.md", "auth-checked.txt", "checked.txt")) {
+          foreach ($relative in @("local/.local/state/aikito/workspace-reconcile/binding.json", "local/.local/state/aikito/workspace-reconcile/replica.json", "encrypted-manifest.json", "auth-checked.txt", "checked.txt")) {
             if (-not (Test-Path (Join-Path $bindingBase $relative) -PathType Leaf)) { throw "Missing binding artifact: $relative" }
           }
           if (Test-Path "$bindingBase/local/.local/state/aikito/workspace-reconcile/pending.json") { throw "Binding recovery left pending state" }
@@ -1260,7 +1257,7 @@ jobs:
           python tests/workspace_remote_cli_smoke.py "$remoteCliBase"
           if ($LASTEXITCODE -ne 0) { throw "Remote CLI smoke failed" }
           if (-not (Test-Path (Join-Path $remoteCliBase "archive-fields-checked.txt") -PathType Leaf)) { throw "Shared field archive check missing" }
-          foreach ($relative in @("ws_a/.local/state/aikito/workspace-reconcile/binding.json", "ws_b/.local/state/aikito/workspace-reconcile/binding.json", "ws_b/memory/notes/smoke-idea.md", "center/memory/notes/smoke-idea.md", "ws_b/skills/smoke-skill/SKILL.md")) {
+          foreach ($relative in @("ws_a/.local/state/aikito/workspace-reconcile/binding.json", "ws_b/.local/state/aikito/workspace-reconcile/binding.json", "ws_b/memory/notes/smoke-idea.md", "encrypted-manifest.json", "ws_b/skills/smoke-skill/SKILL.md")) {
             if (-not (Test-Path (Join-Path $remoteCliBase $relative) -PathType Leaf)) { throw "Missing remote CLI smoke artifact: $relative" }
           }
           if (Test-Path (Join-Path $remoteCliBase "ws_b/skills/smoke-skill/empty")) { throw "Empty skill directory was synced" }
@@ -1274,7 +1271,7 @@ jobs:
           $remoteServiceBase = Join-Path $env:RUNNER_TEMP "remote-service-smoke"
           python tests/workspace_remote_service_smoke.py "$remoteServiceBase"
           if ($LASTEXITCODE -ne 0) { throw "Remote service smoke failed" }
-          foreach ($relative in @("ws_a/.local/state/aikito/workspace-reconcile/binding.json", "ws_a/.local/state/aikito/workspace-reconcile/status.json", "ws_a/memory/notes/smoke-idea.md", "center/memory/notes/smoke-idea.md")) {
+          foreach ($relative in @("ws_a/.local/state/aikito/workspace-reconcile/binding.json", "ws_a/.local/state/aikito/workspace-reconcile/status.json", "ws_a/memory/notes/smoke-idea.md", "encrypted-manifest.json")) {
             if (-not (Test-Path (Join-Path $remoteServiceBase $relative) -PathType Leaf)) { throw "Missing remote service smoke artifact: $relative" }
           }
           if (Select-String -Path (Join-Path $remoteServiceBase "ws_a/.local/state/aikito/workspace-reconcile/binding.json") -SimpleMatch "remote-service-smoke-secret" -Quiet) { throw "Binding contains credential value" }

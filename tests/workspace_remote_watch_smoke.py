@@ -14,7 +14,8 @@ from workspace_reconcile_smoke import _workspace
 
 from aikito.remote_cli import EXIT_LOCKED
 from aikito.workspace.auto_sync import is_worker_running
-from aikito.workspace.remote import FilesystemRemote
+from workspace_memory_remote import InMemoryRemote
+from workspace_encrypted_setup import initialize_cli
 
 TOKEN = "remote-watch-smoke-secret"
 TOKEN_ENV = "AIKITO_REMOTE_WATCH_SMOKE_TOKEN"
@@ -74,7 +75,7 @@ def run_smoke(base: Path) -> None:
     ws_b = _workspace(base / "ws_b")
     home = base / "home"
     home.mkdir(parents=True, exist_ok=True)
-    backend = FilesystemRemote.create(base / "center")
+    backend = InMemoryRemote("11223344556677889900aabbccddeeff")
 
     env_auth = {TOKEN_ENV: TOKEN}
 
@@ -95,6 +96,8 @@ def run_smoke(base: Path) -> None:
             env_vars=env_auth,
         )
         assert res_b.returncode == 0, f"Bind B failed: {res_b.stderr}"
+
+        initialize_cli(run_cli, ws_a, home, env_auth)
 
         # 2. Workspace A initial apply
         res_init = run_cli(
@@ -211,10 +214,10 @@ def run_smoke(base: Path) -> None:
             # Wait until the continuous watcher has uploaded B's change. Windows
             # runners can take longer than one debounce interval to schedule the
             # scan and complete the HTTP request.
-            remote_note = backend.root / "memory/notes/from-b.md"
+            previous_revision = backend.read().revision
             deadline = time.time() + 15.0
             while time.time() < deadline:
-                if remote_note.exists():
+                if backend.read().revision > previous_revision:
                     break
                 if watch_proc.poll() is not None:
                     out, err = watch_proc.communicate()
@@ -223,7 +226,7 @@ def run_smoke(base: Path) -> None:
                         f"stdout: {out}\nstderr: {err}"
                     )
                 time.sleep(0.2)
-            assert remote_note.exists(), (
+            assert backend.read().revision > previous_revision, (
                 "Watch process on WS B did not upload from-b.md"
             )
 
@@ -250,6 +253,11 @@ def run_smoke(base: Path) -> None:
                 watch_proc.kill()
                 watch_proc.wait()
 
+    import json
+
+    (base / "encrypted-manifest.json").write_text(
+        json.dumps(sorted(backend.read().resources))
+    )
     print("[SUCCESS] Remote watch smoke test passed successfully")
 
 

@@ -13,7 +13,8 @@ from pathlib import Path
 from http_remote_server import HTTPRemoteServer
 from workspace_reconcile_smoke import _workspace
 
-from aikito.workspace.remote import FilesystemRemote
+from workspace_memory_remote import InMemoryRemote
+from workspace_encrypted_setup import initialize_cli
 
 TOKEN = "remote-service-smoke-secret"
 TOKEN_ENV = "AIKITO_REMOTE_SERVICE_SMOKE_TOKEN"
@@ -75,7 +76,7 @@ def run_smoke(base: Path) -> None:
     ws_a = _workspace(base / "ws_a")
     home = base / "home"
     home.mkdir(parents=True, exist_ok=True)
-    backend = FilesystemRemote.create(base / "center")
+    backend = InMemoryRemote("11223344556677889900aabbccddeeff")
 
     with HTTPRemoteServer(backend, token=TOKEN) as server:
         # 1. Secure credential storage test via CLI
@@ -118,6 +119,8 @@ def run_smoke(base: Path) -> None:
             home=home,
         )
         assert res_bind.returncode == 0, f"Bind failed: {res_bind.stderr}"
+
+        initialize_cli(run_cli, ws_a, home)
 
         # 3. Check status before service start
         res_stat_init = run_cli(
@@ -272,6 +275,9 @@ def run_smoke(base: Path) -> None:
         assert res_stop_again.returncode == 0
         assert "[INFO] Auto-sync service is not running" in res_stop_again.stdout
 
+    (base / "encrypted-manifest.json").write_text(
+        json.dumps(sorted(backend.read().resources))
+    )
     print("[SUCCESS] Remote service smoke test passed successfully")
 
 

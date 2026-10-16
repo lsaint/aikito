@@ -29,9 +29,7 @@ from .init import is_recognized_workspace
 from .workspace.encrypted_discovery import inspect_bound_workspace
 from .workspace.encrypted_sync import (
     initialize_encrypted_workspace,
-    run_encrypted_reconciliation,
 )
-from .workspace.encrypted_migration import MAX_MIGRATION_ROUNDS, run_migration
 from .workspace.scoped_export import export_bound_scoped_keys
 from .workspace.device_keys import DeviceKeyStore
 from .workspace.encrypted_remote import (
@@ -135,49 +133,6 @@ def cmd_remote_key(args: argparse.Namespace) -> None:
                 f"[SUCCESS] Empty store initialized: vault_id={vault_id}",
                 file=sys.stderr,
             )
-            return
-        if args.key_action == "migrate":
-
-            def deliver_migration(code):
-                descriptor = args.recovery_output_fd
-                if descriptor is None:
-                    if not sys.stdout.isatty():
-                        raise ValueError(
-                            "Recovery output requires a secure terminal or explicit descriptor."
-                        )
-                    descriptor = sys.stdout.fileno()
-                if descriptor < 0:
-                    raise ValueError("Invalid recovery output descriptor.")
-                with os.fdopen(os.dup(descriptor), "wb") as output:
-                    output.write((code + "\n").encode("ascii"))
-                    output.flush()
-
-            if not 1 <= args.max_rounds <= MAX_MIGRATION_ROUNDS:
-                raise ValueError("Invalid migration round limit.")
-            result = run_migration(
-                workspace,
-                home,
-                rollback=args.rollback,
-                takeover=args.takeover,
-                dry_run=args.dry_run,
-                maximum=args.max_rounds,
-                deliver_recovery=deliver_migration,
-                devices_upgraded=args.confirm_devices_upgraded,
-            )
-            print(
-                f"[SUCCESS] Migration {result.status}: resources={result.resources}, rounds={result.rounds}, epoch={result.epoch}",
-                file=sys.stderr,
-            )
-            if result.status == "paused":
-                raise SystemExit(2)
-            return
-        if args.key_action == "sync":
-            result = run_encrypted_reconciliation(workspace, home, dry_run=args.dry_run)
-            print(
-                f"[SUCCESS] Encrypted synchronization: changes={len(result.applied_items or result.changes)}, conflicts={len(result.conflicts)}, deferred={len(result.deferred)}, blocked={len(result.blocked_items)}, rounds={result.rounds}"
-            )
-            if result.blocked or result.blocked_items or result.conflicts:
-                raise SystemExit(2)
             return
         if args.key_action == "inspect":
             result = inspect_bound_workspace(workspace, home=home)

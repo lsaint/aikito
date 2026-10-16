@@ -108,3 +108,11 @@ def test_failed_recovery_does_not_save_key(recovery, monkeypatch, capsys):
         cmd_remote_key(args)
     store.save.assert_not_called()
     assert "recovery_key_invalid" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("action", ["migrate", "sync"])
+def test_removed_plaintext_migration_and_duplicate_sync_commands(action):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            ["remote", "key", action, "--workspace", "workspace", "--apply"]
+        )

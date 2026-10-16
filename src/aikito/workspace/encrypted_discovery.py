@@ -52,11 +52,6 @@ class EncryptedStoreLocked(EncryptedRemoteError):
     message = "Recover the device key before inspecting this encrypted store."
 
 
-class EncryptedStoreMigrating(EncryptedRemoteError):
-    code = "encrypted_store_migrating"
-    message = "Encrypted store migration is in progress; synchronization is paused."
-
-
 class DiscoveryBudgetExceeded(EncryptedRemoteError):
     code = "encrypted_discovery_budget_exceeded"
     message = "Encrypted resource discovery cannot progress within the round budget."
@@ -335,7 +330,5 @@ def unlock_encrypted_snapshot(reader, snapshot, device_keys):
     key = device_keys.load(vault_id)
     if key is None:
         raise EncryptedStoreLocked()
-    metadata = verify_metadata(header.data, key)
-    if metadata["format"] == "migrating":
-        raise EncryptedStoreMigrating()
+    verify_metadata(header.data, key)
     return EncryptedVault(vault_id, key)

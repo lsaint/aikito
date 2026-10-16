@@ -11,7 +11,8 @@ from workspace_reconcile_smoke import _workspace
 
 from aikito.workspace.pending_commit import PendingCommitStore
 from aikito.workspace.reconcile import WorkspaceReconcileError, run_reconciliation
-from aikito.workspace.remote import FilesystemRemote
+from workspace_memory_remote import InMemoryRemote
+from aikito.workspace.encrypted_sync import initialize_encrypted_workspace
 from aikito.workspace.remote_access import RemoteBindingError
 from aikito.workspace.remote_binding import (
     RemoteAuth,
@@ -31,7 +32,7 @@ ENV = {AUTH.env: TOKEN}
 
 def main(base: Path):
     local, home = _workspace(base / "local"), base / "home"
-    backend = FilesystemRemote.create(base / "center")
+    backend = InMemoryRemote("11223344556677889900aabbccddeeff")
     with HTTPRemoteServer(backend, token=TOKEN) as server:
         binding = bind_remote(local, server.url, AUTH, home=home, environ=ENV)
         path = local / REMOTE_BINDING_STATE
@@ -40,9 +41,15 @@ def main(base: Path):
         if os.name != "nt":
             assert path.stat().st_mode & 0o777 == 0o600
 
+        os.environ.update(ENV)
+        initialize_encrypted_workspace(local, home, lambda code: None)
+
         def run(environ=ENV):
             return run_reconciliation(
-                local, open_bound_remote(local, environ=environ), home, dry_run=False
+                local,
+                open_bound_remote(local, home=home, environ=environ),
+                home,
+                dry_run=False,
             )
 
         run()
@@ -84,9 +91,13 @@ def main(base: Path):
         run()
         assert backend.read().revision == before + 1
         assert not pending_path.exists()
+        logical = open_bound_remote(local, home=home, environ=ENV)
         assert (
-            backend.root / "memory/notes/binding.md"
-        ).read_bytes() == note.read_bytes()
+            logical.fetch(logical.read(), ["memory:notes/binding.md"])[
+                "memory:notes/binding.md"
+            ].data
+            == note.read_bytes()
+        )
         note.write_text("lost response recovered\n", encoding="utf-8")
         before = backend.read().revision
         server.arm("drop_after_handler", operation=Operation.COMMIT)
@@ -131,6 +142,9 @@ def main(base: Path):
         assert note.exists()
         bind_remote(local, server.url, AUTH, home=home, environ=ENV)
         assert all(TOKEN.encode() not in value for value in server.requests)
+    (base / "encrypted-manifest.json").write_text(
+        __import__("json").dumps(sorted(backend.read().resources))
+    )
     (base / "checked.txt").write_text("Binding checks passed\n", encoding="utf-8")
     print("[SUCCESS] Remote binding and recovery checks passed")
 

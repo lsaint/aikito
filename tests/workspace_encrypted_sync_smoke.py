@@ -35,7 +35,18 @@ class RacingRemote(InMemoryRemote):
 
 def main(base: Path):
     base.mkdir(parents=True)
-    backend = RacingRemote()
+    external = os.environ.get("AIKITO_ENCRYPTED_TEST_ENDPOINT")
+    if external:
+        from aikito.workspace.http_transport import HTTPTransport
+        from aikito.workspace.serialized_remote import SerializedRemoteStore
+
+        backend = SerializedRemoteStore(
+            HTTPTransport(
+                external, authorization="Bearer encrypted-sync-smoke-token"
+            ).exchange
+        )
+    else:
+        backend = RacingRemote()
     homes, workspaces, envs = [], [], []
     for index in range(3):
         home = base / f"home-{index}"
@@ -70,7 +81,7 @@ def main(base: Path):
     def key_sync(index, mode="--apply"):
         return command(
             index,
-            ["remote", "key", "sync", mode, "--workspace", str(workspaces[index])],
+            ["remote", "sync", mode, "--workspace", str(workspaces[index])],
         )
 
     for index in range(3):
@@ -136,9 +147,15 @@ def main(base: Path):
         )
         assert joined.returncode == 0, joined.stderr
         a, b = workspaces[winner], workspaces[2]
+        for relative, text in {
+            "agents/custom.toml": '[agents.custom]\nvalue = "portable"\n',
+            "mcps/docs.toml": 'agents = ["custom"]\ncommand = "docs"\n',
+            "subagents/review.md": '---\ndescription: "Review"\nagents: ["custom"]\n---\nReview\n',
+        }.items():
+            (a / relative).write_text(text)
         note = Path("memory/notes/e2ee.md")
         (a / note).parent.mkdir(parents=True, exist_ok=True)
-        (a / note).write_text("Encrypted first device content\n")
+        (a / note).write_text('password = "test-only-credential-1234567890"\n')
         preview_before = backend.read()
         preview = key_sync(winner, "--dry-run")
         assert preview.returncode == 0 and backend.read() == preview_before
@@ -147,7 +164,23 @@ def main(base: Path):
         assert first.returncode == 0, first.stderr
         second = key_sync(2)
         assert second.returncode == 0, second.stderr
-        assert (b / note).read_text() == "Encrypted first device content\n"
+        assert (
+            b / note
+        ).read_text() == 'password = "test-only-credential-1234567890"\n'
+        (base / "credential-checked.txt").write_text(
+            "Credential content synchronized only as ciphertext\n"
+        )
+        assert (b / "agents/custom.toml").is_file()
+        assert (
+            b / "mcps/docs.toml"
+        ).read_text() == 'agents = ["custom"]\ncommand = "docs"\n'
+        assert 'agents: ["custom"]' in (b / "subagents/review.md").read_text()
+        revision_with_references = backend.read().revision
+        assert key_sync(2).returncode == 0
+        assert backend.read().revision == revision_with_references
+        (base / "references-checked.txt").write_text(
+            "Dynamic Agent references survived independent sync processes\n"
+        )
         unchanged = backend.read()
         assert key_sync(winner).returncode == 0 and backend.read() == unchanged
         for fault in ("drop_after_request", "drop_after_handler"):
@@ -192,15 +225,13 @@ def main(base: Path):
                     )
                 assert (
                     b"memory:notes/e2ee.md" not in raw
-                    and b"Encrypted first device content" not in raw
+                    and b'password = "test-only-credential-1234567890"' not in raw
                 )
                 assert code.encode() not in raw
         guarded = command(
             winner, ["remote", "sync", "--dry-run", "--workspace", str(a)]
         )
-        assert (
-            guarded.returncode != 0 and "encrypted_store_unsupported" in guarded.stderr
-        )
+        assert guarded.returncode == 0
     (base / "checked.txt").write_text(
         "Encrypted synchronization, independent initialization CAS and retries passed\n"
     )

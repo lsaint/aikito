@@ -271,6 +271,11 @@ def main():
             grants.setdefault("Bearer " + entry["token"], set()).add(store_id)
             if entry.get("initialize", True):
                 root = args.root / "stores" / store_id
+                if entry.get("opaque_fixture", False):
+                    from workspace_memory_remote import DurableTestRemote
+
+                    stores[store_id] = DurableTestRemote(root)
+                    continue
                 stores[store_id] = (
                     FilesystemRemote(root)
                     if (root / REMOTE_STATE).exists()

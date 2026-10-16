@@ -377,12 +377,11 @@ def test_create_and_delete_dependencies_follow_target_state(bounded):
     assert not (right / "skills/tool").exists()
 
 
-def test_partial_result_keeps_unresolved_prerequisites_visible(bounded):
+def test_partial_result_keeps_unresolved_prerequisites_visible(bounded, monkeypatch):
     left, _, store, home = bounded
     (left / "skills/tool").mkdir()
-    (left / "skills/tool/SKILL.md").write_text(
-        'api_key = "abcdefghijklmnop123456"', encoding="utf-8"
-    )
+    (left / "skills/tool/SKILL.md").write_text("x" * 5000, encoding="utf-8")
+    monkeypatch.setattr(remote_limits, "MAX_RESOURCE_PAYLOAD_BYTES", 1024)
     (left / "skills.toml").write_text('skills = ["tool"]\n', encoding="utf-8")
     result = apply(left, store, home)
     assert not result.blocked and result.stop_reason.startswith(

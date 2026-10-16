@@ -24,7 +24,6 @@ from .payload import (
     TomlPayload,
     TreeEntry,
     TreePayload,
-    credential_payload,
     encode_payload,
     payload_hash,
     tree_mode_fingerprint,
@@ -117,8 +116,6 @@ def _capture_tree(root: Path) -> TreePayload:
 def capture_resources(
     content: ResourceContent,
     identities: Sequence[str],
-    *,
-    check_credentials: bool = True,
 ) -> Mapping[str, ResourcePayload]:
     """Capture only explicitly authorized resources and verify planned semantics."""
     if len(identities) != len(set(identities)):
@@ -151,8 +148,6 @@ def capture_resources(
                 else FilePayload(_safe_file(path))
             )
         validate_payload(resource, payload)
-        if check_credentials and credential_payload(payload):
-            raise PayloadError("Possible plaintext credential; payload capture blocked")
         result[identity] = payload
     return MappingProxyType(result)
 
@@ -204,8 +199,6 @@ def materialize_resources(
         if resource.id != identity:
             raise PayloadError("Downloaded resource identity mismatch")
         validate_payload(resource, payloads[identity])
-        if credential_payload(payloads[identity]):
-            raise PayloadError("Possible plaintext credential; download blocked")
     if entry_type(staging) != "directory" or any(staging.iterdir()):
         raise PayloadError("Payload staging requires an empty regular directory")
     staging = staging.resolve()

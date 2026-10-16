@@ -31,7 +31,6 @@ from .payload import (
     ResourcePayload,
     TomlPayload,
     TreePayload,
-    credential_payload,
     encode_payload,
     payload_hash,
     tree_mode_fingerprint,
@@ -71,7 +70,6 @@ from .resource_state import (
 from .resource_write import (
     ResourceContent,
     ResourceWrite,
-    credential_resources,
     reference_conflicts,
     toml_conflicts,
     verify_resource_snapshot,
@@ -325,46 +323,6 @@ def _check_items(
             physical_kind(resource.kind),
             policy if item.target == "local" else RECONCILE_POLICY,
         )
-    # Secrets block only the upload that contains them; unrelated work remains safe.
-    secrets = (
-        frozenset()
-        if snapshot.findings
-        else credential_resources(
-            local_content,
-            {
-                item.id
-                for item in items
-                if item.action in CHANGES
-                and item.target == "remote"
-                and item.after is not None
-            },
-        )
-    )
-    items = [
-        replace(
-            item,
-            action="BLOCKED",
-            target=None,
-            reason="Possible plaintext credential; resource is not uploaded",
-        )
-        if item.id in secrets
-        else item
-        for item in items
-    ]
-    items = [
-        replace(
-            item,
-            action="BLOCKED",
-            target=None,
-            reason="Possible plaintext credential; resource is not downloaded",
-        )
-        if item.action in CHANGES
-        and item.target == "local"
-        and item.after is not None
-        and credential_payload(remote_payloads[item.id])
-        else item
-        for item in items
-    ]
     # Reference checks include every preserved resource on each side.
     for side, source, target_resources in (
         ("local", b, snapshot.resources),
@@ -540,9 +498,7 @@ def _budget_uploads(proposed, local_content, resources):
         if item.after is None:
             descriptors[item.id] = None
         else:
-            payload = capture_resources(
-                local_content, [item.id], check_credentials=False
-            )[item.id]
+            payload = capture_resources(local_content, [item.id])[item.id]
             encoded = encode_payload(payload)
             descriptor = ResourceDescriptor(
                 resources[item.id].fingerprint,

@@ -38,12 +38,16 @@ from .payload import ResourceMutation, payload_hash
 from .payload_io import capture_resources
 from .remote_binding import load_remote_binding
 from .remote_factory import _open_remote, BoundRemoteReader
-from .remote_format import FORMAT_RESOURCE_ID, require_plaintext_snapshot
+from .remote_format import (
+    FORMAT_RESOURCE_ID,
+    require_plaintext_snapshot,
+    require_encrypted_snapshot,
+)
 from .remote_protocol import (
     encode_fetch_request,
     encode_commit_request as encode_wire_request,
 )
-from .remote_store import SnapshotExpired, RemoteSnapshot
+from .remote_store import SnapshotExpired, RemoteSnapshot, RecoveryRequired
 from .remote_wire import (
     _canonical,
     decode_state_json,
@@ -119,9 +123,10 @@ class EncryptedRemote:
         return view.complete
 
     def read(self):
-        if not self.prepare():
-            raise EncryptedDiscoveryPending()
-        return self.logical
+        for _ in range(MAX_ENCRYPTED_ROUNDS):
+            if self.prepare() and not self.view.fetched:
+                return self.logical
+        raise DiscoveryBudgetExceeded()
 
     def fetch(self, expected, ids):
         if expected != self.logical:
@@ -249,7 +254,12 @@ class EncryptedRemote:
         return self.wire.commit(request)
 
     def recover(self):
-        self.reader.read()
+        try:
+            require_encrypted_snapshot(self.reader.read())
+        except RecoveryRequired:
+            recovered = self.wire.recover()
+            require_encrypted_snapshot(self.reader.read())
+            return recovered
         return self.wire.recover()
 
     def recover_encrypted_pending(self, store, pending, state):
@@ -291,15 +301,15 @@ class EncryptedRemote:
         store.clear(pending)
 
 
-def open_encrypted_remote(workspace, home, *, persist=True):
+def open_encrypted_remote(workspace, home, *, persist=True, environ=None):
     binding = load_remote_binding(workspace)
     if binding is None:
         raise EncryptedRemoteError()
-    remote = _open_remote(binding.endpoint, binding.auth, None, home=home)
+    remote = _open_remote(binding.endpoint, binding.auth, environ, home=home)
     return EncryptedRemote(remote, binding.sync_id, workspace, home, persist=persist)
 
 
-def run_encrypted_reconciliation(workspace, home, *, dry_run):
+def run_encrypted_reconciliation(workspace, home, *, dry_run, environ=None):
     from .reconcile import (
         build_reconcile_plan,
         run_reconciliation,
@@ -307,7 +317,9 @@ def run_encrypted_reconciliation(workspace, home, *, dry_run):
         WorkspaceReconcileError,
     )
 
-    remote = open_encrypted_remote(workspace, home, persist=not dry_run)
+    remote = open_encrypted_remote(
+        workspace, home, persist=not dry_run, environ=environ
+    )
     with nullcontext() if dry_run else WorkspaceWriterLock(home):
         if not dry_run:
             recover_reconciliation(workspace, remote, home)

@@ -51,7 +51,7 @@ def files(root: Path) -> dict[str, bytes]:
 
 
 def main(base: Path) -> None:
-    for case in ("encrypted-v1", "migrating", "unknown", "orphan", "future"):
+    for case in ("plaintext", "mixed", "unknown", "orphan", "future"):
         root = base / case
         local = _workspace(root / "local")
         fresh = _workspace(root / "fresh")
@@ -69,15 +69,14 @@ def main(base: Path) -> None:
                 env_vars=env,
             )
             assert bound.returncode == 0, bound.stderr
-            plain = run_cli(
-                ["remote", "sync", "--apply"], workspace=local, home=home, env_vars=env
-            )
-            assert plain.returncode == 0, plain.stderr
             payload = FilePayload(('{"format":"' + case + '"}').encode())
             identity = {
                 "orphan": "e1:tag:digest",
                 "future": "format:encrypted-v2",
-            }.get(case, "format:encrypted-v1")
+                "unknown": "format:unknown",
+                "plaintext": "memory:notes/legacy.md",
+                "mixed": "memory:notes/mixed.md",
+            }[case]
             descriptor = ResourceDescriptor(
                 hashlib.sha256(payload.data).hexdigest(),
                 payload_hash(payload),

@@ -308,7 +308,7 @@ def test_inbox_uses_each_replica_prefix_and_outside_is_blocked(tmp_path, replica
     assert not (tmp_path / "outside").exists()
 
 
-def test_shared_independent_changes_and_partial_credential_block(tmp_path, replicas):
+def test_shared_independent_changes_and_credential_fields(tmp_path, replicas):
     a, b, remote, home = replicas
     write(a, "config.toml", "[memory]\nstale_days = 9\n[update]\ncheck = true\n")
     round_trip(a, remote, home)
@@ -328,20 +328,13 @@ def test_shared_independent_changes_and_partial_credential_block(tmp_path, repli
         '[memory]\nstale_days = 11\n[service]\napi_key = "abcdefghijklmnop123456"\n',
     )
     plan = round_trip(a, remote, home)
-    assert (
-        next(i for i in plan.items if i.id == "config:service.api_key").action
-        == "BLOCKED"
-    )
-    assert "config:service.api_key" not in remote.read().resources
-    assert (
-        "config:service.api_key"
-        not in json.loads((a / REPLICA_STATE).read_text())["base"]
-    )
+    assert not plan.blocked_items
+    assert "config:service.api_key" in remote.read().resources
     round_trip(b, remote, home)
     assert tomllib.loads((b / "config.toml").read_text()) == {
-        "memory": {"stale_days": 11}
+        "memory": {"stale_days": 11},
+        "service": {"api_key": "abcdefghijklmnop123456"},
     }
-    assert "config:service.api_key" not in store_content(remote)[1]
 
 
 @pytest.mark.parametrize(
@@ -528,8 +521,7 @@ def test_upload_budget_captures_exact_size_for_small_resources(replicas, monkeyp
     original = payload_io.capture_resources
 
     def spy(content, identities, **kwargs):
-        if not kwargs.get("check_credentials", True):
-            calls.append(tuple(identities))
+        calls.append(tuple(identities))
         return original(content, identities, **kwargs)
 
     monkeypatch.setattr(reconcile, "capture_resources", spy)

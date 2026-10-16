@@ -100,7 +100,7 @@ def test_empty_fetch_validates_the_snapshot(tmp_path, mismatch):
 
 
 @pytest.mark.parametrize(
-    "invalid", ["before", "duplicate", "fingerprint", "references", "credential"]
+    "invalid", ["before", "duplicate", "fingerprint", "references"]
 )
 def test_entire_invalid_batch_leaves_content_and_revision_unchanged(tmp_path, invalid):
     remote = FilesystemRemote.create(tmp_path / "center")
@@ -183,9 +183,7 @@ def test_client_rejects_corrupt_fetch_from_protocol_backend(tmp_path, protocol_s
     assert before == (files(local), stored_content(remote))
 
 
-def test_client_blocks_credential_download_independently_of_backend(
-    tmp_path, protocol_store
-):
+def test_logical_planner_accepts_authenticated_credentials(tmp_path, protocol_store):
     local = _workspace(tmp_path / "local")
     remote = protocol_store
     secret = mutation("secret", b'api_key = "abcdefghijklmnopqrstuv"\n')
@@ -201,8 +199,7 @@ def test_client_blocks_credential_download_independently_of_backend(
     before = files(local), stored_content(remote)
     plan = build_reconcile_plan(local, OpaqueStore(remote))
     item = next(item for item in plan.items if item.id == secret.id)
-    assert item.action == "BLOCKED" and item.target is None
-    assert "credential" in item.reason
+    assert item.action == "CREATE" and item.target == "local"
     assert before == (files(local), stored_content(remote))
 
 

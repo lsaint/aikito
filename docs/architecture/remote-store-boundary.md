@@ -287,7 +287,7 @@ unchanged, and successful saves emit only `revision`.
 
 | Store contract | Client / reconciliation engine | Optional plaintext backend defense |
 | --- | --- | --- |
-| Identity/revision compare-and-swap, complete batch publication, transport hashes, snapshot-bound fetch, immutable boundary values | Logical ID decoding, semantic fingerprints, references, credentials, selected resource policy, target path safety, post-write verification | Decode logical IDs for physical layout, parse plaintext, recompute fingerprints, reject invalid references or credentials |
+| Identity/revision compare-and-swap, complete batch publication, transport hashes, snapshot-bound fetch, immutable boundary values | Logical ID decoding, semantic fingerprints, references, selected resource policy, target path safety, post-write verification | Decode logical IDs for physical layout, parse plaintext, recompute fingerprints, reject invalid references |
 
 Resource IDs, `sync_id`, `replica_id`, and logical fingerprints are opaque
 strings to the store; it must not validate their logical meaning or require a
@@ -605,17 +605,25 @@ reload on all three OS workflows. `workspace_revision_smoke.py` also verifies th
 legacy batch calls and bare snapshots are refused and NOOP preserves revision; its
 `contract-cleanup.json` artifact is asserted by each workflow.
 
-## Unsupported encrypted resource formats
+## Encrypted-only Remote synchronization
 
-The plaintext client rejects snapshots containing any `format:` resource or
-resource IDs starting with `e<N>:` (ASCII digits) using the local `encrypted_store_unsupported`
-error. The guard runs before logical resource decoding, binding persistence,
-or replay of an unaccepted pending request. It does not fetch unsupported
-headers or modify the Remote Protocol or content-blind storage validation.
-A receipt resolved while the store remains supported can finish without an
-additional snapshot read. Locally completed pending requests can still be
-cleaned up offline. The guard remains active even when the encrypted extra is installed: ordinary
-sync remains plaintext-only. The explicit encrypted path below does not weaken it.
+`remote sync`, `remote watch` and background services share one encrypted adapter.
+Binding accepts an empty Store for initialization or an encrypted-v1 snapshot;
+plaintext and mixed snapshots are refused without saving a binding. Initialization
+publishes the public format header by CAS before any business upload. Other devices
+recover the Vault key using the recovery code before synchronizing.
+
+The adapter authenticates the header, completes bounded discovery, and exposes only
+verified logical resources to the planner. Uploads are encrypted before pending
+requests are persisted. Decrypted content may contain credentials; credential
+pattern matching does not block encrypted synchronization. Path, references,
+semantic fingerprints, byte limits and post-write verification remain enforced.
+Local workspace files remain plaintext. The encrypted dependency is required for
+Remote operations, while local-only CLI use can omit it.
+
+There is no plaintext synchronization, in-place representation migration or rollback.
+Replacing a Store requires explicit administrative deletion and local reconnection;
+a changed sync_id never silently resets Replica Base or pending requests.
 
 ## Recoverable remote replacements
 
@@ -676,8 +684,7 @@ shared with an independent external Go consumer; its keys are test values only.
 `remote key inspect` opens a separate identity-pinned reader with only `read` and
 `fetch` operations. It authenticates the format header using the external device
 key before interpreting any resource as a logical type. A missing key or a
-migration header stops before downloading business resources. Existing binding
-and automatic sync guards retain their behavior.
+unsupported header stops before downloading business resources.
 
 A round downloads at most 32 business resources. Header and business fetches share
 request/response byte limits, including the full snapshot manifest. Unchanged
@@ -737,37 +744,16 @@ Response loss reuses the persisted request and never redisplays the recovery cod
 A failed output channel cannot publish a format marker. Initialization does not
 convert a nonempty plaintext Store.
 
-The explicit encrypted CLI path supports fresh-device recovery with only Store
-Token and recovery code. Ordinary plaintext sync guards remain active; no real
-Store migration is enabled by these code changes.
+Fresh devices recover using the Store Token and recovery code. Ordinary sync and
+background synchronization use the same encrypted path.
 
 
-### Fenced representation migration
+### Historical object cleanup
 
-The migration engine reads an identity-pinned raw Store and keeps the existing
-logical reconciliation Base unchanged. A separate migration client owns its
-receipt chain and an authenticated metadata epoch/client/token fence. Copying
-parents before children and deleting children before parents preserves every
-mixed snapshot's references. Both halves of an atomic dependency cycle must fit
-a bounded request; ciphertext expansion and the peak doubled graph are checked
-before publishing the first marker.
-
-Only an explicit unlocked takeover changes ownership. New owners reconstruct the
-complete graph from current plaintext and authenticated ciphertext, rather than
-requiring another device's journal. Local progress is an AES-GCM encrypted record
-with a fresh HKDF salt/key and nonce for each write; its AAD binds Store and Vault
-identity. Rollback plaintext requests are encrypted at rest in this record.
-Durable exact requests, receipt lookup and full-snapshot CAS preserve uncertain
-commits across restarts. Neither direction resets workspace files or Git history.
-
-Migration writes require `--confirm-devices-upgraded`: the operator must upgrade
-all connected devices and stop automatic synchronization before applying,
-taking over, or rolling back. Missing confirmation is refused before opening the
-remote. This does not automatically verify other devices. Real CLI fixtures use
-the same confirmation and preflight path; no release-gate bypass is retained. Historical unreferenced server objects can be removed separately under
-exclusive offline administrator ownership; retained plaintext backups and OS
-snapshots remain outside encryption's scope.
-
+Unreferenced server objects can be removed separately under exclusive offline
+administrator ownership. Garbage collection preserves current objects, state and
+receipts. Retained plaintext backups and filesystem snapshots remain outside
+Remote encryption's scope; the encrypted-only HTTP interface refuses legacy Stores.
 
 ### Scoped read material
 

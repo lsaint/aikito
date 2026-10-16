@@ -164,9 +164,7 @@ def main(base: Path):
         )
         after = backend.read()
         guarded = run(["remote", "sync", "--dry-run", "--workspace", str(workspace)])
-        assert (
-            guarded.returncode != 0 and "encrypted_store_unsupported" in guarded.stderr
-        )
+        assert guarded.returncode == 0, guarded.stderr
         assert backend.read() == after
         assert not (
             workspace / ".local/state/aikito/workspace-reconcile/pending.json"

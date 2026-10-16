@@ -1,5 +1,8 @@
 """Tests for 'aikito remote' CLI commands (bind and sync)."""
 
+from workspace_memory_remote import InMemoryRemote
+from aikito.workspace.encrypted_sync import initialize_encrypted_workspace
+
 import io
 import os
 import unittest
@@ -166,7 +169,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
             ws_a = _workspace(base / "ws_a")
             ws_b = _workspace(base / "ws_b")
             home = base / "home"
-            backend = FilesystemRemote.create(base / "center")
+            backend = InMemoryRemote("11223344556677889900aabbccddeeff")
 
             with HTTPRemoteServer(backend, token=TOKEN) as server:
                 args_bind_a = self.parser.parse_args(
@@ -180,6 +183,8 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                     patch.dict(os.environ, ENV),
                 ):
                     cmd_remote_bind(args_bind_a)
+                    if not backend.read().resources:
+                        initialize_encrypted_workspace(ws_a, home, lambda code: None)
 
                 self.assertIn(
                     "[SUCCESS] Bound workspace to remote store", stdout_bind.getvalue()
@@ -187,7 +192,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                 self.assertIn(server.url, stdout_bind.getvalue())
                 self.assertIn(AUTH.env, stdout_bind.getvalue())
                 self.assertIn(
-                    "Run 'aikito remote sync --dry-run' to preview",
+                    "aikito remote key initialize",
                     stdout_bind.getvalue(),
                 )
 
@@ -201,6 +206,8 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                     self.assertRaises(SystemExit) as ctx,
                 ):
                     cmd_remote_bind(args_bind_a)
+                    if not backend.read().resources:
+                        initialize_encrypted_workspace(ws_a, home, lambda code: None)
                 self.assertEqual(ctx.exception.code, 1)
                 self.assertIn("Remote binding already exists", stderr_bind2.getvalue())
 
@@ -227,7 +234,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                 ):
                     cmd_remote_sync(args_sync_dry)
                 self.assertIn(
-                    "Remote sync plan (revision: 0) [preview]", stdout_dry.getvalue()
+                    "Remote sync plan (revision: 1) [preview]", stdout_dry.getvalue()
                 )
                 self.assertIn("Planned:   2", stdout_dry.getvalue())
 

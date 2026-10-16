@@ -208,8 +208,9 @@ def test_selected_field_capture_excludes_credentials_and_filesystem_scanning(
     ) == frozenset({"config:auth.api_key"})
     captured = capture_resources(content, ["config:feature.flag"])
     assert not credential_payload(captured["config:feature.flag"])
-    with pytest.raises(PayloadError, match="credential"):
-        capture_resources(content, ["config:auth.api_key"])
+    assert credential_payload(
+        capture_resources(content, ["config:auth.api_key"])["config:auth.api_key"]
+    )
 
 
 def test_download_validation_precedes_staging_writes(tmp_path):
@@ -240,9 +241,10 @@ def test_client_validation_rejects_invalid_references_and_secret_download(tmp_pa
     resource = resource_for_id(
         "memory:notes/a.md", hashlib.sha256(secret.data).hexdigest()
     )
-    with pytest.raises(PayloadError, match="credential"):
-        materialize_resources({resource.id: resource}, {resource.id: secret}, tmp_path)
-    assert not list(tmp_path.iterdir())
+    result = materialize_resources(
+        {resource.id: resource}, {resource.id: secret}, tmp_path
+    )
+    assert result.paths[resource.id].read_bytes() == secret.data
 
 
 def test_capture_detects_post_plan_changes_and_symlinks(tmp_path):

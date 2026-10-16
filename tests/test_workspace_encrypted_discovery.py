@@ -6,6 +6,8 @@ import json
 from dataclasses import replace
 from types import SimpleNamespace
 
+from workspace_encrypted_setup import unsupported_header, unchecked_header_resource
+
 import pytest
 
 from aikito.workspace import encrypted_discovery as discovery
@@ -22,8 +24,8 @@ from aikito.workspace.payload import (
     payload_hash,
     encode_payload,
 )
-from aikito.workspace.remote_factory import BoundRemoteReader, BoundRemote
-from aikito.workspace.remote_format import FORMAT_RESOURCE_ID, EncryptedStoreUnsupported
+from aikito.workspace.remote_factory import BoundRemoteReader
+from aikito.workspace.remote_format import FORMAT_RESOURCE_ID
 from aikito.workspace.remote_store import (
     RemoteSnapshot,
     SnapshotExpired,
@@ -54,15 +56,12 @@ class Reader:
             identity, descriptor, outer = vault.encrypt(resource, payload, SYNC)
             self.descriptors[identity] = descriptor
             self.payloads[identity] = outer
-        migration = (
-            {"epoch": 1, "owner_client_id": "1" * 32, "token": "2" * 32}
-            if format == "migrating"
-            else None
+        raw = (
+            create_recovery_metadata(KEY, VAULT, SYNC, bytes([42]) * 32)
+            if format == "encrypted-v1"
+            else unsupported_header(KEY, VAULT, SYNC, bytes([42]) * 32)
         )
-        raw = create_recovery_metadata(
-            KEY, VAULT, SYNC, bytes([42]) * 32, format=format, migration=migration
-        )
-        descriptor, payload = metadata_resource(raw)
+        descriptor, payload = unchecked_header_resource(raw)
         self.descriptors[FORMAT_RESOURCE_ID] = descriptor
         self.payloads[FORMAT_RESOURCE_ID] = payload
         self.revision = 1
@@ -200,7 +199,7 @@ def test_missing_key_does_not_fetch_business(reader):
 def test_migrating_mixed_store_pauses_before_business_fetch():
     reader = Reader(format="migrating")
     reader.descriptors["memory:notes/plain.md"] = reader.descriptors[FORMAT_RESOURCE_ID]
-    with pytest.raises(discovery.EncryptedStoreMigrating):
+    with pytest.raises(EncryptedRemoteError):
         discovery.discover_encrypted(reader, KEYS)
     assert reader.calls == [(FORMAT_RESOURCE_ID,)]
 
@@ -258,8 +257,6 @@ def test_identity_pin_precedes_header_fetch(reader):
         discovery.discover_encrypted(pin, KEYS)
     assert reader.calls == []
     assert not hasattr(pin, "commit") and not hasattr(pin, "resolve_commit")
-    with pytest.raises(EncryptedStoreUnsupported):
-        BoundRemote(reader, SYNC).read()
 
 
 def test_snapshot_expiry_is_propagated_without_retrying_or_writing(reader, monkeypatch):
@@ -307,9 +304,44 @@ def test_authenticated_old_checkpoint_is_rejected():
     body = {key: value for key, value in raw.items() if key != "mac"}
     raw["mac"] = hmac.new(
         discovery._checkpoint_key(EncryptedVault(VAULT, KEY)),
-        _canonical(body), hashlib.sha256,
+        _canonical(body),
+        hashlib.sha256,
     ).hexdigest()
     before = len(reader.calls)
     with pytest.raises(EncryptedRemoteError):
         discovery.discover_encrypted(reader, KEYS, checkpoint=_canonical(raw))
     assert reader.calls[before:] == [(FORMAT_RESOURCE_ID,)]
+
+
+@pytest.mark.parametrize(
+    "identity, content",
+    [
+        ("mcp:docs", b'agents = ["custom"]\ncommand = "docs"\n'),
+        (
+            "subagent:review",
+            b'---\ndescription: "Review"\nagents: ["custom"]\n---\nReview\n',
+        ),
+    ],
+)
+def test_dynamic_agent_references_survive_discovery_checkpoint_rounds(
+    identity, content
+):
+    reader = Reader(
+        [
+            ("agent:custom", FilePayload(b'[agents.custom]\nvalue = "portable"\n')),
+            (identity, FilePayload(content)),
+        ]
+    )
+    checkpoint = None
+    for _ in range(2):
+        result = discovery.discover_encrypted(
+            reader, KEYS, checkpoint=checkpoint, maximum=1
+        )
+        checkpoint = result.checkpoint
+    assert result.complete
+    assert result.resources[identity].references == ("agent:custom",)
+    resumed = discovery.discover_encrypted(
+        reader, KEYS, checkpoint=checkpoint, maximum=1
+    )
+    assert resumed.complete and resumed.fetched == 0
+    assert resumed.resources[identity].references == ("agent:custom",)
