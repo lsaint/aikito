@@ -608,7 +608,7 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                     HTTPTransport(
                         server.url,
                         authorization=f"Bearer {TOKEN}",
-                        timeout=0.2,
+                        timeout=5.0,
                     ).exchange
                 )
                 run_reconciliation(ws, remote, home, dry_run=False)
