@@ -203,7 +203,7 @@ def run_smoke(base: Path) -> None:
             )
             if res_chk.returncode == 0:
                 data = json.loads(res_chk.stdout)
-                if data.get("last_revision", 0) > 0:
+                if (data.get("last_revision") or 0) > 0:
                     synced = True
                     break
             time.sleep(0.5)
