@@ -88,7 +88,7 @@ class DeviceKeyStore:
         base = get_workspace_config_dir(self.home)
         self.root = (
             base / "encrypted-remote" / "keys" if root is None else root
-        ).expanduser()
+        ).expanduser().resolve()
         if not self.root.is_absolute() or ".." in self.root.parts:
             raise KeyStorageUnavailable()
         if workspace is not None:

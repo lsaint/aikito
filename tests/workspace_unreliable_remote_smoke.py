@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from aikito.skill_state import WorkspaceWriterLock
-from aikito.workspace import pending_commit, transactions
+from aikito.workspace import pending_commit, remote_limits, transactions
 from aikito.workspace.commit_recovery import recover_pending
 from aikito.workspace.payload import encode_payload
 from aikito.workspace.payload import (
@@ -167,82 +167,85 @@ def delivery_scenarios(root, factory):
 
 
 def historical_scenario(root, factory):
-    case = root / "historical"
-    local, home = _workspace(case / "local"), case / "home"
-    backend = factory(case / "center")
-    for name in ("deleted", "noop", "blocked"):
-        (local / f"memory/notes/{name}.md").write_text("base")
-    run_reconciliation(local, backend, home, dry_run=False)
-    before = load_replica_state(local)[0]
-    submit(backend, "download-owner", put("download", b"historical download"))
-    (local / "memory/notes/deleted.md").unlink()
-    (local / "memory/notes/upload.md").write_text("original upload")
-    (local / "memory/notes/blocked.md").write_text(
-        "api_key = 'abcdefghijklmnopqrstuv'\n"
-    )
-    remote = UnreliableRemote(backend)
-    remote.schedule("commit", Fault.LOSE_RESPONSE)
+    original_limit = remote_limits.MAX_RESOURCE_PAYLOAD_BYTES
+    remote_limits.MAX_RESOURCE_PAYLOAD_BYTES = 1024
     try:
-        run_reconciliation(local, remote, home, dry_run=False)
-    except WorkspaceReconcileError:
-        pass
-    else:
-        raise AssertionError("Expected response loss")
-    pending = PendingCommitStore(local, home).load()
-    assert "memory:notes/blocked.md" in pending.excluded_resource_ids
-    snapshot = backend.read()
-    submit(
-        backend,
-        "latest-owner",
-        put(
-            "download",
-            b"current download",
-            snapshot.resources["memory:notes/download.md"],
-        ),
-        put("noop", b"current noop", snapshot.resources["memory:notes/noop.md"]),
-        ResourceMutation(
-            "memory:notes/upload.md",
-            snapshot.resources["memory:notes/upload.md"],
-            None,
-            None,
-        ),
-    )
-    (local / "memory/notes/upload.md").write_text("user changed upload")
-    (local / "memory/notes/download.md").write_text("user changed download")
-    resumed = UnreliableRemote(
-        FilesystemRemote(backend.root)
-        if isinstance(backend, FilesystemRemote)
-        else backend
-    )
-    assert confirm(local, resumed, home)
-    assert resumed.calls == ("resolve_commit",)
-    state = load_replica_state(local)[0]
-    assert "memory:notes/deleted.md" not in state.base
-    assert "memory:notes/download.md" not in state.base
-    for name in ("noop", "blocked"):
-        assert (
-            state.base[f"memory:notes/{name}.md"]
-            == before.base[f"memory:notes/{name}.md"]
+        case = root / "historical"
+        local, home = _workspace(case / "local"), case / "home"
+        backend = factory(case / "center")
+        for name in ("deleted", "noop", "blocked"):
+            (local / f"memory/notes/{name}.md").write_text("base")
+        run_reconciliation(local, backend, home, dry_run=False)
+        before = load_replica_state(local)[0]
+        submit(backend, "download-owner", put("download", b"historical download"))
+        (local / "memory/notes/deleted.md").unlink()
+        (local / "memory/notes/upload.md").write_text("original upload")
+        (local / "memory/notes/blocked.md").write_text("x" * 2048)
+        remote = UnreliableRemote(backend)
+        remote.schedule("commit", Fault.LOSE_RESPONSE)
+        try:
+            run_reconciliation(local, remote, home, dry_run=False)
+        except WorkspaceReconcileError:
+            pass
+        else:
+            raise AssertionError("Expected response loss")
+        pending = PendingCommitStore(local, home).load()
+        assert "memory:notes/blocked.md" in pending.excluded_resource_ids
+        snapshot = backend.read()
+        submit(
+            backend,
+            "latest-owner",
+            put(
+                "download",
+                b"current download",
+                snapshot.resources["memory:notes/download.md"],
+            ),
+            put("noop", b"current noop", snapshot.resources["memory:notes/noop.md"]),
+            ResourceMutation(
+                "memory:notes/upload.md",
+                snapshot.resources["memory:notes/upload.md"],
+                None,
+                None,
+            ),
         )
-    uploaded = next(
-        m for m in pending.request.mutations if m.id == "memory:notes/upload.md"
-    )
-    assert state.base[uploaded.id].fingerprint == uploaded.after.fingerprint
-    latest = backend.read().revision
-    plan = run_reconciliation(local, resumed, home, dry_run=False)
-    assert {item.id for item in plan.conflicts} == {
-        "memory:notes/upload.md",
-        "memory:notes/download.md",
-    }
-    assert (
-        next(item for item in plan.items if item.id == "memory:notes/blocked.md").action
-        == "BLOCKED"
-    )
-    assert (local / "memory/notes/upload.md").read_text() == "user changed upload"
-    assert (local / "memory/notes/download.md").read_text() == "user changed download"
-    assert (local / "memory/notes/noop.md").read_bytes() == b"current noop"
-    assert backend.read().revision == latest
-    report(case, revision=latest, preserved_conflicts=2, blocked_base_preserved=True)
+        (local / "memory/notes/upload.md").write_text("user changed upload")
+        (local / "memory/notes/download.md").write_text("user changed download")
+        resumed = UnreliableRemote(
+            FilesystemRemote(backend.root)
+            if isinstance(backend, FilesystemRemote)
+            else backend
+        )
+        assert confirm(local, resumed, home)
+        assert resumed.calls == ("resolve_commit",)
+        state = load_replica_state(local)[0]
+        assert "memory:notes/deleted.md" not in state.base
+        assert "memory:notes/download.md" not in state.base
+        for name in ("noop", "blocked"):
+            assert (
+                state.base[f"memory:notes/{name}.md"]
+                == before.base[f"memory:notes/{name}.md"]
+            )
+        uploaded = next(
+            m for m in pending.request.mutations if m.id == "memory:notes/upload.md"
+        )
+        assert state.base[uploaded.id].fingerprint == uploaded.after.fingerprint
+        latest = backend.read().revision
+        plan = run_reconciliation(local, resumed, home, dry_run=False)
+        assert {item.id for item in plan.conflicts} == {
+            "memory:notes/upload.md",
+            "memory:notes/download.md",
+        }
+        assert (
+            next(item for item in plan.items if item.id == "memory:notes/blocked.md").action
+            == "BLOCKED"
+        )
+        assert (local / "memory/notes/upload.md").read_text() == "user changed upload"
+        assert (local / "memory/notes/download.md").read_text() == "user changed download"
+        assert (local / "memory/notes/noop.md").read_bytes() == b"current noop"
+        assert backend.read().revision == latest
+        report(case, revision=latest, preserved_conflicts=2, blocked_base_preserved=True)
+    finally:
+        remote_limits.MAX_RESOURCE_PAYLOAD_BYTES = original_limit
 
 
 def crash_client(case, checkpoint):

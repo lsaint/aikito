@@ -1062,6 +1062,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install encrypted extra
+        if: matrix.group != 'core'
+        run: python -m pip install '.[encrypted]'
+
       - name: Local encrypted recovery and dependency-free CLI smoke
         if: matrix.group == 'core'
         shell: pwsh
@@ -1253,10 +1257,10 @@ jobs:
           $remoteFormatBase = Join-Path $env:RUNNER_TEMP "remote-format-smoke"
           python tests/workspace_remote_format_smoke.py "$remoteFormatBase"
           if ($LASTEXITCODE -ne 0) { throw "Encrypted format smoke failed" }
-          foreach ($relative in @("checked.txt", "encrypted-v1/local/memory/notes/retained.md")) {
+          foreach ($relative in @("checked.txt", "plaintext/local/memory/notes/retained.md")) {
             if (-not (Test-Path (Join-Path $remoteFormatBase $relative) -PathType Leaf)) { throw "Missing format guard artifact: $relative" }
           }
-          if (Test-Path (Join-Path $remoteFormatBase "encrypted-v1/fresh/.local/state/aikito/workspace-reconcile/binding.json")) { throw "Unsupported store was bound" }
+          if (Test-Path (Join-Path $remoteFormatBase "plaintext/fresh/.local/state/aikito/workspace-reconcile/binding.json")) { throw "Unsupported store was bound" }
           if (Test-Path (Join-Path $remoteFormatBase "future/fresh/.local/state/aikito/workspace-reconcile/binding.json")) { throw "Future store was bound" }
           $remoteCliBase = Join-Path $env:RUNNER_TEMP "remote-cli-smoke"
           python tests/workspace_remote_cli_smoke.py "$remoteCliBase"
