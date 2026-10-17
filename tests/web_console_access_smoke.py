@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -17,6 +18,13 @@ def main(base):
     env = {**os.environ, "HOME": str(home), "USERPROFILE": str(home), "XDG_CONFIG_HOME": str(config), "APPDATA": str(config), "AIKITO_DIR": str(workspace), "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
     initialized = subprocess.run([sys.executable, "-m", "aikito", "init", "workspace", str(workspace)], env=env, capture_output=True, timeout=60)
     assert initialized.returncode == 0, initialized.stderr.decode()
+    private = workspace / ".local/state/aikito"
+    binding = private / "workspace-reconcile/binding.json"
+    binding.parent.mkdir(parents=True, exist_ok=True)
+    binding.write_text(json.dumps({"version": 1, "endpoint": "https://offline.example/v1/stores/main/remote", "sync_id": "a" * 32, "auth": {"type": "bearer_env", "env": "TEST_TOKEN"}}))
+    checked = int(time.time())
+    history = {"version": 1, "records": [{"origin": "https://recipient.example", "account_id": "account-1", "collection_id": "project/demo/memory", "endpoint": "https://offline.example/v1/stores/main/remote", "sync_id": "a" * 32, "checked_at": checked, "grants": [{"grant_id": "c" * 64, "permissions": ["read"], "expires_at": checked + 86400, "status": "active"}]}]}
+    (private / "console-access.json").write_text(json.dumps(history))
     process = subprocess.Popen([sys.executable, "-u", "-m", "aikito", "web", "--no-open", "--port", "0"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         assert process.stdout.readline().strip() == "Aikito Console"
@@ -45,6 +53,17 @@ def main(base):
             assert status == 403
         status, _ = request("/api/console-session", headers={"Host": "attacker.example"})
         assert status == 403
+        status, raw = request("/api/projects/demo/access")
+        assert status == 200 and json.loads(raw)["records"][0]["checked_at"] == checked
+        process.terminate()
+        process.communicate(timeout=10)
+        process = subprocess.Popen([sys.executable, "-u", "-m", "aikito", "web", "--no-open", "--port", "0"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        assert process.stdout.readline().strip() == "Aikito Console"
+        origin = process.stdout.readline().strip()
+        port = int(origin.rsplit(":", 1)[1])
+        status, raw = request("/api/projects/demo/access")
+        assert status == 200 and json.loads(raw)["records"][0]["grants"][0]["grant_id"] == "c" * 64
+        (base / "access-history-checked.txt").write_text("Console CLI retained offline access history across process restarts\n")
         (base / "console.html").write_bytes(index)
         (base / "memory-access.js").write_bytes(script)
         (base / "login-progress-checked.txt").write_text("Console CLI served the explicit sign-in and authorization steps\n")

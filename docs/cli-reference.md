@@ -11,7 +11,7 @@ aikito web --no-open
 ```
 
 The Console browses canonical resources and governance status. It does not
-modify workspace files or expose MCP secret values. Project cards include
+modify canonical resource files or expose MCP secret values. Project cards include
 **Memory access**: choose an HTTPS recipient and read-only or read/write access,
 sign in at the recipient, then confirm the displayed account and project.
 The recipient must support the `/local-console` browser page and the existing
@@ -27,6 +27,15 @@ origin and a per-console token. No wildcard/global authorization, automatic writ
 upgrade or recipient-key-change acceptance is provided. A failed or uncertain
 submission is not retried; refresh status, then reconnect if another request is
 needed. Restarting the console loses its short-lived requests, not active grants.
+
+After access is active, **Done** closes the recipient window and keeps the local
+completion view. Reconnect to manage or revoke access. The Console saves only
+public access summaries in host-local `.local/state/aikito/console-access.json`:
+recipient, account, permissions, expiration, and last-check time. Opening access
+again shows the last confirmed status without opening a popup. This history is
+not a live permission check; reconnect to verify revocation or changes. History
+never restores a login, approves a request, or exports keys, and it is isolated
+by workspace, Remote identity, project, recipient, and account.
 
 ![Aikito Web Console](assets/aikito-web-console.png)
 

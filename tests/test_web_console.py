@@ -1,4 +1,3 @@
-from layout_helpers import write_agents
 import errno
 import json
 import shutil
@@ -11,6 +10,8 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
+
+from layout_helpers import write_agents
 
 from aikito.web_console import ConsoleData, make_handler
 
@@ -90,6 +91,18 @@ name_style = "verbatim"
     def get_json(self, path: str):
         with urllib.request.urlopen(self.base_url + path) as response:
             return json.load(response)
+
+    def test_access_history_is_available_without_a_remote_connection(self):
+        expected = {
+            "records": [
+                {"origin": "https://recipient.example", "checked_at": 123, "grants": []}
+            ]
+        }
+        with mock.patch(
+            "aikito.console_access.ConsoleAccess.history", return_value=expected
+        ) as history:
+            self.assertEqual(self.get_json("/api/projects/demo/access"), expected)
+        history.assert_called_once_with("demo")
 
     def test_mutations_require_local_origin_and_console_token(self):
         token = self.get_json("/api/console-session")["token"]
@@ -323,7 +336,10 @@ process.stdout.write(markdown(JSON.parse(process.argv[2]), JSON.parse(process.ar
         self.assertTrue((web_dir / "index.html").is_file())
         self.assertTrue((web_dir / "app.js").is_file())
         self.assertTrue((web_dir / "styles.css").is_file())
-        self.assertIn('value="https://aikito.notsonan.com"', (web_dir / "memory-access.js").read_text(encoding="utf-8"))
+        self.assertIn(
+            'value="https://aikito.notsonan.com"',
+            (web_dir / "memory-access.js").read_text(encoding="utf-8"),
+        )
 
 
 class WebCommandParserTest(unittest.TestCase):

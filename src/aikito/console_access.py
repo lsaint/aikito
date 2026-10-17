@@ -15,10 +15,11 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import console_access_history
 from .skill_state import WorkspaceWriterLock
-from .workspace.http_transport import validate_endpoint
 from .workspace.device_keys import DeviceKeyStore
 from .workspace.encrypted_discovery import unlock_encrypted_snapshot
+from .workspace.http_transport import validate_endpoint
 from .workspace.recipient_keys import canonical_origin, fetch_recipient
 from .workspace.remote_binding import load_remote_binding
 from .workspace.remote_claim import claim_bound_store
@@ -123,7 +124,45 @@ class ConsoleAccess:
             },
         }
 
+    def history(self, project):
+        collection = f"project/{project}/memory"
+        _collection(collection)
+        return {
+            "records": console_access_history.history(
+                self.workspace, collection, load_remote_binding(self.workspace)
+            )
+        }
+
+    def observe(self, identity, body):
+        if set(body) != {"account_id", "grants"}:
+            raise ConsoleAccessError("Invalid access observation")
+        with self._lock:
+            intent = self._intents.get(identity)
+            if (
+                intent is None
+                or intent.expires <= time.monotonic()
+                or (intent.account is not None and intent.account != body["account_id"])
+            ):
+                raise ConsoleAccessError("Access request expired or account changed")
+        with WorkspaceWriterLock(self.home):
+            if load_remote_binding(self.workspace) != intent.binding:
+                raise ConsoleAccessError("Remote binding changed; reconnect")
+            grants = body["grants"]
+            if not isinstance(grants, list) or any(
+                not isinstance(grant, dict)
+                or grant.get("store_id") != intent.store_id
+                or grant.get("collection_id") != intent.collection
+                for grant in grants
+            ):
+                raise ConsoleAccessError("Observation does not match this project")
+            console_access_history.record(
+                self.workspace, intent, body["account_id"], grants
+            )
+        return {"saved": True}
+
     def perform(self, identity, action, body):
+        if action == "observe":
+            return self.observe(identity, body)
         with self._lock:
             intent = self._intents.get(identity)
             if intent is None or intent.expires <= time.monotonic():
@@ -205,7 +244,7 @@ class ConsoleAccess:
                         output=package,
                         permission=intent.permission,
                     )
-                    return submit_bound_export(
+                    receipt = submit_bound_export(
                         self.workspace,
                         self.home,
                         origin=intent.origin,
@@ -215,6 +254,18 @@ class ConsoleAccess:
                         collection=intent.collection,
                         permission=intent.permission,
                     )
+                    if receipt.get("status") == "active":
+                        try:
+                            console_access_history.record(
+                                self.workspace,
+                                intent,
+                                intent.account,
+                                [{**auth, "status": "active"}],
+                            )
+                        except (OSError, ValueError, TypeError, KeyError, RuntimeError):
+                            # Saving a display hint cannot invalidate a committed grant.
+                            return {**receipt, "history_saved": False}
+                    return receipt
         finally:
             with self._lock:
                 intent.busy = False

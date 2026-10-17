@@ -69,6 +69,12 @@ def test_confirmed_scope_reuses_existing_export_and_submit(
     monkeypatch.setattr(access, "export_bound_scoped_keys", export)
     monkeypatch.setattr(access, "submit_bound_export", submit)
     assert console.perform(identity, "submit", request(result)) == {"status": "active"}
+    saved = access.ConsoleAccess(console.workspace, console.home).history("demo")[
+        "records"
+    ]
+    assert saved[0]["grants"][0]["permissions"] == result["context"]["permissions"]
+    console.perform(identity, "observe", {"account_id": "account-1", "grants": []})
+    assert console.history("demo")["records"][0]["grants"] == []
     assert export.call_args.kwargs["collection_id"] == "project/demo/memory"
     assert export.call_args.kwargs["permission"] == permission
     assert submit.call_args.kwargs["expected_account"] == "account-1"
@@ -135,6 +141,89 @@ def test_uncertain_submission_is_not_repeated(console, monkeypatch):
     monkeypatch.setattr(access, "submit_bound_export", submit)
     with pytest.raises(RuntimeError):
         console.perform(identity, "submit", request(result))
+    with pytest.raises(access.ConsoleAccessError):
+        console.perform(identity, "submit", request(result))
+    assert submit.call_count == 1
+
+
+def test_history_survives_restart_and_never_approves_access(console):
+    result = console.begin("demo", "https://recipient.example", "write")
+    grant = {
+        **request(result),
+        "status": "active",
+        "access_token": "never-save-this-token",
+    }
+    console.perform(
+        result["intent_id"], "observe", {"account_id": "account-1", "grants": [grant]}
+    )
+    restarted = access.ConsoleAccess(console.workspace, console.home)
+    saved = restarted.history("demo")["records"]
+    assert len(saved) == 1
+    assert saved[0]["origin"] == "https://recipient.example"
+    assert saved[0]["grants"][0]["permissions"] == ["read", "write"]
+    assert saved[0]["grants"][0]["grant_id"] == "c" * 64
+    state = console.workspace / access.console_access_history.HISTORY_STATE
+    text = state.read_text()
+    assert "access_token" not in text and "never-save-this-token" not in text
+    assert "nonce" not in text and "csrf" not in text
+    assert console._intents[result["intent_id"]].account is None
+    with pytest.raises(access.ConsoleAccessError, match="Confirm"):
+        console.perform(result["intent_id"], "submit", request(result))
+
+
+def test_history_clears_revoked_status_and_isolates_bindings(console, monkeypatch):
+    result = console.begin("demo", "https://recipient.example", "read")
+    observe = lambda grants: console.perform(
+        result["intent_id"], "observe", {"account_id": "account-1", "grants": grants}
+    )
+    observe([{**request(result), "status": "active"}])
+    observe([])
+    assert console.history("demo")["records"][0]["grants"] == []
+    assert console.history("other")["records"] == []
+    old = access.load_remote_binding(console.workspace)
+    changed = RemoteBinding(1, old.endpoint, "d" * 32, old.auth)
+    monkeypatch.setattr(access, "load_remote_binding", lambda _: changed)
+    assert console.history("demo")["records"] == []
+    with pytest.raises(access.ConsoleAccessError, match="binding changed"):
+        observe([])
+
+
+def test_history_rejects_other_projects_and_account_changes(console):
+    result = console.begin("demo", "https://recipient.example", "read")
+    grant = {
+        **request(result),
+        "status": "active",
+        "collection_id": "project/other/memory",
+    }
+    with pytest.raises(access.ConsoleAccessError, match="does not match"):
+        console.perform(
+            result["intent_id"],
+            "observe",
+            {"account_id": "account-1", "grants": [grant]},
+        )
+    console.perform(result["intent_id"], "approve", {"account_id": "account-1"})
+    with pytest.raises(access.ConsoleAccessError, match="account changed"):
+        console.perform(
+            result["intent_id"], "observe", {"account_id": "other", "grants": []}
+        )
+    assert console.history("demo")["records"] == []
+
+
+def test_history_failure_does_not_reclassify_a_successful_grant(console, monkeypatch):
+    result = console.begin("demo", "https://recipient.example", "read")
+    identity = result["intent_id"]
+    console.perform(identity, "approve", {"account_id": "account-1"})
+    monkeypatch.setattr(access, "fetch_recipient", Mock())
+    monkeypatch.setattr(access, "export_bound_scoped_keys", Mock())
+    submit = Mock(return_value={"status": "active"})
+    monkeypatch.setattr(access, "submit_bound_export", submit)
+    monkeypatch.setattr(
+        access.console_access_history, "record", Mock(side_effect=OSError("fixture"))
+    )
+    assert console.perform(identity, "submit", request(result)) == {
+        "status": "active",
+        "history_saved": False,
+    }
     with pytest.raises(access.ConsoleAccessError):
         console.perform(identity, "submit", request(result))
     assert submit.call_count == 1

@@ -16,14 +16,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
-from .console_access import ConsoleAccess
+from .agents import load_agent_definitions
+from .compat import _package_resource_dir, launch_browser
 from .config import get_inbox_path, load_workspace_config
+from .console_access import ConsoleAccess
 from .diff import collect_drift_diffs
 from .doctor import run_doctor
 from .inbox import collect_inbox_rows
-from .agents import load_agent_definitions
 from .mcp import redact_mcp_entry
-from .compat import _package_resource_dir, launch_browser
 from .project import collect_project_summaries
 from .status import (
     collect_mcp_details,
@@ -41,7 +41,7 @@ def _resolve_web_dir() -> Path:
 
 
 _SENSITIVE_KEY = re.compile(
-    r"(token|secret|password|credential|authorization|api[_-]?key)", re.I
+    r"(token|secret|password|credential|authorization|api[_-]?key)", re.IGNORECASE
 )
 
 
@@ -452,6 +452,8 @@ def make_handler(data: ConsoleData, web_dir: Path) -> type[BaseHTTPRequestHandle
             parts = [part for part in path.removeprefix("/api/").split("/") if part]
             if parts == ["console-session"]:
                 self._json({"token": data.access.token})
+            elif len(parts) == 3 and parts[0] == "projects" and parts[2] == "access":
+                self._json(data.access.history(parts[1]))
             elif parts == ["overview"]:
                 self._json(data.overview())
             elif parts == ["doctor"]:
