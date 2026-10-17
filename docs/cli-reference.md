@@ -33,7 +33,9 @@ completion view. Reconnect to manage or revoke access. The Console saves only
 public access summaries in host-local `.local/state/aikito/console-access.json`:
 recipient, account, permissions, expiration, and last-check time. Opening access
 again shows the last confirmed status without opening a popup. This history is
-not a live permission check; reconnect to verify revocation or changes. History
+not a live permission check; reconnect to verify revocation or changes. Saved
+active entries retain a **Reconnect to revoke** action: reconnect, then use the
+live **Revoke** button and confirm the revocation. History
 never restores a login, approves a request, or exports keys, and it is isolated
 by workspace, Remote identity, project, recipient, and account.
 

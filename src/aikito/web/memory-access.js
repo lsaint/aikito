@@ -31,6 +31,17 @@ async function openMemoryAccess(project) {
           const row = document.createElement("p");
           const expired = grant.expires_at * 1000 <= Date.now();
           row.textContent = `${grant.permissions.join(" + ")} · ${expired ? "expired" : "previously authorized; expires"} ${new Date(grant.expires_at * 1000).toLocaleString()}`;
+          if (!expired) {
+            const revoke = document.createElement("button");
+            revoke.textContent = "Reconnect to revoke";
+            revoke.onclick = () => {
+              if (connect.disabled || (popup && !popup.closed)) { popup?.focus(); return; }
+              dialog.querySelector("[name=origin]").value = record.origin;
+              dialog.querySelector("[name=permission]").value = grant.permissions.includes("write") ? "write" : "read";
+              connect.click();
+            };
+            row.append(revoke);
+          }
           state.append(row);
         }
         if (!record.grants.length) {
@@ -104,7 +115,10 @@ async function openMemoryAccess(project) {
     finished = true;
     clearInterval(timer);
     authorize.disabled = true;
-    for (const button of state.querySelectorAll("button")) button.disabled = true;
+    for (const button of state.querySelectorAll("button")) {
+      button.textContent = "Reconnect to revoke";
+      button.onclick = () => connect.click();
+    }
     connect.textContent = "Reconnect to manage access";
     message.textContent = "Project access confirmed. Reconnect to refresh or manage access. AI client connections require separate approval." + historyWarning;
     popup?.close();
