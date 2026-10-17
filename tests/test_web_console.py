@@ -323,6 +323,7 @@ process.stdout.write(markdown(JSON.parse(process.argv[2]), JSON.parse(process.ar
         self.assertTrue((web_dir / "index.html").is_file())
         self.assertTrue((web_dir / "app.js").is_file())
         self.assertTrue((web_dir / "styles.css").is_file())
+        self.assertIn('value="https://aikito.notsonan.com"', (web_dir / "memory-access.js").read_text(encoding="utf-8"))
 
 
 class WebCommandParserTest(unittest.TestCase):
