@@ -1096,7 +1096,7 @@ jobs:
           if (Test-Path "$encryptedBase/discovery-check/workspace/memory/notes/00.md") { throw "Discovery wrote business content" }
           python tests/web_console_access_smoke.py "$encryptedBase/console-check"
           if ($LASTEXITCODE -ne 0) { throw "Local console smoke failed" }
-          foreach ($relative in @("checked.txt", "console.html", "memory-access.js", "default-origin-checked.txt")) {
+          foreach ($relative in @("checked.txt", "console.html", "memory-access.js", "default-origin-checked.txt", "login-progress-checked.txt")) {
             if (!(Test-Path "$encryptedBase/console-check/$relative" -PathType Leaf)) { throw "Missing local console artifact: $relative" }
           }
           python tests/workspace_encrypted_sync_smoke.py "$encryptedBase/sync-check"

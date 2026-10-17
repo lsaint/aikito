@@ -35,6 +35,8 @@ def main(base):
         status, script = request("/memory-access.js")
         assert status == 200 and b"Confirm authorization" in script
         assert b'value="https://aikito.notsonan.com"' in script
+        assert b"Step 2 of 2: Signed in. Access is not granted yet." in script
+        assert b'event.data.type === "signing-in"' in script
         status, raw = request("/api/console-session")
         assert status == 200
         token = json.loads(raw)["token"]
@@ -45,6 +47,7 @@ def main(base):
         assert status == 403
         (base / "console.html").write_bytes(index)
         (base / "memory-access.js").write_bytes(script)
+        (base / "login-progress-checked.txt").write_text("Console CLI served the explicit sign-in and authorization steps\n")
         (base / "default-origin-checked.txt").write_text("Default recipient origin verified through the console CLI\n")
         (base / "checked.txt").write_text("Real console CLI served Memory access and rejected foreign confirmation requests\n")
     finally:

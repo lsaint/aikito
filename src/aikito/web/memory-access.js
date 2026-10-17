@@ -2,20 +2,36 @@
 async function openMemoryAccess(project) {
   const dialog = document.createElement("dialog");
   dialog.className = "memory-access-dialog";
-  dialog.innerHTML = `<form method="dialog"><button class="access-close" aria-label="Close">×</button></form><h2>Memory access · ${escapeHtml(project)}</h2><p>Allow a recipient to read this project's Memory while your devices are offline. Other projects, inbox and global resources stay private.</p><label>Recipient HTTPS origin<input name="origin" type="url" value="https://aikito.notsonan.com" placeholder="https://recipient.example" required></label><label>Permission<select name="permission"><option value="read">Read only</option><option value="write">Read and write</option></select></label><button class="access-connect">Connect</button><p class="access-message" role="status"></p><div class="access-state"></div><button class="access-authorize" disabled>Confirm authorization for 30 days</button>`;
+  dialog.innerHTML = `<form method="dialog"><button class="access-close" aria-label="Close">×</button></form><h2>Memory access · ${escapeHtml(project)}</h2><p>Allow a recipient to read this project's Memory while your devices are offline. Other projects, inbox and global resources stay private.</p><label>Recipient HTTPS origin<input name="origin" type="url" value="https://aikito.notsonan.com" placeholder="https://recipient.example" required></label><label>Permission<select name="permission"><option value="read">Read only</option><option value="write">Read and write</option></select></label><p class="access-progress">Step 1: Connect and sign in. Step 2: Confirm project access here.</p><button class="access-connect">Connect and sign in</button><p class="access-message" role="status"></p><div class="access-state"></div><button class="access-authorize" disabled>Confirm authorization for 30 days</button>`;
   document.body.append(dialog);
   dialog.showModal();
   const message = dialog.querySelector(".access-message");
   const state = dialog.querySelector(".access-state");
   const authorize = dialog.querySelector(".access-authorize");
   const connect = dialog.querySelector(".access-connect");
-  let popup, intent, token, account, timer, busy = false;
+  let popup, intent, token, account, timer, busy = false, signingIn = false;
   let sequence = 0;
   const pending = new Map();
   function receive(event) {
     if (!intent || event.source !== popup || event.origin !== intent.origin || event.data?.intent_id !== intent.intent_id) return;
-    if (event.data.type === "ready") {
+    if (event.data.type === "signing-in") {
+      signingIn = true;
+      authorize.disabled = true;
+      message.textContent = "Step 1 of 2: Finish signing in in the cloud window. Then return here to confirm project access.";
+      for (const call of pending.values()) { clearTimeout(call.timeout); call.reject(new Error(message.textContent)); }
+      pending.clear();
+      return;
+    }
+    if (event.data.type === "continue") {
+      window.focus();
       void refresh();
+      return;
+    }
+    if (event.data.type === "ready") {
+      signingIn = false;
+      for (const call of pending.values()) { clearTimeout(call.timeout); call.reject(new Error("Refreshing sign-in status…")); }
+      pending.clear();
+      queueMicrotask(() => void refresh());
       return;
     }
     const call = pending.get(event.data.request_id);
@@ -41,7 +57,7 @@ async function openMemoryAccess(project) {
     return value;
   }
   async function refresh() {
-    if (busy || !intent || dialog.open === false) return;
+    if (busy || signingIn || !intent || dialog.open === false) return;
     busy = true;
     try {
       const session = await rpc("session");
@@ -67,11 +83,13 @@ async function openMemoryAccess(project) {
         row.append(revoke);
         state.append(row);
       }
-      message.textContent = active.length ? "Authorized. Consumer connections require their own permission. Revocation here stops future service access." : "Not authorized. Review the account, recipient and permission before confirming.";
-      authorize.disabled = active.some(grant => JSON.stringify(grant.permissions) === JSON.stringify(intent.context.permissions));
+      const authorized = active.some(grant => JSON.stringify(grant.permissions) === JSON.stringify(intent.context.permissions));
+      message.textContent = authorized ? "Project access is active. AI client connections require separate approval." : "Step 2 of 2: Signed in. Access is not granted yet. Review the details below, then choose ‘Confirm authorization for 30 days’.";
+      dialog.querySelector(".access-progress").textContent = authorized ? "Complete: This project's selected permissions are authorized." : "Step 1 complete · Step 2: Confirm project access";
+      authorize.disabled = authorized;
     } catch (error) {
       authorize.disabled = true;
-      message.textContent = error.message;
+      message.textContent = error.message === "Sign in using the recipient window" ? "Step 1 of 2: Sign in in the cloud window, then return here to confirm project access." : error.message;
     } finally { busy = false; }
   }
   connect.onclick = async () => {
@@ -90,7 +108,7 @@ async function openMemoryAccess(project) {
       popup.location = `${intent.origin}/local-console#${fragment}`;
       dialog.querySelector("[name=origin]").disabled = true;
       dialog.querySelector("[name=permission]").disabled = true;
-      message.textContent = "Sign in using the recipient window";
+      message.textContent = "Step 1 of 2: Sign in in the cloud window. You will still need to confirm project access here.";
       connect.textContent = "Refresh status";
       timer = setInterval(() => { if (popup?.closed) { clearInterval(timer); message.textContent = "Recipient window closed. Reopen this dialog to reconnect."; authorize.disabled = true; } else void refresh(); }, 5000);
     } catch (error) { popup.close(); message.textContent = error.message; }
