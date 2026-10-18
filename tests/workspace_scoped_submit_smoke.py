@@ -31,7 +31,7 @@ def main(base):
         "public_key": base64.b64encode(public).decode(),
     }
     auth = {
-        "version": 1,
+        "version": 2,
         "account_id": "oidc:" + "a" * 64,
         "store_id": "alpha",
         "sync_id": "b" * 32,
@@ -43,7 +43,7 @@ def main(base):
         "nonce": base64.b64encode(b"n" * 32).decode(),
         "expires_at": int(time.time()) + 240,
     }
-    context = {k: v for k, v in auth.items() if k != "collection_id"}
+    context = dict(auth)
     context.update(
         algorithm=recipient["algorithm"],
         key_version=1,
@@ -51,10 +51,13 @@ def main(base):
         parent_project_id="e1:" + "2" * 32 + ":" + "3" * 64,
         recipient_public_key_sha256=hashlib.sha256(public).hexdigest(),
     )
+    context["reference_bindings"] = [
+        {"logical_id": "project:demo", "resource_id": context["parent_project_id"]}
+    ]
     # Transport-only opaque bytes: the production receiver's HPKE/sample checks
     # are exercised by the independent native-client -> Go integration test.
     packet = {
-        "version": 1,
+        "version": 2,
         "context": context,
         "ciphertext": base64.b64encode(b"x" * 48).decode(),
     }

@@ -117,8 +117,8 @@ def main(base):
                 encoding="utf-8"
             )
             logical = open_bound_remote(local, home=home, environ=environ)
-            fetched = logical.fetch(logical.read(), ["memory:notes/lost-response.md"])
-            assert fetched["memory:notes/lost-response.md"].data == note.read_bytes()
+            fetched = logical.fetch(logical.read(), ["global-memory:notes/lost-response.md"])
+            assert fetched["global-memory:notes/lost-response.md"].data == note.read_bytes()
         (base / "lost-response-checked.txt").write_text(
             "Recovery passed\n", encoding="utf-8"
         )

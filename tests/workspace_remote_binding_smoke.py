@@ -93,8 +93,8 @@ def main(base: Path):
         assert not pending_path.exists()
         logical = open_bound_remote(local, home=home, environ=ENV)
         assert (
-            logical.fetch(logical.read(), ["memory:notes/binding.md"])[
-                "memory:notes/binding.md"
+            logical.fetch(logical.read(), ["global-memory:notes/binding.md"])[
+                "global-memory:notes/binding.md"
             ].data
             == note.read_bytes()
         )

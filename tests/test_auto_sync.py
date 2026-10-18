@@ -87,7 +87,7 @@ class AutoSyncConflictResolutionTest(unittest.TestCase):
             note.write_text("Local content to archive\n", encoding="utf-8")
 
             archived = archive_conflict_loser(
-                ws, "memory:notes/local.md", "local", timestamp="20261009-120000"
+                ws, "global-memory:notes/local.md", "local", timestamp="20261009-120000"
             )
             self.assertEqual(archived.status, "archived")
             self.assertIsNotNone(archived.path)
@@ -106,13 +106,13 @@ class AutoSyncConflictResolutionTest(unittest.TestCase):
             ws = _workspace(Path(tmp_dir) / "ws")
             mock_remote = MagicMock()
             mock_snapshot = MagicMock()
-            mock_snapshot.resources = {"memory:notes/remote.md": MagicMock()}
+            mock_snapshot.resources = {"global-memory:notes/remote.md": MagicMock()}
             mock_payload = FilePayload(b"Remote payload bytes\n")
-            mock_remote.fetch.return_value = {"memory:notes/remote.md": mock_payload}
+            mock_remote.fetch.return_value = {"global-memory:notes/remote.md": mock_payload}
 
             archived = archive_conflict_loser(
                 ws,
-                "memory:notes/remote.md",
+                "global-memory:notes/remote.md",
                 "remote",
                 remote_store=mock_remote,
                 remote_snapshot=mock_snapshot,
@@ -186,7 +186,7 @@ class AutoSyncConflictResolutionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             ws = _workspace(Path(tmp_dir) / "ws")
             # Local side deleted
-            res_local = archive_conflict_loser(ws, "memory:notes/deleted.md", "local")
+            res_local = archive_conflict_loser(ws, "global-memory:notes/deleted.md", "local")
             self.assertEqual(res_local.status, "no_content")
 
             # Remote side deleted
@@ -195,7 +195,7 @@ class AutoSyncConflictResolutionTest(unittest.TestCase):
             mock_snapshot.resources = {}
             res_remote = archive_conflict_loser(
                 ws,
-                "memory:notes/deleted.md",
+                "global-memory:notes/deleted.md",
                 "remote",
                 remote_store=mock_remote,
                 remote_snapshot=mock_snapshot,
@@ -209,7 +209,7 @@ class AutoSyncConflictResolutionTest(unittest.TestCase):
             mock_remote.fetch.side_effect = Exception("Fetch failed")
             mock_plan = MagicMock()
             mock_item = MagicMock()
-            mock_item.id = "memory:notes/conflict.md"
+            mock_item.id = "global-memory:notes/conflict.md"
             mock_plan.conflicts = [mock_item]
             mock_plan.local_snapshot.resources = {mock_item.id: MagicMock()}
             mock_plan.remote_snapshot.resources = {mock_item.id: MagicMock()}
@@ -380,7 +380,7 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                     cmd_remote_watch(args_watch)
 
                 self.assertIn(
-                    "[SYNC] (rev 2) push memory:notes/auto-note.md",
+                    "[SYNC] (rev 2) push global-memory:notes/auto-note.md",
                     stdout_watch_a.getvalue(),
                 )
 
@@ -395,7 +395,7 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                     cmd_remote_watch(args_watch)
 
                 self.assertIn(
-                    "[SYNC] (rev 3) pull memory:notes/auto-note.md",
+                    "[SYNC] (rev 3) pull global-memory:notes/auto-note.md",
                     stdout_watch_b.getvalue(),
                 )
                 note_b = ws_b / "memory/notes/auto-note.md"

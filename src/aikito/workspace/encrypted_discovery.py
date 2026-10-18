@@ -11,10 +11,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
-from collections.abc import Mapping
 
 from ..skill_state import WorkspaceWriterLock
 from . import remote_limits
@@ -26,9 +26,10 @@ from .encrypted_remote import (
     _hkdf,
     _parse,
     _require,
+    collection_for_id,
     metadata_resource,
-    verify_metadata,
     metadata_vault_id,
+    verify_metadata,
 )
 from .payload import FilePayload, ResourceDescriptor, encode_payload, payload_hash
 from .reconcile_budget import check_manifest, fetch_response_size
@@ -36,11 +37,12 @@ from .remote_factory import open_bound_reader
 from .remote_format import FORMAT_RESOURCE_ID, EncryptedStoreUnsupported
 from .remote_protocol import encode_fetch_request
 from .remote_store import RemoteSnapshot
-from .remote_wire import _canonical, _descriptor, _decode_descriptor
+from .remote_wire import _canonical, _decode_descriptor, _descriptor
+from .resource_collections import GLOBAL_COLLECTIONS
 from .resource_state import decode_resources, encode_resources, state_path
 from .resource_write import missing_references
 from .resources import Resource
-from .transactions import atomic_text, entry_type, WorkspaceCoreError
+from .transactions import WorkspaceCoreError, atomic_text, entry_type
 
 DISCOVERY_STATE = ".local/state/aikito/encrypted-discovery.json"
 MAX_DISCOVERY_RESOURCES = 32
@@ -110,7 +112,7 @@ def _load_checkpoint(encoded, vault, sync_id):
         return {}
     _require(len(encoded) <= 2 * remote_limits.MAX_REMOTE_RESPONSE_BYTES)
     value = _parse(encoded, ("version", "sync_id", "vault_id", "entries", "mac"))
-    _require(type(value["version"]) is int and value["version"] == 2)
+    _require(type(value["version"]) is int and value["version"] == 3)
     _require(value["sync_id"] == sync_id and value["vault_id"] == vault.vault_id)
     _require(type(value["mac"]) is str and type(value["entries"]) is dict)
     body = {k: v for k, v in value.items() if k != "mac"}
@@ -128,11 +130,7 @@ def _load_checkpoint(encoded, vault, sync_id):
             type(descriptor) is ResourceDescriptor
             and identity == vault.opaque_id(resource.id)
         )
-        keys = vault.collection(
-            "private"
-            if resource.kind != "project-memory"
-            else f"project/{resource.name.split('/')[0]}/memory"
-        )
+        keys = vault.collection(collection_for_id(resource.id))
         _require(
             (descriptor.fingerprint, descriptor.mode_fingerprint)
             == keys.fingerprints(resource.fingerprint, resource.mode_fingerprint)
@@ -153,7 +151,7 @@ def _load_checkpoint(encoded, vault, sync_id):
 
 def _encode_checkpoint(entries, vault, sync_id):
     body = {
-        "version": 2,
+        "version": 3,
         "sync_id": sync_id,
         "vault_id": vault.vault_id,
         "entries": {
@@ -219,12 +217,17 @@ def discover_encrypted(
         # Only project identities authenticated in private can introduce a tag.
         private_tag = vault.collection("private").tag
         collections = {private_tag: "private"}
+        for collection in GLOBAL_COLLECTIONS:
+            tag = vault.collection(collection).tag
+            _require(tag not in collections or collections[tag] == collection)
+            collections[tag] = collection
         for descriptor, resource, plain in entries.values():
             if resource.kind == "project":
-                collection = f"project/{resource.name}/memory"
-                tag = vault.collection(collection).tag
-                _require(tag not in collections or collections[tag] == collection)
-                collections[tag] = collection
+                for suffix in ("memory", "instructions"):
+                    collection = f"project/{resource.name}/{suffix}"
+                    tag = vault.collection(collection).tag
+                    _require(tag not in collections or collections[tag] == collection)
+                    collections[tag] = collection
         remaining = business.keys() - entries.keys()
         private = sorted(k for k in remaining if k.split(":")[1] == private_tag)
         # Defer project resources until all private identities have been verified.

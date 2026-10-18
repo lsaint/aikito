@@ -66,8 +66,8 @@ def test_plan_fetches_only_the_changed_download(replicas):
     _apply(left, store, home)
     store.requests.clear()
     plan = build_reconcile_plan(right, store)
-    assert {item.id for item in plan.changes} == {"memory:notes/00.md"}
-    assert store.requests == [("memory:notes/00.md",)]
+    assert {item.id for item in plan.changes} == {"global-memory:notes/00.md"}
+    assert store.requests == [("global-memory:notes/00.md",)]
 
 
 def test_deletion_only_plan_fetches_nothing(replicas):
@@ -82,7 +82,7 @@ def test_deletion_only_plan_fetches_nothing(replicas):
     store.requests.clear()
     plan = build_reconcile_plan(left, store)
     assert {item.id for item in plan.changes} == {
-        "memory:notes/deleted.md",
+        "global-memory:notes/deleted.md",
         "config:feature.flag",
     }
     assert store.requests == []
@@ -120,7 +120,7 @@ def test_resolution_fetches_only_newly_chosen_download(replicas):
     assert build_reconcile_plan(left, store).conflicts
     assert store.requests == []
     plan = build_reconcile_plan(
-        left, store, resolutions={"memory:notes/conflict.md": "remote"}
+        left, store, resolutions={"global-memory:notes/conflict.md": "remote"}
     )
     assert not plan.conflicts
-    assert store.requests == [("memory:notes/conflict.md",)]
+    assert store.requests == [("global-memory:notes/conflict.md",)]

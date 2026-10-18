@@ -86,7 +86,7 @@ def test_logical_resources_span_files_tables_and_sets(workspace: Path) -> None:
         "project:app",
         "skill:demo",
     )
-    assert "memory:notes/a-note.md" in resources
+    assert "global-memory:notes/a-note.md" in resources
     assert "project-memory:app/notes/p-note.md" in resources
     assert resources["project-memory:app/notes/p-note.md"].references == (
         "project:app",

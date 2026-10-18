@@ -36,7 +36,7 @@ def test_uncertain_commit_preserves_pending_and_resolves(tmp_path, fault):
 
     # The request reached the center, so the outcome is unknown, not a failure.
     center = backend.read()
-    assert "memory:notes/recovery.md" in center.resources
+    assert "global-memory:notes/recovery.md" in center.resources
     store = PendingCommitStore(a, home)
     assert store.load() is not None
     state, _ = load_replica_state(a)
@@ -59,7 +59,7 @@ def test_not_delivered_commit_retries_the_same_request(tmp_path):
         run_reconciliation(a, remote, home, dry_run=False)
 
     # Nothing reached the center and the original request stays pending.
-    assert "memory:notes/recovery.md" not in backend.read().resources
+    assert "global-memory:notes/recovery.md" not in backend.read().resources
     store = PendingCommitStore(a, home)
     pending = store.load()
     assert pending is not None

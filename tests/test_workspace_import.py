@@ -78,7 +78,7 @@ def test_public_import_dry_run_reports_conflict_without_writing(
     assert result.value.code == 2
     output = capsys.readouterr()
     assert (
-        "[CONFLICT] memory/notes/example.md (memory:notes/example.md): Contents differ"
+        "[CONFLICT] memory/notes/example.md (global-memory:notes/example.md): Contents differ"
         in output.out
     )
     assert "[SUMMARY]" in output.out
@@ -183,7 +183,7 @@ def test_import_creates_memory_then_becomes_noop(tmp_path: Path) -> None:
     assert [
         (item.action, item.resource.relative_path)
         for item in preview.items
-        if item.resource.kind == "memory"
+        if item.resource.kind == "global-memory"
     ] == [("CREATE", note)]
     assert not (target / note).exists()
     assert not home.exists()
@@ -192,7 +192,7 @@ def test_import_creates_memory_then_becomes_noop(tmp_path: Path) -> None:
     run_workspace_import(source, target, home, dry_run=False)
     assert (target / note).read_text(encoding="utf-8") == "# Example\n"
     again = build_import_plan(source, target)
-    assert [item.action for item in again.items if item.resource.kind == "memory"] == [
+    assert [item.action for item in again.items if item.resource.kind == "global-memory"] == [
         "NOOP"
     ]
 
@@ -205,7 +205,7 @@ def test_conflict_keeps_target_and_applies_unrelated_creates(tmp_path: Path) -> 
     (target / "memory/notes/a.md").write_text("other", encoding="utf-8")
 
     plan = run_workspace_import(source, target, tmp_path / "home", dry_run=False)
-    assert [item.action for item in plan.items if item.resource.kind == "memory"] == [
+    assert [item.action for item in plan.items if item.resource.kind == "global-memory"] == [
         "CONFLICT",
         "CREATE",
     ]

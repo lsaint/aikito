@@ -71,7 +71,7 @@ def test_http_fetch_capacity_failure_preserves_local_and_base(tmp_path, monkeypa
         plan = run_reconciliation(local, remote, home, dry_run=False)
         assert (
             next(
-                item for item in plan.items if item.id == "memory:notes/large.md"
+                item for item in plan.items if item.id == "global-memory:notes/large.md"
             ).action
             == "BLOCKED"
         )
@@ -98,7 +98,7 @@ def test_oversized_http_commit_never_reaches_server_commit(tmp_path, monkeypatch
         plan = run_reconciliation(local, remote, home, dry_run=False)
         assert (
             next(
-                item for item in plan.items if item.id == "memory:notes/large.md"
+                item for item in plan.items if item.id == "global-memory:notes/large.md"
             ).action
             == "BLOCKED"
         )

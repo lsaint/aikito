@@ -82,7 +82,6 @@ def _get_handlers(handlers: dict[str, Any] | None = None) -> dict[str, Any]:
         return handlers
     from . import cli
     from .remote_claim_cli import cmd_remote_claim
-    from .remote_key_cli import cmd_remote_key
     from .remote_cli import (
         cmd_remote_bind,
         cmd_remote_credential,
@@ -93,6 +92,7 @@ def _get_handlers(handlers: dict[str, Any] | None = None) -> dict[str, Any]:
         cmd_remote_sync,
         cmd_remote_watch,
     )
+    from .remote_key_cli import cmd_remote_key
 
     resolved = {
         name: getattr(cli, name)
@@ -1021,7 +1021,9 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         "--account", required=True, help="Independently selected account ID"
     )
     p_key_submit.add_argument(
-        "--collection", required=True, help="Explicit project/<name>/memory scope"
+        "--collection",
+        required=True,
+        help="Explicit supported collection; private configuration is excluded",
     )
     p_key_submit.add_argument(
         "--permission",
@@ -1064,13 +1066,16 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     )
     p_key_initialize.set_defaults(func=cmd_remote_key)
     p_key_export = key_subparsers.add_parser(
-        "export", help="Seal selected project Memory keys to a recipient"
+        "export",
+        help="Seal explicitly selected resource collection keys to a recipient",
     )
     p_key_export.add_argument(
         "--workspace", required=True, help="Unlocked bound workspace"
     )
     p_key_export.add_argument(
-        "--collection", required=True, help="Explicit project/<name>/memory collection"
+        "--collection",
+        required=True,
+        help="Explicit supported collection; authorization fixes the protocol version",
     )
     p_key_export.add_argument(
         "--recipient", required=True, help="Trusted recipient public key JSON file"

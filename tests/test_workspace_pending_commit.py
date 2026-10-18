@@ -138,7 +138,7 @@ def test_completion_cannot_change_unsafe_or_wrong_upload_base(pending_case):
     local, remote, store, pending = pending_case
     receipt = remote.commit(pending.request)
     correct = completed_state(pending, receipt)
-    unsafe = local_resource_for_id("memory:notes/blocked.md", "a" * 64)
+    unsafe = local_resource_for_id("global-memory:notes/blocked.md", "a" * 64)
     with pytest.raises(PendingCommitError, match="outside"):
         store.complete(
             pending, receipt, replace(correct, base={**correct.base, unsafe.id: unsafe})
@@ -254,7 +254,7 @@ def test_local_resources_base_and_marker_share_one_journal(
 ):
     local, remote, store, original_pending = pending_case
     resource_id = (
-        "memory:notes/download.md" if kind == "memory" else "inbox:download.md"
+        "global-memory:notes/download.md" if kind == "memory" else "inbox:download.md"
     )
     relative = "memory/notes/download.md" if kind == "memory" else "capture/download.md"
     if kind == "inbox":

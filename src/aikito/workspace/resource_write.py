@@ -390,7 +390,7 @@ def prepare_resource_writes(
         kind = kinds.pop()
         current = version_at(target, relative.as_posix(), kind, policy)
         if (
-            grouped[0].kind in {"memory", "project-memory", "skill"}
+            grouped[0].kind in {"global-memory", "project-memory", "skill"}
             and (current.fingerprint if current else None) != grouped[0].before
         ):
             raise WorkspaceCoreError(
@@ -466,7 +466,7 @@ def prepare_resource_writes(
                 )
             after = fingerprint_resource(source, kind)
             if (
-                grouped[0].kind in {"memory", "project-memory", "skill"}
+                grouped[0].kind in {"global-memory", "project-memory", "skill"}
                 and after != grouped[0].fingerprint
             ):
                 raise WorkspaceCoreError(

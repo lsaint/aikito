@@ -27,6 +27,7 @@ from .payload import (
 from .remote_format import EncryptedStoreUnsupported
 from .remote_store import StoreError
 from .remote_wire import _canonical, decode_state_json
+from .resource_collections import collection_for_resource, parse_collection
 from .resource_state import local_resource_for_id
 from .resources import Resource
 
@@ -157,15 +158,10 @@ def _version(value):
 
 
 def collection_for_id(logical_id: str) -> str:
-    _require(type(logical_id) is str)
-    kind, separator, name = logical_id.partition(":")
-    _require(separator and name)
-    if kind == "project-memory":
-        project, separator, member = name.partition("/")
-        _require(project and separator and member)
-        local_resource_for_id(f"project:{project}", "")
-        return f"project/{project}/memory"
-    return "private"
+    try:
+        return collection_for_resource(logical_id)
+    except ValueError:
+        raise EncryptedRemoteError() from None
 
 
 @dataclass(frozen=True)
@@ -205,9 +201,10 @@ def derive_collection(vrk: bytes, vault_id: str, collection_id: str) -> Collecti
     validate_vault_id(vault_id)
     _require(type(collection_id) is str)
     if collection_id != "private":
-        parts = collection_id.split("/")
-        _require(len(parts) == 3 and parts[0] == "project" and parts[2] == "memory")
-        local_resource_for_id(f"project:{parts[1]}", "")
+        try:
+            parse_collection(collection_id)
+        except ValueError:
+            raise EncryptedRemoteError() from None
     salt = bytes.fromhex(vault_id)
     master = _hkdf(
         vrk,

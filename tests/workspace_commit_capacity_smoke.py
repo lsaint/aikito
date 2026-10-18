@@ -42,7 +42,7 @@ def exercise(base: Path) -> None:
     try:
         result = run_reconciliation(local, remote, home, dry_run=False)
         item = next(
-            item for item in result.items if item.id == "memory:notes/capacity.md"
+            item for item in result.items if item.id == "global-memory:notes/capacity.md"
         )
         assert item.action == "BLOCKED" and "wire budget" in item.reason
         assert commits == []
@@ -64,7 +64,7 @@ def exercise(base: Path) -> None:
         (local / "memory/notes/oversized.md").write_bytes(b"x" * 4096)
         (local / "memory/notes/neighbor.md").write_bytes(b"neighbor\n")
         plan = run_reconciliation(local, remote, home, dry_run=False)
-        item = next(i for i in plan.items if i.id == "memory:notes/oversized.md")
+        item = next(i for i in plan.items if i.id == "global-memory:notes/oversized.md")
         assert item.action == "BLOCKED" and "size limit" in item.reason
         assert not (backend.root / "memory/notes/oversized.md").exists()
         assert (backend.root / "memory/notes/neighbor.md").read_bytes() == (

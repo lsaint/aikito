@@ -46,7 +46,7 @@ CHECKPOINTS = ("replica", "committed", "cleanup", "before-clear", "after-clear")
 def put(name, data=b"remote", before=None):
     payload = FilePayload(data)
     return ResourceMutation(
-        f"memory:notes/{name}.md",
+        f"global-memory:notes/{name}.md",
         before,
         ResourceDescriptor(
             hashlib.sha256(data).hexdigest(),
@@ -157,7 +157,7 @@ def delivery_scenarios(root, factory):
                 result = original.result(timeout=15)
                 assert remote.results == (result, result)
         assert backend.read().revision == 1
-        assert ("memory:notes/upload.md" in backend.read().resources) != competing
+        assert ("global-memory:notes/upload.md" in backend.read().resources) != competing
         assert PendingCommitStore(local, home).load() is None
         report(
             case,
@@ -190,7 +190,7 @@ def historical_scenario(root, factory):
         else:
             raise AssertionError("Expected response loss")
         pending = PendingCommitStore(local, home).load()
-        assert "memory:notes/blocked.md" in pending.excluded_resource_ids
+        assert "global-memory:notes/blocked.md" in pending.excluded_resource_ids
         snapshot = backend.read()
         submit(
             backend,
@@ -198,12 +198,12 @@ def historical_scenario(root, factory):
             put(
                 "download",
                 b"current download",
-                snapshot.resources["memory:notes/download.md"],
+                snapshot.resources["global-memory:notes/download.md"],
             ),
-            put("noop", b"current noop", snapshot.resources["memory:notes/noop.md"]),
+            put("noop", b"current noop", snapshot.resources["global-memory:notes/noop.md"]),
             ResourceMutation(
-                "memory:notes/upload.md",
-                snapshot.resources["memory:notes/upload.md"],
+                "global-memory:notes/upload.md",
+                snapshot.resources["global-memory:notes/upload.md"],
                 None,
                 None,
             ),
@@ -218,25 +218,25 @@ def historical_scenario(root, factory):
         assert confirm(local, resumed, home)
         assert resumed.calls == ("resolve_commit",)
         state = load_replica_state(local)[0]
-        assert "memory:notes/deleted.md" not in state.base
-        assert "memory:notes/download.md" not in state.base
+        assert "global-memory:notes/deleted.md" not in state.base
+        assert "global-memory:notes/download.md" not in state.base
         for name in ("noop", "blocked"):
             assert (
-                state.base[f"memory:notes/{name}.md"]
-                == before.base[f"memory:notes/{name}.md"]
+                state.base[f"global-memory:notes/{name}.md"]
+                == before.base[f"global-memory:notes/{name}.md"]
             )
         uploaded = next(
-            m for m in pending.request.mutations if m.id == "memory:notes/upload.md"
+            m for m in pending.request.mutations if m.id == "global-memory:notes/upload.md"
         )
         assert state.base[uploaded.id].fingerprint == uploaded.after.fingerprint
         latest = backend.read().revision
         plan = run_reconciliation(local, resumed, home, dry_run=False)
         assert {item.id for item in plan.conflicts} == {
-            "memory:notes/upload.md",
-            "memory:notes/download.md",
+            "global-memory:notes/upload.md",
+            "global-memory:notes/download.md",
         }
         assert (
-            next(item for item in plan.items if item.id == "memory:notes/blocked.md").action
+            next(item for item in plan.items if item.id == "global-memory:notes/blocked.md").action
             == "BLOCKED"
         )
         assert (local / "memory/notes/upload.md").read_text() == "user changed upload"
@@ -332,7 +332,7 @@ def local_crashes(root):
         else:
             assert not recover_reconciliation(local, reopened, home)
             assert not (local / "memory/notes/download.md").exists()
-            assert "memory:notes/download.md" not in load_replica_state(local)[0].base
+            assert "global-memory:notes/download.md" not in load_replica_state(local)[0].base
             assert load_replica_state(local)[0].completion_marker is not None
         assert PendingCommitStore(local, home).load() is None
         assert backend.read().revision == 3

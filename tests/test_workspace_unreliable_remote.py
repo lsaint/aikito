@@ -132,8 +132,8 @@ def test_delayed_original_and_exact_retry_share_cas_and_receipt(case, competing)
     assert remote.deliveries[0] == remote.deliveries[1] == remote.commits[0]
     assert backend.read().revision == 1
     state, _ = load_replica_state(local)
-    assert ("memory:notes/upload.md" in state.base) == (not competing)
-    assert ("memory:notes/upload.md" in backend.read().resources) == (not competing)
+    assert ("global-memory:notes/upload.md" in state.base) == (not competing)
+    assert ("global-memory:notes/upload.md" in backend.read().resources) == (not competing)
     assert PendingCommitStore(local, home).load() is None
 
 
@@ -166,7 +166,7 @@ def test_old_receipt_survives_other_clients_without_historical_fetch(case):
         run(case)
     pending = PendingCommitStore(local, home).load()
     uploaded = next(
-        m for m in pending.request.mutations if m.id == "memory:notes/upload.md"
+        m for m in pending.request.mutations if m.id == "global-memory:notes/upload.md"
     )
     backend.commit(
         request(
@@ -237,8 +237,8 @@ def test_wait_time_edits_block_local_write_and_recovery_only_confirms_upload(
     state, _ = load_replica_state(local)
     assert change.id not in state.base
     assert (
-        state.base["memory:notes/upload.md"].fingerprint
-        == backend.read().resources["memory:notes/upload.md"].fingerprint
+        state.base["global-memory:notes/upload.md"].fingerprint
+        == backend.read().resources["global-memory:notes/upload.md"].fingerprint
     )
     assert edited.read_text() == new_text
 
@@ -261,7 +261,7 @@ def test_stale_replica_cannot_replace_unknown_winner_receipt(case, tmp_path):
             clone, UnreliableRemote(backend), tmp_path / "clone-home", dry_run=False
         )
     assert PendingCommitStore(clone, tmp_path / "clone-home").load() is not None
-    assert "memory:notes/clone.md" not in backend.read().resources
+    assert "global-memory:notes/clone.md" not in backend.read().resources
     assert confirm(local, remote, home)
     assert (
         load_replica_state(local)[0].receipt_cursor.request_id

@@ -10,20 +10,20 @@ import pytest
 
 from aikito.workspace import encrypted_remote as crypto
 from aikito.workspace.payload import (
-    ResourceDescriptor,
     FilePayload,
     MemberPayload,
+    ResourceDescriptor,
     TomlPayload,
     TreeEntry,
     TreePayload,
-    inspect_payload,
-    tree_mode_fingerprint,
     encode_payload,
+    inspect_payload,
     payload_hash,
+    tree_mode_fingerprint,
 )
 from aikito.workspace.remote_format import EncryptedStoreUnsupported
 from aikito.workspace.remote_wire import _canonical
-from aikito.workspace.resource_state import local_resource_for_id, SYNC_KINDS
+from aikito.workspace.resource_state import local_resource_for_id
 
 pytest.importorskip("cryptography")
 
@@ -127,7 +127,7 @@ def test_frozen_envelope_and_original_payload_match_exactly(monkeypatch):
 @pytest.mark.parametrize(
     "identity,payload",
     [
-        ("memory:notes/unicode.md", FilePayload("你好\n".encode())),
+        ("global-memory:notes/unicode.md", FilePayload("你好\n".encode())),
         ("project-memory:demo/notes/note.md", FilePayload(b"note\n")),
         ("config:feature.flag", TomlPayload(("feature", "flag"), "value = true\n")),
         ("project:demo", MemberPayload()),
@@ -208,7 +208,7 @@ def test_envelope_tampering_is_rejected_even_with_updated_transport_hash(change)
     vault = crypto.EncryptedVault(VAULT, VRK)
     payload = FilePayload(b"note\n")
     identity, descriptor, outer = vault.encrypt(
-        resource("memory:notes/note.md", payload), payload, SYNC
+        resource("global-memory:notes/note.md", payload), payload, SYNC
     )
     envelope = json.loads(outer.data)
     if change in {"nonce", "salt", "ciphertext"}:
@@ -231,7 +231,7 @@ def test_unknown_envelope_version_is_not_downgraded():
     vault = crypto.EncryptedVault(VAULT, VRK)
     payload = FilePayload(b"note\n")
     identity, descriptor, outer = vault.encrypt(
-        resource("memory:notes/note.md", payload), payload, SYNC
+        resource("global-memory:notes/note.md", payload), payload, SYNC
     )
     envelope = json.loads(outer.data)
     envelope["version"] = 2
@@ -304,13 +304,14 @@ def test_regeneration_does_not_revoke_old_code_and_old_header(monkeypatch):
         crypto.recover_vault(replaced, SYNC, bytes.fromhex(INPUT["recovery_code_hex"]))
 
 
-def test_all_known_kinds_have_closed_collection_assignment():
-    for kind in SYNC_KINDS:
-        identity = f"{kind}:demo/notes/note.md"
-        assert crypto.collection_for_id(identity) == (
-            "project/demo/memory" if kind == "project-memory" else "private"
-        )
-    assert crypto.collection_for_id("future:resource") == "private"
+def test_collection_assignment_rejects_unknown_or_invalid_identities():
+    for identity in (
+        "future:resource",
+        "global-instructions:OTHER.md",
+        "memory:notes/old.md",
+    ):
+        with pytest.raises(crypto.EncryptedRemoteError):
+            crypto.collection_for_id(identity)
 
 
 def test_credentials_round_trip_only_inside_ciphertext():
@@ -318,10 +319,10 @@ def test_credentials_round_trip_only_inside_ciphertext():
         b'api_key = "test-only-abcdefghijklmnopqrstuvwxyz1234567890"\n'
     )
     vault = crypto.EncryptedVault(VAULT, VRK)
-    logical = resource("memory:notes/credential.md", payload)
+    logical = resource("global-memory:notes/credential.md", payload)
     identity, descriptor, encrypted = vault.encrypt(logical, payload, SYNC)
     assert payload.data not in encode_payload(encrypted)
-    assert vault.decrypt(identity, descriptor, encrypted, SYNC, "private") == (
+    assert vault.decrypt(identity, descriptor, encrypted, SYNC, "global/memory") == (
         logical,
         payload,
     )
@@ -332,7 +333,7 @@ def test_encoded_resource_budget_is_enforced(monkeypatch):
     payload = FilePayload(b"note\n")
     with pytest.raises(crypto.EncryptedRemoteError):
         crypto.EncryptedVault(VAULT, VRK).encrypt(
-            resource("memory:notes/note.md", payload), payload, SYNC
+            resource("global-memory:notes/note.md", payload), payload, SYNC
         )
 
 
@@ -443,13 +444,16 @@ def test_changed_content_never_reuses_verified_old_ciphertext():
     old_payload = FilePayload(b"old\n")
     new_payload = FilePayload(b"new\n")
     old = vault.encrypt(
-        resource("memory:notes/note.md", old_payload), old_payload, SYNC
+        resource("global-memory:notes/note.md", old_payload), old_payload, SYNC
     )
     new = vault.encrypt(
-        resource("memory:notes/note.md", new_payload), new_payload, SYNC, existing=old
+        resource("global-memory:notes/note.md", new_payload),
+        new_payload,
+        SYNC,
+        existing=old,
     )
     assert new[0] == old[0] and new[1].fingerprint != old[1].fingerprint
-    assert vault.decrypt(*new, SYNC, "private")[1] == new_payload
+    assert vault.decrypt(*new, SYNC, "global/memory")[1] == new_payload
 
 
 def test_unsupported_metadata_is_rejected_even_with_a_valid_mac():

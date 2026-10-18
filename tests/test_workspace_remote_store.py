@@ -57,7 +57,7 @@ def mutation(name="one", data=b"one", before=None):
         payload_hash(payload),
         len(encode_payload(payload)),
     )
-    return ResourceMutation(f"memory:notes/{name}.md", before, descriptor, payload)
+    return ResourceMutation(f"global-memory:notes/{name}.md", before, descriptor, payload)
 
 
 def test_engine_uses_only_portable_interface(tmp_path):
@@ -130,11 +130,11 @@ def test_fetch_missing_content_and_corrupt_manifest_fail_without_writes(tmp_path
     snapshot = publish_batch(remote, remote.read(), [mutation()])
     before = files(remote.root)
     with pytest.raises(InvalidContent, match="Missing requested"):
-        remote.fetch(snapshot, ["memory:notes/missing.md"])
+        remote.fetch(snapshot, ["global-memory:notes/missing.md"])
     assert files(remote.root) == before
     manifest = remote.root / REMOTE_STATE
     raw = json.loads(manifest.read_text())
-    raw["payload_hashes"]["memory:notes/one.md"] = "corrupted"
+    raw["payload_hashes"]["global-memory:notes/one.md"] = "corrupted"
     manifest.write_text(json.dumps(raw))
     before = files(remote.root)
     with pytest.raises(InvalidContent, match="integrity mismatch"):

@@ -21,11 +21,13 @@ from .remote_claim import _read_response
 from .remote_credentials import resolve_credential
 from .remote_wire import _canonical
 from .scoped_export import (
-    _authorization,
-    _CONTEXT_FIELDS,
     EXPORT_SUITE,
     MAX_EXPORT_BYTES,
+    _authorization,
+    _validate_context,
 )
+
+__all__ = ["EXPORT_SUITE", "ExportSubmissionError", "submit_bound_export"]
 
 
 class ExportSubmissionError(Exception):
@@ -74,22 +76,9 @@ def submit_bound_export(
         raw = _read(package)
         packet = _parse(raw, ("version", "context", "ciphertext"))
         context = packet["context"]
-        if type(packet["version"]) is not int or packet["version"] != 1:
+        if type(packet["version"]) is not int or packet["version"] != auth["version"]:
             raise ValueError()
-        if type(context) is not dict or set(context) != set(_CONTEXT_FIELDS):
-            raise ValueError()
-        if any(
-            context[k] != v or type(context[k]) is not type(v)
-            for k, v in auth.items()
-            if k != "collection_id"
-        ):
-            raise ValueError()
-        if (
-            context["algorithm"] != EXPORT_SUITE
-            or type(context["key_version"]) is not int
-            or context["key_version"] != 1
-        ):
-            raise ValueError()
+        _validate_context(context, auth)
         if len(_unb64(packet["ciphertext"])) < 48:
             raise ValueError()
         origin, recipient = require_pinned_recipient(workspace, home, origin)
@@ -146,7 +135,7 @@ def submit_bound_export(
         return receipt
     except ExportSubmissionError:
         raise
-    except Exception:
+    except Exception:  # noqa: BLE001 - Keep transport and input errors sanitized.
         raise ExportSubmissionError(
             "export_outcome_unknown" if attempted else "export_request_invalid"
         ) from None

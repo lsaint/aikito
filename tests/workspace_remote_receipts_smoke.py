@@ -72,7 +72,7 @@ def exercise(base: Path) -> None:
         remote = FilesystemRemote.create(case / "center")
         payload = FilePayload(b"# Durable receipt\r\n")
         mutation = ResourceMutation(
-            "memory:notes/receipt.md",
+            "global-memory:notes/receipt.md",
             None,
             ResourceDescriptor(
                 content_digest(payload.data),

@@ -103,7 +103,7 @@ def _mcp(root: Path, value: str) -> None:
 
 
 _PLAIN = {
-    "memory:notes/a.md": _memory,
+    "global-memory:notes/a.md": _memory,
     "project-memory:demo/notes/a.md": _project_memory,
     "skill:alpha": _skill,
     "inbox:idea.md": _inbox,
@@ -268,7 +268,7 @@ def test_import_into_fresh_workspace_reproduces_every_source_resource(
         "global-instructions",
         "inbox",
         "mcp",
-        "memory",
+        "global-memory",
         "project",
         "project-field",
         "project-instructions",
@@ -337,7 +337,7 @@ def test_reconcile_covers_managed_resources_and_excludes_bundled_skills(
     (local / "mcps/docs.toml").write_text('transport = "remote"\n')
     plan = build_reconcile_plan(local, remote)
     assert {
-        "memory:notes/a.md",
+        "global-memory:notes/a.md",
         "project-memory:demo/notes/a.md",
         "skill:alpha",
         "global-instructions:AGENTS.md",

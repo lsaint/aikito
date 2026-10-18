@@ -161,10 +161,10 @@ function show(detail, remember = true) {
     if(selected.dataset.view === "raw") { article.className="source-content"; article.textContent=detail.content; }
     if(selected.dataset.view === "rendered") { article.className="rendered-content"; article.innerHTML=markdown(detail.content,detail.wikilinks); }
   };
-  if (detail.memory_access_project) {
+  if (detail.resource_access_project) {
     const project = detail.content;
-    content.innerHTML = `<div class="project-heading"><span class="eyebrow">PROJECT</span><h1>${escapeHtml(detail.name)}</h1>${project.description?.trim() ? `<p>${escapeHtml(project.description.trim())}</p>` : ""}</div><div class="project-metrics"><div><strong>${escapeHtml(project.memory_notes_count)}</strong><span>Memory notes</span></div><div><strong>${escapeHtml(project.skills_count)}</strong><span>Skills</span></div><div><strong>${escapeHtml(project.runtime_status)}</strong><span>Local resources</span></div></div><section class="access-card"><div class="access-card-icon" aria-hidden="true">↗</div><div><span class="eyebrow">MEMORY ACCESS</span><h2>Choose who can use this project's Memory</h2><p>Connect a recipient to view or change access. Your other projects, inbox and global resources stay private.</p><button class="memory-access-button">Manage access <span aria-hidden="true">→</span></button></div></section><details class="project-details"><summary>Project details</summary>${properties(project)}</details>`;
-    content.querySelector(".memory-access-button").onclick = () => openMemoryAccess(detail.memory_access_project);
+    content.innerHTML = `<div class="project-heading"><span class="eyebrow">PROJECT</span><h1>${escapeHtml(detail.name)}</h1>${project.description?.trim() ? `<p>${escapeHtml(project.description.trim())}</p>` : ""}</div><div class="project-metrics"><div><strong>${escapeHtml(project.memory_notes_count)}</strong><span>Memory notes</span></div><div><strong>${escapeHtml(project.skills_count)}</strong><span>Skills</span></div><div><strong>${escapeHtml(project.runtime_status)}</strong><span>Local resources</span></div></div><section class="access-card"><div class="access-card-icon" aria-hidden="true">↗</div><div><span class="eyebrow">RESOURCE ACCESS</span><h2>Choose access to your workspace resources</h2><p>Choose global and project collections, including complete Skills and Inbox. Private configuration stays private.</p><button class="resource-access-button">Manage access <span aria-hidden="true">→</span></button></div></section><details class="project-details"><summary>Project details</summary>${properties(project)}</details>`;
+    content.querySelector(".resource-access-button").onclick = () => openResourceAccess(detail.resource_access_project);
   }
   addBackButton();
   governance.innerHTML=`<h2>Governance</h2>${properties({Source:detail.source,Scope:detail.scope,Trust:detail.trust,Updated:detail.updated,Freshness:detail.freshness_days == null ? undefined : `${detail.freshness_days} days / ${detail.stale_after_days} days`})}`;
@@ -196,7 +196,8 @@ function showWorkspace(overview, remember = true) {
   rememberView("workspace", overview, remember);
   selectResource(null);
   governance.innerHTML = '<h2>Governance</h2><p class="muted">Select a resource.</p>';
-  content.innerHTML = `<div class="project-heading"><span class="eyebrow">YOUR WORKSPACE</span><h1>Context, in one place.</h1><p>Browse your projects and decide how their Memory is shared.</p></div><div class="project-grid">${overview.projects.map(project => `<section class="project-card"><h2><button class="project-open" data-project-open="${escapeAttribute(project.name)}">${escapeHtml(project.name)}</button></h2>${project.description?.trim() ? `<p>${escapeHtml(project.description.trim())}</p>` : ""}<div class="project-card-meta">${escapeHtml(project.memory_notes_count)} Memory notes · ${escapeHtml(project.skills_count)} skills</div><div class="project-card-actions"><button data-project-access="${escapeAttribute(project.name)}">Access control</button></div></section>`).join("") || '<p>No projects registered yet.</p>'}</div>`;
+  content.innerHTML = `<div class="project-heading"><span class="eyebrow">YOUR WORKSPACE</span><h1>Context, in one place.</h1><p>Browse your workspace and choose which resources to share.</p><button class="resource-access-button" id="workspace-access">Manage resource access</button></div><div class="project-grid">${overview.projects.map(project => `<section class="project-card"><h2><button class="project-open" data-project-open="${escapeAttribute(project.name)}">${escapeHtml(project.name)}</button></h2>${project.description?.trim() ? `<p>${escapeHtml(project.description.trim())}</p>` : ""}<div class="project-card-meta">${escapeHtml(project.memory_notes_count)} Memory notes · ${escapeHtml(project.skills_count)} skills</div><div class="project-card-actions"><button data-project-access="${escapeAttribute(project.name)}">Access control</button></div></section>`).join("") || '<p>No projects registered yet.</p>'}</div>`;
+  content.querySelector("#workspace-access").onclick = () => openResourceAccess();
   content.querySelectorAll("[data-project-open]").forEach(button => button.onclick = async () => {
     try {
       show(await get(`/api/projects/${encodeURIComponent(button.dataset.projectOpen)}`));
@@ -204,7 +205,7 @@ function showWorkspace(overview, remember = true) {
     }
     catch (error) { content.textContent = error.message; }
   });
-  content.querySelectorAll("[data-project-access]").forEach(button => button.onclick = () => openMemoryAccess(button.dataset.projectAccess));
+  content.querySelectorAll("[data-project-access]").forEach(button => button.onclick = () => openResourceAccess(button.dataset.projectAccess));
   addBackButton();
 }
 

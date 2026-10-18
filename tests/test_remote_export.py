@@ -13,8 +13,8 @@ from aikito.workspace.remote_binding import RemoteAuth, RemoteBinding
 from aikito.workspace.remote_wire import _canonical
 
 
-@pytest.fixture
-def export_input(tmp_path, monkeypatch):
+@pytest.fixture(params=[2])
+def export_input(tmp_path, monkeypatch, request):
     public = bytes(range(32))
     recipient = {
         "version": 1,
@@ -23,7 +23,7 @@ def export_input(tmp_path, monkeypatch):
         "public_key": base64.b64encode(public).decode(),
     }
     auth = {
-        "version": 1,
+        "version": request.param,
         "account_id": "oidc:" + "a" * 64,
         "store_id": "alpha",
         "sync_id": "b" * 32,
@@ -43,8 +43,16 @@ def export_input(tmp_path, monkeypatch):
         parent_project_id="e1:" + "2" * 32 + ":" + "3" * 64,
         recipient_public_key_sha256=hashlib.sha256(public).hexdigest(),
     )
+    if request.param == 2:
+        context["collection_id"] = auth["collection_id"]
+        context["reference_bindings"] = [
+            {
+                "logical_id": "project:demo",
+                "resource_id": context["parent_project_id"],
+            }
+        ]
     packet = {
-        "version": 1,
+        "version": request.param,
         "context": context,
         "ciphertext": base64.b64encode(b"x" * 48).decode(),
     }
@@ -122,7 +130,7 @@ def export_input(tmp_path, monkeypatch):
 
 
 def test_oidc_account_and_successful_verification(export_input):
-    *_, connection, response, receipt, run = export_input
+    *_, connection, _response, receipt, run = export_input
     assert run() == receipt
     connection.request.assert_called_once()
     args, kwargs = connection.request.call_args

@@ -1,4 +1,4 @@
-"""Local consent binds one project, recipient, account and permission per intent.
+"""One local confirmation binds a set of collection permissions to one recipient.
 
 Browser sessions remain at the recipient origin. Only public challenges and
 requests cross the window boundary; existing claim/export/submit operations own
@@ -12,7 +12,7 @@ import secrets
 import tempfile
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import console_access_history
@@ -40,15 +40,14 @@ class ConsoleAccessError(ValueError):
 @dataclass
 class AccessIntent:
     origin: str
-    collection: str
-    permission: str
+    selections: dict[str, str]
     sync_id: str
     vault_id: str
     store_id: str
     expires: float
     binding: object
     account: str | None = None
-    used: bool = False
+    submitted: set[str] = field(default_factory=set)
     busy: bool = False
 
 
@@ -59,13 +58,45 @@ class ConsoleAccess:
         self._intents = {}
         self._lock = threading.Lock()
 
-    def begin(self, project, origin, permission):
-        collection = f"project/{project}/memory"
-        _collection(collection)
-        if not (self.workspace / "projects" / project / "agent.toml").is_file():
-            raise ConsoleAccessError("Project not found")
-        if permission not in {"read", "write"}:
-            raise ConsoleAccessError("Select read or write permission")
+    def collections(self):
+        choices = [
+            ("global/instructions", "Global instructions"),
+            ("global/memory", "Global memory"),
+            ("skills", "Skills and all attachments"),
+            ("subagents", "Subagents"),
+            ("inbox", "Inbox"),
+        ]
+        for config in sorted((self.workspace / "projects").glob("*/agent.toml")):
+            if not config.is_file():
+                continue
+            project = config.parent.name
+            for kind in ("instructions", "memory"):
+                collection = f"project/{project}/{kind}"
+                try:
+                    _collection(collection)
+                except ValueError:
+                    continue
+                choices.append((collection, f"{project} / {kind}"))
+        return [
+            {"collection_id": identity, "label": label} for identity, label in choices
+        ]
+
+    def begin(self, selections, origin):
+        allowed = {item["collection_id"] for item in self.collections()}
+        if not isinstance(selections, list) or not 1 <= len(selections) <= 32:
+            raise ConsoleAccessError("Select between 1 and 32 collections")
+        selected = {}
+        for item in selections:
+            if (
+                not isinstance(item, dict)
+                or set(item) != {"collection_id", "permission"}
+                or not isinstance(item["collection_id"], str)
+                or item["collection_id"] not in allowed
+                or item["collection_id"] in selected
+                or item["permission"] not in ("read", "write")
+            ):
+                raise ConsoleAccessError("Invalid collection selection")
+            selected[item["collection_id"]] = item["permission"]
         origin = canonical_origin(origin)
         binding = load_remote_binding(self.workspace)
         if binding is None:
@@ -103,8 +134,7 @@ class ConsoleAccess:
             identity = secrets.token_urlsafe(32)
             intent = AccessIntent(
                 origin,
-                collection,
-                permission,
+                selected,
                 binding.sync_id,
                 vault.vault_id,
                 match[1],
@@ -119,18 +149,26 @@ class ConsoleAccess:
                 "store_id": intent.store_id,
                 "sync_id": intent.sync_id,
                 "vault_id": intent.vault_id,
-                "collection_id": collection,
-                "permissions": ["read"] if permission == "read" else ["read", "write"],
+                "collections": [
+                    {
+                        "collection_id": collection,
+                        "permissions": ["read"]
+                        if permission == "read"
+                        else ["read", "write"],
+                    }
+                    for collection, permission in selected.items()
+                ],
             },
         }
 
-    def history(self, project):
-        collection = f"project/{project}/memory"
-        _collection(collection)
+    def history(self):
+        collections = self.collections()
+        allowed = {item["collection_id"] for item in collections}
         return {
-            "records": console_access_history.history(
-                self.workspace, collection, load_remote_binding(self.workspace)
-            )
+            "collections": collections,
+            "records": [record for record in console_access_history.history(
+                self.workspace, load_remote_binding(self.workspace)
+            ) if record["collection_id"] in allowed],
         }
 
     def observe(self, identity, body):
@@ -151,13 +189,20 @@ class ConsoleAccess:
             if not isinstance(grants, list) or any(
                 not isinstance(grant, dict)
                 or grant.get("store_id") != intent.store_id
-                or grant.get("collection_id") != intent.collection
+                or grant.get("collection_id") not in intent.selections
                 for grant in grants
             ):
-                raise ConsoleAccessError("Observation does not match this project")
-            console_access_history.record(
-                self.workspace, intent, body["account_id"], grants
-            )
+                raise ConsoleAccessError(
+                    "Observation does not match the selected collections"
+                )
+            for collection in intent.selections:
+                console_access_history.record(
+                    self.workspace,
+                    intent,
+                    body["account_id"],
+                    [grant for grant in grants if grant["collection_id"] == collection],
+                    collection=collection,
+                )
         return {"saved": True}
 
     def perform(self, identity, action, body):
@@ -167,7 +212,7 @@ class ConsoleAccess:
             intent = self._intents.get(identity)
             if intent is None or intent.expires <= time.monotonic():
                 raise ConsoleAccessError("Access request expired; reconnect")
-            if intent.busy or intent.used:
+            if intent.busy:
                 raise ConsoleAccessError(
                     "Access request already submitted; refresh its status"
                 )
@@ -189,12 +234,23 @@ class ConsoleAccess:
                 intent.account = body["account_id"]
                 return {"approved": True}
             if intent.account is None or action not in {"claim", "submit"}:
-                raise ConsoleAccessError("Confirm the account and project first")
+                raise ConsoleAccessError("Confirm the account and collections first")
             intent.busy = True
             if action == "submit":
                 # Uncertain submissions must be checked in the recipient's list,
                 # never automatically retried with the same one-time request.
-                intent.used = True
+                collection = body.get("collection_id")
+                if (
+                    not isinstance(collection, str)
+                    or collection not in intent.selections
+                    or collection in intent.submitted
+                ):
+                    intent.busy = False
+                    raise ConsoleAccessError(
+                        "Collection not selected or already submitted; reconnect"
+                    )
+                intent.submitted.add(collection)
+                permission = intent.selections[collection]
         try:
             with WorkspaceWriterLock(self.home):
                 if load_remote_binding(self.workspace) != intent.binding:
@@ -208,7 +264,7 @@ class ConsoleAccess:
                             self.workspace, document, intent.account, home=self.home
                         )
                     auth = _authorization(
-                        _canonical(body), int(time.time()), intent.permission
+                        _canonical(body), int(time.time()), permission
                     )
                     if any(
                         auth[key] != value
@@ -217,7 +273,7 @@ class ConsoleAccess:
                             "store_id": intent.store_id,
                             "sync_id": intent.sync_id,
                             "vault_id": intent.vault_id,
-                            "collection_id": intent.collection,
+                            "collection_id": collection,
                         }.items()
                     ):
                         raise ConsoleAccessError(
@@ -238,11 +294,11 @@ class ConsoleAccess:
                     export_bound_scoped_keys(
                         self.workspace,
                         self.home,
-                        collection_id=intent.collection,
+                        collection_id=collection,
                         recipient=recipient,
                         authorization=document,
                         output=package,
-                        permission=intent.permission,
+                        permission=permission,
                     )
                     receipt = submit_bound_export(
                         self.workspace,
@@ -251,8 +307,8 @@ class ConsoleAccess:
                         package=package,
                         authorization=document,
                         expected_account=intent.account,
-                        collection=intent.collection,
-                        permission=intent.permission,
+                        collection=collection,
+                        permission=permission,
                     )
                     if receipt.get("status") == "active":
                         try:
@@ -261,6 +317,7 @@ class ConsoleAccess:
                                 intent,
                                 intent.account,
                                 [{**auth, "status": "active"}],
+                                collection=collection,
                             )
                         except (OSError, ValueError, TypeError, KeyError, RuntimeError):
                             # Saving a display hint cannot invalidate a committed grant.

@@ -11,9 +11,11 @@ aikito web --no-open
 ```
 
 The Console browses canonical resources and governance status. It does not
-modify canonical resource files or expose MCP secret values. Project cards include
-**Memory access**: choose an HTTPS recipient and read-only or read/write access,
-sign in at the recipient, then confirm the displayed account and project.
+modify canonical resource files or expose MCP secret values. Workspace and project cards include
+**Resource access**: select global/project instructions and memory, complete Skills,
+Subagents or Inbox, with independent read-only or read/write permission per collection.
+Every collection defaults to no access. Choose an HTTPS recipient, sign in once,
+then confirm the displayed account and all selected collections once.
 The recipient must support the `/local-console` browser page and the existing
 scoped delegation protocol. New Store ownership is proved with the existing
 bound credential only after confirmation. Grants last up to 30 days; consumer
@@ -21,12 +23,13 @@ connections require separate authorization. Status and revocation use the
 recipient's same-origin browser session, never a copied account cookie.
 
 Account cookies and CSRF tokens stay at the recipient origin. Device keys and
-Store credentials stay in the local process; only the selected project's sealed
+Store credentials stay in the local process; only the selected collections' sealed
 subkeys are submitted. Local confirmation endpoints require the exact loopback
-origin and a per-console token. No wildcard/global authorization, automatic write
+origin and a per-console token. No wildcard authorization, automatic write
 upgrade or recipient-key-change acceptance is provided. A failed or uncertain
-submission is not retried; refresh status, then reconnect if another request is
-needed. Restarting the console loses its short-lived requests, not active grants.
+submission is not retried; remaining collections are not submitted automatically
+after a failure. Refresh per-collection status, then start a new selection if needed.
+Already successful Grants remain active; this is not an atomic multi-Grant transaction. Restarting the console loses its short-lived requests, not active grants.
 
 After access is active, **Done** closes the recipient window and keeps the local
 completion view. Reconnect to manage or revoke access. The Console saves only
@@ -37,7 +40,7 @@ not a live permission check; reconnect to verify revocation or changes. Saved
 active entries retain a **Reconnect to revoke** action: reconnect, then use the
 live **Revoke** button and confirm the revocation. History
 never restores a login, approves a request, or exports keys, and it is isolated
-by workspace, Remote identity, project, recipient, and account.
+by workspace, Remote identity, collection, recipient, and account.
 
 ![Aikito Web Console](assets/aikito-web-console.png)
 

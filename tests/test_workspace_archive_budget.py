@@ -104,7 +104,7 @@ def test_archive_write_failure_is_not_ignored(tmp_path):
         ),
         pytest.raises(OSError, match="disk full"),
     ):
-        archive(tmp_path, {"memory:notes/example.md": FilePayload(b"old")})
+        archive(tmp_path, {"global-memory:notes/example.md": FilePayload(b"old")})
     assert records(tmp_path) == []
 
 
@@ -119,7 +119,7 @@ def test_symlink_archive_directory_is_rejected(tmp_path):
     except OSError:
         pytest.skip("Symlinks are unavailable")
     with pytest.raises(ValueError, match="Unsafe state directory"):
-        archive(tmp_path, {"memory:notes/example.md": FilePayload(b"old")})
+        archive(tmp_path, {"global-memory:notes/example.md": FilePayload(b"old")})
     assert list(target.iterdir()) == []
 
 
@@ -127,7 +127,7 @@ def test_symlink_archive_directory_is_rejected(tmp_path):
 def test_archive_and_download_payloads_share_one_round_budget(
     monkeypatch, second_target
 ):
-    ids = ("memory:notes/one.md", "memory:notes/two.md")
+    ids = ("global-memory:notes/one.md", "global-memory:notes/two.md")
     old = FilePayload(b"x" * 1500)
     snapshot = RemoteSnapshot(
         "store", 1, {identity: descriptor(old) for identity in ids}
@@ -148,7 +148,7 @@ def test_archive_and_download_payloads_share_one_round_budget(
 
 
 def test_old_version_that_cannot_fit_is_blocked_before_fetch(monkeypatch):
-    identity = "memory:notes/one.md"
+    identity = "global-memory:notes/one.md"
     old = FilePayload(b"x" * 1500)
     snapshot = RemoteSnapshot("store", 1, {identity: descriptor(old)})
     monkeypatch.setattr(

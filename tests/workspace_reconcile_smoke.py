@@ -83,7 +83,7 @@ def main() -> None:
     (left / "memory/notes/safe.md").write_text("safe", encoding="utf-8")
     assert apply(left).conflicts
     assert (remote.root / "memory/notes/safe.md").exists()
-    apply(left, resolutions={"memory:notes/conflict.md": "remote"})
+    apply(left, resolutions={"global-memory:notes/conflict.md": "remote"})
     assert (left / conflict).read_text(encoding="utf-8") == "remote"
     apply(right)
 

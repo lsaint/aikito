@@ -50,12 +50,12 @@ def test_guard_does_not_interpret_or_disclose_encrypted_descriptors(identity):
 @pytest.mark.parametrize(
     "identity",
     [
-        "memory:notes/plain.md",
+        "global-memory:notes/plain.md",
         "project-memory:demo/notes/plain.md",
         "config:inbox.path",
         "skill:example",
         # Names that merely contain the reserved words stay plaintext.
-        "memory:format-notes/e1.md",
+        "global-memory:format-notes/e1.md",
         "project-memory:demo/e1:x.md",
     ],
 )
@@ -97,7 +97,7 @@ def test_planning_stops_before_replica_and_resource_decoding(
 
 def test_binding_refuses_format_before_persisting(tmp_path, monkeypatch):
     remote = Mock(spec=RemoteStore)
-    remote.read.return_value = snapshot("memory:notes/plain.md")
+    remote.read.return_value = snapshot("global-memory:notes/plain.md")
     monkeypatch.setattr(
         "aikito.workspace.remote_factory._open_remote", lambda *args, **kwargs: remote
     )

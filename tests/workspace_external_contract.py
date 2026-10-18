@@ -39,8 +39,8 @@ def isolation(service):
     assert accepted_a.sync_id != accepted_b.sync_id
     assert resolve(left, a) == accepted_a
     assert resolve(right, b) == accepted_b
-    assert "memory:notes/isolated-a.md" not in right.read().resources
-    assert "memory:notes/isolated-b.md" not in left.read().resources
+    assert "global-memory:notes/isolated-a.md" not in right.read().resources
+    assert "global-memory:notes/isolated-b.md" not in left.read().resources
     try:
         right.resolve_commit(
             accepted_b.sync_id, a.client_id, a.request_id, a.mutation_digest

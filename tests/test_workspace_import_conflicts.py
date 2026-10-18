@@ -60,7 +60,7 @@ def test_keep_target_skips_create_before_reference_checks(
         identity = "skill-selection:missing"
     else:
         (source / "memory/notes/new.md").write_text("new")
-        identity = "memory:notes/new.md"
+        identity = "global-memory:notes/new.md"
     plan = run_workspace_import(
         source,
         target,
@@ -133,7 +133,7 @@ def test_note_resolution_is_previewable_and_repeatable(
     tmp_path: Path, side: str
 ) -> None:
     source, target = _conflicting_notes(tmp_path)
-    choices = {"memory:notes/conflict.md": side}
+    choices = {"global-memory:notes/conflict.md": side}
     plan = build_import_plan(source, target, resolutions=choices)
     assert not plan.conflicts and not plan.blocked
     assert (target / "memory/notes/conflict.md").read_text() == "target"
@@ -250,9 +250,9 @@ def test_cli_rejects_opposite_choices_for_same_resource(tmp_path: Path) -> None:
             "workspace",
             str(source),
             "--keep-target",
-            "memory:notes/conflict.md",
+            "global-memory:notes/conflict.md",
             "--take-source",
-            "memory:notes/conflict.md",
+            "global-memory:notes/conflict.md",
         ]
     )
     with patch("aikito.cli.get_aikito_dir", return_value=target):
@@ -342,7 +342,7 @@ def test_partial_transaction_failure_rolls_back_only_planned_changes(
 
 
 @pytest.mark.parametrize(
-    "choices", ({"unknown:id": "source"}, {"memory:notes/new.md": "bad"})
+    "choices", ({"unknown:id": "source"}, {"global-memory:notes/new.md": "bad"})
 )
 def test_invalid_resolution_is_rejected_before_writes(
     tmp_path: Path, choices: dict
@@ -382,7 +382,7 @@ def test_cli_reports_partial_application_and_resolves_on_retry(
                 "workspace",
                 str(source),
                 "--take-source",
-                "memory:notes/conflict.md",
+                "global-memory:notes/conflict.md",
             ]
         )
         args.func(args)

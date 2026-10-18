@@ -256,7 +256,7 @@ def test_resolutions_are_consumed_only_when_applied(bounded):
         relative = f"memory/notes/{index:02}.md"
         (left / relative).write_text("left\n" + "x" * 2500, encoding="utf-8")
         (right / relative).write_text("right\n" + "x" * 2500, encoding="utf-8")
-        choices[f"memory:notes/{index:02}.md"] = "remote"
+        choices[f"global-memory:notes/{index:02}.md"] = "remote"
     apply(left, store, home)
     result = apply(right, store, home, resolutions=choices)
     assert result.rounds > 1 and not result.conflicts and not result.deferred
@@ -289,7 +289,7 @@ def test_cache_invalidates_changed_hash_without_refetching_stale_plan(bounded):
         reconcile.apply_reconcile_plan(plan, home, remote=store)
     assert store.requests == []
     fresh = reconcile.build_reconcile_plan(right, store, _cached=plan.payload_cache)
-    assert store.requests == [("memory:notes/00.md",)]
+    assert store.requests == [("global-memory:notes/00.md",)]
     assert fresh.payload_cache != plan.payload_cache
 
 
@@ -436,7 +436,7 @@ def test_download_response_limit_is_exact_before_fetch(bounded, monkeypatch, hea
     notes(left, count=1)
     apply(left, store, home)
     snapshot = store.read()
-    identity = "memory:notes/00.md"
+    identity = "global-memory:notes/00.md"
     size = fetch_response_size(snapshot, {identity})
     monkeypatch.setattr(remote_limits, "MAX_REMOTE_RESPONSE_BYTES", size + headroom)
     store.requests.clear()
@@ -451,7 +451,7 @@ def test_fetch_request_manifest_and_ids_limit_selection(bounded, monkeypatch):
     notes(left, count=3)
     apply(left, store, home)
     snapshot = store.read()
-    identity = "memory:notes/00.md"
+    identity = "global-memory:notes/00.md"
     monkeypatch.setattr(
         remote_limits,
         "MAX_REMOTE_REQUEST_BYTES",
@@ -461,8 +461,8 @@ def test_fetch_request_manifest_and_ids_limit_selection(bounded, monkeypatch):
     plan = reconcile.build_reconcile_plan(right, store)
     assert {item.id for item in plan.changes} == {identity}
     assert {item.id for item in plan.deferred} == {
-        "memory:notes/01.md",
-        "memory:notes/02.md",
+        "global-memory:notes/01.md",
+        "global-memory:notes/02.md",
     }
     assert store.requests == [(identity,)]
 
@@ -498,7 +498,7 @@ def test_unpaired_id_disappearing_on_both_sides_is_confirmed(bounded):
     apply(left, store, home)
     plan = reconcile.build_reconcile_plan(right, store)
     reconcile.apply_reconcile_plan(plan, home, remote=store)
-    identity = next(item.id for item in plan.deferred if item.id.startswith("memory:"))
+    identity = next(item.id for item in plan.deferred if item.id.startswith("global-memory:"))
     assert identity in load_replica_state(right)[0].unpaired_ids
     path = left / "memory" / identity.partition(":")[2]
     path.unlink()

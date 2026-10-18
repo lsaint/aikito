@@ -12,23 +12,23 @@ from pathlib import Path
 
 from ..compat import secure_directory_permissions
 from ..templating import BUNDLED_SKILL_NAMES
+from .resources import (
+    SKILL_FINGERPRINT_SCHEME,
+    Resource,
+    ResourcePart,
+    is_ignored_name,
+    physical_kind,
+)
 from .transactions import (
     PathPolicy,
     WorkspaceCoreError,
     entry_type,
     validate_resource_path,
 )
-from .resources import (
-    Resource,
-    ResourcePart,
-    SKILL_FINGERPRINT_SCHEME,
-    is_ignored_name,
-    physical_kind,
-)
 
 SYNC_KINDS = frozenset(
     {
-        "memory",
+        "global-memory",
         "project-memory",
         "skill",
         "inbox",
@@ -127,7 +127,11 @@ def local_resource_for_id(identity: str, fingerprint: str) -> Resource:
         suffix = "md" if kind == "subagent" else "toml"
         path = f"{area}/{name}.{suffix}"
     else:
-        area = {"skill": "skills", "memory": "memory", "inbox": "inbox"}[kind]
+        area = {
+            "skill": "skills",
+            "global-memory": "memory",
+            "inbox": "inbox",
+        }[kind]
         path = f"{area}/{name}"
     validate_resource_path(path, physical_kind(kind), RECONCILE_POLICY)
     if any(is_ignored_name(part) for part in Path(path).parts):

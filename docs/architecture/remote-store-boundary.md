@@ -714,7 +714,7 @@ path below provides reconciliation; neither path migrates nonempty real stores.
 ## Encrypted planner and wire requests
 
 The encrypted codec presents a complete authenticated logical snapshot to the
-existing planner. Discovery checkpoint version 2 also authenticates plaintext
+existing planner. Discovery checkpoint version 3 also authenticates plaintext
 payload hash/size descriptors; older maps are rejected instead of upgraded. The checkpoint stores no
 payload or key. Unknown discovery and business application occupy separate rounds
 under the same limits, so an incomplete view never authorizes absence or writes.
@@ -755,22 +755,16 @@ administrator ownership. Garbage collection preserves current objects, state and
 receipts. Retained plaintext backups and filesystem snapshots remain outside
 Remote encryption's scope; the encrypted-only HTTP interface refuses legacy Stores.
 
-### Scoped read material
+### Scoped resource material
 
-`scoped_export` exposes one sealed project Memory read export and its receiver.
-It uses native RFC 9180 HPKE from the existing optional cryptography dependency
-(minimum 47). Only the collection content key leaves the device, encrypted to an
-explicit trusted recipient; neither VRK, collection master, tag key nor ID and
-fingerprint keys are exported. Private/global resources and write permissions
-are rejected. The header, parent Project and one Memory sample are authenticated
-before export within shared fetch budgets, without changing reconciliation state.
+`scoped_export` seals one explicitly selected resource collection using native
+HPKE from the optional cryptography dependency. Only protocol version 2 is
+accepted. Read exports contain the content key; explicit write exports add
+resource-ID and fingerprint keys. VRK, collection master, tag key and private
+collection keys never leave the client.
 
-The receiving reader shares the authenticated content decoder with full-vault
-sync. It verifies transport, AEAD, schema and resource semantics plus the granted
-Tag and parent. It cannot recompute keyed IDs/fingerprints or private mappings;
-only the full-vault caller performs those additional checks. Authorization fields
-and a recipient-key hash are bound through HPKE info. No sender-authentication,
-account proof, nonce consumption, trusted HTTPS key discovery or revocation
-service is implied by producing a local file. Those remain receiver obligations.
-The one-message HPKE fixture is shared with an independent test-only receiver;
-the Remote contract and resource ciphertext format stay unchanged.
+Normal scanning, discovery and synchronization use the current collection
+layout. Existing Vault data requires one-time local conversion before resuming sync.
+Maintenance scripts are untracked. The resource policy, export CLI and shared
+vectors are described in [collection exports](collection-export.md).
+The content-blind Remote protocol and encrypted resource Envelope are unchanged.

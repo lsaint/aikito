@@ -11,14 +11,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from http_remote_server import HTTPRemoteServer
+from workspace_encrypted_setup import unchecked_header_resource, unsupported_header
 
-from workspace_encrypted_setup import unsupported_header, unchecked_header_resource
 from aikito.workspace.device_keys import DeviceKeyStore
 from aikito.workspace.encrypted_remote import (
-    EncryptedVault,
-    create_recovery_metadata,
-    _b64,
     EncryptedRemoteError,
+    EncryptedVault,
+    _b64,
+    create_recovery_metadata,
 )
 from aikito.workspace.payload import FilePayload, MemberPayload, inspect_payload
 from aikito.workspace.remote_binding import (
@@ -45,7 +45,10 @@ class Reader:
         contents = [
             ("project:demo", MemberPayload()),
             ("project:other", MemberPayload()),
-            ("memory:notes/private.md", FilePayload(b"global private payload\n")),
+            (
+                "global-memory:notes/private.md",
+                FilePayload(b"global private payload\n"),
+            ),
             (
                 "project-memory:demo/notes/shared.md",
                 FilePayload(b"shared demo payload\n"),
@@ -121,7 +124,7 @@ def main(base):
     recipient_path, auth_path = base / "recipient.json", base / "authorization.json"
     recipient_path.write_bytes(_canonical(recipient))
     auth = {
-        "version": 1,
+        "version": 2,
         "account_id": "account-1",
         "store_id": "store-1",
         "sync_id": SYNC,
@@ -191,7 +194,7 @@ def main(base):
         )
         assert payload.data == b"shared demo payload\n"
         for logical in (
-            "memory:notes/private.md",
+            "global-memory:notes/private.md",
             "project:demo",
             "project-memory:other/notes/shared.md",
         ):

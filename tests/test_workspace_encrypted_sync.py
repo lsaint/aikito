@@ -9,22 +9,14 @@ from workspace_memory_remote import InMemoryRemote
 from workspace_reconcile_smoke import _workspace
 
 from aikito.workspace import encrypted_sync as sync
+from aikito.workspace.commit_recovery import recover_pending
 from aikito.workspace.device_keys import DeviceKeyStore
+from aikito.workspace.encrypted_discovery import DISCOVERY_STATE
 from aikito.workspace.encrypted_remote import (
+    EncryptedRemoteError,
     decode_recovery_code,
     recover_vault,
-    EncryptedRemoteError,
 )
-from aikito.workspace.encrypted_discovery import DISCOVERY_STATE
-from aikito.workspace.remote_binding import (
-    RemoteBinding,
-    RemoteAuth,
-    save_remote_binding,
-)
-from aikito.workspace.remote_format import FORMAT_RESOURCE_ID
-from aikito.workspace.remote_store import CommitOutcomeUnknown, SnapshotExpired
-from aikito.workspace.remote_protocol import encode_commit_request
-from aikito.workspace.remote_wire import build_commit_request
 from aikito.workspace.payload import (
     FilePayload,
     ResourceDescriptor,
@@ -32,8 +24,16 @@ from aikito.workspace.payload import (
     encode_payload,
     payload_hash,
 )
-from aikito.workspace.pending_commit import PendingCommitStore, PendingCommit
-from aikito.workspace.commit_recovery import recover_pending
+from aikito.workspace.pending_commit import PendingCommit, PendingCommitStore
+from aikito.workspace.remote_binding import (
+    RemoteAuth,
+    RemoteBinding,
+    save_remote_binding,
+)
+from aikito.workspace.remote_format import FORMAT_RESOURCE_ID
+from aikito.workspace.remote_protocol import encode_commit_request
+from aikito.workspace.remote_store import CommitOutcomeUnknown, SnapshotExpired
+from aikito.workspace.remote_wire import build_commit_request
 from aikito.workspace.replica_state import load_replica_state
 
 pytest.importorskip("cryptography")
@@ -124,8 +124,8 @@ def test_two_devices_create_update_delete_and_noop_reuse_ciphertext(clients):
         k == FORMAT_RESOURCE_ID or k.startswith("e1:") for k in remote.read().resources
     )
     assert b"initial secret payload" not in b"".join(remote.requests)
-    assert b"memory:notes/shared.md" not in b"".join(remote.requests)
-    assert "memory:notes/shared.md" not in load_replica_state(a)[0].base
+    assert b"global-memory:notes/shared.md" not in b"".join(remote.requests)
+    assert "global-memory:notes/shared.md" not in load_replica_state(a)[0].base
 
 
 def test_preview_does_not_write_discovery_or_replica_state(clients):
@@ -165,7 +165,7 @@ def test_pending_is_ciphertext_and_recovery_resends_exact_bytes(clients, failure
     else:
         assert remote.requests.count(first) == 1
     state, _ = load_replica_state(a)
-    assert "memory:notes/shared.md" in state.base
+    assert "global-memory:notes/shared.md" in state.base
     assert not any(k.startswith("e1:") for k in state.base)
 
 
@@ -179,7 +179,7 @@ def test_delete_pending_recovery_confirms_logical_absence(clients):
     with pytest.raises(ValueError):
         apply(a, ha)
     assert recover_pending(a, sync.EncryptedRemote(remote, SYNC, a, ha), ha)
-    assert "memory:notes/shared.md" not in load_replica_state(a)[0].base
+    assert "global-memory:notes/shared.md" not in load_replica_state(a)[0].base
 
 
 def test_initialization_response_loss_keeps_exact_request_and_delivers_once(clients):
@@ -262,7 +262,11 @@ def test_nonempty_plaintext_store_is_never_initialized_or_migrated(clients):
             "setup",
             "setup",
             remote.read(),
-            (ResourceMutation("memory:notes/existing.md", None, descriptor, payload),),
+            (
+                ResourceMutation(
+                    "global-memory:notes/existing.md", None, descriptor, payload
+                ),
+            ),
         )
     )
     before = remote.read()
@@ -300,7 +304,7 @@ def test_opaque_container_cost_blocks_plaintext_that_would_fit(clients, monkeypa
         "0" * 32,
         "1" * 32,
         adapter.logical,
-        (ResourceMutation("memory:notes/shared.md", None, descriptor, payload),),
+        (ResourceMutation("global-memory:notes/shared.md", None, descriptor, payload),),
     )
     assert len(encode_commit_request(plain)) < 7000
     monkeypatch.setattr(remote_limits, "MAX_REMOTE_REQUEST_BYTES", 7000)

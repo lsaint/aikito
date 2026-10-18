@@ -130,7 +130,7 @@ def test_add_update_delete_and_repeat_across_two_replicas(tmp_path):
     _write(a, "first")
     assert [
         (i.id, i.action, i.target) for i in build_reconcile_plan(a, remote).changes
-    ] == [("memory:notes/a.md", "CREATE", "remote")]
+    ] == [("global-memory:notes/a.md", "CREATE", "remote")]
     _round(a, remote, home)
     _round(b, remote, home)
     revision, state = remote.read().revision, _state(b)
@@ -146,7 +146,7 @@ def test_add_update_delete_and_repeat_across_two_replicas(tmp_path):
     _round(a, remote, home)
     _round(b, remote, home)
     assert not (remote.root / note).exists() and not (b / note).exists()
-    assert "memory:notes/a.md" not in _state(b)["base"]
+    assert "global-memory:notes/a.md" not in _state(b)["base"]
 
 
 def test_skill_directory_is_one_resource_ignoring_empty_directories(tmp_path):
@@ -181,7 +181,7 @@ def test_conflicts_preserve_base_while_other_resources_advance(tmp_path, side, d
     _round(a, remote, home)
     b = _workspace(tmp_path / "b")
     _round(b, remote, home)
-    old_base = _state(a)["base"]["memory:notes/a.md"]
+    old_base = _state(a)["base"]["global-memory:notes/a.md"]
     if delete:
         (a / "memory/notes/a.md").unlink()
     else:
@@ -190,12 +190,12 @@ def test_conflicts_preserve_base_while_other_resources_advance(tmp_path, side, d
     _round(b, remote, home)
     _write(a, "safe", "safe")
     result = _round(a, remote, home)
-    assert [i.id for i in result.conflicts] == ["memory:notes/a.md"]
+    assert [i.id for i in result.conflicts] == ["global-memory:notes/a.md"]
     assert (remote.root / "memory/notes/safe.md").read_text() == "safe"
-    assert _state(a)["base"]["memory:notes/a.md"] == old_base
-    assert "memory:notes/safe.md" in _state(a)["base"]
+    assert _state(a)["base"]["global-memory:notes/a.md"] == old_base
+    assert "global-memory:notes/safe.md" in _state(a)["base"]
     assert build_reconcile_plan(a, remote).conflicts
-    _round(a, remote, home, resolutions={"memory:notes/a.md": side})
+    _round(a, remote, home, resolutions={"global-memory:notes/a.md": side})
     expected = None if delete and side == "local" else side
     for root in (a, remote.root):
         assert (root / "memory/notes/a.md").exists() == (expected is not None)
@@ -215,7 +215,7 @@ def test_matching_concurrent_edits_advance_base_without_center_write(tmp_path):
     assert build_reconcile_plan(a, remote).items[0].action == "NOOP"
     _round(a, remote, home)
     assert remote.read().revision == revision
-    assert "memory:notes/a.md" in _state(a)["base"]
+    assert "global-memory:notes/a.md" in _state(a)["base"]
     (a / "memory/notes/a.md").unlink()
     _round(a, remote, home)
     assert not (remote.root / "memory/notes/a.md").exists()
@@ -313,7 +313,7 @@ def test_logical_planner_accepts_credentials_for_encrypted_transport(tmp_path):
     plan = _round(a, remote, home)
     assert not plan.blocked_items
     assert (remote.root / "memory/notes/private.md").read_bytes() == secret.read_bytes()
-    assert "memory:notes/private.md" in _state(a)["base"]
+    assert "global-memory:notes/private.md" in _state(a)["base"]
 
 
 def test_conditional_commit_rejects_stale_revision_before_writes(tmp_path):
@@ -322,7 +322,7 @@ def test_conditional_commit_rejects_stale_revision_before_writes(tmp_path):
     _write(a, "new")
     _round(a, remote, home)
     snapshot = snapshot_workspace(a)
-    resource = snapshot.resources["memory:notes/a.md"]
+    resource = snapshot.resources["global-memory:notes/a.md"]
     write = ResourceWrite(
         Path(resource.parts[0].path), resource.kind, resource.fingerprint, resource.name
     )
@@ -339,7 +339,7 @@ def test_competing_center_writers_cannot_commit_same_revision(tmp_path):
     for local, name in ((a, "a"), (b, "b")):
         _write(local, name, name)
         snapshot = snapshot_workspace(local)
-        resource = snapshot.resources[f"memory:notes/{name}.md"]
+        resource = snapshot.resources[f"global-memory:notes/{name}.md"]
         batches.append(
             (
                 ResourceContent.from_workspace(snapshot),
@@ -502,7 +502,7 @@ def test_center_accepts_layout_independent_content_and_scans_credentials(
     a, remote, home = _pair(tmp_path)
     text = "password = 'abcdefghijklmnopqrstuv'" if secret else "portable"
     _write(a, text)
-    resource = snapshot_workspace(a).resources["memory:notes/a.md"]
+    resource = snapshot_workspace(a).resources["global-memory:notes/a.md"]
     blob = tmp_path / "arbitrary-content.bin"
     blob.write_text(text)
     content = ResourceContent({resource.id: resource}, {resource.id: blob})
@@ -634,7 +634,7 @@ def test_invalid_center_manifest_is_rejected(tmp_path, case):
     elif case == "bundled":
         state["resources"] = {"skill:aikito": "0" * 64}
     else:
-        state["resources"] = {"memory:notes/a.md": "0" * 64}
+        state["resources"] = {"global-memory:notes/a.md": "0" * 64}
     path.write_text(json.dumps(state))
     with pytest.raises(WorkspaceReconcileError):
         build_reconcile_plan(a, remote)
@@ -661,7 +661,7 @@ def test_first_pairing_preserves_resources_matching_template(tmp_path, existing)
     remote = FilesystemRemote.create(tmp_path / "center")
     home = tmp_path / "home"
     _write(a, "template")
-    resource = snapshot_workspace(a).resources["memory:notes/a.md"]
+    resource = snapshot_workspace(a).resources["global-memory:notes/a.md"]
     if existing == "remote":
         _round(a, remote, home)
         a = _workspace(tmp_path / "b")

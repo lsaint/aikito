@@ -150,7 +150,7 @@ def test_unrelated_write_ignores_untouched_foreign_platform(tmp_path):
         'codex: {"model":123}\n---\nReview.\n',
         CLAUDE,
         CLAUDE,
-        lambda key: key.startswith("memory"),
+        lambda key: key.startswith("global-memory:"),
     )
     changes, _ = prepare()
     assert len(changes) == 1

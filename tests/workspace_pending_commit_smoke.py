@@ -30,7 +30,7 @@ def exercise(base: Path, stage: str) -> None:
         remote = FilesystemRemote.create(base / "center")
         payload = FilePayload(b"# Accepted upload\r\n")
         mutation = ResourceMutation(
-            "memory:notes/pending.md",
+            "global-memory:notes/pending.md",
             None,
             ResourceDescriptor(
                 content_digest(payload.data),
@@ -46,7 +46,7 @@ def exercise(base: Path, stage: str) -> None:
         pending = store.persist(
             request,
             safe_resource_ids=(mutation.id,),
-            excluded_resource_ids=("memory:notes/blocked.md",),
+            excluded_resource_ids=("global-memory:notes/blocked.md",),
         )
         remote.commit(pending.request)
         (local / "memory/notes/pending.md").write_bytes(b"# Local edit after upload\n")

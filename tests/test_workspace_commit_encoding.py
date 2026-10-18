@@ -63,7 +63,7 @@ def pending_record():
         "a" * 32,
         "request 你好",
         RemoteSnapshot("center 你好", 7, {}),
-        (mutation("memory:notes/b.md"), mutation("memory:notes/a.md")),
+        (mutation("global-memory:notes/b.md"), mutation("global-memory:notes/a.md")),
         previous_receipt=ReceiptCursor("prior", "f" * 64),
     )
     state = ReplicaState(
@@ -72,8 +72,8 @@ def pending_record():
     return PendingCommit(
         req,
         state.encode(),
-        ("memory:notes/b.md", "memory:notes/a.md"),
-        ("memory:notes/excluded.md",),
+        ("global-memory:notes/b.md", "global-memory:notes/a.md"),
+        ("global-memory:notes/excluded.md",),
     )
 
 

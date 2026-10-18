@@ -74,8 +74,8 @@ def main(base: Path) -> None:
                 "orphan": "e1:tag:digest",
                 "future": "format:encrypted-v2",
                 "unknown": "format:unknown",
-                "plaintext": "memory:notes/legacy.md",
-                "mixed": "memory:notes/mixed.md",
+                "plaintext": "global-memory:notes/legacy.md",
+                "mixed": "global-memory:notes/mixed.md",
             }[case]
             descriptor = ResourceDescriptor(
                 hashlib.sha256(payload.data).hexdigest(),

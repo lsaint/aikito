@@ -35,7 +35,7 @@ def main():
         remote = FilesystemRemote.create(root / "center")
         payload = FilePayload(b"planned download")
         mutation = ResourceMutation(
-            "memory:notes/download.md",
+            "global-memory:notes/download.md",
             None,
             ResourceDescriptor(
                 hashlib.sha256(payload.data).hexdigest(),
@@ -72,13 +72,13 @@ def main():
     else:
         remote = FilesystemRemote(root / "center")
         plan = run_reconciliation(local, remote, home, dry_run=False)
-        assert {item.id for item in plan.conflicts} == {"memory:notes/download.md"}
+        assert {item.id for item in plan.conflicts} == {"global-memory:notes/download.md"}
         assert (
             local / "memory/notes/download.md"
         ).read_text() == "user edit after response loss"
         assert (remote.root / "memory/notes/upload.md").read_text() == "new user upload"
         state, _ = load_replica_state(local)
-        assert "memory:notes/download.md" not in state.base
+        assert "global-memory:notes/download.md" not in state.base
         assert state.receipt_cursor.request_id != (root / "request-id.txt").read_text()
         assert state.revision == remote.read().revision == 3
         assert PendingCommitStore(local, home).load() is None

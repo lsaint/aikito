@@ -55,14 +55,13 @@ def _load(workspace):
     return document["records"]
 
 
-def history(workspace, collection, binding):
+def history(workspace, binding):
     if binding is None:
         return []
     records = []
     for record in _load(workspace):
         if (
-            record.get("collection_id") != collection
-            or record.get("endpoint") != binding.endpoint
+            record.get("endpoint") != binding.endpoint
             or record.get("sync_id") != binding.sync_id
         ):
             continue
@@ -77,6 +76,7 @@ def history(workspace, collection, binding):
         records.append(
             {
                 "origin": canonical_origin(record["origin"]),
+                "collection_id": record["collection_id"],
                 "account_id": record["account_id"],
                 "checked_at": record["checked_at"],
                 "grants": _grants(record["grants"]),
@@ -85,7 +85,7 @@ def history(workspace, collection, binding):
     return sorted(records, key=lambda record: record["checked_at"], reverse=True)
 
 
-def record(workspace, intent, account, grants):
+def record(workspace, intent, account, grants, *, collection):
     """Project only public metadata; caller holds the workspace writer lock."""
     if not isinstance(account, str) or not re.fullmatch(
         r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", account
@@ -94,7 +94,7 @@ def record(workspace, intent, account, grants):
     observation = {
         "origin": intent.origin,
         "account_id": account,
-        "collection_id": intent.collection,
+        "collection_id": collection,
         "endpoint": intent.binding.endpoint,
         "sync_id": intent.sync_id,
         "checked_at": int(time.time()),

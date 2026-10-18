@@ -231,7 +231,7 @@ def main(base: Path):
                         "e1:"
                     )
                 assert (
-                    b"memory:notes/e2ee.md" not in raw
+                    b"global-memory:notes/e2ee.md" not in raw
                     and b'password = "test-only-credential-1234567890"' not in raw
                 )
                 assert code.encode() not in raw

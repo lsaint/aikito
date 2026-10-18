@@ -101,13 +101,16 @@ name_style = "verbatim"
         with mock.patch(
             "aikito.console_access.ConsoleAccess.history", return_value=expected
         ) as history:
-            self.assertEqual(self.get_json("/api/projects/demo/access"), expected)
-        history.assert_called_once_with("demo")
+            self.assertEqual(self.get_json("/api/access"), expected)
+        history.assert_called_once_with()
 
     def test_mutations_require_local_origin_and_console_token(self):
         token = self.get_json("/api/console-session")["token"]
         payload = json.dumps(
-            {"origin": "https://recipient.example", "permission": "read"}
+            {
+                "origin": "https://recipient.example",
+                "selections": [{"collection_id": "inbox", "permission": "read"}],
+            }
         ).encode()
         for origin, secret in [
             ("https://attacker.example", token),
@@ -121,7 +124,7 @@ name_style = "verbatim"
             if origin:
                 headers["Origin"] = origin
             request = urllib.request.Request(
-                self.base_url + "/api/projects/demo/access",
+                self.base_url + "/api/access",
                 data=payload,
                 headers=headers,
             )
@@ -133,7 +136,7 @@ name_style = "verbatim"
             return_value={"intent_id": "test"},
         ) as begin:
             request = urllib.request.Request(
-                self.base_url + "/api/projects/demo/access",
+                self.base_url + "/api/access",
                 data=payload,
                 headers={
                     "Content-Type": "application/json",
@@ -143,7 +146,10 @@ name_style = "verbatim"
             )
             with urllib.request.urlopen(request) as response:
                 self.assertEqual(json.load(response), {"intent_id": "test"})
-            begin.assert_called_once_with("demo", "https://recipient.example", "read")
+            begin.assert_called_once_with(
+                [{"collection_id": "inbox", "permission": "read"}],
+                "https://recipient.example",
+            )
 
     def test_rebinding_host_and_cross_origin_session_are_rejected(self):
         for headers in [
@@ -164,8 +170,8 @@ name_style = "verbatim"
             side_effect=RuntimeError("PRIVATE_TOKEN"),
         ):
             request = urllib.request.Request(
-                self.base_url + "/api/projects/demo/access",
-                data=b'{"origin":"https://recipient.example","permission":"read"}',
+                self.base_url + "/api/access",
+                data=b'{"origin":"https://recipient.example","selections":[{"collection_id":"inbox","permission":"read"}]}',
                 headers={
                     "Content-Type": "application/json",
                     "Origin": self.base_url,
@@ -338,7 +344,7 @@ process.stdout.write(markdown(JSON.parse(process.argv[2]), JSON.parse(process.ar
         self.assertTrue((web_dir / "styles.css").is_file())
         self.assertIn(
             'value="https://aikito.notsonan.com"',
-            (web_dir / "memory-access.js").read_text(encoding="utf-8"),
+            (web_dir / "resource-access.js").read_text(encoding="utf-8"),
         )
 
 
@@ -357,10 +363,12 @@ class WebCommandParserTest(unittest.TestCase):
         args = module.build_parser().parse_args(["web", "--port", "8765"])
 
         error = OSError(errno.EADDRINUSE, "Address already in use")
-        with mock.patch.object(module, "serve_console", side_effect=error):
-            with mock.patch("sys.stderr") as stderr:
-                with self.assertRaises(SystemExit) as exit_error:
-                    module.cmd_web(args)
+        with (
+            mock.patch.object(module, "serve_console", side_effect=error),
+            mock.patch("sys.stderr") as stderr,
+            self.assertRaises(SystemExit) as exit_error,
+        ):
+            module.cmd_web(args)
 
         self.assertEqual(exit_error.exception.code, 1)
         output = "".join(call.args[0] for call in stderr.write.call_args_list)

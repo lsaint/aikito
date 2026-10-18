@@ -31,8 +31,8 @@ from ..project_config import get_project_candidate_paths
 from ..subagent import SUBAGENT_NAME_PATTERN
 from ..templating import BUNDLED_SKILL_NAMES
 from .layout import (
-    content_digest,
     WorkspaceLayoutError,
+    content_digest,
     parse_subagent_file,
     parse_subagent_text,
     require_current_layout,
@@ -88,7 +88,7 @@ RESOURCE_STORAGE = {
     "project-field": ("project-config", True),
     "project-path": ("project-config", True),
     "project-skill": ("project-config", True),
-    "memory": ("memory", False),
+    "global-memory": ("memory", False),
     "project-memory": ("memory", False),
     "skill": ("skill", False),
     "inbox": ("inbox", False),
@@ -881,7 +881,7 @@ def snapshot_workspace(root: Path) -> WorkspaceSnapshot:
                 _scan_markdown_file(scanner, entry, "global-instructions", "AGENTS.md")
             else:
                 scanner.unsupported(entry)
-    _scan_memory(scanner, root / "memory", "memory", "")
+    _scan_memory(scanner, root / "memory", "global-memory", "")
     if scanner.directory(root / "projects"):
         for project in scanner.children(root / "projects"):
             if scanner.directory(project):

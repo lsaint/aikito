@@ -246,7 +246,7 @@ class ConsoleData:
                 "scope": f"Project: {name}",
                 "trust": "Canonical",
                 "content": _json_value(project),
-                "memory_access_project": name,
+                "resource_access_project": name,
             }
         if kind == "agents":
             row = next(
@@ -379,7 +379,7 @@ def make_handler(data: ConsoleData, web_dir: Path) -> type[BaseHTTPRequestHandle
                     self._static(path)
             except FileNotFoundError:
                 self._json({"error": "Not found"}, 404)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 self._json({"error": str(exc)}, 500)
 
         def _local_request(self, mutation: bool = False) -> bool:
@@ -425,21 +425,17 @@ def make_handler(data: ConsoleData, web_dir: Path) -> type[BaseHTTPRequestHandle
                 parts = unquote(urlsplit(self.path).path).split("/")
                 if urlsplit(self.path).query:
                     raise ValueError()
-                if (
-                    len(parts) == 5
-                    and parts[1:3] == ["api", "projects"]
-                    and parts[4] == "access"
-                    and set(body) == {"origin", "permission"}
-                ):
-                    result = data.access.begin(
-                        parts[3], body["origin"], body["permission"]
-                    )
+                if parts == ["", "api", "access"] and set(body) == {
+                    "origin",
+                    "selections",
+                }:
+                    result = data.access.begin(body["selections"], body["origin"])
                 elif len(parts) == 5 and parts[1:3] == ["api", "access"]:
                     result = data.access.perform(parts[3], parts[4], body)
                 else:
                     raise ValueError()
                 self._json(result)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 # Network/provider exceptions can contain credentials or bodies.
                 self._json(
                     {
@@ -452,8 +448,8 @@ def make_handler(data: ConsoleData, web_dir: Path) -> type[BaseHTTPRequestHandle
             parts = [part for part in path.removeprefix("/api/").split("/") if part]
             if parts == ["console-session"]:
                 self._json({"token": data.access.token})
-            elif len(parts) == 3 and parts[0] == "projects" and parts[2] == "access":
-                self._json(data.access.history(parts[1]))
+            elif parts == ["access"]:
+                self._json(data.access.history())
             elif parts == ["overview"]:
                 self._json(data.overview())
             elif parts == ["doctor"]:

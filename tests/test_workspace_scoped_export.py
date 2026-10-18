@@ -6,13 +6,13 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
-from test_workspace_encrypted_discovery import Reader, KEY, VAULT, SYNC, KEYS
+from test_workspace_encrypted_discovery import KEY, KEYS, SYNC, VAULT, Reader
 
 from aikito.workspace import scoped_export as scoped
 from aikito.workspace.encrypted_remote import EncryptedRemoteError, EncryptedVault, _b64
 from aikito.workspace.payload import FilePayload, MemberPayload
-from aikito.workspace.remote_wire import _canonical
 from aikito.workspace.remote_format import FORMAT_RESOURCE_ID
+from aikito.workspace.remote_wire import _canonical
 
 pytest.importorskip("cryptography.hazmat.primitives.hpke")
 NOW = 2000000000
@@ -30,7 +30,7 @@ def inputs():
         "public_key": _b64(private.public_key().public_bytes_raw()),
     }
     authorization = {
-        "version": 1,
+        "version": 2,
         "account_id": "account-1",
         "store_id": "store-1",
         "sync_id": SYNC,
@@ -51,7 +51,10 @@ def setup():
         [
             ("project:demo", MemberPayload()),
             ("project:other", MemberPayload()),
-            ("memory:notes/private.md", FilePayload(b"global private payload\n")),
+            (
+                "global-memory:notes/private.md",
+                FilePayload(b"global private payload\n"),
+            ),
             (
                 "project-memory:demo/notes/shared.md",
                 FilePayload(b"shared demo payload\n"),
@@ -93,7 +96,7 @@ def test_single_scope_key_has_no_other_material_or_enumeration_key(setup):
         for name in ("vrk", "resource_id", "fingerprint", "tag_key")
     )
     assert opened.content_key.hex() not in repr(opened)
-    assert COLLECTION.encode() not in encoded and KEY not in encoded
+    assert KEY not in encoded
     identity = vault.opaque_id("project-memory:demo/notes/shared.md")
     resource, payload = opened.decrypt(
         identity, reader.descriptors[identity], reader.payloads[identity], now=NOW
@@ -105,14 +108,19 @@ def test_single_scope_key_has_no_other_material_or_enumeration_key(setup):
     assert reader.read() == before
     assert reader.calls == [
         (FORMAT_RESOURCE_ID,),
-        (vault.opaque_id("project:demo"), identity),
+        (identity,),
+        (vault.opaque_id("project:demo"),),
     ]
     assert encoded != export(setup), "Every export must use fresh HPKE randomness"
 
 
 @pytest.mark.parametrize(
     "logical",
-    ["memory:notes/private.md", "project:demo", "project-memory:other/notes/shared.md"],
+    [
+        "global-memory:notes/private.md",
+        "project:demo",
+        "project-memory:other/notes/shared.md",
+    ],
 )
 def test_receiver_cannot_read_private_parent_global_or_another_project(setup, logical):
     reader, private, _, auth = setup
@@ -274,7 +282,10 @@ def test_empty_collection_missing_or_tampered_parent_is_not_exported(setup):
     reader.descriptors.pop(parent)
     with pytest.raises(EncryptedRemoteError):
         export(setup)
-    assert reader.calls == [(FORMAT_RESOURCE_ID,)]
+    assert reader.calls == [
+        (FORMAT_RESOURCE_ID,),
+        (vault.opaque_id("project-memory:demo/notes/shared.md"),),
+    ]
 
 
 def test_migrating_header_cannot_authorize_export(setup):
@@ -307,17 +318,15 @@ def test_output_never_overwrites_existing_files_or_leaves_partial_output(
     assert not target.exists() and not list(tmp_path.glob(".scoped-export-*"))
 
 
-def test_frozen_python_recipient_opens_cross_language_vector():
+def test_retired_read_export_is_rejected_without_compatibility_fallback():
     vector = json.loads(VECTOR.read_bytes())
-    assert vector["test_only"] is True
-    opened = scoped.open_scoped_read(
-        vector["package"].encode(),
-        bytes.fromhex(vector["recipient_private_hex"]),
-        authorization=vector["authorization"].encode(),
-        now=vector["now"],
-    )
-    assert opened.content_key.hex() == vector["content_key_hex"]
-    assert opened.collection_id == "project/demo/memory"
+    with pytest.raises(EncryptedRemoteError):
+        scoped.open_scoped_read(
+            vector["package"].encode(),
+            bytes.fromhex(vector["recipient_private_hex"]),
+            authorization=vector["authorization"].encode(),
+            now=vector["now"],
+        )
 
 
 def test_explicit_write_exports_only_three_collection_subkeys(setup):
@@ -342,7 +351,7 @@ def test_explicit_write_exports_only_three_collection_subkeys(setup):
     )
     keys = EncryptedVault(VAULT, KEY).collection(COLLECTION)
     assert body == {
-        "version": 1,
+        "version": 2,
         "collection_id": COLLECTION,
         "content_key": _b64(keys.content),
         "resource_id_key": _b64(keys.resource_id),
@@ -388,35 +397,22 @@ def test_write_export_requires_exact_independent_permission(setup, permissions):
     assert not reader.calls
 
 
-def test_frozen_write_export_native_receiver():
-    path = (
-        Path(__file__).parent / "fixtures/remote_protocol_vectors/scoped-write-v1.json"
+def test_retired_write_export_is_rejected_before_remote_access():
+    vector = json.loads(
+        (
+            Path(__file__).parent
+            / "fixtures/remote_protocol_vectors/scoped-write-v1.json"
+        ).read_bytes()
     )
-    vector = json.loads(path.read_bytes())
-    assert vector["test_only"] is True
-    auth, packet = json.loads(vector["authorization"]), json.loads(vector["package"])
-    assert auth["permissions"] == ["read", "write"]
-    suite, _, PrivateKey, _ = scoped._hpke()
-    body = json.loads(
-        suite.decrypt(
-            scoped._unb64(packet["ciphertext"]),
-            PrivateKey.from_private_bytes(
-                bytes.fromhex(vector["recipient_private_hex"])
-            ),
-            info=scoped._info(packet["context"], "write"),
+    _, recipient, _ = inputs()
+    reader = Mock()
+    with pytest.raises(EncryptedRemoteError):
+        scoped.export_scoped_write(
+            reader,
+            KEYS,
+            collection_id=COLLECTION,
+            recipient=_canonical(recipient),
+            authorization=vector["authorization"].encode(),
+            now=NOW,
         )
-    )
-    assert set(body) == {
-        "version",
-        "collection_id",
-        "content_key",
-        "resource_id_key",
-        "fingerprint_key",
-    }
-    for key in ("content", "resource_id", "fingerprint"):
-        assert scoped._unb64(body[key + "_key"]).hex() == vector[key + "_key_hex"]
-
-    keys = EncryptedVault(VAULT, KEY).collection(COLLECTION)
-    assert body["content_key"] == _b64(keys.content)
-    assert body["resource_id_key"] == _b64(keys.resource_id)
-    assert body["fingerprint_key"] == _b64(keys.fingerprint)
+    reader.read.assert_not_called()

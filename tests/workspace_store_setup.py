@@ -36,7 +36,7 @@ def publish_batch(
 def mutation(name="one", data=b"one", before=None):
     payload = FilePayload(data)
     return ResourceMutation(
-        f"memory:notes/{name}.md",
+        f"global-memory:notes/{name}.md",
         before,
         ResourceDescriptor(
             hashlib.sha256(data).hexdigest(),

@@ -62,7 +62,7 @@ def store(request, tmp_path):
 def mutation(name="one", data=b"one", before=None):
     payload = FilePayload(data)
     return ResourceMutation(
-        f"memory:notes/{name}.md",
+        f"global-memory:notes/{name}.md",
         before,
         ResourceDescriptor(
             hashlib.sha256(data).hexdigest(),
@@ -124,7 +124,7 @@ def test_stale_nonempty_fetch_and_missing_batch_have_no_partial_success(store):
     with pytest.raises(SnapshotExpired):
         store.fetch(initial, [one.id])
     with pytest.raises(InvalidContent):
-        store.fetch(snapshot, [one.id, "memory:notes/missing.md"])
+        store.fetch(snapshot, [one.id, "global-memory:notes/missing.md"])
     assert store.fetch(snapshot, [one.id, one.id]) == {one.id: one.payload}
     assert checkpoint(store) == before
 

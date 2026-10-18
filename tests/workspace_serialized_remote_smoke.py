@@ -57,7 +57,7 @@ def main(base: Path) -> None:
         pass
     else:
         raise AssertionError("Lost commit response must not be treated as success")
-    assert "memory:notes/serialized-recovery.md" in backend.read().resources
+    assert "global-memory:notes/serialized-recovery.md" in backend.read().resources
     assert (a / PENDING_COMMIT_STATE).is_file()
     assert PendingCommitStore(a, home).load() is not None
 

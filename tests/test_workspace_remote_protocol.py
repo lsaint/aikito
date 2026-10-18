@@ -57,7 +57,7 @@ def envelope(**fields) -> dict:
 
 
 def test_read_round_trip():
-    snapshot = RemoteSnapshot("center", 3, {"memory:notes/a.md": mutation().after})
+    snapshot = RemoteSnapshot("center", 3, {"global-memory:notes/a.md": mutation().after})
     assert decode_request(encode_read_request()) == ProtocolRequest(
         Operation.READ, None
     )
@@ -67,24 +67,24 @@ def test_read_round_trip():
 
 
 def test_fetch_round_trip():
-    expected = RemoteSnapshot("center", 3, {"memory:notes/a.md": mutation().after})
+    expected = RemoteSnapshot("center", 3, {"global-memory:notes/a.md": mutation().after})
     payload = FilePayload(b"fetch me")
-    response = decode_response(encode_fetch_response({"memory:notes/a.md": payload}))
-    assert response.body == {"memory:notes/a.md": payload}
+    response = decode_response(encode_fetch_response({"global-memory:notes/a.md": payload}))
+    assert response.body == {"global-memory:notes/a.md": payload}
 
     # Request IDs are a set: sorted, deduplicated and canonical.
     encoded = encode_fetch_request(
-        expected, ["memory:notes/b", "memory:notes/a", "memory:notes/a"]
+        expected, ["global-memory:notes/b", "global-memory:notes/a", "global-memory:notes/a"]
     )
     decoded = decode_request(encoded)
     assert decoded.operation == Operation.FETCH
-    assert decoded.body == (expected, ("memory:notes/a", "memory:notes/b"))
+    assert decoded.body == (expected, ("global-memory:notes/a", "global-memory:notes/b"))
     assert encoded == canonical(
         envelope(
             operation=Operation.FETCH,
             body={
                 "expected": json.loads(encode_read_response(expected))["body"],
-                "ids": ["memory:notes/a", "memory:notes/b"],
+                "ids": ["global-memory:notes/a", "global-memory:notes/b"],
             },
         )
     )
@@ -198,7 +198,7 @@ def _snapshot_body(**overrides) -> dict:
         "sync_id": "center",
         "revision": 1,
         "resources": {
-            "memory:notes/a.md": {
+            "global-memory:notes/a.md": {
                 "fingerprint": "fp",
                 "content_hash": "a" * 64,
                 "references": [],
@@ -220,7 +220,7 @@ def test_malformed_descriptor_rejected():
         decode_response(
             encode_success(
                 Operation.READ,
-                _snapshot_body(resources={"memory:notes/a.md": {"fingerprint": "fp"}}),
+                _snapshot_body(resources={"global-memory:notes/a.md": {"fingerprint": "fp"}}),
             )
         )
     with pytest.raises(ProtocolError):
@@ -229,7 +229,7 @@ def test_malformed_descriptor_rejected():
                 Operation.READ,
                 _snapshot_body(
                     resources={
-                        "memory:notes/a.md": {
+                        "global-memory:notes/a.md": {
                             "fingerprint": "fp",
                             "content_hash": "not-hex",
                             "references": [],

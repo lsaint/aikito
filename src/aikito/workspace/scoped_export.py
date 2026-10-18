@@ -1,4 +1,4 @@
-"""Explicit project Memory subkeys, sealed to a recipient without implicit upgrades.
+"""Explicit collection subkeys, sealed to a recipient without implicit upgrades.
 
 This local export does not establish account ownership, authenticate its sender,
 or consume a one-time grant. Receivers must verify those separately. Expiry is
@@ -17,19 +17,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 
-from ..compat import secure_file_permissions, is_windows
+from ..compat import is_windows, secure_file_permissions
 from . import remote_limits
 from .device_keys import DeviceKeyStore
 from .encrypted_discovery import _fetch, unlock_encrypted_snapshot
 from .encrypted_remote import (
-    EncryptedRemoteError,
     EncryptedDependencyMissing,
+    EncryptedRemoteError,
+    _b64,
     _parse,
     _require,
-    _b64,
     _unb64,
-    validate_vault_id,
     decrypt_collection_content,
+    validate_vault_id,
 )
 from .reconcile_budget import check_manifest, fetch_response_size
 from .remote_binding import load_remote_binding
@@ -37,6 +37,7 @@ from .remote_factory import BoundRemoteReader, _open_remote
 from .remote_format import FORMAT_RESOURCE_ID
 from .remote_protocol import encode_fetch_request
 from .remote_wire import _canonical
+from .resource_collections import collection_for_resource, parse_collection
 from .resource_state import local_resource_for_id
 
 EXPORT_SUITE = "hpke-x25519-hkdf-sha256-a256gcm"
@@ -54,11 +55,12 @@ _AUTH_FIELDS = (
     "nonce",
     "expires_at",
 )
-_CONTEXT_FIELDS = tuple(k for k in _AUTH_FIELDS if k != "collection_id") + (
+_CONTEXT_FIELDS = _AUTH_FIELDS + (
     "algorithm",
     "key_version",
     "collection_tag",
     "parent_project_id",
+    "reference_bindings",
     "recipient_public_key_sha256",
 )
 
@@ -70,17 +72,24 @@ class ScopedExportInvalid(EncryptedRemoteError):
 
 class ScopedExportDenied(EncryptedRemoteError):
     code = "scoped_export_denied"
-    message = "Only explicitly selected project Memory keys with matching permission can be exported."
+    message = "Only explicitly selected collection keys with matching permission can be exported."
+
+
+class CollectionEmpty(ScopedExportDenied):
+    code = "collection_empty"
+    message = (
+        "Create and synchronize a valid resource before exporting this collection."
+    )
 
 
 def _hpke():
     try:
         from cryptography.exceptions import InvalidTag
-        from cryptography.hazmat.primitives.hpke import Suite, KEM, KDF, AEAD
         from cryptography.hazmat.primitives.asymmetric.x25519 import (
-            X25519PublicKey,
             X25519PrivateKey,
+            X25519PublicKey,
         )
+        from cryptography.hazmat.primitives.hpke import AEAD, KDF, KEM, Suite
     except ImportError:
         raise EncryptedDependencyMissing() from None
     return (
@@ -98,19 +107,18 @@ def _now(now):
 
 
 def _collection(collection_id):
-    if type(collection_id) is not str:
-        raise ScopedExportDenied()
-    parts = collection_id.split("/")
-    if len(parts) != 3 or parts[0] != "project" or parts[2] != "memory":
-        raise ScopedExportDenied()
-    project = local_resource_for_id(f"project:{parts[1]}", "")
-    return project
+    collection = parse_collection(collection_id)
+    return (
+        None
+        if collection.parent_id is None
+        else local_resource_for_id(collection.parent_id, "")
+    )
 
 
 def _authorization(encoded, now, permission="read"):
     _require(type(encoded) is bytes and len(encoded) <= MAX_EXPORT_BYTES)
     auth = _parse(encoded, _AUTH_FIELDS)
-    _require(type(auth["version"]) is int and auth["version"] == 1)
+    _require(type(auth["version"]) is int and auth["version"] == 2)
     _require(
         type(auth["account_id"]) is str
         and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", auth["account_id"])
@@ -146,10 +154,153 @@ def _recipient(encoded):
 
 def _info(context, permission="read"):
     domain = {
-        "read": "aikito.scoped-read-export",
-        "write": "aikito.scoped-write-export",
+        "read": "aikito.scoped-read-export-v2",
+        "write": "aikito.scoped-write-export-v2",
     }[permission]
     return _canonical({"domain": domain, "context": context})
+
+
+def _validate_context(context, auth):
+    fields = set(_AUTH_FIELDS) | {
+        "algorithm",
+        "key_version",
+        "collection_tag",
+        "parent_project_id",
+        "reference_bindings",
+        "recipient_public_key_sha256",
+    }
+    _require(type(context) is dict and set(context) == fields)
+    _require(
+        all(
+            context[k] == value and type(context[k]) is type(value)
+            for k, value in auth.items()
+        )
+    )
+    _require(context["algorithm"] == EXPORT_SUITE)
+    _require(type(context["key_version"]) is int and context["key_version"] == 1)
+    tag = context["collection_tag"]
+    _require(type(tag) is str and re.fullmatch(r"[0-9a-f]{32}", tag))
+    parent = context["parent_project_id"]
+    project = _collection(auth["collection_id"])
+    if project is None:
+        _require(parent is None)
+    else:
+        _require(
+            type(parent) is str
+            and re.fullmatch(r"e1:[0-9a-f]{32}:[0-9a-f]{64}", parent)
+        )
+        _require(parent.split(":")[1] != tag)
+    _require(
+        type(context["recipient_public_key_sha256"]) is str
+        and re.fullmatch(r"[0-9a-f]{64}", context["recipient_public_key_sha256"])
+    )
+    bindings = context["reference_bindings"]
+    _require(type(bindings) is list)
+    identities = []
+    mapping = {}
+    for binding in bindings:
+        _require(
+            type(binding) is dict and set(binding) == {"logical_id", "resource_id"}
+        )
+        identity, opaque = binding["logical_id"], binding["resource_id"]
+        _require(collection_for_resource(identity) != auth["collection_id"])
+        _require(
+            type(opaque) is str
+            and re.fullmatch(r"e1:[0-9a-f]{32}:[0-9a-f]{64}", opaque)
+        )
+        _require(opaque.split(":")[1] != tag)
+        identities.append(identity)
+        mapping[identity] = opaque
+    _require(identities == sorted(set(identities)))
+    if project is not None:
+        _require(mapping.get(project.id) == parent)
+
+
+def _export_context(reader, vault, snapshot, auth, public):
+    # All resources in the collection contribute cross-collection bindings. The
+    # shared wire budget includes the already fetched authenticated format header.
+    collection = parse_collection(auth["collection_id"])
+    keys = vault.collection(collection.id)
+    candidates = sorted(
+        k for k in snapshot.resources if k.startswith(f"e1:{keys.tag}:")
+    )
+    if not candidates:
+        raise CollectionEmpty()
+    request_cost = len(encode_fetch_request(snapshot, (FORMAT_RESOURCE_ID,)))
+    response_cost = fetch_response_size(snapshot, (FORMAT_RESOURCE_ID,))
+
+    def fetch(identities):
+        nonlocal request_cost, response_cost
+        request_cost += len(encode_fetch_request(snapshot, identities))
+        response_cost += fetch_response_size(snapshot, identities)
+        _require(request_cost <= remote_limits.MAX_REMOTE_REQUEST_BYTES)
+        _require(response_cost <= remote_limits.MAX_REMOTE_RESPONSE_BYTES)
+        _require(
+            all(
+                snapshot.resources[k].size <= remote_limits.MAX_RESOURCE_PAYLOAD_BYTES
+                for k in identities
+            )
+        )
+        return _fetch(reader, snapshot, identities)
+
+    payloads = fetch(tuple(candidates))
+    references = set()
+    for identity in candidates:
+        resource, _ = vault.decrypt(
+            identity,
+            snapshot.resources[identity],
+            payloads[identity],
+            snapshot.sync_id,
+            collection.id,
+        )
+        _require(resource.kind == collection.kind)
+        _require(
+            set(snapshot.resources[identity].references) <= snapshot.resources.keys()
+        )
+        references.update(
+            ref
+            for ref in resource.references
+            if collection_for_resource(ref) != collection.id
+        )
+    if collection.parent_id is not None:
+        references.add(collection.parent_id)
+    bindings = [
+        {"logical_id": identity, "resource_id": vault.opaque_id(identity)}
+        for identity in sorted(references)
+    ]
+    _require(all(binding["resource_id"] in snapshot.resources for binding in bindings))
+    context = dict(auth)
+    context.update(
+        algorithm=EXPORT_SUITE,
+        key_version=1,
+        collection_tag=keys.tag,
+        parent_project_id=None
+        if collection.parent_id is None
+        else vault.opaque_id(collection.parent_id),
+        reference_bindings=bindings,
+        recipient_public_key_sha256=hashlib.sha256(public).hexdigest(),
+    )
+    _validate_context(context, auth)
+    _require(len(_canonical(context)) <= MAX_EXPORT_BYTES)
+    targets = tuple(binding["resource_id"] for binding in bindings)
+    if targets:
+        referenced = fetch(targets)
+        for binding in bindings:
+            identity = binding["logical_id"]
+            opaque = binding["resource_id"]
+            verified, _ = vault.decrypt(
+                opaque,
+                snapshot.resources[opaque],
+                referenced[opaque],
+                snapshot.sync_id,
+                collection_for_resource(identity),
+            )
+            _require(verified.id == identity)
+            _require(
+                set(snapshot.resources[opaque].references) <= snapshot.resources.keys()
+            )
+    _require(reader.read() == snapshot)
+    return context, keys
 
 
 def _export_scoped(
@@ -165,8 +316,8 @@ def _export_scoped(
     """Authenticate the header, parent and one sample; return only sealed material."""
     suite, PublicKey, _, _ = _hpke()
     now = _now(now)
-    project = _collection(collection_id)
     auth = _authorization(authorization, now, permission)
+    _collection(collection_id)
     document, public = _recipient(recipient)
     if (
         auth["collection_id"] != collection_id
@@ -178,56 +329,9 @@ def _export_scoped(
     _require(snapshot.sync_id == auth["sync_id"])
     vault = unlock_encrypted_snapshot(reader, snapshot, device_keys)
     _require(vault.vault_id == auth["vault_id"])
-    keys = vault.collection(collection_id)
-    parent = vault.opaque_id(project.id)
-    candidates = sorted(
-        k for k in snapshot.resources if k.startswith(f"e1:{keys.tag}:")
-    )
-    if parent not in snapshot.resources or not candidates:
-        raise ScopedExportDenied()
-    selected = (parent, candidates[0])
-    _require(
-        all(
-            snapshot.resources[k].size <= remote_limits.MAX_RESOURCE_PAYLOAD_BYTES
-            for k in selected
-        )
-    )
-    header = (FORMAT_RESOURCE_ID,)
-    _require(
-        len(encode_fetch_request(snapshot, selected))
-        + len(encode_fetch_request(snapshot, header))
-        <= remote_limits.MAX_REMOTE_REQUEST_BYTES
-        and fetch_response_size(snapshot, selected)
-        + fetch_response_size(snapshot, header)
-        <= remote_limits.MAX_REMOTE_RESPONSE_BYTES
-    )
-    payloads = _fetch(reader, snapshot, selected)
-    verified, _ = vault.decrypt(
-        parent,
-        snapshot.resources[parent],
-        payloads[parent],
-        snapshot.sync_id,
-        "private",
-    )
-    _require(verified.id == project.id and verified.kind == "project")
-    sample, _ = vault.decrypt(
-        selected[1],
-        snapshot.resources[selected[1]],
-        payloads[selected[1]],
-        snapshot.sync_id,
-        collection_id,
-    )
-    _require(sample.kind == "project-memory" and sample.references == (project.id,))
-    context = {k: v for k, v in auth.items() if k != "collection_id"}
-    context.update(
-        algorithm=EXPORT_SUITE,
-        key_version=1,
-        collection_tag=keys.tag,
-        parent_project_id=parent,
-        recipient_public_key_sha256=hashlib.sha256(public).hexdigest(),
-    )
+    context, keys = _export_context(reader, vault, snapshot, auth, public)
     material = {
-        "version": 1,
+        "version": auth["version"],
         "collection_id": collection_id,
         "content_key": _b64(keys.content),
     }
@@ -243,9 +347,11 @@ def _export_scoped(
         )
     except (ValueError, TypeError):
         raise ScopedExportInvalid() from None
-    return _canonical(
-        {"version": 1, "context": context, "ciphertext": _b64(ciphertext)}
+    encoded = _canonical(
+        {"version": auth["version"], "context": context, "ciphertext": _b64(ciphertext)}
     )
+    _require(len(encoded) <= MAX_EXPORT_BYTES)
+    return encoded
 
 
 def export_scoped_read(reader, device_keys, **kwargs):
@@ -263,13 +369,17 @@ class ScopedReadKey:
     content_key: bytes = field(repr=False)
 
     def __post_init__(self):
-        object.__setattr__(self, "context", MappingProxyType(dict(self.context)))
+        context = dict(self.context)
+        if "reference_bindings" in context:
+            context["reference_bindings"] = tuple(
+                MappingProxyType(dict(binding))
+                for binding in context["reference_bindings"]
+            )
+        object.__setattr__(self, "context", MappingProxyType(context))
 
     def decrypt(self, remote_id, descriptor, payload, *, now=None):
         """Verify authenticated content within this scope, without full-vault claims."""
         if _now(now) >= self.context["expires_at"]:
-            raise ScopedExportDenied()
-        if descriptor.references != (self.context["parent_project_id"],):
             raise ScopedExportDenied()
         resource, plain = decrypt_collection_content(
             self.content_key,
@@ -281,7 +391,15 @@ class ScopedReadKey:
             self.context["sync_id"],
             self.collection_id,
         )
-        _require(resource.kind == "project-memory")
+        bindings = {
+            binding["logical_id"]: binding["resource_id"]
+            for binding in self.context["reference_bindings"]
+        }
+        _require(all(ref in bindings for ref in resource.references))
+        _require(
+            descriptor.references
+            == tuple(sorted({bindings[ref] for ref in resource.references}))
+        )
         return resource, plain
 
 
@@ -292,30 +410,9 @@ def open_scoped_read(encoded, private_key, *, authorization, now=None):
     auth = _authorization(authorization, now)
     _require(type(encoded) is bytes and len(encoded) <= MAX_EXPORT_BYTES)
     package = _parse(encoded, ("version", "context", "ciphertext"))
-    _require(type(package["version"]) is int and package["version"] == 1)
+    _require(type(package["version"]) is int and package["version"] == auth["version"])
     context = package["context"]
-    _require(type(context) is dict and set(context) == set(_CONTEXT_FIELDS))
-    _require(
-        all(
-            context[k] == auth[k] and type(context[k]) is type(auth[k])
-            for k in auth
-            if k != "collection_id"
-        )
-    )
-    _require(
-        context["algorithm"] == EXPORT_SUITE
-        and type(context["key_version"]) is int
-        and context["key_version"] == 1
-    )
-    _require(
-        type(context["collection_tag"]) is str
-        and re.fullmatch(r"[0-9a-f]{32}", context["collection_tag"])
-    )
-    _require(
-        type(context["parent_project_id"]) is str
-        and re.fullmatch(r"e1:[0-9a-f]{32}:[0-9a-f]{64}", context["parent_project_id"])
-    )
-    _require(context["parent_project_id"].split(":")[1] != context["collection_tag"])
+    _validate_context(context, auth)
     try:
         _require(type(private_key) is bytes and len(private_key) == 32)
         private = PrivateKey.from_private_bytes(private_key)
@@ -331,7 +428,7 @@ def open_scoped_read(encoded, private_key, *, authorization, now=None):
     body = _parse(plaintext, ("version", "collection_id", "content_key"))
     _require(
         type(body["version"]) is int
-        and body["version"] == 1
+        and body["version"] == auth["version"]
         and body["collection_id"] == auth["collection_id"]
     )
     return ScopedReadKey(
@@ -378,14 +475,16 @@ def export_bound_scoped_keys(
     permission="read",
 ):
     _hpke()
-    _collection(collection_id)
     if os.path.lexists(output):
         raise ScopedExportInvalid()
-    documents = dict(
-        recipient=_read_document(recipient), authorization=_read_document(authorization)
-    )
+    documents = {
+        "recipient": _read_document(recipient),
+        "authorization": _read_document(authorization),
+    }
     # Validate public inputs before opening a remote or loading any device key.
-    _authorization(documents["authorization"], _now(None), permission)
+    auth = _authorization(documents["authorization"], _now(None), permission)
+    _collection(collection_id)
+    _require(auth["collection_id"] == collection_id)
     _recipient(documents["recipient"])
     binding = load_remote_binding(workspace)
     _require(binding is not None)

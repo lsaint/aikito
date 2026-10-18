@@ -29,38 +29,40 @@ from .encrypted_remote import (
     EncryptedRemoteError,
     EncryptedVault,
     _require,
+    collection_for_id,
     create_recovery_metadata,
     encode_recovery_code,
     metadata_resource,
     verify_metadata,
-    collection_for_id,
 )
 from .payload import ResourceMutation, payload_hash
 from .payload_io import capture_resources
+from .reconcile_budget import fetch_response_size
 from .remote_binding import load_remote_binding
-from .remote_factory import _open_remote, BoundRemoteReader
+from .remote_factory import BoundRemoteReader, _open_remote
 from .remote_format import (
     FORMAT_RESOURCE_ID,
-    require_plaintext_snapshot,
     require_encrypted_snapshot,
+    require_plaintext_snapshot,
+)
+from .remote_protocol import (
+    encode_commit_request as encode_wire_request,
 )
 from .remote_protocol import (
     encode_fetch_request,
-    encode_commit_request as encode_wire_request,
 )
-from .remote_store import SnapshotExpired, RemoteSnapshot, RecoveryRequired
+from .remote_store import RecoveryRequired, RemoteSnapshot, SnapshotExpired
 from .remote_wire import (
     _canonical,
+    build_commit_request,
+    decode_commit_request,
     decode_state_json,
     encode_commit_request,
-    decode_commit_request,
-    build_commit_request,
     validate_commit_result,
 )
-from .reconcile_budget import fetch_response_size
-from .resource_state import state_path, PENDING_COMMIT_STATE, local_resource_for_id
-from .transactions import atomic_text, atomic_unlink, entry_type
 from .replica_state import load_replica_state
+from .resource_state import PENDING_COMMIT_STATE, local_resource_for_id, state_path
+from .transactions import atomic_text, atomic_unlink, entry_type
 
 INITIALIZATION_STATE = ".local/state/aikito/encrypted-initialization.json"
 MAX_ENCRYPTED_ROUNDS = 1024
@@ -73,7 +75,14 @@ class EncryptedDiscoveryPending(EncryptedRemoteError):
 
 class EncryptedRemote:
     def __init__(
-        self, remote, sync_id, workspace, home, *, persist=True, on_progress=None
+        self,
+        remote,
+        sync_id,
+        workspace,
+        home,
+        *,
+        persist=True,
+        on_progress=None,
     ):
         self.wire = remote
         self.sync_id = sync_id
@@ -149,11 +158,7 @@ class EncryptedRemote:
         result = {}
         for remote_id, identity in opaque.items():
             resource = self.view.resources[identity]
-            collection = (
-                "private"
-                if resource.kind != "project-memory"
-                else f"project/{resource.name.split('/')[0]}/memory"
-            )
+            collection = collection_for_id(resource.id)
             actual, payload = self.vault.decrypt(
                 remote_id,
                 self.view.snapshot.resources[remote_id],
@@ -277,6 +282,15 @@ class EncryptedRemote:
 
     def recover_encrypted_pending(self, store, pending, state):
         request = pending.request
+        try:
+            vault = self._vault(pending.vault_id)
+            identities = {
+                vault.opaque_id(identity) for identity in pending.safe_resource_ids
+            }
+        except EncryptedRemoteError:
+            raise EncryptedRemoteError() from None
+        if not {mutation.id for mutation in request.mutations} <= identities:
+            raise EncryptedRemoteError()
         _require(request.expected.sync_id == self.sync_id)
         self.reader.read()
         result = self.wire.resolve_commit(
@@ -340,10 +354,10 @@ def run_encrypted_reconciliation(
     on_progress: Callable[[str], None] | None = None,
 ):
     from .reconcile import (
-        build_reconcile_plan,
-        run_reconciliation,
-        recover_reconciliation,
         WorkspaceReconcileError,
+        build_reconcile_plan,
+        recover_reconciliation,
+        run_reconciliation,
     )
 
     if on_progress:

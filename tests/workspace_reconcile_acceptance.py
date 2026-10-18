@@ -289,7 +289,7 @@ def exercise_behavior(base: Path, backend: ReconciliationBackend) -> None:
             raise AssertionError("Expected local application failure")
         assert failed
         assert backend.revision() == revision + 1
-        assert f"memory:notes/accepted-{failure}.md" in backend.fingerprints()
+        assert f"global-memory:notes/accepted-{failure}.md" in backend.fingerprints()
         after = _files(a)
         assert after.pop(PENDING_COMMIT_STATE)
         assert after == before and (a / REPLICA_STATE).read_bytes() == state_before

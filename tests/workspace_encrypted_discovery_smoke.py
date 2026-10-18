@@ -11,13 +11,13 @@ from pathlib import Path
 from http_remote_server import HTTPRemoteServer
 from workspace_memory_remote import InMemoryRemote
 
+from aikito.workspace.encrypted_discovery import DISCOVERY_STATE
 from aikito.workspace.encrypted_remote import (
     EncryptedVault,
     create_recovery_metadata,
-    metadata_resource,
     encode_recovery_code,
+    metadata_resource,
 )
-from aikito.workspace.encrypted_discovery import DISCOVERY_STATE
 from aikito.workspace.payload import (
     FilePayload,
     MemberPayload,
@@ -84,7 +84,7 @@ def main(base: Path):
                 encrypted_mutation(
                     vault,
                     snapshot,
-                    f"memory:notes/{n:02d}.md",
+                    f"global-memory:notes/{n:02d}.md",
                     FilePayload(f"Private payload {n}\n".encode()),
                 )
             )
@@ -135,8 +135,8 @@ def main(base: Path):
         assert recovered.returncode == 0, recovered.stderr
         results = [run(args) for _ in range(3)]
         assert all(r.returncode == 0 for r in results), [r.stderr for r in results]
-        assert "verified=32, remaining=9" in results[0].stdout
-        assert "verified=37, remaining=4" in results[1].stdout
+        assert "verified=2, remaining=39" in results[0].stdout
+        assert "verified=34, remaining=7" in results[1].stdout
         assert "verified=41, remaining=0" in results[2].stdout
         assert "complete:" in results[2].stdout
         same = run(args)
@@ -150,7 +150,7 @@ def main(base: Path):
         mutation = encrypted_mutation(
             vault,
             before,
-            "memory:notes/00.md",
+            "global-memory:notes/00.md",
             FilePayload(b"Changed private payload\n"),
         )
         backend.commit(

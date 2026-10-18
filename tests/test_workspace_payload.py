@@ -216,15 +216,15 @@ def test_selected_field_capture_excludes_credentials_and_filesystem_scanning(
 def test_download_validation_precedes_staging_writes(tmp_path):
     good = FilePayload(b"good")
     resources = {
-        "memory:notes/a.md": resource_for_id(
-            "memory:notes/a.md", hashlib.sha256(good.data).hexdigest()
+        "global-memory:notes/a.md": resource_for_id(
+            "global-memory:notes/a.md", hashlib.sha256(good.data).hexdigest()
         ),
-        "memory:notes/b.md": resource_for_id("memory:notes/b.md", "0" * 64),
+        "global-memory:notes/b.md": resource_for_id("global-memory:notes/b.md", "0" * 64),
     }
     with pytest.raises(PayloadError):
         materialize_resources(
             resources,
-            {"memory:notes/a.md": good, "memory:notes/b.md": FilePayload(b"bad")},
+            {"global-memory:notes/a.md": good, "global-memory:notes/b.md": FilePayload(b"bad")},
             tmp_path,
         )
     assert not list(tmp_path.iterdir())
@@ -239,7 +239,7 @@ def test_client_validation_rejects_invalid_references_and_secret_download(tmp_pa
         validate_payload(resource, payload)
     secret = FilePayload(b'password = "abcdefghijklmnopqrstuvwx"')
     resource = resource_for_id(
-        "memory:notes/a.md", hashlib.sha256(secret.data).hexdigest()
+        "global-memory:notes/a.md", hashlib.sha256(secret.data).hexdigest()
     )
     result = materialize_resources(
         {resource.id: resource}, {resource.id: secret}, tmp_path
@@ -253,11 +253,11 @@ def test_capture_detects_post_plan_changes_and_symlinks(tmp_path):
     path = source / "memory/notes/payload.md"
     path.write_bytes(b"changed")
     with pytest.raises(PayloadError, match="fingerprint"):
-        capture_resources(content, ["memory:notes/payload.md"])
+        capture_resources(content, ["global-memory:notes/payload.md"])
     path.unlink()
     path.symlink_to(source / "global/AGENTS.md")
     with pytest.raises(PayloadError, match="regular file"):
-        capture_resources(content, ["memory:notes/payload.md"])
+        capture_resources(content, ["global-memory:notes/payload.md"])
 
 
 def test_mutations_distinguish_empty_fingerprint_from_absence(tmp_path):

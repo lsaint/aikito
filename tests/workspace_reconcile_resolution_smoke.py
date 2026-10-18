@@ -59,7 +59,7 @@ def exercise(base: Path, identity: str, side: str) -> None:
     write(b, "memory/notes/rejected.md", "new")
     revision = remote.read().revision
     try:
-        apply(b, resolutions={"memory:notes/rejected.md": "remote"})
+        apply(b, resolutions={"global-memory:notes/rejected.md": "remote"})
     except WorkspaceReconcileError as exc:
         assert "requires a conflicting resource" in str(exc)
     else:

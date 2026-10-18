@@ -256,12 +256,12 @@ def test_recovery_never_replays_download_over_wait_time_edit(case, monkeypatch):
     with WorkspaceWriterLock(home):
         assert recover_pending(local, remote, home)
     state, _ = load_replica_state(local)
-    assert "memory:notes/upload.md" in state.base
-    assert "memory:notes/download.md" not in state.base
+    assert "global-memory:notes/upload.md" in state.base
+    assert "global-memory:notes/download.md" not in state.base
     assert download.read_text() == "user edit during network wait"
     assert store.load() is None
     plan = run(case)
-    assert any(item.id == "memory:notes/download.md" for item in plan.conflicts)
+    assert any(item.id == "global-memory:notes/download.md" for item in plan.conflicts)
     assert remote.read().revision == pending.request.expected.revision + 1
 
 
@@ -352,7 +352,7 @@ def test_accepted_recovery_needs_no_historical_snapshot_or_payload(case, monkeyp
         run(case)
     pending = store.load()
     uploaded = next(
-        m for m in pending.request.mutations if m.id == "memory:notes/upload.md"
+        m for m in pending.request.mutations if m.id == "global-memory:notes/upload.md"
     )
     deletion = ResourceMutation(uploaded.id, uploaded.after, None, None)
     original(request(remote, deletion, client="other"))

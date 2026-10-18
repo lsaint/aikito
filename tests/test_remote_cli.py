@@ -428,7 +428,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                 RemoteBinding(1, "https://example.com/v1/remote", "a" * 32, AUTH),
             )
             conflict_item = ReconcileItem(
-                id="memory:notes/idea.md",
+                id="global-memory:notes/idea.md",
                 action="CONFLICT",
                 target=None,
                 before=None,
@@ -474,7 +474,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
             out = stdout.getvalue()
             self.assertIn("Applied:   1", out)
             self.assertIn("Conflicts: 1", out)
-            self.assertIn("[CONFLICT] memory:notes/idea.md (Diverged from base)", out)
+            self.assertIn("[CONFLICT] global-memory:notes/idea.md (Diverged from base)", out)
             self.assertIn("Completed with conflicts remaining", out)
 
     def test_sync_reports_stop_reason(self):

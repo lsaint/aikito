@@ -6,9 +6,8 @@ import json
 from dataclasses import replace
 from types import SimpleNamespace
 
-from workspace_encrypted_setup import unsupported_header, unchecked_header_resource
-
 import pytest
+from workspace_encrypted_setup import unchecked_header_resource, unsupported_header
 
 from aikito.workspace import encrypted_discovery as discovery
 from aikito.workspace.encrypted_remote import (
@@ -20,9 +19,9 @@ from aikito.workspace.encrypted_remote import (
 from aikito.workspace.payload import (
     FilePayload,
     MemberPayload,
+    encode_payload,
     inspect_payload,
     payload_hash,
-    encode_payload,
 )
 from aikito.workspace.remote_factory import BoundRemoteReader
 from aikito.workspace.remote_format import FORMAT_RESOURCE_ID
@@ -81,7 +80,7 @@ def reader():
         [
             ("project:demo", MemberPayload()),
             ("project:other", MemberPayload()),
-            ("memory:notes/private.md", FilePayload(b"private content\n")),
+            ("global-memory:notes/private.md", FilePayload(b"private content\n")),
             ("project-memory:demo/notes/shared.md", FilePayload("你好\n".encode())),
             ("project-memory:other/notes/shared.md", FilePayload(b"other\n")),
         ]
@@ -103,13 +102,13 @@ def test_bootstrap_is_bounded_resumable_and_private_first(reader):
     assert set(result.resources) == {
         "project:demo",
         "project:other",
-        "memory:notes/private.md",
+        "global-memory:notes/private.md",
         "project-memory:demo/notes/shared.md",
         "project-memory:other/notes/shared.md",
     }
     assert all(
         not any(r.kind == "project-memory" for r in view.resources.values())
-        for view in rounds[:3]
+        for view in rounds[:2]
     )
     assert b"private content" not in checkpoint and KEY.hex().encode() not in checkpoint
     with pytest.raises(TypeError):
@@ -146,15 +145,15 @@ def test_tampered_checkpoint_never_authorizes_cached_names(reader, change):
 
 
 def test_unchanged_descriptors_survive_revision_changes_but_updates_are_revalidated():
-    reader = Reader([("memory:notes/note.md", FilePayload(b"old\n"))])
+    reader = Reader([("global-memory:notes/note.md", FilePayload(b"old\n"))])
     result = discovery.discover_encrypted(reader, KEYS)
-    changed = Reader([("memory:notes/note.md", FilePayload(b"new\n"))])
+    changed = Reader([("global-memory:notes/note.md", FilePayload(b"new\n"))])
     changed.revision = 2
     new = discovery.discover_encrypted(changed, KEYS, checkpoint=result.checkpoint)
     assert new.fetched == 1 and new.complete
     assert (
-        new.resources["memory:notes/note.md"].fingerprint
-        != result.resources["memory:notes/note.md"].fingerprint
+        new.resources["global-memory:notes/note.md"].fingerprint
+        != result.resources["global-memory:notes/note.md"].fingerprint
     )
     del changed.descriptors[
         next(k for k in changed.descriptors if k != FORMAT_RESOURCE_ID)
@@ -167,10 +166,10 @@ def test_unknown_collection_waits_for_private_then_fails_closed():
     reader = Reader(
         [
             ("project:demo", MemberPayload()),
-            ("memory:notes/private.md", FilePayload(b"note\n")),
+            ("global-memory:notes/private.md", FilePayload(b"note\n")),
         ]
     )
-    identity = EncryptedVault(VAULT, KEY).opaque_id("memory:notes/private.md")
+    identity = EncryptedVault(VAULT, KEY).opaque_id("global-memory:notes/private.md")
     descriptor = reader.descriptors.pop(identity)
     unknown = "e1:" + "0" * 32 + ":" + "1" * 64
     reader.descriptors[unknown] = descriptor
@@ -198,7 +197,9 @@ def test_missing_key_does_not_fetch_business(reader):
 
 def test_migrating_mixed_store_pauses_before_business_fetch():
     reader = Reader(format="migrating")
-    reader.descriptors["memory:notes/plain.md"] = reader.descriptors[FORMAT_RESOURCE_ID]
+    reader.descriptors["global-memory:notes/plain.md"] = reader.descriptors[
+        FORMAT_RESOURCE_ID
+    ]
     with pytest.raises(EncryptedRemoteError):
         discovery.discover_encrypted(reader, KEYS)
     assert reader.calls == [(FORMAT_RESOURCE_ID,)]
@@ -223,8 +224,8 @@ def test_format_header_cap_is_checked_before_fetch(reader):
 
 def test_fetch_budget_can_block_without_unbounded_downloads(reader, monkeypatch):
     # A large business descriptor fits the manifest but cannot fit a round.
-    key = EncryptedVault(VAULT, KEY).opaque_id("memory:notes/private.md")
-    reader = Reader([("memory:notes/private.md", FilePayload(b"note\n"))])
+    key = EncryptedVault(VAULT, KEY).opaque_id("global-memory:notes/private.md")
+    reader = Reader([("global-memory:notes/private.md", FilePayload(b"note\n"))])
     reader.descriptors[key] = replace(reader.descriptors[key], size=500000)
     monkeypatch.setattr(discovery.remote_limits, "MAX_REMOTE_RESPONSE_BYTES", 100000)
     with pytest.raises(discovery.DiscoveryBudgetExceeded):
@@ -268,8 +269,8 @@ def test_snapshot_expiry_is_propagated_without_retrying_or_writing(reader, monke
 
 
 def test_modified_ciphertext_is_refused_even_with_valid_transport_hash():
-    reader = Reader([("memory:notes/private.md", FilePayload(b"note\n"))])
-    identity = EncryptedVault(VAULT, KEY).opaque_id("memory:notes/private.md")
+    reader = Reader([("global-memory:notes/private.md", FilePayload(b"note\n"))])
+    identity = EncryptedVault(VAULT, KEY).opaque_id("global-memory:notes/private.md")
     envelope = json.loads(reader.payloads[identity].data)
     envelope["ciphertext"] = "AAAA"
     outer = FilePayload(_canonical(envelope))
@@ -294,11 +295,12 @@ def test_invalid_metadata_authentication_is_refused_before_business_fetch(reader
     assert reader.calls == [(FORMAT_RESOURCE_ID,)]
 
 
-def test_authenticated_old_checkpoint_is_rejected():
-    reader = Reader([("memory:notes/note.md", FilePayload(b"content\n"))])
+@pytest.mark.parametrize("version", [1, 2])
+def test_authenticated_old_checkpoint_is_rejected(version):
+    reader = Reader([("global-memory:notes/note.md", FilePayload(b"content\n"))])
     result = discovery.discover_encrypted(reader, KEYS)
     raw = json.loads(result.checkpoint)
-    raw["version"] = 1
+    raw["version"] = version
     for entry in raw["entries"].values():
         entry.pop("plaintext")
     body = {key: value for key, value in raw.items() if key != "mac"}
