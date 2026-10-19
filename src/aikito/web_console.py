@@ -10,6 +10,7 @@ import re
 import secrets
 import threading
 import tomllib
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -25,6 +26,12 @@ from .doctor import run_doctor
 from .inbox import collect_inbox_rows
 from .mcp import redact_mcp_entry
 from .project import collect_project_summaries
+from .remote_service import (
+    bind_workspace_remote,
+    get_workspace_remote_status,
+    sync_workspace_remote,
+    unbind_workspace_remote,
+)
 from .status import (
     collect_mcp_details,
     collect_memory_notes_rows,
@@ -93,10 +100,65 @@ class ConsoleData:
         self.version = version
         self.access = ConsoleAccess(self.aikito_dir, self.home)
 
+    def remote(self) -> dict[str, Any]:
+        status = get_workspace_remote_status(self.aikito_dir, home=self.home)
+        binding = status.get("binding")
+        store_id = None
+        if binding and binding.get("endpoint"):
+            match = re.search(
+                r"/v1/stores/([a-z0-9][a-z0-9_-]{0,62})/remote", binding["endpoint"]
+            )
+            if match:
+                store_id = match.group(1)
+        status["store_id"] = store_id
+        return _json_value(status)
+
+    def unbind_remote(self, force: bool = False) -> dict[str, Any]:
+        unbound = unbind_workspace_remote(self.aikito_dir, force=force, home=self.home)
+        return {"unbound": unbound, "remote": self.remote()}
+
+    def bind_remote(
+        self,
+        endpoint: str,
+        token_env: str = "AIKITO_REMOTE_TOKEN",
+        rebind: bool = False,
+    ) -> dict[str, Any]:
+        binding = bind_workspace_remote(
+            self.aikito_dir,
+            endpoint,
+            token_env=token_env,
+            rebind=rebind,
+            home=self.home,
+        )
+        return {
+            "bound": True,
+            "endpoint": binding.endpoint,
+            "sync_id": binding.sync_id,
+            "remote": self.remote(),
+        }
+
+    def sync_remote(self, dry_run: bool = False) -> dict[str, Any]:
+        plan = sync_workspace_remote(self.aikito_dir, dry_run=dry_run, home=self.home)
+        return {
+            "synced": True,
+            "dry_run": dry_run,
+            "revision": plan.revision,
+            "applied_count": len(plan.applied_items),
+            "changes_count": len(plan.changes),
+            "conflicts_count": len(plan.conflicts),
+            "remote": self.remote(),
+        }
+
     def overview(self) -> dict[str, Any]:
-        status = get_status_report_data(self.aikito_dir, self.home)
-        inbox = collect_inbox_rows(get_inbox_path(self.aikito_dir))
-        projects = collect_project_summaries(self.aikito_dir, self.home)
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            f_status = pool.submit(get_status_report_data, self.aikito_dir, self.home)
+            f_inbox = pool.submit(collect_inbox_rows, get_inbox_path(self.aikito_dir))
+            f_projects = pool.submit(
+                collect_project_summaries, self.aikito_dir, self.home
+            )
+            status = f_status.result()
+            inbox = f_inbox.result()
+            projects = f_projects.result()
         return {
             "workspace": str(self.aikito_dir),
             "version": self.version,
@@ -114,6 +176,7 @@ class ConsoleData:
             "agents": _json_value(status.agents),
             "memory_scopes": _json_value(status.memories),
             "projects": _json_value(projects),
+            "remote": self.remote(),
         }
 
     def _instruction_resources(self) -> dict[str, tuple[Path, str]]:
@@ -426,18 +489,57 @@ def make_handler(data: ConsoleData, web_dir: Path) -> type[BaseHTTPRequestHandle
                 if urlsplit(self.path).query:
                     raise ValueError()
                 if len(parts) == 5 and parts[1:3] == ["api", "access"]:
-                    result = data.access.perform(parts[3], parts[4], body)
+                    try:
+                        result = data.access.perform(parts[3], parts[4], body)
+                    except Exception:  # noqa: BLE001
+                        # Network/provider exceptions can contain credentials or bodies.
+                        self._json(
+                            {
+                                "error": "Access operation failed. Check login, binding and recipient availability; refresh status before retrying."
+                            },
+                            400,
+                        )
+                        return
+                elif len(parts) == 4 and parts[1:3] == ["api", "remote"]:
+                    try:
+                        action = parts[3]
+                        if action == "sync":
+                            result = data.sync_remote(
+                                dry_run=bool(body.get("dry_run", False))
+                            )
+                        elif action == "unbind":
+                            result = data.unbind_remote(
+                                force=bool(body.get("force", False))
+                            )
+                        elif action == "bind":
+                            endpoint = str(body.get("endpoint", "")).strip()
+                            if not endpoint:
+                                raise ValueError("Endpoint is required")
+                            token_env = (
+                                str(
+                                    body.get("token_env", "AIKITO_REMOTE_TOKEN")
+                                ).strip()
+                                or "AIKITO_REMOTE_TOKEN"
+                            )
+                            rebind = bool(body.get("rebind", False))
+                            result = data.bind_remote(
+                                endpoint, token_env=token_env, rebind=rebind
+                            )
+                        else:
+                            raise ValueError(f"Unknown action: {action}")
+                    except Exception as exc:  # noqa: BLE001
+                        msg = (
+                            str(exc)
+                            if str(exc)
+                            else "Remote operation failed. Check configuration and retry."
+                        )
+                        self._json({"error": msg}, 400)
+                        return
                 else:
                     raise ValueError()
                 self._json(result)
             except Exception:  # noqa: BLE001
-                # Network/provider exceptions can contain credentials or bodies.
-                self._json(
-                    {
-                        "error": "Access operation failed. Check login, binding and recipient availability; refresh status before retrying."
-                    },
-                    400,
-                )
+                self._json({"error": "Bad request"}, 400)
 
         def _api(self, path: str) -> None:
             parts = [part for part in path.removeprefix("/api/").split("/") if part]
@@ -454,6 +556,8 @@ def make_handler(data: ConsoleData, web_dir: Path) -> type[BaseHTTPRequestHandle
                 self._json(data.doctor())
             elif parts == ["diff"]:
                 self._json(data.diff())
+            elif parts == ["remote"]:
+                self._json(data.remote())
             elif len(parts) == 1:
                 self._json(data.list_resources(parts[0]))
             elif len(parts) >= 2:

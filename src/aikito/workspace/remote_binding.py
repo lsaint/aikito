@@ -26,7 +26,12 @@ from .remote_access import (
 from .remote_store import InvalidContent, StoreIdentityMismatch
 from .remote_wire import decode_state_json
 from .replica_state import load_replica_state
-from .resource_state import REMOTE_BINDING_STATE, state_path, valid_identity
+from .resource_state import (
+    PENDING_COMMIT_STATE,
+    REMOTE_BINDING_STATE,
+    state_path,
+    valid_identity,
+)
 from .transactions import atomic_text, atomic_unlink, entry_type
 
 
@@ -145,11 +150,15 @@ def save_remote_binding(
         )
 
 
-def remove_remote_binding(workspace: Path, *, home: Path | None = None) -> None:
+def remove_remote_binding(
+    workspace: Path, *, force: bool = False, home: Path | None = None
+) -> None:
     home = Path.home() if home is None else home
     with WorkspaceWriterLock(home):
         binding = load_remote_binding(workspace)
         if PendingCommitStore(workspace, home).load() is not None:
-            raise RemoteBindingError("Cannot remove binding with a pending commit")
+            if not force:
+                raise RemoteBindingError("Cannot remove binding with a pending commit")
+            atomic_unlink(state_path(workspace, PENDING_COMMIT_STATE))
         if binding is not None:
             atomic_unlink(state_path(workspace, REMOTE_BINDING_STATE))

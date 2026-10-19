@@ -162,6 +162,7 @@ jobs:
           python -m aikito rm mcp --help
           python -m aikito remote --help
           python -m aikito remote bind --help
+          python -m aikito remote unbind --help
           python -m aikito remote sync --help
           python -m aikito remote watch --help
           python -m aikito remote start --help

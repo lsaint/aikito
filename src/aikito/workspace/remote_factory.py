@@ -22,6 +22,7 @@ from .remote_binding import (
     RemoteAuth,
     RemoteBinding,
     load_remote_binding,
+    remove_remote_binding,
     save_remote_binding,
     validate_binding_endpoint,
 )
@@ -87,6 +88,7 @@ def bind_remote(
     endpoint: str,
     auth: RemoteAuth,
     *,
+    rebind: bool = False,
     home: Path | None = None,
     environ: Mapping[str, str] | None = None,
 ) -> RemoteBinding:
@@ -94,7 +96,9 @@ def bind_remote(
     remote = _open_remote(endpoint, auth, environ, home=home)
     with WorkspaceWriterLock(home):
         if load_remote_binding(workspace) is not None:
-            raise RemoteBindingExists("Remote binding already exists")
+            if not rebind:
+                raise RemoteBindingExists("Remote binding already exists")
+            remove_remote_binding(workspace, force=True, home=home)
         snapshot = remote.read()
         require_encrypted_snapshot(snapshot, allow_empty=True)
         binding = RemoteBinding(1, endpoint, snapshot.sync_id, auth)

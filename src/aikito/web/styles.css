@@ -155,6 +155,45 @@ header strong {
 
 #health.issue::before { content: "⚠"; font-size: 10.5px; }
 
+#store-badge {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid transparent;
+}
+
+#store-badge.ok {
+  color: var(--status-ok-fg);
+  background: var(--status-ok-bg);
+  border-color: var(--status-ok-border);
+}
+
+#store-badge.ok::before { content: "●"; font-size: 8px; }
+
+#store-badge.idle {
+  color: var(--status-issue-fg);
+  background: var(--status-issue-bg);
+  border-color: var(--status-issue-border);
+}
+
+#store-badge.idle::before { content: "○"; font-size: 9px; }
+
+#store-badge.unbound {
+  color: var(--fg-muted);
+  background: var(--bg-surface);
+  border-color: var(--border-subtle);
+}
+
+.workspace-store-status {
+  margin: 6px 0 16px;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
 main {
   min-height: 0;
   display: grid;
@@ -758,3 +797,200 @@ header .brand { color: var(--text); text-decoration: none; }
 .approval-dialog{color:var(--text);background:var(--panel);border:1px solid var(--border);border-radius:var(--aikito-radius);width:min(720px,85vw);max-height:85vh;padding:24px}.approval-dialog::backdrop{background:#0006}.approval-close{float:right}.approval-dialog button{padding:10px 14px;margin:8px 8px 0 0;border:1px solid var(--border);border-radius:8px;background:var(--soft);color:var(--text);cursor:pointer}.approval-dialog p,.approval-dialog li{font-size:14px;line-height:1.7;overflow-wrap:anywhere}.approval-dialog a{color:var(--text)}.approval-request{border:1px solid var(--border);border-radius:12px;padding:18px;margin:18px 0}.approval-request button:first-of-type{background:var(--text);color:var(--bg)}.approval-dialog button:disabled{opacity:.5;cursor:default}
 
 .approval-feedback{padding:12px 14px;border-radius:8px;font-weight:600}.approval-feedback[data-state=notice]{background:var(--status-issue-bg);color:var(--status-issue-fg)}.approval-feedback[data-state=success]{background:var(--status-ok-bg);color:var(--status-ok-fg)}.approval-feedback[data-state=error]{background:var(--status-issue-bg);color:var(--status-issue-fg)}.approval-result button:disabled{opacity:1;cursor:default}.approval-result:has(.approval-feedback[data-state=success]){border-color:var(--status-ok-border)}.approval-result:has(.approval-feedback[data-state=success]) button{background:var(--status-ok-fg);color:var(--status-ok-bg)}
+
+/* Remote Store & Sync styles */
+.workspace-store-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.workspace-store-link:hover {
+  color: var(--status-ok-fg);
+}
+
+.remote-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--aikito-radius-lg);
+  padding: 24px;
+  margin-top: 18px;
+}
+
+.empty-remote {
+  text-align: left;
+}
+
+.empty-remote h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+
+.remote-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.remote-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.remote-item.full-width {
+  grid-column: 1 / -1;
+}
+
+.remote-item-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.remote-item strong {
+  font-size: 15px;
+}
+
+.remote-code-text {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+  background: var(--soft);
+  padding: 4px 8px;
+  border-radius: var(--aikito-radius-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-running {
+  color: var(--status-ok-fg);
+}
+
+.status-stopped {
+  color: var(--status-issue-fg);
+}
+
+.remote-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.action-btn {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 16px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: opacity 0.15s, background-color 0.15s;
+}
+
+.action-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.action-btn.primary {
+  background: var(--text);
+  color: var(--bg);
+}
+
+.action-btn.secondary {
+  background: var(--soft);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.action-btn.danger {
+  background: #fff1f0;
+  color: #cf1322;
+  border-color: #ffa39e;
+}
+
+.remote-feedback {
+  margin: 16px 0 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.remote-feedback[data-state=notice] {
+  background: var(--status-issue-bg);
+  color: var(--status-issue-fg);
+  border: 1px solid var(--status-issue-border);
+}
+
+.remote-feedback[data-state=success] {
+  background: var(--status-ok-bg);
+  color: var(--status-ok-fg);
+  border: 1px solid var(--status-ok-border);
+}
+
+.remote-feedback[data-state=error] {
+  background: #fff1f0;
+  color: #cf1322;
+  border: 1px solid #ffa39e;
+}
+
+.remote-box {
+  margin-top: 18px;
+  padding: 20px;
+  background: var(--soft);
+  border: 1px solid var(--border);
+  border-radius: var(--aikito-radius);
+}
+
+.remote-box h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+
+.remote-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+  max-width: 540px;
+}
+
+.remote-form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.remote-form label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.remote-form input {
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--aikito-radius-sm);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.remote-form input:focus {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}

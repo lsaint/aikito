@@ -90,6 +90,7 @@ def _get_handlers(handlers: dict[str, Any] | None = None) -> dict[str, Any]:
         cmd_remote_status,
         cmd_remote_stop,
         cmd_remote_sync,
+        cmd_remote_unbind,
         cmd_remote_watch,
     )
     from .remote_key_cli import cmd_remote_key
@@ -150,6 +151,7 @@ def _get_handlers(handlers: dict[str, Any] | None = None) -> dict[str, Any]:
     resolved["cmd_remote_status"] = cmd_remote_status
     resolved["cmd_remote_stop"] = cmd_remote_stop
     resolved["cmd_remote_sync"] = cmd_remote_sync
+    resolved["cmd_remote_unbind"] = cmd_remote_unbind
     resolved["cmd_remote_watch"] = cmd_remote_watch
     return resolved
 
@@ -187,6 +189,7 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     cmd_remote_status = h["cmd_remote_status"]
     cmd_remote_stop = h["cmd_remote_stop"]
     cmd_remote_sync = h["cmd_remote_sync"]
+    cmd_remote_unbind = h["cmd_remote_unbind"]
     cmd_remote_watch = h["cmd_remote_watch"]
     cmd_remote_claim = h["cmd_remote_claim"]
     cmd_remote_key = h["cmd_remote_key"]
@@ -791,6 +794,11 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         help="Environment variable name containing the bearer token (default: AIKITO_REMOTE_TOKEN)",
     )
     p_remote_bind.add_argument(
+        "--rebind",
+        action="store_true",
+        help="Replace existing remote store binding if one already exists",
+    )
+    p_remote_bind.add_argument(
         "--workspace",
         type=Path,
         default=None,
@@ -798,6 +806,25 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     )
     add_color_args(p_remote_bind)
     p_remote_bind.set_defaults(func=cmd_remote_bind)
+
+    # remote unbind [--force] [--workspace <PATH>]
+    p_remote_unbind = remote_subparsers.add_parser(
+        "unbind",
+        help="Unbind workspace from external remote store and stop background synchronization",
+    )
+    p_remote_unbind.add_argument(
+        "--force",
+        action="store_true",
+        help="Force unbinding even if pending commits exist",
+    )
+    p_remote_unbind.add_argument(
+        "--workspace",
+        type=Path,
+        default=None,
+        help="Target workspace directory (default: resolved active workspace)",
+    )
+    add_color_args(p_remote_unbind)
+    p_remote_unbind.set_defaults(func=cmd_remote_unbind)
 
     # remote sync (--dry-run | --apply) [--verbose] [--workspace <PATH>]
     p_remote_sync = remote_subparsers.add_parser(

@@ -2,6 +2,7 @@ const groups = [
   ["RESOURCES", [["instructions","Instructions"],["skills","Skills"],["mcps","MCP"],["subagents","Subagents"]]],
   ["KNOWLEDGE", [["inbox","Inbox"],["memory","Memory"]]],
   ["TARGETS", [["projects","Projects"],["agents","Agents"]]],
+  ["REMOTE", [["remote","Store & Sync"]]],
   ["HEALTH", [["doctor","Doctor"],["diff","Diff"]]],
 ];
 const explorer = document.querySelector("#explorer");
@@ -12,6 +13,20 @@ const escapeAttribute = escapeHtml;
 const label = item => item.skill_name || item.note_name || item.agent_name || item.name || item.server_name;
 const id = (kind,item) => kind === "memory" ? `${item.scope_name}/${item.note_name}` : (item.agent_name || item.skill_name || item.name);
 async function get(path) { const response=await fetch(path); if(!response.ok) throw new Error((await response.json()).error || response.statusText); return response.json(); }
+async function post(path, body = {}) {
+  const { token } = await get("/api/console-session");
+  const response = await fetch(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Aikito-Console-Token": token,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || response.statusText);
+  return data;
+}
 function propertyValue(key,value) { return key === "details" ? `<pre class="pretty-data">${escapeHtml(JSON.stringify(value,null,2))}</pre>` : escapeHtml(typeof value === "object" ? JSON.stringify(value) : value); }
 function properties(value) { return `<dl class="properties">${Object.entries(value || {}).map(([key,item]) => `<dt>${escapeHtml(key.replaceAll("_"," "))}</dt><dd>${propertyValue(key,item)}</dd>`).join("")}</dl>`; }
 if (typeof marked === "undefined" && typeof require !== "undefined") {
@@ -143,6 +158,7 @@ function addBackButton() {
   button.onclick = () => {
     const previous = previousViews.pop();
     if (previous.kind === "workspace") showWorkspace(previous.data, false);
+    else if (previous.kind === "remote") showRemote(previous.data, false);
     else show(previous.data, false);
     selectResource(previous.selected);
     content.scrollTop = previous.scrollTop;
@@ -191,12 +207,237 @@ content.addEventListener("click", async event => {
     }
   } catch(error) { content.innerHTML=`<p>${escapeHtml(error.message)}</p>`; }
 });
+function updateStoreBadge(data) {
+  const storeBadge = document.querySelector("#store-badge");
+  if (!storeBadge) return;
+  const remote = (data && "remote" in data) ? data.remote : data;
+  if (!remote) {
+    storeBadge.textContent = "Store: unbound";
+    storeBadge.className = "unbound";
+    return;
+  }
+  if (remote.store_id) {
+    storeBadge.textContent = `Store: ${remote.store_id}`;
+    storeBadge.className = remote.service?.running ? "ok" : "idle";
+  } else {
+    storeBadge.textContent = "Store: unbound";
+    storeBadge.className = "unbound";
+  }
+  storeBadge.style.cursor = "pointer";
+  storeBadge.onclick = async () => {
+    try {
+      const report = await get("/api/remote");
+      showRemote(report);
+      selectResource(document.querySelector('.resource[data-remote="true"]'));
+    } catch(e) {}
+  };
+}
+
+async function showRemote(report, remember = true) {
+  rememberView("remote", report, remember);
+  selectResource(document.querySelector('.resource[data-remote="true"]') || null);
+  const bound = Boolean(report.binding);
+  const storeId = report.store_id || (bound ? "Custom Store" : "Unbound");
+
+  const statusBadge = bound
+    ? `<span class="kind-badge ok">Bound</span>`
+    : `<span class="kind-badge issue">Unbound</span>`;
+
+  let bodyHtml = "";
+  if (bound) {
+    const running = report.service?.running;
+    bodyHtml = `
+      <div class="remote-panel">
+        <div class="remote-grid">
+          <div class="remote-item"><span class="remote-item-label">Store ID</span><strong>${escapeHtml(storeId)}</strong></div>
+          <div class="remote-item"><span class="remote-item-label">Sync Service</span><strong class="${running ? "status-running" : "status-stopped"}">${escapeHtml(running ? "Running (PID " + report.service.pid + ")" : "Idle / Stopped")}</strong></div>
+          <div class="remote-item full-width"><span class="remote-item-label">Endpoint</span><span class="remote-code-text" title="${escapeAttribute(report.binding.endpoint)}">${escapeHtml(report.binding.endpoint)}</span></div>
+          <div class="remote-item full-width"><span class="remote-item-label">Sync ID</span><span class="remote-code-text">${escapeHtml(report.binding.sync_id)}</span></div>
+          <div class="remote-item"><span class="remote-item-label">Token Env</span><code>${escapeHtml(report.binding.token_env)}</code></div>
+          <div class="remote-item"><span class="remote-item-label">Last Revision</span><span>${escapeHtml(report.last_revision || "Initial")}</span></div>
+        </div>
+        <div class="remote-actions">
+          <button type="button" class="action-btn primary" id="remote-sync-btn">Sync Now</button>
+          <button type="button" class="action-btn secondary" id="remote-rebind-toggle">Rebind Store</button>
+          <button type="button" class="action-btn danger" id="remote-unbind-btn">Unbind Store</button>
+        </div>
+        <p id="remote-feedback" class="remote-feedback" role="status" hidden></p>
+      </div>
+
+      <div id="remote-bind-box" class="remote-box" hidden>
+        <h3>Rebind to a New Store</h3>
+        <p class="muted">Replace the current binding with a new Store endpoint. Background sync will be reconfigured.</p>
+        <form id="remote-rebind-form" class="remote-form">
+          <div class="form-group">
+            <label for="rebind-endpoint">Remote Store Endpoint</label>
+            <input id="rebind-endpoint" type="url" name="endpoint" required value="${escapeAttribute(report.binding.endpoint)}" placeholder="https://aikito.notsonan.com/v1/stores/main/remote">
+          </div>
+          <div class="form-group">
+            <label for="rebind-token-env">Token Environment Variable</label>
+            <input id="rebind-token-env" type="text" name="token_env" required value="${escapeAttribute(report.binding.token_env || 'AIKITO_REMOTE_TOKEN')}">
+          </div>
+          <button type="submit" class="action-btn primary">Save &amp; Rebind</button>
+        </form>
+      </div>
+    `;
+  } else {
+    bodyHtml = `
+      <div class="remote-panel empty-remote">
+        <h2>No Remote Store Bound</h2>
+        <p class="muted">Connect your local workspace to an external Aikito Store to enable zero-knowledge encrypted backups, multi-device synchronization, and AI client access.</p>
+        <form id="remote-bind-form" class="remote-form">
+          <div class="form-group">
+            <label for="bind-endpoint">Remote Store Endpoint</label>
+            <input id="bind-endpoint" type="url" name="endpoint" required placeholder="https://aikito.notsonan.com/v1/stores/main/remote">
+          </div>
+          <div class="form-group">
+            <label for="bind-token-env">Token Environment Variable</label>
+            <input id="bind-token-env" type="text" name="token_env" required value="AIKITO_REMOTE_TOKEN" placeholder="AIKITO_REMOTE_TOKEN">
+          </div>
+          <button type="submit" class="action-btn primary">Bind Store</button>
+        </form>
+        <p id="remote-feedback" class="remote-feedback" role="status" hidden></p>
+      </div>
+    `;
+  }
+
+  bodyHtml += `<details class="project-details" style="margin-top: 20px;"><summary>Technical details &amp; diagnostics</summary>${properties(report)}</details>`;
+
+  content.innerHTML = `<div class="title"><h1>Store &amp; Sync</h1><div class="title-meta">${statusBadge}</div></div>${bodyHtml}`;
+  addBackButton();
+  governance.innerHTML = `<h2>Governance</h2>${properties({
+    Scope: "Remote Store",
+    Store: storeId,
+    Status: bound ? "Bound" : "Unbound",
+    Sync: report.service?.running ? "Continuous" : "Manual",
+  })}`;
+
+  function showFeedback(text, state = "notice") {
+    const fb = content.querySelector("#remote-feedback");
+    if (!fb) return;
+    fb.hidden = false;
+    fb.dataset.state = state;
+    fb.textContent = text;
+  }
+
+  async function reloadRemote() {
+    try {
+      const updated = await get("/api/remote");
+      showRemote(updated);
+      updateStoreBadge(updated);
+    } catch (e) {
+      showFeedback(e.message, "error");
+    }
+  }
+
+  const syncBtn = content.querySelector("#remote-sync-btn");
+  if (syncBtn) {
+    syncBtn.onclick = async () => {
+      syncBtn.disabled = true;
+      syncBtn.textContent = "Syncing...";
+      showFeedback("Synchronizing with remote store...", "notice");
+      try {
+        const res = await post("/api/remote/sync");
+        if (res.conflicts_count > 0) {
+          showFeedback(`Sync completed with ${res.conflicts_count} conflict(s).`, "error");
+        } else {
+          showFeedback(`Sync completed: ${res.applied_count} applied (revision ${res.revision}).`, "success");
+        }
+        setTimeout(reloadRemote, 1200);
+      } catch (err) {
+        syncBtn.disabled = false;
+        syncBtn.textContent = "Sync Now";
+        showFeedback(err.message, "error");
+      }
+    };
+  }
+
+  const unbindBtn = content.querySelector("#remote-unbind-btn");
+  if (unbindBtn) {
+    unbindBtn.onclick = async () => {
+      if (!confirm("Are you sure you want to unbind this workspace from the remote Store? Background sync will be stopped.")) return;
+      unbindBtn.disabled = true;
+      unbindBtn.textContent = "Unbinding...";
+      showFeedback("Unbinding workspace from store...", "notice");
+      try {
+        await post("/api/remote/unbind", { force: true });
+        showFeedback("Workspace unbound successfully.", "success");
+        setTimeout(reloadRemote, 1000);
+      } catch (err) {
+        unbindBtn.disabled = false;
+        unbindBtn.textContent = "Unbind Store";
+        showFeedback(err.message, "error");
+      }
+    };
+  }
+
+  const rebindToggle = content.querySelector("#remote-rebind-toggle");
+  const rebindBox = content.querySelector("#remote-bind-box");
+  if (rebindToggle && rebindBox) {
+    rebindToggle.onclick = () => {
+      rebindBox.hidden = !rebindBox.hidden;
+    };
+  }
+
+  const rebindForm = content.querySelector("#remote-rebind-form");
+  if (rebindForm) {
+    rebindForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const endpoint = rebindForm.endpoint.value.trim();
+      const token_env = rebindForm.token_env.value.trim();
+      const submitBtn = rebindForm.querySelector("button");
+      submitBtn.disabled = true;
+      showFeedback("Rebinding to remote store...", "notice");
+      try {
+        await post("/api/remote/bind", { endpoint, token_env, rebind: true });
+        showFeedback("Rebound successfully to store.", "success");
+        setTimeout(reloadRemote, 1000);
+      } catch (err) {
+        submitBtn.disabled = false;
+        showFeedback(err.message, "error");
+      }
+    };
+  }
+
+  const bindForm = content.querySelector("#remote-bind-form");
+  if (bindForm) {
+    bindForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const endpoint = bindForm.endpoint.value.trim();
+      const token_env = bindForm.token_env.value.trim();
+      const submitBtn = bindForm.querySelector("button");
+      submitBtn.disabled = true;
+      showFeedback("Binding workspace to remote store...", "notice");
+      try {
+        await post("/api/remote/bind", { endpoint, token_env });
+        showFeedback("Bound workspace to store successfully.", "success");
+        setTimeout(reloadRemote, 1000);
+      } catch (err) {
+        submitBtn.disabled = false;
+        showFeedback(err.message, "error");
+      }
+    };
+  }
+}
+
 function showWorkspace(overview, remember = true) {
   rememberView("workspace", overview, remember);
   selectResource(null);
   governance.innerHTML = '<h2>Governance</h2><p class="muted">Select a resource.</p>';
-  content.innerHTML = `<div class="project-heading"><span class="eyebrow">YOUR WORKSPACE</span><h1>Context, in one place.</h1><p>Browse your workspace and confirm authorization requests selected online.</p><button class="resource-access-button" id="workspace-access">Review pending authorizations</button></div><div class="project-grid">${overview.projects.map(project => `<section class="project-card"><h2><button class="project-open" data-project-open="${escapeAttribute(project.name)}">${escapeHtml(project.name)}</button></h2>${project.description?.trim() ? `<p>${escapeHtml(project.description.trim())}</p>` : ""}<div class="project-card-meta">${escapeHtml(project.memory_notes_count)} Memory notes · ${escapeHtml(project.skills_count)} skills</div></section>`).join("") || '<p>No projects registered yet.</p>'}</div>`;
+  const storeLink = `<button type="button" class="workspace-store-link" id="workspace-open-remote">${escapeHtml(overview.remote?.store_id || "Unbound · Connect Store")}</button>`;
+  const storeText = overview.remote?.store_id
+    ? `Connected Store: ${storeLink} (${overview.remote.service?.running ? "sync active" : "sync idle"})`
+    : `Remote Store: ${storeLink}`;
+  content.innerHTML = `<div class="project-heading"><span class="eyebrow">YOUR WORKSPACE</span><h1>Context, in one place.</h1><p>Browse your workspace and confirm authorization requests selected online.</p><p class="workspace-store-status">${storeText}</p><button class="resource-access-button" id="workspace-access">Review pending authorizations</button></div><div class="project-grid">${overview.projects.map(project => `<section class="project-card"><h2><button class="project-open" data-project-open="${escapeAttribute(project.name)}">${escapeHtml(project.name)}</button></h2>${project.description?.trim() ? `<p>${escapeHtml(project.description.trim())}</p>` : ""}<div class="project-card-meta">${escapeHtml(project.memory_notes_count)} Memory notes · ${escapeHtml(project.skills_count)} skills</div></section>`).join("") || '<p>No projects registered yet.</p>'}</div>`;
   content.querySelector("#workspace-access").onclick = () => openAccessConfirmations();
+  const openRemote = content.querySelector("#workspace-open-remote");
+  if(openRemote) openRemote.onclick = async () => {
+    try {
+      const report = await get("/api/remote");
+      showRemote(report);
+      selectResource(document.querySelector('.resource[data-remote="true"]'));
+    } catch(e) { content.textContent = e.message; }
+  };
   content.querySelectorAll("[data-project-open]").forEach(button => button.onclick = async () => {
     try {
       show(await get(`/api/projects/${encodeURIComponent(button.dataset.projectOpen)}`));
@@ -207,28 +448,126 @@ function showWorkspace(overview, remember = true) {
   addBackButton();
 }
 
-async function renderGroup(title,entries) {
-  const section=document.createElement("section"); section.className="group"; section.innerHTML=`<div class="group-label">${title}</div>`;
-  for (const [kind,name] of entries) {
-    if(kind === "doctor" || kind === "diff") { const button=document.createElement("button"); button.className="resource"; button.textContent=name; button.onclick=async()=>{ const report=await get(`/api/${kind}`); show({name,kind:"properties",source:`aikito ${kind}`,scope:"Workspace",trust:"Live diagnostics",content:report}); selectResource(button); }; section.append(button); continue; }
-    const items=await get(`/api/${kind}`);
-    const disclosure=document.createElement("details"); disclosure.className="resource-group";
-    const heading=document.createElement("summary"); heading.innerHTML=`<span>${escapeHtml(name)}</span><span class="count">${items.length}</span>`; disclosure.append(heading);
-    const children=document.createElement("div"); children.className="resource-items";
-    const appendItem=(item,target)=>{ const button=document.createElement("button"); button.className="resource"; button.dataset.kind=kind; button.dataset.name=id(kind,item); button.textContent=label(item); button.onclick=()=>openResource(kind,item,button); target.append(button); };
-    if(kind === "memory") {
-      const scopes=new Map(); items.forEach(item=>scopes.set(item.scope_name,[...(scopes.get(item.scope_name) || []),item]));
-      scopes.forEach((scopeItems,scope)=>{
-        const scopeGroup=document.createElement("details"); scopeGroup.className="memory-scope";
-        const scopeHeading=document.createElement("summary"); scopeHeading.innerHTML=`<span>${escapeHtml(scope)}</span><span class="count">${scopeItems.length}</span>`; scopeGroup.append(scopeHeading);
-        const scopeChildren=document.createElement("div"); scopeChildren.className="memory-items"; scopeItems.forEach(item=>appendItem(item,scopeChildren)); scopeGroup.append(scopeChildren); children.append(scopeGroup);
-      });
-    } else items.forEach(item=>appendItem(item,children));
-    disclosure.append(children); section.append(disclosure);
-  }
-  explorer.append(section);
+async function renderGroup(title, entries, section) {
+  section.className = "group";
+  section.innerHTML = `<div class="group-label">${title}</div>`;
+  const renderedEntries = await Promise.all(
+    entries.map(async ([kind, name]) => {
+      if (kind === "doctor" || kind === "diff" || kind === "remote") {
+        const button = document.createElement("button");
+        button.className = "resource";
+        if (kind === "remote") button.dataset.remote = "true";
+        button.textContent = name;
+        button.onclick = async () => {
+          const report = await get(`/api/${kind}`);
+          if (kind === "remote") {
+            showRemote(report);
+          } else {
+            show({
+              name,
+              kind: "properties",
+              source: `aikito ${kind}`,
+              scope: "Workspace",
+              trust: "Live diagnostics",
+              content: report,
+            });
+          }
+          selectResource(button);
+        };
+        return button;
+      }
+      const items = await get(`/api/${kind}`);
+      const disclosure = document.createElement("details");
+      disclosure.className = "resource-group";
+      const heading = document.createElement("summary");
+      heading.innerHTML = `<span>${escapeHtml(name)}</span><span class="count">${items.length}</span>`;
+      disclosure.append(heading);
+      const children = document.createElement("div");
+      children.className = "resource-items";
+      const appendItem = (item, target) => {
+        const button = document.createElement("button");
+        button.className = "resource";
+        button.dataset.kind = kind;
+        button.dataset.name = id(kind, item);
+        button.textContent = label(item);
+        button.onclick = () => openResource(kind, item, button);
+        target.append(button);
+      };
+      if (kind === "memory") {
+        const scopes = new Map();
+        items.forEach((item) =>
+          scopes.set(item.scope_name, [
+            ...(scopes.get(item.scope_name) || []),
+            item,
+          ])
+        );
+        scopes.forEach((scopeItems, scope) => {
+          const scopeGroup = document.createElement("details");
+          scopeGroup.className = "memory-scope";
+          const scopeHeading = document.createElement("summary");
+          scopeHeading.innerHTML = `<span>${escapeHtml(scope)}</span><span class="count">${scopeItems.length}</span>`;
+          scopeGroup.append(scopeHeading);
+          const scopeChildren = document.createElement("div");
+          scopeChildren.className = "memory-items";
+          scopeItems.forEach((item) => appendItem(item, scopeChildren));
+          scopeGroup.append(scopeChildren);
+          children.append(scopeGroup);
+        });
+      } else {
+        items.forEach((item) => appendItem(item, children));
+      }
+      disclosure.append(children);
+      return disclosure;
+    })
+  );
+  renderedEntries.forEach((element) => section.append(element));
 }
-(async()=>{ try { const overview=await get("/api/overview"); document.querySelector("#workspace").textContent=overview.workspace; document.querySelector("#version").textContent=`Aikito ${overview.version}`; const health=document.querySelector("#health"); health.textContent=overview.healthy ? "Healthy" : `${overview.counts.issues} issues`; health.className=overview.healthy ? "ok" : "issue"; showWorkspace(overview); for(const group of groups) await renderGroup(...group); } catch(error) { explorer.textContent=error.message; } })();
+(async () => {
+  try {
+    const remotePromise = get("/api/remote")
+      .then((remote) => {
+        updateStoreBadge(remote);
+        return remote;
+      })
+      .catch(() => null);
+
+    const overviewPromise = get("/api/overview")
+      .then(async (overview) => {
+        document.querySelector("#workspace").textContent = overview.workspace;
+        document.querySelector("#version").textContent = `Aikito ${overview.version}`;
+        const health = document.querySelector("#health");
+        health.textContent = overview.healthy
+          ? "Healthy"
+          : `${overview.counts.issues} issues`;
+        health.className = overview.healthy ? "ok" : "issue";
+        const remote = await remotePromise;
+        if (remote) overview.remote = remote;
+        updateStoreBadge(overview);
+        showWorkspace(overview);
+        return overview;
+      })
+      .catch((error) => {
+        content.textContent = error.message;
+      });
+
+    const groupSections = groups.map(([title]) => {
+      const section = document.createElement("section");
+      section.className = "group";
+      section.innerHTML = `<div class="group-label">${title}</div>`;
+      explorer.append(section);
+      return section;
+    });
+
+    await Promise.all(
+      groups.map((group, idx) =>
+        renderGroup(group[0], group[1], groupSections[idx])
+      )
+    );
+    await overviewPromise;
+  } catch (error) {
+    explorer.textContent = error.message;
+  }
+})();
 document.addEventListener("scroll", event => {
   const element = event.target === document ? document.documentElement : event.target;
   if (!element || !element.classList) return;

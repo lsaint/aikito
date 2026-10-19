@@ -21,6 +21,7 @@ from .workspace.remote_binding import (
     RemoteAuth,
     RemoteBinding,
     load_remote_binding,
+    remove_remote_binding,
 )
 from .workspace.remote_credentials import (
     resolve_credential_with_source,
@@ -36,6 +37,7 @@ def bind_workspace_remote(
     endpoint: str,
     token_env: str = "AIKITO_REMOTE_TOKEN",
     *,
+    rebind: bool = False,
     home: Path | None = None,
     environ: Mapping[str, str] | None = None,
 ) -> RemoteBinding:
@@ -45,9 +47,31 @@ def bind_workspace_remote(
         workspace,
         endpoint,
         auth,
+        rebind=rebind,
         home=home,
         environ=environ,
     )
+
+
+def unbind_workspace_remote(
+    workspace: Path,
+    *,
+    force: bool = False,
+    home: Path | None = None,
+    mode: str = "auto",
+) -> bool:
+    """Safely unbind workspace from remote store, stopping service if active."""
+    home = Path.home() if home is None else home.expanduser().resolve()
+    binding = get_workspace_remote_binding(workspace)
+    if binding is None:
+        return False
+    try:
+        stop_workspace_remote_service(workspace, home=home, mode=mode)
+    except Exception:
+        if not force:
+            raise
+    remove_remote_binding(workspace, force=force, home=home)
+    return True
 
 
 def get_workspace_remote_binding(workspace: Path) -> RemoteBinding | None:

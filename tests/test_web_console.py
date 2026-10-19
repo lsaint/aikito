@@ -239,6 +239,62 @@ process.stdout.write(markdown(JSON.parse(process.argv[2]), JSON.parse(process.ar
             if value is not None:
                 self.assertRegex(value, r"^\d{4}-\d{2}-\d{2}$")
 
+    def test_remote_status_endpoint_and_overview(self) -> None:
+        overview = self.get_json("/api/overview")
+        self.assertIn("remote", overview)
+        self.assertIsNone(overview["remote"]["binding"])
+        self.assertIsNone(overview["remote"]["store_id"])
+
+        remote = self.get_json("/api/remote")
+        self.assertIn("service", remote)
+        self.assertIn("workspace", remote)
+        self.assertIsNone(remote["store_id"])
+
+    def test_remote_mutations_unbind(self) -> None:
+        token = self.get_json("/api/console-session")["token"]
+        headers = {
+            "Content-Type": "application/json",
+            "Origin": self.base_url,
+            "X-Aikito-Console-Token": token,
+        }
+        request = urllib.request.Request(
+            self.base_url + "/api/remote/unbind",
+            data=json.dumps({"force": True}).encode(),
+            headers=headers,
+        )
+        with urllib.request.urlopen(request) as response:
+            result = json.load(response)
+            self.assertFalse(result["unbound"])
+            self.assertIsNone(result["remote"]["binding"])
+
+    def test_remote_mutations_sync(self) -> None:
+        token = self.get_json("/api/console-session")["token"]
+        headers = {
+            "Content-Type": "application/json",
+            "Origin": self.base_url,
+            "X-Aikito-Console-Token": token,
+        }
+        mock_plan = mock.MagicMock()
+        mock_plan.revision = 5
+        mock_plan.applied_items = ("item1",)
+        mock_plan.changes = ("item1",)
+        mock_plan.conflicts = ()
+
+        with mock.patch(
+            "aikito.web_console.sync_workspace_remote", return_value=mock_plan
+        ):
+            request = urllib.request.Request(
+                self.base_url + "/api/remote/sync",
+                data=json.dumps({"dry_run": False}).encode(),
+                headers=headers,
+            )
+            with urllib.request.urlopen(request) as response:
+                result = json.load(response)
+                self.assertTrue(result["synced"])
+                self.assertEqual(result["revision"], 5)
+                self.assertEqual(result["applied_count"], 1)
+                self.assertEqual(result["conflicts_count"], 0)
+
     def test_redacts_sensitive_mcp_values(self) -> None:
         detail = self.get_json("/api/mcps/sample")
         self.assertEqual(detail["content"]["headers"]["Authorization"], "<redacted>")

@@ -21,7 +21,7 @@ async function openAccessConfirmations() {
     const pending=result.requests.filter(request=>!outcomes.has(request.request_id));summary(pending.length);
     const link=element("a","Open online authorization management");link.href=result.origin+"/account";link.target="_blank";link.rel="noopener noreferrer";list.append(link);
     for(const request of pending){displayed.add(request.request_id);const card=document.createElement("article");card.className="approval-request";
-      card.append(element("h3",request.username||request.account_id),element("p",`Account: ${request.account_id}`),element("p",`Recipient: ${request.recipient}`),element("p",`Workspace: ${request.store_id}`),element("p",`Confirm before: ${new Date(request.expires_at*1000).toLocaleString()}`));
+      card.append(element("h3",request.username||request.account_id),element("p",`Account: ${request.account_id}`),element("p",`Recipient: ${request.recipient}`),element("p",`Store: ${request.store_id}`),element("p",`Confirm before: ${new Date(request.expires_at*1000).toLocaleString()}`));
       const resources=document.createElement("ul");for(const item of request.items){const auth=item.authorization;resources.append(element("li",`${auth.collection_id} \u00b7 ${auth.permissions.includes("write")?"Read and write":"Read only"} \u00b7 until ${new Date(auth.expires_at*1000).toLocaleString()}`));}card.append(resources);
       const feedback=element("p","");feedback.className="approval-feedback";feedback.setAttribute("role","status");feedback.hidden=true;card.append(feedback);
       for(const [action,label] of [["confirm","Confirm authorization"],["reject","Reject"]]){

@@ -25,6 +25,7 @@ from .remote_service import (
     start_workspace_remote_service,
     stop_workspace_remote_service,
     sync_workspace_remote,
+    unbind_workspace_remote,
     watch_workspace_remote,
 )
 from .render import render_remote_sync_plan
@@ -216,7 +217,7 @@ def render_remote_status(
 
 
 def cmd_remote_bind(args: argparse.Namespace) -> None:
-    """Handle 'aikito remote bind <endpoint> [--token-env <VAR>] [--workspace <PATH>]'."""
+    """Handle 'aikito remote bind <endpoint> [--rebind] [--token-env <VAR>] [--workspace <PATH>]'."""
     home = Path.home()
     workspace = _resolve_cli_workspace(args, home)
     if not is_recognized_workspace(workspace):
@@ -228,9 +229,12 @@ def cmd_remote_bind(args: argparse.Namespace) -> None:
 
     endpoint = args.endpoint
     token_env = getattr(args, "token_env", "AIKITO_REMOTE_TOKEN")
+    rebind = getattr(args, "rebind", False)
 
     try:
-        binding = bind_workspace_remote(workspace, endpoint, token_env, home=home)
+        binding = bind_workspace_remote(
+            workspace, endpoint, token_env, rebind=rebind, home=home
+        )
     except Exception as exc:
         print(
             f"[ERROR] {_explain_remote_error(exc, endpoint=endpoint, token_env=token_env)}",
@@ -244,6 +248,36 @@ def cmd_remote_bind(args: argparse.Namespace) -> None:
     print(
         "\nNext: Initialize an empty Store with 'aikito remote key initialize', or recover its device key. Then run 'aikito remote sync --dry-run'."
     )
+
+
+def cmd_remote_unbind(args: argparse.Namespace) -> None:
+    """Handle 'aikito remote unbind [--force] [--workspace <PATH>]'."""
+    home = Path.home()
+    workspace = _resolve_cli_workspace(args, home)
+    if not is_recognized_workspace(workspace):
+        print(
+            f"[ERROR] '{workspace}' is not a recognized Aikito workspace. Run 'aikito init workspace' first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    force = getattr(args, "force", False)
+    mode = getattr(args, "mode", "auto")
+    binding = get_workspace_remote_binding(workspace)
+    if binding is None:
+        print(f"[INFO] Workspace '{workspace}' has no active remote store binding.")
+        return
+
+    try:
+        unbind_workspace_remote(workspace, force=force, home=home, mode=mode)
+    except Exception as exc:
+        print(
+            f"[ERROR] Failed to unbind remote store: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print(f"[SUCCESS] Unbound workspace from remote store ({binding.endpoint}).")
 
 
 def cmd_remote_sync(args: argparse.Namespace) -> None:

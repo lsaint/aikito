@@ -53,6 +53,18 @@ class RemoteCLIParserTest(unittest.TestCase):
         )
         self.assertEqual(args.token_env, "CUSTOM_TOKEN")
 
+    def test_remote_bind_rebind_flag(self):
+        args = self.parser.parse_args(
+            ["remote", "bind", "https://example.com/v1/remote", "--rebind"]
+        )
+        self.assertTrue(args.rebind)
+
+    def test_remote_unbind_args(self):
+        args = self.parser.parse_args(["remote", "unbind", "--force"])
+        self.assertEqual(args.command, "remote")
+        self.assertEqual(args.remote_target, "unbind")
+        self.assertTrue(args.force)
+
     def test_remote_sync_dry_run(self):
         args = self.parser.parse_args(["remote", "sync", "--dry-run"])
         self.assertEqual(args.command, "remote")
@@ -474,7 +486,9 @@ class RemoteCLIOperationsTest(unittest.TestCase):
             out = stdout.getvalue()
             self.assertIn("Applied:   1", out)
             self.assertIn("Conflicts: 1", out)
-            self.assertIn("[CONFLICT] global-memory:notes/idea.md (Diverged from base)", out)
+            self.assertIn(
+                "[CONFLICT] global-memory:notes/idea.md (Diverged from base)", out
+            )
             self.assertIn("Completed with conflicts remaining", out)
 
     def test_sync_reports_stop_reason(self):
@@ -519,6 +533,35 @@ class RemoteCLIOperationsTest(unittest.TestCase):
             self.assertIn(
                 "Synchronization stopped: Reconciliation round limit reached", out
             )
+
+    def test_remote_unbind_command(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ws = _workspace(Path(tmp_dir) / "ws")
+            save_remote_binding(
+                ws,
+                RemoteBinding(
+                    1,
+                    "https://example.com/v1/remote",
+                    "11223344556677889900aabbccddeeff",
+                    AUTH,
+                ),
+            )
+            args = self.parser.parse_args(["remote", "unbind"])
+            stdout = io.StringIO()
+            with (
+                patch("aikito.remote_cli._resolve_cli_workspace", return_value=ws),
+                patch("aikito.remote_cli.is_recognized_workspace", return_value=True),
+                patch("sys.stdout", stdout),
+            ):
+                from aikito.remote_cli import cmd_remote_unbind
+
+                cmd_remote_unbind(args)
+            self.assertIn("Unbound workspace from remote store", stdout.getvalue())
+            from aikito.workspace.remote_binding import load_remote_binding
+
+            self.assertIsNone(load_remote_binding(ws))
 
 
 if __name__ == "__main__":
