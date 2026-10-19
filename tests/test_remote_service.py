@@ -1038,3 +1038,34 @@ def test_follow_log_handles_rotation(
     _follow_log(log_path)
     output_str = "".join(lines_emitted)
     assert "rotated line 2" in output_str
+
+
+def test_watch_catalog_failure_is_throttled_and_does_not_interrupt_sync(
+    fake_workspace: Path, fake_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from aikito import remote_service
+
+    clock = [100.0]
+    published = []
+    monkeypatch.setattr(remote_service.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        remote_service, "open_bound_remote", lambda *args, **kwargs: object()
+    )
+
+    def unavailable(*args):
+        published.append(clock[0])
+        raise RuntimeError("Fixture directory service unavailable")
+
+    class Scheduler:
+        def __init__(self, *args, on_reconciled, **kwargs):
+            self.callback = on_reconciled
+
+        def run(self, *, once):
+            for moment in (100.0, 101.0, 159.0, 160.0):
+                clock[0] = moment
+                self.callback(object())
+
+    monkeypatch.setattr(remote_service, "publish_catalog", unavailable)
+    monkeypatch.setattr(remote_service, "AutoSyncScheduler", Scheduler)
+    remote_service.watch_workspace_remote(fake_workspace, home=fake_home, once=True)
+    assert published == [100.0, 160.0]

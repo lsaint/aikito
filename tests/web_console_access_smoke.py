@@ -5,7 +5,6 @@ import json
 import os
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 
@@ -45,29 +44,6 @@ def main(base):
             }
         )
     )
-    checked = int(time.time())
-    history = {
-        "version": 1,
-        "records": [
-            {
-                "origin": "https://recipient.example",
-                "account_id": "account-1",
-                "collection_id": "inbox",
-                "endpoint": "https://offline.example/v1/stores/main/remote",
-                "sync_id": "a" * 32,
-                "checked_at": checked,
-                "grants": [
-                    {
-                        "grant_id": "c" * 64,
-                        "permissions": ["read"],
-                        "expires_at": checked + 86400,
-                        "status": "active",
-                    }
-                ],
-            }
-        ],
-    }
-    (private / "console-access.json").write_text(json.dumps(history))
     process = subprocess.Popen(
         [sys.executable, "-u", "-m", "aikito", "web", "--no-open", "--port", "0"],
         env=env,
@@ -92,10 +68,9 @@ def main(base):
         status, index = request("/")
         assert status == 200 and b"/resource-access.js" in index
         status, script = request("/resource-access.js")
-        assert status == 200 and b"Confirm selected access" in script
-        assert b'value="https://aikito.notsonan.com"' in script
-        assert b"Signed in. Access is not granted yet." in script
-        assert b'event.data.type === "signing-in"' in script
+        assert status == 200 and b"Confirm authorization" in script
+        assert b"postMessage" not in script and b"No access" not in script
+        assert b"checkAccessConfirmations" in script
         status, raw = request("/api/console-session")
         assert status == 200
         token = json.loads(raw)["token"]
@@ -115,47 +90,12 @@ def main(base):
         )
         assert status == 403
         status, raw = request("/api/access")
-        assert status == 200 and json.loads(raw)["records"][0]["checked_at"] == checked
-        choices = {item["collection_id"] for item in json.loads(raw)["collections"]}
-        assert {
-            "global/instructions",
-            "global/memory",
-            "skills",
-            "subagents",
-            "inbox",
-        } <= choices
-        assert not choices & {"private", "agents", "mcps", "skills.toml", "config"}
-        process.terminate()
-        process.communicate(timeout=10)
-        process = subprocess.Popen(
-            [sys.executable, "-u", "-m", "aikito", "web", "--no-open", "--port", "0"],
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        assert process.stdout.readline().strip() == "Aikito Console"
-        origin = process.stdout.readline().strip()
-        port = int(origin.rsplit(":", 1)[1])
-        status, raw = request("/api/access")
-        assert (
-            status == 200
-            and json.loads(raw)["records"][0]["grants"][0]["grant_id"] == "c" * 64
-        )
-        (base / "access-history-checked.txt").write_text(
-            "Console CLI retained offline access history across process restarts\n"
+        assert status == 503 and b"TEST_TOKEN" not in raw
+        (base / "local-confirmation-checked.txt").write_text(
+            "Real console CLI served confirmation-only UI and rejected foreign origins\n"
         )
         (base / "console.html").write_bytes(index)
         (base / "resource-access.js").write_bytes(script)
-        (base / "login-progress-checked.txt").write_text(
-            "Console CLI served the explicit sign-in and authorization steps\n"
-        )
-        (base / "default-origin-checked.txt").write_text(
-            "Default recipient origin verified through the console CLI\n"
-        )
-        (base / "resource-collections-checked.txt").write_text(
-            "Open collection catalog verified through the real console CLI\n"
-        )
         (base / "checked.txt").write_text(
             "Real console CLI served resource access and rejected foreign confirmation requests\n"
         )

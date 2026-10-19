@@ -246,7 +246,7 @@ class ConsoleData:
                 "scope": f"Project: {name}",
                 "trust": "Canonical",
                 "content": _json_value(project),
-                "resource_access_project": name,
+                "project_summary": True,
             }
         if kind == "agents":
             row = next(
@@ -425,12 +425,7 @@ def make_handler(data: ConsoleData, web_dir: Path) -> type[BaseHTTPRequestHandle
                 parts = unquote(urlsplit(self.path).path).split("/")
                 if urlsplit(self.path).query:
                     raise ValueError()
-                if parts == ["", "api", "access"] and set(body) == {
-                    "origin",
-                    "selections",
-                }:
-                    result = data.access.begin(body["selections"], body["origin"])
-                elif len(parts) == 5 and parts[1:3] == ["api", "access"]:
+                if len(parts) == 5 and parts[1:3] == ["api", "access"]:
                     result = data.access.perform(parts[3], parts[4], body)
                 else:
                     raise ValueError()
@@ -449,7 +444,10 @@ def make_handler(data: ConsoleData, web_dir: Path) -> type[BaseHTTPRequestHandle
             if parts == ["console-session"]:
                 self._json({"token": data.access.token})
             elif parts == ["access"]:
-                self._json(data.access.history())
+                try:
+                    self._json(data.access.pending())
+                except Exception:  # noqa: BLE001 - Never expose transport or credential errors.
+                    self._json({"error": "Authorization service is unavailable"}, 503)
             elif parts == ["overview"]:
                 self._json(data.overview())
             elif parts == ["doctor"]:

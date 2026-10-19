@@ -1,328 +1,268 @@
-"""One local confirmation binds a set of collection permissions to one recipient.
+"""Explicit local approval of immutable requests selected on the account website.
 
-Browser sessions remain at the recipient origin. Only public challenges and
-requests cross the window boundary; existing claim/export/submit operations own
-credential delivery and cryptography. Intents expire and never survive restart.
+Polling never exports keys. A random, expiring confirmation token binds the exact
+request displayed locally; partial or unknown submissions are not retried.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import re
 import secrets
 import tempfile
 import threading
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import console_access_history
 from .skill_state import WorkspaceWriterLock
+from .workspace.access_catalog import (
+    AccessRequestError,
+    collections,
+    exchange,
+    publish_catalog,
+    target,
+)
 from .workspace.device_keys import DeviceKeyStore
 from .workspace.encrypted_discovery import unlock_encrypted_snapshot
-from .workspace.http_transport import validate_endpoint
-from .workspace.recipient_keys import canonical_origin, fetch_recipient
-from .workspace.remote_binding import load_remote_binding
-from .workspace.remote_claim import claim_bound_store
+from .workspace.recipient_keys import fetch_recipient
 from .workspace.remote_export import submit_bound_export
 from .workspace.remote_factory import BoundRemoteReader, _open_remote
 from .workspace.remote_wire import _canonical
-from .workspace.scoped_export import (
-    _authorization,
-    _collection,
-    export_bound_scoped_keys,
-)
+from .workspace.resource_state import state_path
+from .workspace.scoped_export import _authorization, export_bound_scoped_keys
 
-
-class ConsoleAccessError(ValueError):
-    pass
-
-
-@dataclass
-class AccessIntent:
-    origin: str
-    selections: dict[str, str]
-    sync_id: str
-    vault_id: str
-    store_id: str
-    expires: float
-    binding: object
-    account: str | None = None
-    submitted: set[str] = field(default_factory=set)
-    busy: bool = False
+ConsoleAccessError = AccessRequestError
 
 
 class ConsoleAccess:
     def __init__(self, workspace, home):
         self.workspace, self.home = workspace, home
         self.token = secrets.token_urlsafe(32)
-        self._intents = {}
+        self._shown = {}
+        self._consumed = set()
         self._lock = threading.Lock()
+        self._last_catalog = None
 
-    def collections(self):
-        choices = [
-            ("global/instructions", "Global instructions"),
-            ("global/memory", "Global memory"),
-            ("skills", "Skills and all attachments"),
-            ("subagents", "Subagents"),
-            ("inbox", "Inbox"),
-        ]
-        for config in sorted((self.workspace / "projects").glob("*/agent.toml")):
-            if not config.is_file():
-                continue
-            project = config.parent.name
-            for kind in ("instructions", "memory"):
-                collection = f"project/{project}/{kind}"
-                try:
-                    _collection(collection)
-                except ValueError:
-                    continue
-                choices.append((collection, f"{project} / {kind}"))
-        return [
-            {"collection_id": identity, "label": label} for identity, label in choices
-        ]
-
-    def begin(self, selections, origin):
-        allowed = {item["collection_id"] for item in self.collections()}
-        if not isinstance(selections, list) or not 1 <= len(selections) <= 32:
-            raise ConsoleAccessError("Select between 1 and 32 collections")
-        selected = {}
-        for item in selections:
-            if (
-                not isinstance(item, dict)
-                or set(item) != {"collection_id", "permission"}
-                or not isinstance(item["collection_id"], str)
-                or item["collection_id"] not in allowed
-                or item["collection_id"] in selected
-                or item["permission"] not in ("read", "write")
-            ):
-                raise ConsoleAccessError("Invalid collection selection")
-            selected[item["collection_id"]] = item["permission"]
-        origin = canonical_origin(origin)
-        binding = load_remote_binding(self.workspace)
-        if binding is None:
-            raise ConsoleAccessError("Bind an encrypted Remote first")
-        endpoint = validate_endpoint(binding.endpoint)
-        match = re.fullmatch(
-            r"/v1/stores/([a-z0-9][a-z0-9_-]{0,62})/remote", endpoint.path
-        )
-        if (
-            endpoint.scheme != "https"
-            or endpoint.query
-            or "?" in binding.endpoint
-            or not match
-        ):
-            raise ConsoleAccessError("A bound HTTPS Store is required")
-        reader = BoundRemoteReader(
-            _open_remote(binding.endpoint, binding.auth, None, home=self.home),
-            binding.sync_id,
-        )
-        vault = unlock_encrypted_snapshot(
-            reader,
-            reader.read(),
-            DeviceKeyStore(home=self.home, workspace=self.workspace),
-        )
+    def pending(self):
         with self._lock:
-            self._intents = {
-                key: value
-                for key, value in self._intents.items()
-                if value.expires > time.monotonic()
-            }
-            if len(self._intents) >= 8:
-                raise ConsoleAccessError(
-                    "Too many access requests; try again in 15 minutes"
-                )
-            identity = secrets.token_urlsafe(32)
-            intent = AccessIntent(
-                origin,
-                selected,
-                binding.sync_id,
-                vault.vault_id,
-                match[1],
-                time.monotonic() + 900,
-                binding,
+            binding, origin, store = target(self.workspace)
+            if self._last_catalog is None or time.monotonic() - self._last_catalog > 60:
+                with WorkspaceWriterLock(self.home):
+                    publish_catalog(self.workspace, self.home)
+                self._last_catalog = time.monotonic()
+            result = exchange(self.workspace, self.home, "requests")
+            allowed = set(collections(self.workspace))
+            journal = state_path(
+                self.workspace, ".local/state/aikito/access-confirmations.json"
             )
-            self._intents[identity] = intent
-        return {
-            "intent_id": identity,
-            "origin": origin,
-            "context": {
-                "store_id": intent.store_id,
-                "sync_id": intent.sync_id,
-                "vault_id": intent.vault_id,
-                "collections": [
-                    {
-                        "collection_id": collection,
-                        "permissions": ["read"]
-                        if permission == "read"
-                        else ["read", "write"],
-                    }
-                    for collection, permission in selected.items()
-                ],
-            },
-        }
-
-    def history(self):
-        collections = self.collections()
-        allowed = {item["collection_id"] for item in collections}
-        return {
-            "collections": collections,
-            "records": [record for record in console_access_history.history(
-                self.workspace, load_remote_binding(self.workspace)
-            ) if record["collection_id"] in allowed],
-        }
-
-    def observe(self, identity, body):
-        if set(body) != {"account_id", "grants"}:
-            raise ConsoleAccessError("Invalid access observation")
-        with self._lock:
-            intent = self._intents.get(identity)
-            if (
-                intent is None
-                or intent.expires <= time.monotonic()
-                or (intent.account is not None and intent.account != body["account_id"])
-            ):
-                raise ConsoleAccessError("Access request expired or account changed")
-        with WorkspaceWriterLock(self.home):
-            if load_remote_binding(self.workspace) != intent.binding:
-                raise ConsoleAccessError("Remote binding changed; reconnect")
-            grants = body["grants"]
-            if not isinstance(grants, list) or any(
-                not isinstance(grant, dict)
-                or grant.get("store_id") != intent.store_id
-                or grant.get("collection_id") not in intent.selections
-                for grant in grants
-            ):
-                raise ConsoleAccessError(
-                    "Observation does not match the selected collections"
+            if journal.exists():
+                consumed = json.loads(journal.read_text())
+                self._consumed.update(
+                    key
+                    for key, deadline in consumed.items()
+                    if type(deadline) is int and deadline > time.time()
                 )
-            for collection in intent.selections:
-                console_access_history.record(
-                    self.workspace,
-                    intent,
-                    body["account_id"],
-                    [grant for grant in grants if grant["collection_id"] == collection],
-                    collection=collection,
-                )
-        return {"saved": True}
-
-    def perform(self, identity, action, body):
-        if action == "observe":
-            return self.observe(identity, body)
-        with self._lock:
-            intent = self._intents.get(identity)
-            if intent is None or intent.expires <= time.monotonic():
-                raise ConsoleAccessError("Access request expired; reconnect")
-            if intent.busy:
-                raise ConsoleAccessError(
-                    "Access request already submitted; refresh its status"
-                )
-            if load_remote_binding(self.workspace) != intent.binding:
-                raise ConsoleAccessError("Remote binding changed; reconnect")
-            if action == "approve":
-                if (
-                    set(body) != {"account_id"}
-                    or not isinstance(body["account_id"], str)
-                    or not re.fullmatch(
-                        r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", body["account_id"]
-                    )
+            pending = []
+            current = {}
+            remote_requests = result.get("requests", [])
+            if not isinstance(remote_requests, list) or len(remote_requests) > 32:
+                raise ConsoleAccessError("Invalid approval response")
+            for request in remote_requests:
+                if not re.fullmatch(
+                    r"[a-f0-9]{64}", str(request.get("request_id", ""))
                 ):
-                    raise ConsoleAccessError("Invalid account")
-                if intent.account is not None:
-                    raise ConsoleAccessError(
-                        "Account already confirmed; reconnect to change it"
-                    )
-                intent.account = body["account_id"]
-                return {"approved": True}
-            if intent.account is None or action not in {"claim", "submit"}:
-                raise ConsoleAccessError("Confirm the account and collections first")
-            intent.busy = True
-            if action == "submit":
-                # Uncertain submissions must be checked in the recipient's list,
-                # never automatically retried with the same one-time request.
-                collection = body.get("collection_id")
+                    raise ConsoleAccessError("Invalid approval identity")
                 if (
-                    not isinstance(collection, str)
-                    or collection not in intent.selections
-                    or collection in intent.submitted
+                    request.get("cancelled")
+                    or request.get("expires_at", 0) <= time.time()
                 ):
-                    intent.busy = False
-                    raise ConsoleAccessError(
-                        "Collection not selected or already submitted; reconnect"
+                    continue
+                if (
+                    request.get("store_id") != store
+                    or request.get("sync_id") != binding.sync_id
+                ):
+                    continue
+                items = request.get("items", [])
+                # A partially consumed group must be reviewed online, never resumed
+                # automatically with newly generated or reused one-time packages.
+                if (
+                    not items
+                    or len(items) > 32
+                    or any(item.get("status") != "pending" for item in items)
+                ):
+                    continue
+                identities = set()
+                grant_ids = set()
+                for item in items:
+                    candidate = item["authorization"]
+                    permission = (
+                        "write"
+                        if candidate.get("permissions") == ["read", "write"]
+                        else "read"
                     )
-                intent.submitted.add(collection)
-                permission = intent.selections[collection]
-        try:
-            with WorkspaceWriterLock(self.home):
-                if load_remote_binding(self.workspace) != intent.binding:
-                    raise ConsoleAccessError("Remote binding changed; reconnect")
-                with tempfile.TemporaryDirectory(prefix="aikito-access-") as folder:
-                    folder = Path(folder)
-                    document = folder / "request.json"
-                    document.write_bytes(_canonical(body))
-                    if action == "claim":
-                        return claim_bound_store(
-                            self.workspace, document, intent.account, home=self.home
-                        )
                     auth = _authorization(
-                        _canonical(body), int(time.time()), permission
+                        _canonical(candidate), int(time.time()), permission
                     )
-                    if any(
-                        auth[key] != value
-                        for key, value in {
-                            "account_id": intent.account,
-                            "store_id": intent.store_id,
-                            "sync_id": intent.sync_id,
-                            "vault_id": intent.vault_id,
-                            "collection_id": collection,
-                        }.items()
+                    if (
+                        auth["collection_id"] not in allowed
+                        or auth["collection_id"] in identities
+                        or any(
+                            auth[k] != request[v]
+                            for k, v in (
+                                ("account_id", "account_id"),
+                                ("store_id", "store_id"),
+                                ("sync_id", "sync_id"),
+                                ("vault_id", "vault_id"),
+                            )
+                        )
                     ):
                         raise ConsoleAccessError(
-                            "Authorization does not match your confirmed selection"
+                            "Approval does not match this workspace"
                         )
-                    if auth["expires_at"] > int(time.time()) + 30 * 86400:
-                        raise ConsoleAccessError("Authorization exceeds 30 days")
-                    recipient, package = (
-                        folder / "recipient.json",
-                        folder / "sealed.json",
+                    if (
+                        auth["expires_at"] > int(time.time()) + 30 * 86400
+                        or auth["grant_id"] in grant_ids
+                    ):
+                        raise ConsoleAccessError(
+                            "Invalid authorization lifetime or repeated grant"
+                        )
+                    identities.add(auth["collection_id"])
+                    grant_ids.add(auth["grant_id"])
+                digest = hashlib.sha256(_canonical(request)).hexdigest()
+                if digest in self._consumed:
+                    continue
+                old = self._shown.get(digest)
+                confirmation = (
+                    old[0]
+                    if old and old[1] > time.monotonic()
+                    else secrets.token_urlsafe(32)
+                )
+                current[digest] = (
+                    confirmation,
+                    time.monotonic() + 300,
+                    binding,
+                    request,
+                )
+                pending.append(
+                    {**request, "recipient": origin, "confirmation": confirmation}
+                )
+            self._shown = current
+            return {"origin": origin, "requests": pending}
+
+    def perform(self, identity, action, body):
+        if action not in {"confirm", "reject"} or set(body) != {"confirmation"}:
+            raise ConsoleAccessError("Invalid confirmation")
+        with self._lock:
+            selected = next(
+                (
+                    (digest, entry)
+                    for digest, entry in self._shown.items()
+                    if entry[3]["request_id"] == identity
+                    and secrets.compare_digest(entry[0], str(body["confirmation"]))
+                ),
+                None,
+            )
+            if selected is None or selected[1][1] <= time.monotonic():
+                raise ConsoleAccessError("Refresh the request before confirming")
+            digest, (_, _, binding, request) = selected
+            self._consumed.add(digest)
+            if len(self._consumed) > 1024:
+                raise ConsoleAccessError("Restart the console to review more requests")
+        with WorkspaceWriterLock(self.home):
+            current, origin, _store = target(self.workspace)
+            if current != binding or request["expires_at"] <= time.time():
+                raise ConsoleAccessError("Remote binding changed or request expired")
+            journal = state_path(
+                self.workspace,
+                ".local/state/aikito/access-confirmations.json",
+                create=True,
+            )
+            consumed = json.loads(journal.read_text()) if journal.exists() else {}
+            now = int(time.time())
+            consumed = {
+                key: expiry
+                for key, expiry in consumed.items()
+                if type(expiry) is int and expiry > now
+            }
+            if digest in consumed:
+                raise ConsoleAccessError(
+                    "This request was already attempted; check its online status"
+                )
+            if len(consumed) >= 1024:
+                raise ConsoleAccessError("Too many outstanding confirmation records")
+            consumed[digest] = request["expires_at"]
+            temporary = journal.with_name(journal.name + "." + secrets.token_hex(8))
+            descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            try:
+                with os.fdopen(descriptor, "wb") as stream:
+                    stream.write(_canonical(consumed))
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, journal)
+                if os.name != "nt":
+                    directory = os.open(journal.parent, os.O_RDONLY)
+                    try:
+                        os.fsync(directory)
+                    finally:
+                        os.close(directory)
+            finally:
+                temporary.unlink(missing_ok=True)
+            # Recheck cancellation and the complete immutable body immediately
+            # before accessing device keys, independent of the browser payload.
+            remote = exchange(self.workspace, self.home, "requests")["requests"]
+            if not any(_canonical(value) == _canonical(request) for value in remote):
+                raise ConsoleAccessError("Request changed; refresh its status")
+            if action == "reject":
+                return exchange(
+                    self.workspace, self.home, f"requests/{identity}/reject", post=True
+                )
+            reader = BoundRemoteReader(
+                _open_remote(binding.endpoint, binding.auth, None, home=self.home),
+                binding.sync_id,
+            )
+            vault = unlock_encrypted_snapshot(
+                reader,
+                reader.read(),
+                DeviceKeyStore(home=self.home, workspace=self.workspace),
+            )
+            if vault.vault_id != request["vault_id"]:
+                raise ConsoleAccessError("Vault identity changed")
+            results = []
+            with tempfile.TemporaryDirectory(prefix="aikito-approval-") as folder:
+                folder = Path(folder)
+                recipient = folder / "recipient.json"
+                fetch_recipient(
+                    self.workspace, self.home, origin=origin, output=recipient
+                )
+                for item in request["items"]:
+                    auth = item["authorization"]
+                    permission = (
+                        "write" if auth["permissions"] == ["read", "write"] else "read"
                     )
-                    fetch_recipient(
-                        self.workspace,
-                        self.home,
-                        origin=intent.origin,
-                        output=recipient,
-                    )
+                    document, package = folder / "request.json", folder / "sealed.json"
+                    document.write_bytes(_canonical(auth))
                     export_bound_scoped_keys(
                         self.workspace,
                         self.home,
-                        collection_id=collection,
+                        collection_id=auth["collection_id"],
                         recipient=recipient,
                         authorization=document,
                         output=package,
                         permission=permission,
                     )
-                    receipt = submit_bound_export(
-                        self.workspace,
-                        self.home,
-                        origin=intent.origin,
-                        package=package,
-                        authorization=document,
-                        expected_account=intent.account,
-                        collection=collection,
-                        permission=permission,
+                    results.append(
+                        submit_bound_export(
+                            self.workspace,
+                            self.home,
+                            origin=origin,
+                            package=package,
+                            authorization=document,
+                            expected_account=request["account_id"],
+                            collection=auth["collection_id"],
+                            permission=permission,
+                        )
                     )
-                    if receipt.get("status") == "active":
-                        try:
-                            console_access_history.record(
-                                self.workspace,
-                                intent,
-                                intent.account,
-                                [{**auth, "status": "active"}],
-                                collection=collection,
-                            )
-                        except (OSError, ValueError, TypeError, KeyError, RuntimeError):
-                            # Saving a display hint cannot invalidate a committed grant.
-                            return {**receipt, "history_saved": False}
-                    return receipt
-        finally:
-            with self._lock:
-                intent.busy = False
+                    package.unlink(missing_ok=True)
+            return {"status": "active", "grants": results}

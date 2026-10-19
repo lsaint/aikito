@@ -728,19 +728,10 @@ footer {
 }
 
 .resource-access-button { margin-top: 1rem; }
-.resource-access-dialog { color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: var(--aikito-radius); width: min(580px, 85vw); max-height: 85vh; padding: 24px; }
-.resource-access-dialog::backdrop { background: #0006; }
-.resource-access-dialog label { display: block; margin: 16px 0; }
-.resource-access-dialog input, .resource-access-dialog select { display: block; box-sizing: border-box; width: 100%; padding: 8px; margin-top: 6px; color: var(--text); background: var(--soft); border: 1px solid var(--border); border-radius: 6px; }
-.resource-access-dialog button, .resource-access-button { padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--soft); color: var(--text); cursor: pointer; }
-.resource-access-dialog button:disabled { opacity: .5; cursor: default; }
-.resource-access-dialog .access-close { float: right; }
-.access-message { color: var(--muted); }
 
 .eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .12em; color: var(--muted); }
 .project-heading { margin: 12px 0 32px; }
 .project-heading h1 { margin: 10px 0; font-size: clamp(26px, 3vw, 38px); letter-spacing: -.04em; line-height: 1.2; }
-.project-heading p, .project-card p, .access-card p { color: var(--muted); font-size: 14px; line-height: 1.7; }
 .project-grid { display: grid; align-items: start; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); gap: 12px; }
 .project-card { padding: 12px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; gap: 8px; }
 .project-card h2 { margin: 0; font-size: 16px; letter-spacing: -.025em; }
@@ -755,25 +746,13 @@ footer {
 .project-metrics strong, .project-metrics span { display: block; }
 .project-metrics strong { font-size: 22px; letter-spacing: -.03em; }
 .project-metrics span { margin-top: 6px; font-size: 12px; color: var(--muted); }
-.access-card { display: flex; gap: 14px; padding: 18px; background: var(--soft); border-radius: 14px; margin-bottom: 24px; }
-.access-card h2 { font-size: 17px; margin: 8px 0; letter-spacing: -.025em; }
-.access-card-icon { display: grid; place-items: center; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; width: 42px; height: 42px; flex: 0 0 42px; font-size: 24px; }
 .project-details { border-top: 1px solid var(--border); padding-top: 16px; }
 .project-details summary { font-size: 13px; color: var(--muted); cursor: pointer; }
-.resource-access-dialog h2 { font-size: 23px; letter-spacing: -.025em; margin-top: 6px; padding-right: 24px; }
-.resource-access-dialog > p { line-height: 1.7; font-size: 14px; }
-.resource-access-dialog .access-authorize { width: 100%; margin-top: 16px; background: var(--text); color: var(--bg); }
-.resource-access-dialog .access-state p { padding: 12px; font-size: 13px; overflow-wrap: anywhere; border: 1px solid var(--border); border-radius: 8px; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
-@media(max-width: 760px) { .access-card { padding: 18px; gap: 12px; } .access-card-icon { display: none; } .project-metrics strong { font-size: 18px; } }
 
 header .brand { color: var(--text); text-decoration: none; }
 
 .page-back { display: inline-flex; align-items: center; padding: 5px 0; margin: 0 0 16px; border: none; background: none; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
 .page-back:hover { color: var(--text); }
 
-.access-collections { border: 0; padding: 0; margin: 20px 0; min-width: 0; }
-.resource-access-dialog .access-collection { display: flex; align-items: center; gap: 12px; margin: 8px 0; }
-.access-collection span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.resource-access-dialog .access-collection select { width: 150px; flex-shrink: 0; margin: 0; }
-@media(max-width: 480px) { .resource-access-dialog .access-collection { align-items: stretch; flex-direction: column; } .resource-access-dialog .access-collection select { width: 100%; } }
+.approval-dialog{color:var(--text);background:var(--panel);border:1px solid var(--border);border-radius:var(--aikito-radius);width:min(720px,85vw);max-height:85vh;padding:24px}.approval-dialog::backdrop{background:#0006}.approval-close{float:right}.approval-dialog button{padding:10px 14px;margin:8px 8px 0 0;border:1px solid var(--border);border-radius:8px;background:var(--soft);color:var(--text);cursor:pointer}.approval-dialog p,.approval-dialog li{font-size:14px;line-height:1.7;overflow-wrap:anywhere}.approval-dialog a{color:var(--text)}.approval-request{border:1px solid var(--border);border-radius:12px;padding:18px;margin:18px 0}.approval-request button:first-of-type{background:var(--text);color:var(--bg)}.approval-dialog button:disabled{opacity:.5;cursor:default}

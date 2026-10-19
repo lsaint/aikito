@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
+from .workspace.access_catalog import publish_catalog
 from .workspace.auto_sync import (
     AutoSyncScheduler,
     is_worker_running,
     load_worker_status,
 )
+from .workspace.encrypted_sync import run_encrypted_reconciliation
 from .workspace.pending_commit import PendingCommitStore
 from .workspace.reconcile import ReconcilePlan
-from .workspace.encrypted_sync import run_encrypted_reconciliation
 from .workspace.remote_access import RemoteBindingMissing, RemoteCredentialError
 from .workspace.remote_binding import (
     RemoteAuth,
@@ -93,11 +95,30 @@ def watch_workspace_remote(
             raise
         remote = None
 
+    last_catalog_attempt = None
+
+    def publish_directory(_plan):
+        nonlocal last_catalog_attempt
+        if (
+            last_catalog_attempt is not None
+            and time.monotonic() - last_catalog_attempt < 60
+        ):
+            return
+        last_catalog_attempt = time.monotonic()
+        try:
+            publish_catalog(workspace, home)
+        except Exception:  # noqa: BLE001 - Optional directory updates cannot stop sync.
+            if logger is not None:
+                logger(
+                    "Resource directory unavailable; encrypted synchronization continues"
+                )
+
     scheduler = AutoSyncScheduler(
         workspace,
         remote,
         home=home,
         remote_opener=remote_opener,
+        on_reconciled=publish_directory,
         poll_interval=poll_interval,
         debounce_delay=debounce_delay,
         version_check_interval=version_check_interval,

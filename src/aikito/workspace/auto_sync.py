@@ -681,6 +681,7 @@ class AutoSyncScheduler:
         version_check_interval: float = 60.0,
         verbose: bool = False,
         on_status_change: Callable[[AutoSyncState, str | None], None] | None = None,
+        on_reconciled: Callable[[ReconcilePlan], None] | None = None,
         logger: Callable[[str], None] | None = None,
     ) -> None:
         self.workspace = workspace.expanduser().resolve()
@@ -694,6 +695,7 @@ class AutoSyncScheduler:
         self.version_check_interval = version_check_interval
         self.verbose = verbose
         self.on_status_change = on_status_change
+        self._on_reconciled = on_reconciled
         self.logger = logger or (lambda msg: None)
 
         self.state = AutoSyncState.IDLE
@@ -856,9 +858,7 @@ class AutoSyncScheduler:
                     direction = "push"
                 else:
                     direction = str(target).lower() if target else "sync"
-                self.logger(
-                    f"[SYNC] (rev {result.revision}) {direction} {item.id}"
-                )
+                self.logger(f"[SYNC] (rev {result.revision}) {direction} {item.id}")
             if len(result.applied_items) > max_log_items:
                 self.logger(
                     f"[SYNC] (rev {result.revision}) ... and {len(result.applied_items) - max_log_items} more change(s)"
@@ -938,6 +938,8 @@ class AutoSyncScheduler:
             self._set_state(AutoSyncState.IDLE)
         save_worker_status(self.workspace, self._status)
 
+        if self._on_reconciled is not None:
+            self._on_reconciled(result)
         return result
 
     def run(self, *, once: bool = False) -> None:
@@ -1043,10 +1045,15 @@ class AutoSyncScheduler:
 
                     should_step = False
 
-                    if local_triggered or self.state in (
-                        AutoSyncState.RETRY_WAIT,
-                        AutoSyncState.ATTENTION_REQUIRED,
-                    ) or self.remote is None:
+                    if (
+                        local_triggered
+                        or self.state
+                        in (
+                            AutoSyncState.RETRY_WAIT,
+                            AutoSyncState.ATTENTION_REQUIRED,
+                        )
+                        or self.remote is None
+                    ):
                         should_step = True
                     else:
                         # Serial remote polling in main thread
@@ -1144,9 +1151,7 @@ class AutoSyncScheduler:
             if len(cmd) >= 3 and cmd[1:3] == ["-m", "aikito"]
             else [cmd[0]]
         )
-        if not is_matching_aikito_command(
-            cmd_prefix, target_version=target_version
-        ):
+        if not is_matching_aikito_command(cmd_prefix, target_version=target_version):
             return None
 
         full_cmd = list(cmd)

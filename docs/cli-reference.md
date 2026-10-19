@@ -11,36 +11,34 @@ aikito web --no-open
 ```
 
 The Console browses canonical resources and governance status. It does not
-modify canonical resource files or expose MCP secret values. Workspace and project cards include
-**Resource access**: select global/project instructions and memory, complete Skills,
-Subagents or Inbox, with independent read-only or read/write permission per collection.
-Every collection defaults to no access. Choose an HTTPS recipient, sign in once,
-then confirm the displayed account and all selected collections once.
-The recipient must support the `/local-console` browser page and the existing
-scoped delegation protocol. New Store ownership is proved with the existing
-bound credential only after confirmation. Grants last up to 30 days; consumer
-connections require separate authorization. Status and revocation use the
-recipient's same-origin browser session, never a copied account cookie.
+modify canonical resource files or expose MCP secret values.
 
-Account cookies and CSRF tokens stay at the recipient origin. Device keys and
-Store credentials stay in the local process; only the selected collections' sealed
-subkeys are submitted. Local confirmation endpoints require the exact loopback
-origin and a per-console token. No wildcard authorization, automatic write
-upgrade or recipient-key-change acceptance is provided. A failed or uncertain
-submission is not retried; remaining collections are not submitted automatically
-after a failure. Refresh per-collection status, then start a new selection if needed.
-Already successful Grants remain active; this is not an atomic multi-Grant transaction. Restarting the console loses its short-lived requests, not active grants.
+Choose collection permissions on the linked Gateway's `/account` page, grouped
+by global resources and project. All collections default to no access; each can
+be read-only or read/write, with an authorization lifetime of up to 30 days.
+Skills include all attachments and scripts. Account management also lists active
+collection grants and connected AI clients, with explicit revocation controls.
+The Remote and Gateway must share the same public HTTPS origin for this flow.
+Store ownership and recipient trust must already be established using the CLI.
 
-After access is active, **Done** closes the recipient window and keeps the local
-completion view. Reconnect to manage or revoke access. The Console saves only
-public access summaries in host-local `.local/state/aikito/console-access.json`:
-recipient, account, permissions, expiration, and last-check time. Opening access
-again shows the last confirmed status without opening a popup. This history is
-not a live permission check; reconnect to verify revocation or changes. Saved
-active entries retain a **Reconnect to revoke** action: reconnect, then use the
-live **Revoke** button and confirm the revocation. History
-never restores a login, approves a request, or exports keys, and it is isolated
-by workspace, Remote identity, collection, recipient, and account.
+Open `aikito web` on a device holding the workspace keys. The Console queries the
+Gateway for pending requests and automatically opens a confirmation dialog.
+Review the account, recipient, Store, collections, permissions and expiration,
+then confirm or reject once. Polling does not release collection keys. The cloud
+does not connect to the device, and the device needs no public inbound listener.
+Use **Review pending authorizations** to open this dialog manually.
+
+Account cookies remain at the Gateway origin. Store credentials and device keys
+remain in the local process; confirmation submits only the selected collections'
+sealed subkeys using the pinned recipient. Local endpoints require the exact
+loopback origin and a per-console token. Consumer OAuth consent remains separate.
+
+A failed or uncertain submission stops the remaining collections. Completed
+Grants remain active; multi-collection approval is not atomic. Check the online
+account page, cancel any remaining request and create a fresh request if needed.
+A host-local confirmation journal prevents automatic replay after a Console
+restart. Local selection, authorization history and revocation controls have been
+removed; manage these on the online account page.
 
 ![Aikito Web Console](assets/aikito-web-console.png)
 

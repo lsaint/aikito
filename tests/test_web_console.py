@@ -92,26 +92,18 @@ name_style = "verbatim"
         with urllib.request.urlopen(self.base_url + path) as response:
             return json.load(response)
 
-    def test_access_history_is_available_without_a_remote_connection(self):
-        expected = {
-            "records": [
-                {"origin": "https://recipient.example", "checked_at": 123, "grants": []}
-            ]
-        }
+    def test_pending_requests_are_read_only(self):
+        expected = {"origin": "https://recipient.example", "requests": []}
         with mock.patch(
-            "aikito.console_access.ConsoleAccess.history", return_value=expected
-        ) as history:
+            "aikito.console_access.ConsoleAccess.pending", return_value=expected
+        ) as pending:
             self.assertEqual(self.get_json("/api/access"), expected)
-        history.assert_called_once_with()
+        pending.assert_called_once_with()
 
     def test_mutations_require_local_origin_and_console_token(self):
         token = self.get_json("/api/console-session")["token"]
-        payload = json.dumps(
-            {
-                "origin": "https://recipient.example",
-                "selections": [{"collection_id": "inbox", "permission": "read"}],
-            }
-        ).encode()
+        payload = json.dumps({"confirmation": "fixture"}).encode()
+        path = "/api/access/" + "d" * 64 + "/confirm"
         for origin, secret in [
             ("https://attacker.example", token),
             (self.base_url, "wrong"),
@@ -123,20 +115,19 @@ name_style = "verbatim"
             }
             if origin:
                 headers["Origin"] = origin
-            request = urllib.request.Request(
-                self.base_url + "/api/access",
-                data=payload,
-                headers=headers,
-            )
             with self.assertRaises(urllib.error.HTTPError) as error:
-                urllib.request.urlopen(request)
+                urllib.request.urlopen(
+                    urllib.request.Request(
+                        self.base_url + path, data=payload, headers=headers
+                    )
+                )
             self.assertEqual(error.exception.code, 403)
         with mock.patch(
-            "aikito.console_access.ConsoleAccess.begin",
-            return_value={"intent_id": "test"},
-        ) as begin:
+            "aikito.console_access.ConsoleAccess.perform",
+            return_value={"status": "active"},
+        ) as perform:
             request = urllib.request.Request(
-                self.base_url + "/api/access",
+                self.base_url + path,
                 data=payload,
                 headers={
                     "Content-Type": "application/json",
@@ -145,10 +136,9 @@ name_style = "verbatim"
                 },
             )
             with urllib.request.urlopen(request) as response:
-                self.assertEqual(json.load(response), {"intent_id": "test"})
-            begin.assert_called_once_with(
-                [{"collection_id": "inbox", "permission": "read"}],
-                "https://recipient.example",
+                self.assertEqual(json.load(response), {"status": "active"})
+            perform.assert_called_once_with(
+                "d" * 64, "confirm", {"confirmation": "fixture"}
             )
 
     def test_rebinding_host_and_cross_origin_session_are_rejected(self):
@@ -166,12 +156,12 @@ name_style = "verbatim"
     def test_access_errors_do_not_expose_provider_secrets(self):
         token = self.get_json("/api/console-session")["token"]
         with mock.patch(
-            "aikito.console_access.ConsoleAccess.begin",
+            "aikito.console_access.ConsoleAccess.perform",
             side_effect=RuntimeError("PRIVATE_TOKEN"),
         ):
             request = urllib.request.Request(
-                self.base_url + "/api/access",
-                data=b'{"origin":"https://recipient.example","selections":[{"collection_id":"inbox","permission":"read"}]}',
+                self.base_url + "/api/access/" + "d" * 64 + "/confirm",
+                data=b'{"confirmation":"fixture"}',
                 headers={
                     "Content-Type": "application/json",
                     "Origin": self.base_url,
@@ -180,6 +170,13 @@ name_style = "verbatim"
             )
             with self.assertRaises(urllib.error.HTTPError) as error:
                 urllib.request.urlopen(request)
+            self.assertNotIn("PRIVATE_TOKEN", error.exception.read().decode())
+        with mock.patch(
+            "aikito.console_access.ConsoleAccess.pending",
+            side_effect=RuntimeError("PRIVATE_TOKEN"),
+        ):
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                self.get_json("/api/access")
             self.assertNotIn("PRIVATE_TOKEN", error.exception.read().decode())
 
     def render_markdown(self, source: str, wikilinks: dict) -> str:
@@ -343,7 +340,7 @@ process.stdout.write(markdown(JSON.parse(process.argv[2]), JSON.parse(process.ar
         self.assertTrue((web_dir / "app.js").is_file())
         self.assertTrue((web_dir / "styles.css").is_file())
         self.assertIn(
-            'value="https://aikito.notsonan.com"',
+            "Confirm authorization",
             (web_dir / "resource-access.js").read_text(encoding="utf-8"),
         )
 
