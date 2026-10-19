@@ -649,7 +649,7 @@ jobs:
           python3 tests/workspace_import_smoke.py "$PARTIAL_BASE" --prepare-only --conflict-case
           if AIKITO_DIR="$PARTIAL_BASE/target" python3 -m aikito import workspace "$PARTIAL_BASE/source" --dry-run > "$PARTIAL_BASE/preview.out" 2>&1; then exit 1; else test "$?" -eq 2; fi
           test ! -f "$PARTIAL_BASE/target/memory/notes/independent.md"
-          if AIKITO_DIR="$PARTIAL_BASE/target" python3 -m aikito import workspace "$PARTIAL_BASE/source" --keep-target memory:notes/independent.md > "$PARTIAL_BASE/skip.out" 2>&1; then exit 1; else test "$?" -eq 2; fi
+          if AIKITO_DIR="$PARTIAL_BASE/target" python3 -m aikito import workspace "$PARTIAL_BASE/source" --keep-target global-memory:notes/independent.md > "$PARTIAL_BASE/skip.out" 2>&1; then exit 1; else test "$?" -eq 2; fi
           test ! -f "$PARTIAL_BASE/target/memory/notes/independent.md"
           if AIKITO_DIR="$PARTIAL_BASE/target" python3 -m aikito import workspace "$PARTIAL_BASE/source" > "$PARTIAL_BASE/partial.out" 2>&1; then exit 1; else test "$?" -eq 2; fi
           grep -F '[PARTIAL]' "$PARTIAL_BASE/partial.out"
@@ -657,19 +657,19 @@ jobs:
           test -f "$PARTIAL_BASE/target/memory/notes/keep.md"
           grep -F 'Target keep' "$PARTIAL_BASE/target/memory/notes/keep.md"
           AIKITO_DIR="$PARTIAL_BASE/target" python3 -m aikito import workspace "$PARTIAL_BASE/source" --dry-run \
-            --keep-target memory:notes/keep.md --keep-target memory:notes/keep-again.md \
-            --take-source memory:notes/take.md --take-source memory:notes/take-again.md
+            --keep-target global-memory:notes/keep.md --keep-target global-memory:notes/keep-again.md \
+            --take-source global-memory:notes/take.md --take-source global-memory:notes/take-again.md
           grep -F 'Target take' "$PARTIAL_BASE/target/memory/notes/take.md"
           AIKITO_DIR="$PARTIAL_BASE/target" python3 -m aikito import workspace "$PARTIAL_BASE/source" \
-            --keep-target memory:notes/keep.md --keep-target memory:notes/keep-again.md \
-            --take-source memory:notes/take.md --take-source memory:notes/take-again.md
+            --keep-target global-memory:notes/keep.md --keep-target global-memory:notes/keep-again.md \
+            --take-source global-memory:notes/take.md --take-source global-memory:notes/take-again.md
           grep -F 'Target keep' "$PARTIAL_BASE/target/memory/notes/keep.md"
           grep -F 'Target keep-again' "$PARTIAL_BASE/target/memory/notes/keep-again.md"
           grep -F 'Source take' "$PARTIAL_BASE/target/memory/notes/take.md"
           grep -F 'Source take-again' "$PARTIAL_BASE/target/memory/notes/take-again.md"
           AIKITO_DIR="$PARTIAL_BASE/target" python3 -m aikito import workspace "$PARTIAL_BASE/source" \
-            --keep-target memory:notes/keep.md --keep-target memory:notes/keep-again.md \
-            --take-source memory:notes/take.md --take-source memory:notes/take-again.md > "$PARTIAL_BASE/repeat.out"
+            --keep-target global-memory:notes/keep.md --keep-target global-memory:notes/keep-again.md \
+            --take-source global-memory:notes/take.md --take-source global-memory:notes/take-again.md > "$PARTIAL_BASE/repeat.out"
           grep -F '[SUMMARY] CREATE 0, UPDATE 0, CONFLICT 0, BLOCKED 0' "$PARTIAL_BASE/repeat.out"
           test ! -f "$PARTIAL_BASE/target/.local/state/aikito/workspace-transactions/pending.json"
 
