@@ -28,6 +28,10 @@ then confirm or reject once. Polling does not release collection keys. The cloud
 does not connect to the device, and the device needs no public inbound listener.
 Use **Review pending authorizations** to open this dialog manually.
 
+The confirmation button shows progress and retains the completion result until
+you close the dialog. An uncertain result stays visible with an instruction to
+check the online account page; polling never repeats the submission.
+
 Account cookies remain at the Gateway origin. Store credentials and device keys
 remain in the local process; confirmation submits only the selected collections'
 sealed subkeys using the pinned recipient. Local endpoints require the exact
