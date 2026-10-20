@@ -22,15 +22,15 @@ The Remote and Gateway must share the same public HTTPS origin for this flow.
 Store ownership and recipient trust must already be established using the CLI.
 
 Open `aikito web` on a device holding the workspace keys. The Console queries the
-Gateway for pending requests and automatically opens a confirmation dialog.
-Review the account, recipient, Store, collections, permissions and expiration,
-then confirm or reject once. Polling does not release collection keys. The cloud
-does not connect to the device, and the device needs no public inbound listener.
-Use **Review pending authorizations** to open this dialog manually.
+Gateway for pending requests and active collection grants. Review the account,
+recipient, Store, collections, permissions and expiration, then confirm or reject once.
+Polling does not release collection keys. The cloud does not connect to the device,
+and the device needs no public inbound listener.
+Use **Resource authorizations & access** to open this view directly.
 
-The confirmation button shows progress and retains the completion result until
-you close the dialog. An uncertain result stays visible with an instruction to
-check the online account page; polling never repeats the submission.
+The confirmation button shows progress and retains the completion result in the
+view. An uncertain result stays visible with an instruction to check the online
+account page; polling never repeats the submission.
 
 Account cookies remain at the Gateway origin. Store credentials and device keys
 remain in the local process; confirmation submits only the selected collections'
@@ -41,8 +41,8 @@ A failed or uncertain submission stops the remaining collections. Completed
 Grants remain active; multi-collection approval is not atomic. Check the online
 account page, cancel any remaining request and create a fresh request if needed.
 A host-local confirmation journal prevents automatic replay after a Console
-restart. Local selection, authorization history and revocation controls have been
-removed; manage these on the online account page.
+restart. Authorization credentials and revocation controls are managed via your online account page;
+the Console displays confirmed active grants and provides direct links to revoke access on Cloud.
 
 ![Aikito Web Console](assets/aikito-web-console.png)
 

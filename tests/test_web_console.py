@@ -478,10 +478,12 @@ process.stdout.write(markdown(JSON.parse(process.argv[2]), JSON.parse(process.ar
         self.assertTrue((web_dir / "index.html").is_file())
         self.assertTrue((web_dir / "app.js").is_file())
         self.assertTrue((web_dir / "styles.css").is_file())
-        self.assertIn(
-            "Confirm authorization",
-            (web_dir / "resource-access.js").read_text(encoding="utf-8"),
+        resource_access_script = (web_dir / "resource-access.js").read_text(
+            encoding="utf-8"
         )
+        self.assertIn("Confirm authorization", resource_access_script)
+        self.assertIn("Active grants & revocation", resource_access_script)
+        self.assertIn("Revoke on Cloud", resource_access_script)
 
 
 class WebCommandParserTest(unittest.TestCase):

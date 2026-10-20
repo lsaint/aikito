@@ -148,8 +148,51 @@ class ConsoleAccess:
                 pending.append(
                     {**request, "recipient": origin, "confirmation": confirmation}
                 )
+            active_grants = []
+            for g in result.get("grants", []):
+                if not isinstance(g, dict):
+                    continue
+                gid = str(g.get("grant_id", ""))
+                if not re.fullmatch(r"[a-f0-9]{64}", gid):
+                    continue
+                if g.get("store_id") != store or g.get("sync_id") != binding.sync_id:
+                    continue
+                expires_at = g.get("expires_at", 0)
+                if not isinstance(expires_at, int) or expires_at <= time.time():
+                    continue
+                collection_id = str(g.get("collection_id", ""))
+                if collection_id not in allowed:
+                    continue
+                perms = g.get("permissions", [])
+                if not isinstance(perms, list) or not all(
+                    isinstance(p, str) for p in perms
+                ):
+                    continue
+                clients = [str(c) for c in g.get("clients", []) if isinstance(c, str)]
+                active_grants.append(
+                    {
+                        "grant_id": gid,
+                        "account_id": str(g.get("account_id", "")),
+                        "username": str(g.get("username", "")),
+                        "store_id": store,
+                        "sync_id": binding.sync_id,
+                        "collection_id": collection_id,
+                        "permissions": perms,
+                        "created_at": g.get("created_at"),
+                        "expires_at": expires_at,
+                        "status": "active",
+                        "clients": clients,
+                        "recipient": origin,
+                    }
+                )
             self._shown = current
-            return {"origin": origin, "requests": pending}
+            return {
+                "origin": origin,
+                "store_id": store,
+                "sync_id": binding.sync_id,
+                "requests": pending,
+                "grants": active_grants,
+            }
 
     def perform(self, identity, action, body):
         if action not in {"confirm", "reject"} or set(body) != {"confirmation"}:

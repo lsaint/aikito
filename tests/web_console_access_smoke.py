@@ -69,6 +69,8 @@ def main(base):
         assert status == 200 and b"/resource-access.js" in index
         status, script = request("/resource-access.js")
         assert status == 200 and b"Confirm authorization" in script
+        assert b"Active grants & revocation" in script
+        assert b"Revoke on Cloud" in script
         assert b"postMessage" not in script and b"No access" not in script
         assert b"checkAccessConfirmations" in script
         status, raw = request("/api/console-session")

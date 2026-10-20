@@ -162,3 +162,31 @@ def test_partially_processed_groups_are_not_automatically_resumed(console):
     request["items"][0]["status"] = "processing"
     assert client.pending()["requests"] == []
     export.assert_not_called()
+
+
+def test_active_grants_are_returned_and_validated(console, monkeypatch):
+    client, _request, _fetch, _export, _submit = console
+    grant = {
+        "grant_id": "a" * 64,
+        "account_id": "account-1",
+        "username": "tester",
+        "store_id": "main",
+        "sync_id": "a" * 32,
+        "collection_id": "global/memory",
+        "permissions": ["read", "write"],
+        "created_at": int(time.time()),
+        "expires_at": int(time.time()) + 86400,
+        "status": "active",
+        "clients": ["aikito-chatgpt"],
+    }
+    monkeypatch.setattr(
+        access,
+        "exchange",
+        lambda *a, **kw: {"requests": [], "grants": [grant]},
+    )
+    res = client.pending()
+    assert res["requests"] == []
+    assert len(res["grants"]) == 1
+    assert res["grants"][0]["grant_id"] == "a" * 64
+    assert res["grants"][0]["clients"] == ["aikito-chatgpt"]
+    assert res["grants"][0]["permissions"] == ["read", "write"]

@@ -2,7 +2,7 @@ const groups = [
   ["RESOURCES", [["instructions","Instructions"],["skills","Skills"],["mcps","MCP"],["subagents","Subagents"]]],
   ["KNOWLEDGE", [["inbox","Inbox"],["memory","Memory"]]],
   ["TARGETS", [["projects","Projects"],["agents","Agents"]]],
-  ["REMOTE", [["remote","Store & Sync"]]],
+  ["REMOTE", [["remote","Store & Sync"],["access","Resource Access"]]],
   ["HEALTH", [["doctor","Doctor"],["diff","Diff"]]],
 ];
 const explorer = document.querySelector("#explorer");
@@ -159,6 +159,7 @@ function addBackButton() {
     const previous = previousViews.pop();
     if (previous.kind === "workspace") showWorkspace(previous.data, false);
     else if (previous.kind === "remote") showRemote(previous.data, false);
+    else if (previous.kind === "access") showAccess(previous.data, false);
     else show(previous.data, false);
     selectResource(previous.selected);
     content.scrollTop = previous.scrollTop;
@@ -426,8 +427,8 @@ function showWorkspace(overview, remember = true) {
   governance.innerHTML = '<h2>Governance</h2><p class="muted">Select a resource.</p>';
   const storeBound = Boolean(overview.remote?.store_id);
   const storeTitle = storeBound
-    ? `Connected Store: ${overview.remote.store_id}`
-    : "Connect Remote Store";
+    ? `Cloud Sync Store: ${overview.remote.store_id}`
+    : "Connect Cloud Sync Store";
   const storeDesc = storeBound
     ? "View remote store diagnostics, connection settings, and sync activity."
     : "Bind this workspace to a remote store to publish and sync resources.";
@@ -435,7 +436,7 @@ function showWorkspace(overview, remember = true) {
     ? (overview.remote.service?.running ? "sync active" : "sync idle")
     : "Unbound · Connect store";
 
-  content.innerHTML = `<div class="project-heading"><span class="eyebrow">YOUR WORKSPACE</span><h1>Context, in one place.</h1><p>Browse your workspace and confirm authorization requests selected online.</p></div><div class="workspace-action-grid"><section class="project-card workspace-action-card" id="workspace-store-card"><h2><button type="button" class="project-open" id="workspace-open-remote">${escapeHtml(storeTitle)}</button></h2><p>${escapeHtml(storeDesc)}</p><div class="project-card-meta">${escapeHtml(storeMeta)}</div></section><section class="project-card workspace-action-card" id="workspace-access-card"><h2><button type="button" class="project-open" id="workspace-access">Review pending authorizations</button></h2><p>Review and confirm authorization requests selected online for this workspace.</p><div class="project-card-meta">Local confirmation required</div></section></div><div class="project-grid">${overview.projects.map(project => `<section class="project-card"><h2><button class="project-open" data-project-open="${escapeAttribute(project.name)}">${escapeHtml(project.name)}</button></h2>${project.description?.trim() ? `<p>${escapeHtml(project.description.trim())}</p>` : ""}<div class="project-card-meta">${escapeHtml(project.memory_notes_count)} Memory notes · ${escapeHtml(project.skills_count)} skills</div></section>`).join("") || '<p>No projects registered yet.</p>'}</div>`;
+  content.innerHTML = `<div class="project-heading"><span class="eyebrow">YOUR WORKSPACE</span><h1>Context, in one place.</h1><p>Browse your workspace and confirm authorization requests selected online.</p></div><div class="workspace-action-grid"><section class="project-card workspace-action-card" id="workspace-store-card"><h2><button type="button" class="project-open" id="workspace-open-remote">${escapeHtml(storeTitle)}</button></h2><p>${escapeHtml(storeDesc)}</p><div class="project-card-meta">${escapeHtml(storeMeta)}</div></section><section class="project-card workspace-action-card" id="workspace-access-card"><h2><button type="button" class="project-open" id="workspace-access">Resource authorizations & access</button></h2><p>Review pending requests and manage active collection grants for external AI clients.</p><div class="project-card-meta">Local confirmation · Cloud revocation</div></section></div><div class="project-grid">${overview.projects.map(project => `<section class="project-card"><h2><button class="project-open" data-project-open="${escapeAttribute(project.name)}">${escapeHtml(project.name)}</button></h2>${project.description?.trim() ? `<p>${escapeHtml(project.description.trim())}</p>` : ""}<div class="project-card-meta">${escapeHtml(project.memory_notes_count)} Memory notes · ${escapeHtml(project.skills_count)} skills</div></section>`).join("") || '<p>No projects registered yet.</p>'}</div>`;
 
   const openRemote = content.querySelector("#workspace-open-remote");
   if(openRemote) openRemote.onclick = async () => {
@@ -453,7 +454,12 @@ function showWorkspace(overview, remember = true) {
     };
   }
   const openAccess = content.querySelector("#workspace-access");
-  if (openAccess) openAccess.onclick = () => openAccessConfirmations();
+  if (openAccess) openAccess.onclick = async () => {
+    try {
+      await showAccess();
+      selectResource(document.querySelector('.resource[data-access="true"]'));
+    } catch(e) { content.textContent = e.message; }
+  };
   const accessCard = content.querySelector("#workspace-access-card");
   if (accessCard && openAccess) {
     accessCard.onclick = (e) => {
@@ -476,16 +482,20 @@ async function renderGroup(title, entries, section) {
   section.innerHTML = `<div class="group-label">${title}</div>`;
   const renderedEntries = await Promise.all(
     entries.map(async ([kind, name]) => {
-      if (kind === "doctor" || kind === "diff" || kind === "remote") {
+      if (kind === "doctor" || kind === "diff" || kind === "remote" || kind === "access") {
         const button = document.createElement("button");
         button.className = "resource";
         if (kind === "remote") button.dataset.remote = "true";
+        if (kind === "access") button.dataset.access = "true";
         button.textContent = name;
         button.onclick = async () => {
-          const report = await get(`/api/${kind}`);
           if (kind === "remote") {
+            const report = await get(`/api/${kind}`);
             showRemote(report);
+          } else if (kind === "access") {
+            await showAccess();
           } else {
+            const report = await get(`/api/${kind}`);
             show({
               name,
               kind: "properties",
