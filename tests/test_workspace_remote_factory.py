@@ -174,6 +174,7 @@ def test_encrypted_pending_survives_auth_failures_and_recovers(bound, fault):
 
 def test_pending_store_replacement_stops_before_receipt_lookup(bound):
     from aikito.remote_service import sync_workspace_remote
+
     local, home, backend, server, _ = bound
     sync_workspace_remote(local, home=home, environ=ENV, dry_run=False)
     (local / "memory/notes/retained.md").write_text("Retained unsent content\n")
@@ -187,4 +188,58 @@ def test_pending_store_replacement_stops_before_receipt_lookup(bound):
     with pytest.raises(WorkspaceReconcileError, match="binding identity mismatch"):
         sync_workspace_remote(local, home=home, environ=ENV, dry_run=False)
     assert path.read_bytes() == original
-    assert all(decode_request(raw).operation == Operation.READ for raw in server.requests[start:])
+    assert all(
+        decode_request(raw).operation == Operation.READ
+        for raw in server.requests[start:]
+    )
+
+
+def test_bind_remote_with_recovery_code(tmp_path, monkeypatch):
+    from aikito.workspace.device_keys import DeviceKeyStore
+    from aikito.workspace.encrypted_sync import initialize_encrypted_workspace
+    from aikito.workspace.remote_store import RecoveryRequired
+
+    monkeypatch.setenv(AUTH.env, TOKEN)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("APPDATA", raising=False)
+    backend = InMemoryRemote("c" * 32)
+    with HTTPRemoteServer(backend, token=TOKEN) as server:
+        # Machine A initializes the store
+        ws_a = _workspace(tmp_path / "ws_a")
+        home_a = tmp_path / "home_a"
+        bind_a = bind_remote(ws_a, server.url, AUTH, home=home_a, environ=ENV)
+        assert bind_a.status == "empty"
+        codes = []
+        vault_id = initialize_encrypted_workspace(ws_a, home_a, codes.append)
+        code = codes[0]
+
+        # Machine B binds without recovery code -> RecoveryRequired
+        ws_b = _workspace(tmp_path / "ws_b")
+        home_b = tmp_path / "home_b"
+        with pytest.raises(RecoveryRequired):
+            bind_remote(ws_b, server.url, AUTH, home=home_b, environ=ENV)
+        assert load_remote_binding(ws_b) is None
+
+        # Machine B binds with recovery code -> recovers key and binds
+        bind_b = bind_remote(
+            ws_b,
+            server.url,
+            AUTH,
+            recovery_code=code,
+            home=home_b,
+            environ=ENV,
+        )
+        assert bind_b.status == "recovered"
+        assert load_remote_binding(ws_b) is not None
+        assert DeviceKeyStore(home=home_b, workspace=ws_b).load(vault_id) is not None
+
+        # Re-binding on Machine B with key already present -> status is ready
+        bind_b2 = bind_remote(
+            ws_b,
+            server.url,
+            AUTH,
+            rebind=True,
+            home=home_b,
+            environ=ENV,
+        )
+        assert bind_b2.status == "ready"

@@ -563,6 +563,315 @@ class RemoteCLIOperationsTest(unittest.TestCase):
 
             self.assertIsNone(load_remote_binding(ws))
 
+    def test_bind_encrypted_store_with_recovery_fd(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            ws_a = _workspace(base / "ws_a")
+            ws_b = _workspace(base / "ws_b")
+            home_a = base / "home_a"
+            home_b = base / "home_b"
+            backend = InMemoryRemote("223344556677889900aabbccddeeff00")
+
+            with HTTPRemoteServer(backend, token=TOKEN) as server:
+                # Step 1: ws_a initializes the store
+                args_bind_a = self.parser.parse_args(
+                    [
+                        "remote",
+                        "bind",
+                        server.url,
+                        "--workspace",
+                        str(ws_a),
+                        "--token-env",
+                        AUTH.env,
+                    ]
+                )
+                env_a = dict(ENV)
+                env_a["XDG_CONFIG_HOME"] = str(home_a / ".config")
+                with (
+                    patch("aikito.remote_cli.Path.home", return_value=home_a),
+                    patch.dict(os.environ, env_a, clear=False),
+                    patch("sys.stdout", io.StringIO()),
+                ):
+                    cmd_remote_bind(args_bind_a)
+                    codes = []
+                    initialize_encrypted_workspace(ws_a, home_a, codes.append)
+                    recovery_code = codes[0]
+
+                # Step 2: ws_b binds using --recovery-fd
+                r_fd, w_fd = os.pipe()
+                os.write(w_fd, recovery_code.encode("ascii"))
+                os.close(w_fd)
+
+                args_bind_b = self.parser.parse_args(
+                    [
+                        "remote",
+                        "bind",
+                        server.url,
+                        "--workspace",
+                        str(ws_b),
+                        "--token-env",
+                        AUTH.env,
+                        "--recovery-fd",
+                        str(r_fd),
+                    ]
+                )
+                stdout_b = io.StringIO()
+                env_b = dict(ENV)
+                env_b["XDG_CONFIG_HOME"] = str(home_b / ".config")
+                with (
+                    patch("aikito.remote_cli.Path.home", return_value=home_b),
+                    patch.dict(os.environ, env_b, clear=False),
+                    patch("sys.stdout", stdout_b),
+                ):
+                    cmd_remote_bind(args_bind_b)
+                os.close(r_fd)
+
+                out = stdout_b.getvalue()
+                self.assertIn("Store key authorized and saved to device keystore", out)
+                self.assertIn("Bound workspace to remote store at " + server.url, out)
+
+    def test_bind_encrypted_store_interactive(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            ws_a = _workspace(base / "ws_a")
+            ws_b = _workspace(base / "ws_b")
+            home_a = base / "home_a"
+            home_b = base / "home_b"
+            backend = InMemoryRemote("3344556677889900aabbccddeeff0011")
+
+            with HTTPRemoteServer(backend, token=TOKEN) as server:
+                args_bind_a = self.parser.parse_args(
+                    [
+                        "remote",
+                        "bind",
+                        server.url,
+                        "--workspace",
+                        str(ws_a),
+                        "--token-env",
+                        AUTH.env,
+                    ]
+                )
+                env_a = dict(ENV)
+                env_a["XDG_CONFIG_HOME"] = str(home_a / ".config")
+                with (
+                    patch("aikito.remote_cli.Path.home", return_value=home_a),
+                    patch.dict(os.environ, env_a, clear=False),
+                    patch("sys.stdout", io.StringIO()),
+                ):
+                    cmd_remote_bind(args_bind_a)
+                    codes = []
+                    initialize_encrypted_workspace(ws_a, home_a, codes.append)
+                    recovery_code = codes[0]
+
+                args_bind_b = self.parser.parse_args(
+                    [
+                        "remote",
+                        "bind",
+                        server.url,
+                        "--workspace",
+                        str(ws_b),
+                        "--token-env",
+                        AUTH.env,
+                    ]
+                )
+                stdout_b = io.StringIO()
+                env_b = dict(ENV)
+                env_b["XDG_CONFIG_HOME"] = str(home_b / ".config")
+                with (
+                    patch("aikito.remote_cli.Path.home", return_value=home_b),
+                    patch.dict(os.environ, env_b, clear=False),
+                    patch("sys.stdin.isatty", return_value=True),
+                    patch("getpass.getpass", return_value=recovery_code),
+                    patch("sys.stdout", stdout_b),
+                ):
+                    cmd_remote_bind(args_bind_b)
+
+                out = stdout_b.getvalue()
+                self.assertIn("Store key authorized and saved to device keystore", out)
+
+    def test_bind_encrypted_store_non_interactive_without_fd_fails(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            ws_a = _workspace(base / "ws_a")
+            ws_b = _workspace(base / "ws_b")
+            home_a = base / "home_a"
+            home_b = base / "home_b"
+            backend = InMemoryRemote("44556677889900aabbccddeeff001122")
+
+            with HTTPRemoteServer(backend, token=TOKEN) as server:
+                args_bind_a = self.parser.parse_args(
+                    [
+                        "remote",
+                        "bind",
+                        server.url,
+                        "--workspace",
+                        str(ws_a),
+                        "--token-env",
+                        AUTH.env,
+                    ]
+                )
+                env_a = dict(ENV)
+                env_a["XDG_CONFIG_HOME"] = str(home_a / ".config")
+                with (
+                    patch("aikito.remote_cli.Path.home", return_value=home_a),
+                    patch.dict(os.environ, env_a, clear=False),
+                    patch("sys.stdout", io.StringIO()),
+                ):
+                    cmd_remote_bind(args_bind_a)
+                    codes = []
+                    initialize_encrypted_workspace(ws_a, home_a, codes.append)
+
+                args_bind_b = self.parser.parse_args(
+                    [
+                        "remote",
+                        "bind",
+                        server.url,
+                        "--workspace",
+                        str(ws_b),
+                        "--token-env",
+                        AUTH.env,
+                    ]
+                )
+                stderr_b = io.StringIO()
+                env_b = dict(ENV)
+                env_b["XDG_CONFIG_HOME"] = str(home_b / ".config")
+                with (
+                    patch("aikito.remote_cli.Path.home", return_value=home_b),
+                    patch.dict(os.environ, env_b, clear=False),
+                    patch("sys.stdin.isatty", return_value=False),
+                    patch("sys.stderr", stderr_b),
+                    self.assertRaises(SystemExit) as ctx,
+                ):
+                    cmd_remote_bind(args_bind_b)
+
+                self.assertEqual(ctx.exception.code, 1)
+                self.assertIn("Recovery code is required", stderr_b.getvalue())
+
+    def test_bind_empty_store_interactive_auto_initializes(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            ws = _workspace(base / "ws")
+            home = base / "home"
+            backend = InMemoryRemote("556677889900aabbccddeeff00112233")
+
+            with HTTPRemoteServer(backend, token=TOKEN) as server:
+                args = self.parser.parse_args(
+                    [
+                        "remote",
+                        "bind",
+                        server.url,
+                        "--workspace",
+                        str(ws),
+                        "--token-env",
+                        AUTH.env,
+                    ]
+                )
+                stdout = io.StringIO()
+                stdout.isatty = lambda: True
+                env = dict(ENV)
+                env["XDG_CONFIG_HOME"] = str(home / ".config")
+                with (
+                    patch("aikito.remote_cli.Path.home", return_value=home),
+                    patch.dict(os.environ, env, clear=False),
+                    patch("sys.stdout", stdout),
+                ):
+                    cmd_remote_bind(args)
+
+                out = stdout.getvalue()
+                self.assertIn("Initializing end-to-end encryption", out)
+                self.assertIn("STORE RECOVERY CODE", out)
+                self.assertIn("Device key created and saved to device keystore", out)
+                self.assertIn("format:encrypted-v1", backend.read().resources)
+
+    def test_bind_empty_store_with_recovery_output_fd(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            ws = _workspace(base / "ws")
+            home = base / "home"
+            backend = InMemoryRemote("6677889900aabbccddeeff0011223344")
+
+            r_fd, w_fd = os.pipe()
+            with HTTPRemoteServer(backend, token=TOKEN) as server:
+                args = self.parser.parse_args(
+                    [
+                        "remote",
+                        "bind",
+                        server.url,
+                        "--workspace",
+                        str(ws),
+                        "--token-env",
+                        AUTH.env,
+                        "--recovery-output-fd",
+                        str(w_fd),
+                    ]
+                )
+                stdout = io.StringIO()
+                env = dict(ENV)
+                env["XDG_CONFIG_HOME"] = str(home / ".config")
+                with (
+                    patch("aikito.remote_cli.Path.home", return_value=home),
+                    patch.dict(os.environ, env, clear=False),
+                    patch("sys.stdout", stdout),
+                ):
+                    cmd_remote_bind(args)
+
+                os.close(w_fd)
+                with os.fdopen(r_fd, "rb") as stream:
+                    code = stream.read().decode("ascii").strip()
+
+                self.assertTrue(len(code) > 10)
+                out = stdout.getvalue()
+                self.assertIn("Device key created and saved to device keystore", out)
+                self.assertIn("format:encrypted-v1", backend.read().resources)
+
+    def test_bind_empty_store_with_no_initialize(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            ws = _workspace(base / "ws")
+            home = base / "home"
+            backend = InMemoryRemote("77889900aabbccddeeff001122334455")
+
+            with HTTPRemoteServer(backend, token=TOKEN) as server:
+                args = self.parser.parse_args(
+                    [
+                        "remote",
+                        "bind",
+                        server.url,
+                        "--workspace",
+                        str(ws),
+                        "--token-env",
+                        AUTH.env,
+                        "--no-initialize",
+                    ]
+                )
+                stdout = io.StringIO()
+                stdout.isatty = lambda: True
+                env = dict(ENV)
+                env["XDG_CONFIG_HOME"] = str(home / ".config")
+                with (
+                    patch("aikito.remote_cli.Path.home", return_value=home),
+                    patch.dict(os.environ, env, clear=False),
+                    patch("sys.stdout", stdout),
+                ):
+                    cmd_remote_bind(args)
+
+                out = stdout.getvalue()
+                self.assertNotIn("Device key created", out)
+                self.assertIn("aikito remote key initialize", out)
+                self.assertEqual(len(backend.read().resources), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

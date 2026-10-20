@@ -92,7 +92,8 @@ version.
 | `aikito edit skill <target>` | Open a skill's SKILL.md in `$VISUAL` or `$EDITOR` |
 | `aikito edit subagent <target>` | Open a subagent's instruction markdown in `$VISUAL` or `$EDITOR` |
 | `aikito doctor [--fix]` | Run deep workspace diagnostics and repair supported configuration issues |
-| `aikito remote bind <endpoint> [--token-env <VAR>] [--workspace <PATH>]` | Bind the workspace to an external remote store and pin its identity |
+| `aikito remote bind <endpoint> [--rebind] [--token-env <VAR>] [--recovery-fd <FD>] [--recovery-output-fd <FD>] [--no-initialize] [--workspace <PATH>]` | Bind workspace to an external remote store (auto-initializes encryption or recovers key) |
+| `aikito remote unbind [--force] [--workspace <PATH>]` | Unbind workspace from external remote store and stop background synchronization |
 | `aikito remote sync (--dry-run \| --apply) [--verbose] [--workspace <PATH>]` | Preview or synchronize local workspace resources with the bound remote store |
 | `aikito remote watch [--poll-interval <SEC>] [--debounce-ms <MS>] [--once] [--verbose] [--workspace <PATH>]` | Continuously synchronize local workspace changes and remote updates |
 | `aikito remote start [--workspace <PATH>] [--mode {auto,system,process}]` | Start background automatic synchronization service |
@@ -111,6 +112,17 @@ To configure synchronization, first bind the workspace to an endpoint:
 ```bash
 aikito remote bind https://remote.example.com/v1/remote
 aikito remote bind https://remote.example.com/v1/remote --token-env CUSTOM_TOKEN
+```
+
+When connecting to a new empty Store, `aikito remote bind` automatically initializes end-to-end encryption in interactive terminals and displays the Store recovery code, or outputs it to `--recovery-output-fd <FD>`. To bind without initializing immediately, pass `--no-initialize`.
+
+When connecting to an already initialized encrypted Store (e.g. connecting a second device), `aikito remote bind` automatically detects the existing encryption header and prompts for the Store recovery code, storing the unlocked Device Key in the local keystore. Non-interactive environments can supply `--recovery-fd <FD>`. Existing bindings can be updated with `--rebind`.
+
+To disconnect the workspace from the remote store and halt background sync:
+
+```bash
+aikito remote unbind
+aikito remote unbind --force
 ```
 
 The binding persists the endpoint and pinned `sync_id` locally in `.local/state/aikito/workspace-reconcile/binding.json`.

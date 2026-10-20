@@ -8,10 +8,16 @@ a backend whose verification read requires recovery.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping
+from collections.abc import Callable, Collection, Mapping
 from pathlib import Path
 
 from ..skill_state import WorkspaceWriterLock
+from .device_keys import DeviceKeyStore
+from .encrypted_remote import (
+    decode_recovery_code,
+    metadata_vault_id,
+    recover_vault,
+)
 from .http_transport import HTTPTransport
 from .payload import ResourcePayload
 from .remote_access import (
@@ -27,8 +33,9 @@ from .remote_binding import (
     validate_binding_endpoint,
 )
 from .remote_credentials import resolve_credential
-from .remote_format import require_encrypted_snapshot
+from .remote_format import FORMAT_RESOURCE_ID, require_encrypted_snapshot
 from .remote_store import (
+    RecoveryRequired,
     RemoteSnapshot,
     RemoteStore,
     StoreIdentityMismatch,
@@ -89,19 +96,58 @@ def bind_remote(
     auth: RemoteAuth,
     *,
     rebind: bool = False,
+    recovery_code: str | None = None,
+    recovery_code_provider: Callable[[str], str] | None = None,
     home: Path | None = None,
     environ: Mapping[str, str] | None = None,
 ) -> RemoteBinding:
     home = Path.home() if home is None else home
+    if load_remote_binding(workspace) is not None and not rebind:
+        raise RemoteBindingExists("Remote binding already exists")
+
     remote = _open_remote(endpoint, auth, environ, home=home)
+    snapshot = remote.read()
+    require_encrypted_snapshot(snapshot, allow_empty=True)
+
+    status = "bound"
+    recovered_vault = None
+    store = DeviceKeyStore(home=home, workspace=workspace)
+
+    if FORMAT_RESOURCE_ID not in snapshot.resources:
+        status = "empty"
+    else:
+        # Delayed import to avoid circular dependency with encrypted_discovery
+        from .encrypted_discovery import _fetch
+
+        reader = BoundRemoteReader(remote, snapshot.sync_id)
+        header_data = _fetch(reader, snapshot, (FORMAT_RESOURCE_ID,))[
+            FORMAT_RESOURCE_ID
+        ].data
+        vault_id = metadata_vault_id(header_data)
+        existing_key = store.load(vault_id)
+        if existing_key is not None:
+            status = "ready"
+        else:
+            code = recovery_code
+            if code is None and recovery_code_provider is not None:
+                code = recovery_code_provider(vault_id)
+            if code is None:
+                raise RecoveryRequired(
+                    f"Remote store {snapshot.sync_id} is encrypted and requires a recovery code to authorize this device."
+                )
+            recovered_vault = recover_vault(
+                header_data, snapshot.sync_id, decode_recovery_code(code)
+            )
+            status = "recovered"
+
     with WorkspaceWriterLock(home):
         if load_remote_binding(workspace) is not None:
             if not rebind:
                 raise RemoteBindingExists("Remote binding already exists")
             remove_remote_binding(workspace, force=True, home=home)
-        snapshot = remote.read()
-        require_encrypted_snapshot(snapshot, allow_empty=True)
-        binding = RemoteBinding(1, endpoint, snapshot.sync_id, auth)
+        if recovered_vault is not None:
+            store.save(recovered_vault.vault_id, recovered_vault.vrk)
+        binding = RemoteBinding(1, endpoint, snapshot.sync_id, auth, status=status)
         save_remote_binding(workspace, binding, home=home)
         return binding
 

@@ -315,6 +315,41 @@ process.stdout.write(markdown(JSON.parse(process.argv[2]), JSON.parse(process.ar
             self.assertFalse(result["unbound"])
             self.assertIsNone(result["remote"]["binding"])
 
+    def test_remote_mutations_bind_with_recovery_code(self) -> None:
+        token = self.get_json("/api/console-session")["token"]
+        headers = {
+            "Content-Type": "application/json",
+            "Origin": self.base_url,
+            "X-Aikito-Console-Token": token,
+        }
+        mock_binding = mock.MagicMock()
+        mock_binding.endpoint = "https://example.com/v1/remote"
+        mock_binding.sync_id = "11223344"
+        mock_binding.status = "recovered"
+
+        with mock.patch(
+            "aikito.web_console.bind_workspace_remote", return_value=mock_binding
+        ) as mock_bind:
+            request = urllib.request.Request(
+                self.base_url + "/api/remote/bind",
+                data=json.dumps(
+                    {
+                        "endpoint": "https://example.com/v1/remote",
+                        "recovery_code": "RC-1234-ABCD",
+                    }
+                ).encode(),
+                headers=headers,
+            )
+            with urllib.request.urlopen(request) as response:
+                result = json.load(response)
+                self.assertTrue(result["bound"])
+                self.assertEqual(result["status"], "recovered")
+                mock_bind.assert_called_once()
+                self.assertEqual(
+                    mock_bind.call_args.kwargs.get("recovery_code"),
+                    "RC-1234-ABCD",
+                )
+
     def test_remote_mutations_sync(self) -> None:
         token = self.get_json("/api/console-session")["token"]
         headers = {

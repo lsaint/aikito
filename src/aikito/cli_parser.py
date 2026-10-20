@@ -799,6 +799,23 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         help="Replace existing remote store binding if one already exists",
     )
     p_remote_bind.add_argument(
+        "--recovery-fd",
+        type=int,
+        default=None,
+        help="File descriptor to read the recovery code from when joining an existing encrypted store",
+    )
+    p_remote_bind.add_argument(
+        "--recovery-output-fd",
+        type=int,
+        default=None,
+        help="File descriptor to write the generated recovery code when initializing an empty store",
+    )
+    p_remote_bind.add_argument(
+        "--no-initialize",
+        action="store_true",
+        help="Skip automatic encryption initialization when binding an empty remote store",
+    )
+    p_remote_bind.add_argument(
         "--workspace",
         type=Path,
         default=None,

@@ -75,6 +75,7 @@ class RemoteBinding:
     endpoint: str
     sync_id: str
     auth: RemoteAuth
+    status: str = "bound"
 
     def __post_init__(self) -> None:
         if type(self.version) is not int or self.version != 1:

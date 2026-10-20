@@ -11,6 +11,7 @@ import shutil
 import ssl
 import sys
 import time
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -217,7 +218,7 @@ def render_remote_status(
 
 
 def cmd_remote_bind(args: argparse.Namespace) -> None:
-    """Handle 'aikito remote bind <endpoint> [--rebind] [--token-env <VAR>] [--workspace <PATH>]'."""
+    """Handle 'aikito remote bind <endpoint> [--rebind] [--token-env <VAR>] [--recovery-fd <FD>] [--recovery-output-fd <FD>] [--no-initialize] [--workspace <PATH>]'."""
     home = Path.home()
     workspace = _resolve_cli_workspace(args, home)
     if not is_recognized_workspace(workspace):
@@ -230,10 +231,36 @@ def cmd_remote_bind(args: argparse.Namespace) -> None:
     endpoint = args.endpoint
     token_env = getattr(args, "token_env", "AIKITO_REMOTE_TOKEN")
     rebind = getattr(args, "rebind", False)
+    recovery_fd = getattr(args, "recovery_fd", None)
+    recovery_output_fd = getattr(args, "recovery_output_fd", None)
+    no_initialize = getattr(args, "no_initialize", False)
+
+    def prompt_recovery_code(vault_id: str) -> str:
+        if recovery_fd is not None:
+            if recovery_fd < 0:
+                raise ValueError("Recovery input requires a valid file descriptor.")
+            with os.fdopen(os.dup(recovery_fd), "rb") as stream:
+                return stream.read(128).decode("ascii").strip()
+        if not sys.stdin.isatty():
+            raise RecoveryRequired(
+                "Detected existing encrypted store. Recovery code is required to authorize this device. "
+                "Use an interactive terminal or pass --recovery-fd."
+            )
+        prefix = f" (vault: {vault_id[:8]}...)" if vault_id else ""
+        print(f"[INFO] Connected to existing encrypted store{prefix}.")
+        print("To authorize this device, please enter your store recovery code:")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", getpass.GetPassWarning)
+            return getpass.getpass("Recovery code: ").strip()
 
     try:
         binding = bind_workspace_remote(
-            workspace, endpoint, token_env, rebind=rebind, home=home
+            workspace,
+            endpoint,
+            token_env,
+            rebind=rebind,
+            recovery_code_provider=prompt_recovery_code,
+            home=home,
         )
     except Exception as exc:
         print(
@@ -242,12 +269,85 @@ def cmd_remote_bind(args: argparse.Namespace) -> None:
         )
         sys.exit(1)
 
-    print(f"[SUCCESS] Bound workspace to remote store at {binding.endpoint}")
-    print(f"  Sync ID:   {binding.sync_id}")
-    print(f"  Token env: {binding.auth.env}")
-    print(
-        "\nNext: Initialize an empty Store with 'aikito remote key initialize', or recover its device key. Then run 'aikito remote sync --dry-run'."
-    )
+    if binding.status == "recovered":
+        print("[SUCCESS] Store key authorized and saved to device keystore.")
+        print(f"[SUCCESS] Bound workspace to remote store at {binding.endpoint}")
+        print(f"  Sync ID:   {binding.sync_id}")
+        print(f"  Token env: {binding.auth.env}")
+        print("\nNext: Run 'aikito remote sync --apply' to synchronize your workspace.")
+    elif binding.status == "empty":
+        auto_init = False
+        deliver = None
+        if not no_initialize:
+            if recovery_output_fd is not None:
+                if recovery_output_fd < 0:
+                    print(
+                        "[ERROR] Recovery output requires a valid file descriptor.",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+
+                def deliver(code: str) -> None:
+                    with os.fdopen(os.dup(recovery_output_fd), "wb") as output:
+                        output.write((code + "\n").encode("ascii"))
+                        output.flush()
+
+                auto_init = True
+            elif sys.stdout.isatty():
+
+                def deliver(code: str) -> None:
+                    print(
+                        "\n========================================================================"
+                    )
+                    print("⚠️  IMPORTANT: STORE RECOVERY CODE")
+                    print(
+                        "Keep this recovery code safe. You will need it to connect other devices"
+                    )
+                    print("or recover your data if this device is lost:\n")
+                    print(f"    {code}\n")
+                    print("It will NOT be shown again.")
+                    print(
+                        "========================================================================\n"
+                    )
+
+                auto_init = True
+
+        if auto_init and deliver is not None:
+            try:
+                from .workspace.encrypted_sync import initialize_encrypted_workspace
+
+                print(
+                    "[INFO] Connected to empty remote store. Initializing end-to-end encryption..."
+                )
+                initialize_encrypted_workspace(workspace, home, deliver)
+                print("[SUCCESS] Device key created and saved to device keystore.")
+                print(
+                    f"[SUCCESS] Bound workspace to remote store at {binding.endpoint}"
+                )
+                print(f"  Sync ID:   {binding.sync_id}")
+                print(f"  Token env: {binding.auth.env}")
+                print(
+                    "\nNext: Run 'aikito remote sync --apply' to synchronize your workspace."
+                )
+                return
+            except Exception as exc:
+                print(
+                    f"[ERROR] Failed to initialize encryption: {exc}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
+        print(f"[SUCCESS] Bound workspace to remote store at {binding.endpoint}")
+        print(f"  Sync ID:   {binding.sync_id}")
+        print(f"  Token env: {binding.auth.env}")
+        print(
+            "\nNext: Initialize an empty Store with 'aikito remote key initialize', or recover its device key. Then run 'aikito remote sync --dry-run'."
+        )
+    else:
+        print(f"[SUCCESS] Bound workspace to remote store at {binding.endpoint}")
+        print(f"  Sync ID:   {binding.sync_id}")
+        print(f"  Token env: {binding.auth.env}")
+        print("\nNext: Run 'aikito remote sync --apply' to synchronize your workspace.")
 
 
 def cmd_remote_unbind(args: argparse.Namespace) -> None:

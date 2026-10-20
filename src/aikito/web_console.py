@@ -124,18 +124,21 @@ class ConsoleData:
         endpoint: str,
         token_env: str = "AIKITO_REMOTE_TOKEN",
         rebind: bool = False,
+        recovery_code: str | None = None,
     ) -> dict[str, Any]:
         binding = bind_workspace_remote(
             self.aikito_dir,
             endpoint,
             token_env=token_env,
             rebind=rebind,
+            recovery_code=recovery_code,
             home=self.home,
         )
         return {
             "bound": True,
             "endpoint": binding.endpoint,
             "sync_id": binding.sync_id,
+            "status": binding.status,
             "remote": self.remote(),
         }
 
@@ -538,8 +541,14 @@ def make_handler(data: ConsoleData, web_dir: Path) -> type[BaseHTTPRequestHandle
                                 or "AIKITO_REMOTE_TOKEN"
                             )
                             rebind = bool(body.get("rebind", False))
+                            recovery_code = body.get("recovery_code")
+                            if recovery_code is not None:
+                                recovery_code = str(recovery_code).strip() or None
                             result = data.bind_remote(
-                                endpoint, token_env=token_env, rebind=rebind
+                                endpoint,
+                                token_env=token_env,
+                                rebind=rebind,
+                                recovery_code=recovery_code,
                             )
                         else:
                             raise ValueError(f"Unknown action: {action}")

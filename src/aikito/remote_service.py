@@ -38,6 +38,8 @@ def bind_workspace_remote(
     token_env: str = "AIKITO_REMOTE_TOKEN",
     *,
     rebind: bool = False,
+    recovery_code: str | None = None,
+    recovery_code_provider: Callable[[str], str] | None = None,
     home: Path | None = None,
     environ: Mapping[str, str] | None = None,
 ) -> RemoteBinding:
@@ -48,6 +50,8 @@ def bind_workspace_remote(
         endpoint,
         auth,
         rebind=rebind,
+        recovery_code=recovery_code,
+        recovery_code_provider=recovery_code_provider,
         home=home,
         environ=environ,
     )
