@@ -1458,6 +1458,51 @@ instruction_path = ".codex/AGENTS.md"
         )
         self.assertIn("Global: \033[32m✓\033[0m", rendered_tty)
 
+    def test_render_status_report_without_remote(self):
+        report_data = StatusReportData(
+            agents=[],
+            memories=[],
+            remote_status=None,
+        )
+        rendered = render_status_report(
+            report_data,
+            is_tty=True,
+            no_color=True,
+            workspace="/Users/user/aikito",
+            home=Path("/Users/user"),
+        )
+        self.assertNotIn("Remote:", rendered)
+
+    def test_render_status_report_with_remote(self):
+        remote_status = {
+            "binding": {
+                "endpoint": "https://example.com/v1/remote",
+                "sync_id": "11223344",
+                "token_env": "TOKEN",
+            },
+            "service": {"running": True, "pid": 4321},
+            "last_revision": 12,
+            "pending": 0,
+            "conflicts": 0,
+            "last_error": None,
+        }
+        report_data = StatusReportData(
+            agents=[],
+            memories=[],
+            remote_status=remote_status,
+        )
+        rendered = render_status_report(
+            report_data,
+            is_tty=True,
+            no_color=True,
+            workspace="/Users/user/aikito",
+            home=Path("/Users/user"),
+        )
+        self.assertIn("Remote:", rendered)
+        self.assertIn("https://example.com/v1/remote", rendered)
+        self.assertIn("running (PID 4321)", rendered)
+        self.assertIn("Rev 12", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

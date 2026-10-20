@@ -713,6 +713,16 @@ def get_status_report_data(aikito_dir: Path, home: Path) -> StatusReportData:
         dict.fromkeys((a.consumer_name or a.agent_name) for a in agent_rows)
     )
 
+    remote_status = None
+    try:
+        from .remote_service import get_workspace_remote_status
+
+        raw_remote = get_workspace_remote_status(aikito_dir, home=home)
+        if raw_remote.get("binding"):
+            remote_status = raw_remote
+    except Exception:
+        remote_status = None
+
     return StatusReportData(
         agents=agent_rows,
         memories=memory_rows,
@@ -724,6 +734,7 @@ def get_status_report_data(aikito_dir: Path, home: Path) -> StatusReportData:
         consumers=consumer_names,
         projects=projects,
         global_summary=global_summary,
+        remote_status=remote_status,
     )
 
 

@@ -69,6 +69,7 @@ class StatusReportData:
     consumers: List[str] = field(default_factory=list)
     projects: List[ProjectSummary] = field(default_factory=list)
     global_summary: Optional[GlobalSummary] = None
+    remote_status: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -1128,6 +1129,50 @@ def render_status_report(
         if workspace_source:
             ws_line += f" ({workspace_source})"
         output_sections.append(ws_line)
+
+    # Summary Line 4: Remote Store (only rendered when bound)
+    if data.remote_status and data.remote_status.get("binding"):
+        b = data.remote_status["binding"]
+        ep = b.get("endpoint", "")
+        svc = data.remote_status.get("service", {})
+        running = svc.get("running", False)
+        pid = svc.get("pid")
+        last_rev = data.remote_status.get("last_revision")
+        pending = data.remote_status.get("pending", 0)
+        conflicts = data.remote_status.get("conflicts", 0)
+        last_err = data.remote_status.get("last_error")
+
+        if conflicts > 0:
+            icon = "!"
+            tag = f"Conflicts: {conflicts}"
+            if use_color:
+                icon = _colorize(icon, COLOR_RED, True)
+        elif pending > 0:
+            icon = "!"
+            tag = f"{pending} pending"
+            if use_color:
+                icon = _colorize(icon, COLOR_YELLOW, True)
+        elif last_err:
+            icon = "!"
+            tag = "Sync error"
+            if use_color:
+                icon = _colorize(icon, COLOR_RED, True)
+        else:
+            icon = "✓" if use_unicode else "OK"
+            tag = "Synced"
+            if use_color:
+                icon = _colorize(icon, COLOR_GREEN, True)
+
+        svc_state = (
+            f"running (PID {pid})"
+            if (running and pid)
+            else ("running" if running else "stopped")
+        )
+        rev_str = f" · Rev {last_rev}" if last_rev is not None else ""
+        output_sections.append(f"Remote: {icon} {tag} · {ep}")
+        output_sections.append(
+            f"        Service: {svc_state}{rev_str} · Pending: {pending}"
+        )
 
     return "\n".join(output_sections)
 
