@@ -843,12 +843,12 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     add_color_args(p_remote_unbind)
     p_remote_unbind.set_defaults(func=cmd_remote_unbind)
 
-    # remote sync (--dry-run | --apply) [--verbose] [--workspace <PATH>]
+    # remote sync [--dry-run | --apply] [--verbose] [--workspace <PATH>]
     p_remote_sync = remote_subparsers.add_parser(
         "sync",
         help="Synchronize workspace resources with the bound remote store",
     )
-    mode_group = p_remote_sync.add_mutually_exclusive_group(required=True)
+    mode_group = p_remote_sync.add_mutually_exclusive_group(required=False)
     mode_group.add_argument(
         "--dry-run",
         action="store_true",
@@ -857,7 +857,7 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     mode_group.add_argument(
         "--apply",
         action="store_true",
-        help="Apply synchronization changes to local workspace and remote store",
+        help="Apply synchronization changes to local workspace and remote store (default)",
     )
     p_remote_sync.add_argument(
         "--verbose",

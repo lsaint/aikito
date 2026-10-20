@@ -381,7 +381,7 @@ def cmd_remote_unbind(args: argparse.Namespace) -> None:
 
 
 def cmd_remote_sync(args: argparse.Namespace) -> None:
-    """Handle 'aikito remote sync (--dry-run | --apply) [--verbose] [--workspace <PATH>]'."""
+    """Handle 'aikito remote sync [--dry-run | --apply] [--verbose] [--workspace <PATH>]'."""
     home = Path.home()
     workspace = _resolve_cli_workspace(args, home)
     if not is_recognized_workspace(workspace):

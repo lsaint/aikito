@@ -94,7 +94,7 @@ version.
 | `aikito doctor [--fix]` | Run deep workspace diagnostics and repair supported configuration issues |
 | `aikito remote bind <endpoint> [--rebind] [--token-env <VAR>] [--recovery-fd <FD>] [--recovery-output-fd <FD>] [--no-initialize] [--workspace <PATH>]` | Bind workspace to an external remote store (auto-initializes encryption or recovers key) |
 | `aikito remote unbind [--force] [--workspace <PATH>]` | Unbind workspace from external remote store and stop background synchronization |
-| `aikito remote sync (--dry-run \| --apply) [--verbose] [--workspace <PATH>]` | Preview or synchronize local workspace resources with the bound remote store |
+| `aikito remote sync [--dry-run \| --apply] [--verbose] [--workspace <PATH>]` | Synchronize workspace resources with bound remote store (defaults to apply) |
 | `aikito remote watch [--poll-interval <SEC>] [--debounce-ms <MS>] [--once] [--verbose] [--workspace <PATH>]` | Continuously synchronize local workspace changes and remote updates |
 | `aikito remote start [--workspace <PATH>] [--mode {auto,system,process}]` | Start background automatic synchronization service |
 | `aikito remote stop [--workspace <PATH>] [--mode {auto,system,process}]` | Stop background automatic synchronization service |
@@ -158,25 +158,27 @@ aikito remote credential path
 
 ### Previewing Changes (`--dry-run`)
 
-Preview planned changes before applying:
+### Synchronizing Changes (`aikito remote sync`)
+
+By default, `aikito remote sync` applies synchronization changes directly:
+
+```bash
+aikito remote sync
+aikito remote sync --verbose
+```
+
+Reconciliation transfers mutations transactionally between the local workspace and remote store. Unresolved conflicts and blocked resources remain untouched while safe resources are applied. The `--apply` flag is also accepted for backwards compatibility.
+
+### Previewing Changes (`--dry-run`)
+
+To preview planned changes without modifying local files or the remote store:
 
 ```bash
 aikito remote sync --dry-run
 aikito remote sync --dry-run --verbose
 ```
 
-Dry-run mode inspects local and remote snapshots and reports planned creations, updates, deletions, conflicts, and blocked resources without modifying local files or the remote store.
-
-### Applying Changes (`--apply`)
-
-To apply the synchronization plan:
-
-```bash
-aikito remote sync --apply
-aikito remote sync --apply --verbose
-```
-
-Reconciliation transfers mutations transactionally between the local workspace and remote store. Unresolved conflicts and blocked resources remain untouched while safe resources are applied.
+Dry-run mode inspects local and remote snapshots and reports planned creations, updates, deletions, conflicts, and blocked resources.
 
 ### Continuous Synchronization (`aikito remote watch`)
 

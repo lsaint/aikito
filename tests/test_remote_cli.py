@@ -81,11 +81,10 @@ class RemoteCLIParserTest(unittest.TestCase):
         self.assertTrue(args.apply)
         self.assertTrue(args.verbose)
 
-    def test_remote_sync_requires_mode(self):
-        with patch("sys.stderr", new_callable=io.StringIO):
-            with self.assertRaises(SystemExit) as ctx:
-                self.parser.parse_args(["remote", "sync"])
-            self.assertNotEqual(ctx.exception.code, 0)
+    def test_remote_sync_mode_defaults_to_apply(self):
+        args = self.parser.parse_args(["remote", "sync"])
+        self.assertFalse(args.dry_run)
+        self.assertFalse(args.apply)
 
     def test_remote_sync_mutually_exclusive_modes(self):
         with patch("sys.stderr", new_callable=io.StringIO):
@@ -533,6 +532,47 @@ class RemoteCLIOperationsTest(unittest.TestCase):
             self.assertIn(
                 "Synchronization stopped: Reconciliation round limit reached", out
             )
+
+    def test_sync_without_flags_defaults_to_apply(self):
+        import tempfile
+        from unittest.mock import MagicMock
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ws = _workspace(Path(tmp_dir) / "ws")
+            save_remote_binding(
+                ws,
+                RemoteBinding(
+                    1,
+                    "https://example.com/v1/remote",
+                    "11223344556677889900aabbccddeeff",
+                    AUTH,
+                ),
+            )
+            args = self.parser.parse_args(["remote", "sync"])
+            mock_plan = MagicMock()
+            mock_plan.revision = 1
+            mock_plan.applied_items = ()
+            mock_plan.changes = ()
+            mock_plan.conflicts = ()
+            mock_plan.blocked = ()
+            mock_plan.blocked_items = ()
+            mock_plan.stop_reason = None
+            mock_plan.deferred = ()
+            mock_plan.remaining_rounds = 0
+            mock_plan.interrupted_round_recovered = False
+
+            with (
+                patch("aikito.remote_cli.resolve_workspace", return_value=ws),
+                patch(
+                    "aikito.remote_cli.sync_workspace_remote",
+                    return_value=mock_plan,
+                ) as mock_sync,
+                patch("sys.stdout", io.StringIO()),
+            ):
+                cmd_remote_sync(args)
+
+            mock_sync.assert_called_once()
+            self.assertFalse(mock_sync.call_args.kwargs.get("dry_run", True))
 
     def test_remote_unbind_command(self):
         import tempfile
