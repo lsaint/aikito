@@ -769,8 +769,13 @@ footer {
 .resource-access-button { margin-top: 1rem; }
 
 .eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .12em; color: var(--muted); }
-.project-heading { margin: 12px 0 32px; }
+.project-heading { margin: 12px 0 20px; }
 .project-heading h1 { margin: 10px 0; font-size: clamp(26px, 3vw, 38px); letter-spacing: -.04em; line-height: 1.2; }
+.workspace-action-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 24px; }
+@media (max-width: 600px) { .workspace-action-grid { grid-template-columns: 1fr; } }
+.workspace-action-card { cursor: pointer; transition: border-color .15s ease, background-color .15s ease; }
+.workspace-action-card:hover { border-color: var(--text); }
+.workspace-action-card:hover .project-open { text-decoration: underline; text-underline-offset: 3px; }
 .project-grid { display: grid; align-items: start; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); gap: 12px; }
 .project-card { padding: 12px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; gap: 8px; }
 .project-card h2 { margin: 0; font-size: 16px; letter-spacing: -.025em; }

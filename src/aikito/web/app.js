@@ -424,12 +424,19 @@ function showWorkspace(overview, remember = true) {
   rememberView("workspace", overview, remember);
   selectResource(null);
   governance.innerHTML = '<h2>Governance</h2><p class="muted">Select a resource.</p>';
-  const storeLink = `<button type="button" class="workspace-store-link" id="workspace-open-remote">${escapeHtml(overview.remote?.store_id || "Unbound · Connect Store")}</button>`;
-  const storeText = overview.remote?.store_id
-    ? `Connected Store: ${storeLink} (${overview.remote.service?.running ? "sync active" : "sync idle"})`
-    : `Remote Store: ${storeLink}`;
-  content.innerHTML = `<div class="project-heading"><span class="eyebrow">YOUR WORKSPACE</span><h1>Context, in one place.</h1><p>Browse your workspace and confirm authorization requests selected online.</p><p class="workspace-store-status">${storeText}</p><button class="resource-access-button" id="workspace-access">Review pending authorizations</button></div><div class="project-grid">${overview.projects.map(project => `<section class="project-card"><h2><button class="project-open" data-project-open="${escapeAttribute(project.name)}">${escapeHtml(project.name)}</button></h2>${project.description?.trim() ? `<p>${escapeHtml(project.description.trim())}</p>` : ""}<div class="project-card-meta">${escapeHtml(project.memory_notes_count)} Memory notes · ${escapeHtml(project.skills_count)} skills</div></section>`).join("") || '<p>No projects registered yet.</p>'}</div>`;
-  content.querySelector("#workspace-access").onclick = () => openAccessConfirmations();
+  const storeBound = Boolean(overview.remote?.store_id);
+  const storeTitle = storeBound
+    ? `Connected Store: ${overview.remote.store_id}`
+    : "Connect Remote Store";
+  const storeDesc = storeBound
+    ? "View remote store diagnostics, connection settings, and sync activity."
+    : "Bind this workspace to a remote store to publish and sync resources.";
+  const storeMeta = storeBound
+    ? (overview.remote.service?.running ? "sync active" : "sync idle")
+    : "Unbound · Connect store";
+
+  content.innerHTML = `<div class="project-heading"><span class="eyebrow">YOUR WORKSPACE</span><h1>Context, in one place.</h1><p>Browse your workspace and confirm authorization requests selected online.</p></div><div class="workspace-action-grid"><section class="project-card workspace-action-card" id="workspace-store-card"><h2><button type="button" class="project-open" id="workspace-open-remote">${escapeHtml(storeTitle)}</button></h2><p>${escapeHtml(storeDesc)}</p><div class="project-card-meta">${escapeHtml(storeMeta)}</div></section><section class="project-card workspace-action-card" id="workspace-access-card"><h2><button type="button" class="project-open" id="workspace-access">Review pending authorizations</button></h2><p>Review and confirm authorization requests selected online for this workspace.</p><div class="project-card-meta">Local confirmation required</div></section></div><div class="project-grid">${overview.projects.map(project => `<section class="project-card"><h2><button class="project-open" data-project-open="${escapeAttribute(project.name)}">${escapeHtml(project.name)}</button></h2>${project.description?.trim() ? `<p>${escapeHtml(project.description.trim())}</p>` : ""}<div class="project-card-meta">${escapeHtml(project.memory_notes_count)} Memory notes · ${escapeHtml(project.skills_count)} skills</div></section>`).join("") || '<p>No projects registered yet.</p>'}</div>`;
+
   const openRemote = content.querySelector("#workspace-open-remote");
   if(openRemote) openRemote.onclick = async () => {
     try {
@@ -438,6 +445,22 @@ function showWorkspace(overview, remember = true) {
       selectResource(document.querySelector('.resource[data-remote="true"]'));
     } catch(e) { content.textContent = e.message; }
   };
+  const storeCard = content.querySelector("#workspace-store-card");
+  if (storeCard && openRemote) {
+    storeCard.onclick = (e) => {
+      if (e.target.closest("button")) return;
+      openRemote.click();
+    };
+  }
+  const openAccess = content.querySelector("#workspace-access");
+  if (openAccess) openAccess.onclick = () => openAccessConfirmations();
+  const accessCard = content.querySelector("#workspace-access-card");
+  if (accessCard && openAccess) {
+    accessCard.onclick = (e) => {
+      if (e.target.closest("button")) return;
+      openAccess.click();
+    };
+  }
   content.querySelectorAll("[data-project-open]").forEach(button => button.onclick = async () => {
     try {
       show(await get(`/api/projects/${encodeURIComponent(button.dataset.projectOpen)}`));

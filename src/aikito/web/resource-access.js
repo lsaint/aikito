@@ -16,8 +16,8 @@ async function openAccessConfirmations() {
     }
     state.textContent=parts.join(" \u00b7 ");
   }
-  async function refresh(){if(loading||busy||!dialog.open)return;loading=true;try{
-    const result=await get("/api/access");if(!dialog.open||busy)return;list.replaceChildren();
+  async function refresh(){if(loading||busy||!dialog.open)return false;loading=true;try{
+    const result=await get("/api/access");if(!dialog.open||busy)return false;list.replaceChildren();
     const pending=result.requests.filter(request=>!outcomes.has(request.request_id));summary(pending.length);
     const link=element("a","Open online authorization management");link.href=result.origin+"/account";link.target="_blank";link.rel="noopener noreferrer";list.append(link);
     for(const request of pending){displayed.add(request.request_id);const card=document.createElement("article");card.className="approval-request";
@@ -55,8 +55,23 @@ async function openAccessConfirmations() {
       }
       list.append(card);
     }
-  }catch{state.textContent="Cannot fetch requests. Check the remote binding and network, then refresh.";}finally{loading=false;}}
-  dialog.querySelector(".approval-refresh").onclick=()=>void refresh();
+    return true;
+  }catch{state.textContent="Cannot fetch requests. Check the remote binding and network, then refresh.";return false;}finally{loading=false;}}
+  const refreshBtn=dialog.querySelector(".approval-refresh");
+  refreshBtn.onclick=async()=>{
+    if(loading||busy)return;
+    refreshBtn.disabled=true;
+    refreshBtn.textContent="Refreshing...";
+    const ok=await refresh();
+    if(!dialog.open)return;
+    refreshBtn.textContent=ok?"Refreshed":"Refresh failed";
+    setTimeout(()=>{
+      if(dialog.open&&!busy){
+        refreshBtn.textContent="Refresh requests";
+        refreshBtn.disabled=false;
+      }
+    },800);
+  };
   const timer=setInterval(()=>void refresh(),10000);
   dialog.addEventListener("cancel",event=>{if(busy)event.preventDefault();});
   dialog.addEventListener("close",()=>{clearInterval(timer);for(const identity of displayed)dismissedAccessRequests.add(identity);dialog.remove();});
