@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import dataclasses
+import errno
 import functools
 import json
 import mimetypes
 import re
 import secrets
+import sys
 import threading
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
@@ -430,6 +432,12 @@ class ConsoleData:
 
 def make_handler(data: ConsoleData, web_dir: Path) -> type[BaseHTTPRequestHandler]:
     class ConsoleHandler(BaseHTTPRequestHandler):
+        def handle_one_request(self) -> None:
+            try:
+                super().handle_one_request()
+            except (ConnectionError, BrokenPipeError):
+                self.close_connection = True
+
         def do_GET(self) -> None:
             path = unquote(urlsplit(self.path).path)
             try:
@@ -440,10 +448,18 @@ def make_handler(data: ConsoleData, web_dir: Path) -> type[BaseHTTPRequestHandle
                     self._api(path)
                 else:
                     self._static(path)
+            except (ConnectionError, BrokenPipeError):
+                self.close_connection = True
             except FileNotFoundError:
-                self._json({"error": "Not found"}, 404)
+                try:
+                    self._json({"error": "Not found"}, 404)
+                except (ConnectionError, BrokenPipeError):
+                    self.close_connection = True
             except Exception as exc:  # noqa: BLE001
-                self._json({"error": str(exc)}, 500)
+                try:
+                    self._json({"error": str(exc)}, 500)
+                except (ConnectionError, BrokenPipeError):
+                    self.close_connection = True
 
         def _local_request(self, mutation: bool = False) -> bool:
             authority = f"127.0.0.1:{self.server.server_port}"
@@ -538,8 +554,13 @@ def make_handler(data: ConsoleData, web_dir: Path) -> type[BaseHTTPRequestHandle
                 else:
                     raise ValueError()
                 self._json(result)
+            except (ConnectionError, BrokenPipeError):
+                self.close_connection = True
             except Exception:  # noqa: BLE001
-                self._json({"error": "Bad request"}, 400)
+                try:
+                    self._json({"error": "Bad request"}, 400)
+                except (ConnectionError, BrokenPipeError):
+                    self.close_connection = True
 
         def _api(self, path: str) -> None:
             parts = [part for part in path.removeprefix("/api/").split("/") if part]
@@ -547,9 +568,11 @@ def make_handler(data: ConsoleData, web_dir: Path) -> type[BaseHTTPRequestHandle
                 self._json({"token": data.access.token})
             elif parts == ["access"]:
                 try:
-                    self._json(data.access.pending())
+                    pending = data.access.pending()
                 except Exception:  # noqa: BLE001 - Never expose transport or credential errors.
                     self._json({"error": "Authorization service is unavailable"}, 503)
+                    return
+                self._json(pending)
             elif parts == ["overview"]:
                 self._json(data.overview())
             elif parts == ["doctor"]:
@@ -572,33 +595,57 @@ def make_handler(data: ConsoleData, web_dir: Path) -> type[BaseHTTPRequestHandle
                 mimetypes.guess_type(target.name)[0] or "application/octet-stream"
             )
             payload = target.read_bytes()
-            self.send_response(200)
-            self.send_header("Content-Type", f"{content_type}; charset=utf-8")
-            self.send_header("Content-Length", str(len(payload)))
-            self.send_header(
-                "Content-Security-Policy", "frame-ancestors 'none'; base-uri 'none'"
-            )
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(payload)
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", f"{content_type}; charset=utf-8")
+                self.send_header("Content-Length", str(len(payload)))
+                self.send_header(
+                    "Content-Security-Policy", "frame-ancestors 'none'; base-uri 'none'"
+                )
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(payload)
+            except (ConnectionError, BrokenPipeError):
+                self.close_connection = True
 
         def _json(self, value: Any, status: int = 200) -> None:
-            payload = json.dumps(value, ensure_ascii=False).encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(payload)))
-            self.send_header(
-                "Content-Security-Policy", "frame-ancestors 'none'; base-uri 'none'"
-            )
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.end_headers()
-            self.wfile.write(payload)
+            try:
+                payload = json.dumps(value, ensure_ascii=False).encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(payload)))
+                self.send_header(
+                    "Content-Security-Policy", "frame-ancestors 'none'; base-uri 'none'"
+                )
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(payload)
+            except (ConnectionError, BrokenPipeError):
+                self.close_connection = True
 
         def log_message(self, format: str, *args: Any) -> None:
             return
 
     return ConsoleHandler
+
+
+class ConsoleServer(ThreadingHTTPServer):
+    """Threading HTTP server that suppresses client disconnection tracebacks."""
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        exc_type, exc_val, _ = sys.exc_info()
+        if exc_type is not None and issubclass(
+            exc_type, (ConnectionError, BrokenPipeError)
+        ):
+            return
+        if isinstance(exc_val, OSError) and exc_val.errno in (
+            errno.EPIPE,
+            errno.ECONNRESET,
+            errno.ECONNABORTED,
+        ):
+            return
+        super().handle_error(request, client_address)
 
 
 def serve_console(
@@ -609,7 +656,7 @@ def serve_console(
     open_browser: bool = True,
 ) -> None:
     web_dir = _resolve_web_dir()
-    server = ThreadingHTTPServer(
+    server = ConsoleServer(
         ("127.0.0.1", port),
         make_handler(ConsoleData(aikito_dir, home, version), web_dir),
     )

@@ -13,7 +13,7 @@ from unittest import mock
 
 from layout_helpers import write_agents
 
-from aikito.web_console import ConsoleData, make_handler
+from aikito.web_console import ConsoleData, ConsoleServer, make_handler
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -75,9 +75,7 @@ name_style = "verbatim"
         (self.web / "index.html").write_text("console", encoding="utf-8")
         (self.web / "marked.umd.js").write_text("/* marked */", encoding="utf-8")
         data = ConsoleData(self.root, self.root, "test")
-        self.server = ThreadingHTTPServer(
-            ("127.0.0.1", 0), make_handler(data, self.web)
-        )
+        self.server = ConsoleServer(("127.0.0.1", 0), make_handler(data, self.web))
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.base_url = f"http://127.0.0.1:{self.server.server_port}"
@@ -99,6 +97,56 @@ name_style = "verbatim"
         ) as pending:
             self.assertEqual(self.get_json("/api/access"), expected)
         pending.assert_called_once_with()
+
+    def test_access_pending_service_unavailable_returns_503(self):
+        with mock.patch(
+            "aikito.console_access.ConsoleAccess.pending",
+            side_effect=RuntimeError("backend down"),
+        ):
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                self.get_json("/api/access")
+            self.assertEqual(error.exception.code, 503)
+            self.assertEqual(
+                json.loads(error.exception.read().decode("utf-8")),
+                {"error": "Authorization service is unavailable"},
+            )
+
+    def test_client_disconnect_during_json_response_sets_close_connection(self):
+        handler_cls = make_handler(ConsoleData(self.root, self.root, "test"), self.web)
+        handler = handler_cls.__new__(handler_cls)
+        handler.server = mock.MagicMock(server_port=8765)
+        handler.wfile = mock.MagicMock()
+        handler.wfile.write.side_effect = BrokenPipeError(errno.EPIPE, "Broken pipe")
+        handler.headers = {"Host": "127.0.0.1:8765"}
+        handler.send_response = mock.MagicMock()
+        handler.send_header = mock.MagicMock()
+        handler.end_headers = mock.MagicMock()
+        handler.close_connection = False
+
+        handler._json({"test": "value"})
+        self.assertTrue(handler.close_connection)
+
+    def test_console_server_suppresses_connection_errors(self):
+        server = ConsoleServer.__new__(ConsoleServer)
+        with mock.patch("sys.stderr") as stderr:
+            try:
+                raise BrokenPipeError(errno.EPIPE, "Broken pipe")
+            except BrokenPipeError:
+                server.handle_error(mock.MagicMock(), ("127.0.0.1", 12345))
+            self.assertEqual(stderr.write.call_count, 0)
+
+            try:
+                raise ConnectionResetError(errno.ECONNRESET, "Connection reset by peer")
+            except ConnectionResetError:
+                server.handle_error(mock.MagicMock(), ("127.0.0.1", 12345))
+            self.assertEqual(stderr.write.call_count, 0)
+
+            with mock.patch.object(ThreadingHTTPServer, "handle_error") as super_handle:
+                try:
+                    raise ValueError("unexpected boom")
+                except ValueError:
+                    server.handle_error(mock.MagicMock(), ("127.0.0.1", 12345))
+                super_handle.assert_called_once()
 
     def test_mutations_require_local_origin_and_console_token(self):
         token = self.get_json("/api/console-session")["token"]
