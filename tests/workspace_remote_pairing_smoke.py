@@ -93,7 +93,6 @@ def main(base):
                 runner,
                 "remote",
                 "bind",
-                "--service",
                 origin,
                 "--no-initialize",
             ],
