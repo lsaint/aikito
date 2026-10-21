@@ -300,7 +300,7 @@ def cmd_remote_bind(args: argparse.Namespace) -> None:
     if binding.status == "recovered":
         print("[SUCCESS] Synchronization key authorized and saved to device keystore.")
         print("[SUCCESS] Synchronization connected.")
-        print("\nNext: Run 'aikito remote sync --apply' to synchronize your workspace.")
+        print("\nNext: Run 'aikito remote sync' to synchronize your workspace.")
     elif binding.status == "empty":
         auto_init = False
         deliver = None
@@ -357,7 +357,7 @@ def cmd_remote_bind(args: argparse.Namespace) -> None:
                 print("[SUCCESS] Device key created and saved to device keystore.")
                 print("[SUCCESS] Synchronization connected.")
                 print(
-                    "\nNext: Run 'aikito remote sync --apply' to synchronize your workspace."
+                    "\nNext: Run 'aikito remote sync' to synchronize your workspace."
                 )
                 return
             except Exception as exc:
@@ -373,7 +373,7 @@ def cmd_remote_bind(args: argparse.Namespace) -> None:
         )
     else:
         print("[SUCCESS] Synchronization connected.")
-        print("\nNext: Run 'aikito remote sync --apply' to synchronize your workspace.")
+        print("\nNext: Run 'aikito remote sync' to synchronize your workspace.")
 
 
 def cmd_remote_unbind(args: argparse.Namespace) -> None:
