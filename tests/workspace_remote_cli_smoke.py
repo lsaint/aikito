@@ -49,6 +49,12 @@ def run_smoke(base: Path) -> None:
     ws_b = _workspace(base / "ws_b")
     home = base / "home"
     home.mkdir(parents=True, exist_ok=True)
+    invalid = run_cli(
+        ["remote", "bind", "http://invalid.example"], workspace=ws_a, home=home
+    )
+    assert invalid.returncode != 0
+    assert "A service HTTPS origin is required" in invalid.stderr
+    assert not (ws_a / REMOTE_BINDING_STATE).exists()
     backend = InMemoryRemote("11223344556677889900aabbccddeeff")
 
     env_auth = {TOKEN_ENV: TOKEN}
@@ -56,7 +62,7 @@ def run_smoke(base: Path) -> None:
     with HTTPRemoteServer(backend, token=TOKEN) as server:
         # 1. Bind Workspace A
         res = run_cli(
-            ["remote", "bind", server.url, "--token-env", TOKEN_ENV],
+            ["remote", "bind", "--endpoint", server.url, "--token-env", TOKEN_ENV],
             workspace=ws_a,
             home=home,
             env_vars=env_auth,
@@ -70,7 +76,7 @@ def run_smoke(base: Path) -> None:
 
         # 2. Re-bind Workspace A should be rejected
         res_rebind = run_cli(
-            ["remote", "bind", server.url, "--token-env", TOKEN_ENV],
+            ["remote", "bind", "--endpoint", server.url, "--token-env", TOKEN_ENV],
             workspace=ws_a,
             home=home,
             env_vars=env_auth,
@@ -80,7 +86,7 @@ def run_smoke(base: Path) -> None:
 
         # 3. Bind Workspace B
         res = run_cli(
-            ["remote", "bind", server.url, "--token-env", TOKEN_ENV],
+            ["remote", "bind", "--endpoint", server.url, "--token-env", TOKEN_ENV],
             workspace=ws_b,
             home=home,
             env_vars=env_auth,

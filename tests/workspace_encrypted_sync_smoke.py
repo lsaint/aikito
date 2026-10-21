@@ -91,7 +91,14 @@ def main(base: Path):
         for index in (0, 1):
             result = command(
                 index,
-                ["remote", "bind", server.url, "--workspace", str(workspaces[index])],
+                [
+                    "remote",
+                    "bind",
+                    "--endpoint",
+                    server.url,
+                    "--workspace",
+                    str(workspaces[index]),
+                ],
             )
             assert result.returncode == 0, result.stderr
         processes = [

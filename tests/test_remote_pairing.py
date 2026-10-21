@@ -2,6 +2,7 @@
 
 import hashlib
 from unittest.mock import patch
+from types import SimpleNamespace
 
 import pytest
 
@@ -132,15 +133,14 @@ def test_cross_origin_endpoint_never_saves_credentials(tmp_path):
     save.assert_not_called()
 
 
-def test_bind_parser_accepts_browser_and_custom_endpoint_forms():
+def test_bind_parser_accepts_service_url():
     parser = build_parser()
-    browser = parser.parse_args(["remote", "bind", "--service", "https://example.com"])
+    browser = parser.parse_args(["remote", "bind", "https://example.com"])
+    assert browser.url == "https://example.com"
     assert browser.endpoint is None
-    assert browser.service == "https://example.com"
-    custom = parser.parse_args(
-        ["remote", "bind", "https://example.com/v1/stores/a/remote"]
-    )
-    assert custom.endpoint.endswith("/remote")
+    assert parser.parse_args(["remote", "bind"]).url is None
+    with pytest.raises(SystemExit):
+        parser.parse_args(["remote", "bind", "--service", "https://example.com"])
 
 
 def test_reauthentication_preserves_pending_journal(tmp_path):
@@ -193,3 +193,34 @@ def test_rebind_same_space_preserves_pending_and_rejects_identity_change(tmp_pat
         bind_remote(workspace, old.endpoint, new_auth, rebind=True, home=home)
     assert load_remote_binding(workspace).sync_id == old.sync_id
     assert pending.read_bytes() == b"opaque pending commit bytes"
+
+
+@pytest.mark.parametrize("rebind", [False, True])
+def test_bind_service_url_uses_browser_pairing(tmp_path, rebind):
+    from aikito.remote_cli import cmd_remote_bind
+
+    arguments = ["remote", "bind", "https://example.com"]
+    if rebind:
+        arguments.append("--rebind")
+    args = build_parser().parse_args(arguments)
+    with (
+        patch("aikito.remote_cli._resolve_cli_workspace", return_value=tmp_path),
+        patch("aikito.remote_cli.is_recognized_workspace", return_value=True),
+        patch("aikito.remote_cli.get_workspace_remote_binding", return_value=None),
+        patch(
+            "aikito.remote_cli.pair_device",
+            return_value=("https://example.com/v1/stores/auto/remote", "DEVICE"),
+        ) as pair,
+        patch(
+            "aikito.remote_cli.bind_workspace_remote",
+            return_value=SimpleNamespace(status="ready"),
+        ) as bind,
+    ):
+        cmd_remote_bind(args)
+    pair.assert_called_once()
+    assert pair.call_args.args == ("https://example.com",)
+    assert bind.call_args.args == (
+        tmp_path,
+        "https://example.com/v1/stores/auto/remote",
+        "DEVICE",
+    )

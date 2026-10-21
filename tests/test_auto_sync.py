@@ -108,7 +108,9 @@ class AutoSyncConflictResolutionTest(unittest.TestCase):
             mock_snapshot = MagicMock()
             mock_snapshot.resources = {"global-memory:notes/remote.md": MagicMock()}
             mock_payload = FilePayload(b"Remote payload bytes\n")
-            mock_remote.fetch.return_value = {"global-memory:notes/remote.md": mock_payload}
+            mock_remote.fetch.return_value = {
+                "global-memory:notes/remote.md": mock_payload
+            }
 
             archived = archive_conflict_loser(
                 ws,
@@ -186,7 +188,9 @@ class AutoSyncConflictResolutionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             ws = _workspace(Path(tmp_dir) / "ws")
             # Local side deleted
-            res_local = archive_conflict_loser(ws, "global-memory:notes/deleted.md", "local")
+            res_local = archive_conflict_loser(
+                ws, "global-memory:notes/deleted.md", "local"
+            )
             self.assertEqual(res_local.status, "no_content")
 
             # Remote side deleted
@@ -328,7 +332,14 @@ class AutoSyncEndToEndTest(unittest.TestCase):
 
             with HTTPRemoteServer(backend, token=TOKEN) as server:
                 args_bind = self.parser.parse_args(
-                    ["remote", "bind", server.url, "--token-env", AUTH.env]
+                    [
+                        "remote",
+                        "bind",
+                        "--endpoint",
+                        server.url,
+                        "--token-env",
+                        AUTH.env,
+                    ]
                 )
                 with (
                     patch("aikito.remote_cli.resolve_workspace", return_value=ws_a),
@@ -412,7 +423,14 @@ class AutoSyncEndToEndTest(unittest.TestCase):
 
             with HTTPRemoteServer(backend, token=TOKEN) as server:
                 args_bind = self.parser.parse_args(
-                    ["remote", "bind", server.url, "--token-env", AUTH.env]
+                    [
+                        "remote",
+                        "bind",
+                        "--endpoint",
+                        server.url,
+                        "--token-env",
+                        AUTH.env,
+                    ]
                 )
                 for ws in (ws_a, ws_b):
                     with (
@@ -486,7 +504,14 @@ class AutoSyncEndToEndTest(unittest.TestCase):
 
             with HTTPRemoteServer(backend, token=TOKEN) as server:
                 args_bind = self.parser.parse_args(
-                    ["remote", "bind", server.url, "--token-env", AUTH.env]
+                    [
+                        "remote",
+                        "bind",
+                        "--endpoint",
+                        server.url,
+                        "--token-env",
+                        AUTH.env,
+                    ]
                 )
                 for ws in (ws_a, ws_b):
                     with (

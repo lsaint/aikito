@@ -82,7 +82,7 @@ def run_smoke(base: Path) -> None:
     with HTTPRemoteServer(backend, token=TOKEN) as server:
         # 1. Bind Workspace A and B
         res_a = run_cli(
-            ["remote", "bind", server.url, "--token-env", TOKEN_ENV],
+            ["remote", "bind", "--endpoint", server.url, "--token-env", TOKEN_ENV],
             workspace=ws_a,
             home=home,
             env_vars=env_auth,
@@ -90,7 +90,7 @@ def run_smoke(base: Path) -> None:
         assert res_a.returncode == 0, f"Bind A failed: {res_a.stderr}"
 
         res_b = run_cli(
-            ["remote", "bind", server.url, "--token-env", TOKEN_ENV],
+            ["remote", "bind", "--endpoint", server.url, "--token-env", TOKEN_ENV],
             workspace=ws_b,
             home=home,
             env_vars=env_auth,

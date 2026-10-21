@@ -34,7 +34,7 @@ class RemoteCLIParserTest(unittest.TestCase):
 
     def test_remote_bind_args(self):
         args = self.parser.parse_args(
-            ["remote", "bind", "https://example.com/v1/remote"]
+            ["remote", "bind", "--endpoint", "https://example.com/v1/remote"]
         )
         self.assertEqual(args.command, "remote")
         self.assertEqual(args.remote_target, "bind")
@@ -46,6 +46,7 @@ class RemoteCLIParserTest(unittest.TestCase):
             [
                 "remote",
                 "bind",
+                "--endpoint",
                 "https://example.com/v1/remote",
                 "--token-env",
                 "CUSTOM_TOKEN",
@@ -55,7 +56,13 @@ class RemoteCLIParserTest(unittest.TestCase):
 
     def test_remote_bind_rebind_flag(self):
         args = self.parser.parse_args(
-            ["remote", "bind", "https://example.com/v1/remote", "--rebind"]
+            [
+                "remote",
+                "bind",
+                "--endpoint",
+                "https://example.com/v1/remote",
+                "--rebind",
+            ]
         )
         self.assertTrue(args.rebind)
 
@@ -104,7 +111,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
             empty_ws = Path(tmp_dir) / "empty"
             empty_ws.mkdir()
             args = self.parser.parse_args(
-                ["remote", "bind", "https://example.com/v1/remote"]
+                ["remote", "bind", "--endpoint", "https://example.com/v1/remote"]
             )
             stderr = io.StringIO()
             with (
@@ -138,7 +145,12 @@ class RemoteCLIOperationsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             ws = _workspace(Path(tmp_dir) / "ws")
             args = self.parser.parse_args(
-                ["remote", "bind", "http://external.example.com/v1/remote"]
+                [
+                    "remote",
+                    "bind",
+                    "--endpoint",
+                    "http://external.example.com/v1/remote",
+                ]
             )
             stderr = io.StringIO()
             with (
@@ -157,7 +169,12 @@ class RemoteCLIOperationsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             ws = _workspace(Path(tmp_dir) / "ws")
             args = self.parser.parse_args(
-                ["remote", "bind", "https://example.com/v1/remote?token=secret"]
+                [
+                    "remote",
+                    "bind",
+                    "--endpoint",
+                    "https://example.com/v1/remote?token=secret",
+                ]
             )
             stderr = io.StringIO()
             with (
@@ -184,7 +201,14 @@ class RemoteCLIOperationsTest(unittest.TestCase):
 
             with HTTPRemoteServer(backend, token=TOKEN) as server:
                 args_bind_a = self.parser.parse_args(
-                    ["remote", "bind", server.url, "--token-env", AUTH.env]
+                    [
+                        "remote",
+                        "bind",
+                        "--endpoint",
+                        server.url,
+                        "--token-env",
+                        AUTH.env,
+                    ]
                 )
                 stdout_bind = io.StringIO()
                 with (
@@ -222,7 +246,14 @@ class RemoteCLIOperationsTest(unittest.TestCase):
 
                 # Bind ws_b
                 args_bind_b = self.parser.parse_args(
-                    ["remote", "bind", server.url, "--token-env", AUTH.env]
+                    [
+                        "remote",
+                        "bind",
+                        "--endpoint",
+                        server.url,
+                        "--token-env",
+                        AUTH.env,
+                    ]
                 )
                 with (
                     patch("aikito.remote_cli.resolve_workspace", return_value=ws_b),
@@ -330,7 +361,14 @@ class RemoteCLIOperationsTest(unittest.TestCase):
             with HTTPRemoteServer(backend, token=TOKEN) as server:
                 # 401 unauthorized
                 args_bind = self.parser.parse_args(
-                    ["remote", "bind", server.url, "--token-env", "WRONG_TOKEN"]
+                    [
+                        "remote",
+                        "bind",
+                        "--endpoint",
+                        server.url,
+                        "--token-env",
+                        "WRONG_TOKEN",
+                    ]
                 )
                 stderr_401 = io.StringIO()
                 with (
@@ -618,6 +656,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                     [
                         "remote",
                         "bind",
+                        "--endpoint",
                         server.url,
                         "--workspace",
                         str(ws_a),
@@ -646,6 +685,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                     [
                         "remote",
                         "bind",
+                        "--endpoint",
                         server.url,
                         "--workspace",
                         str(ws_b),
@@ -688,6 +728,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                     [
                         "remote",
                         "bind",
+                        "--endpoint",
                         server.url,
                         "--workspace",
                         str(ws_a),
@@ -711,6 +752,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                     [
                         "remote",
                         "bind",
+                        "--endpoint",
                         server.url,
                         "--workspace",
                         str(ws_b),
@@ -751,6 +793,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                     [
                         "remote",
                         "bind",
+                        "--endpoint",
                         server.url,
                         "--workspace",
                         str(ws_a),
@@ -773,6 +816,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                     [
                         "remote",
                         "bind",
+                        "--endpoint",
                         server.url,
                         "--workspace",
                         str(ws_b),
@@ -809,6 +853,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                     [
                         "remote",
                         "bind",
+                        "--endpoint",
                         server.url,
                         "--workspace",
                         str(ws),
@@ -850,6 +895,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                     [
                         "remote",
                         "bind",
+                        "--endpoint",
                         server.url,
                         "--workspace",
                         str(ws),
@@ -892,6 +938,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                     [
                         "remote",
                         "bind",
+                        "--endpoint",
                         server.url,
                         "--workspace",
                         str(ws),

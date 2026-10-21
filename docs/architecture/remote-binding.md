@@ -5,7 +5,7 @@
 When your service supports account-based device approval, copy its connection command:
 
 ```sh
-aikito remote bind --service https://sync.example.com
+aikito remote bind https://sync.example.com
 ```
 
 The browser asks you to sign in and compare the connection code with your terminal.
@@ -13,7 +13,7 @@ Only approve a command you started on your own device. The service selects your 
 synchronization space automatically; credentials are generated locally and saved outside
 the workspace. No endpoint path or bearer token needs to be copied.
 
-Omit `--service` to use `AIKITO_REMOTE_SERVICE_URL` or an interactive service URL prompt.
+Omit the URL to use `AIKITO_REMOTE_SERVICE_URL` or an interactive service URL prompt.
 First-time encryption asks you to save and confirm a recovery code. Another device signs
 in to the same account and enters that recovery code. Account passwords cannot decrypt
 synchronized data. Repeating the command on a configured workspace does not allocate new
@@ -21,7 +21,7 @@ credentials; use `--rebind` explicitly when reconnecting after account reset.
 
 Connection does not upload resources or start a background service. Preview with
 `aikito remote sync --dry-run`, then synchronize with `aikito remote sync --apply`.
-The explicit endpoint form documented below remains available for custom services.
+Explicit backend endpoints are reserved for protocol fixtures and custom services via `--endpoint`.
 
 
 A remote binding pins one local workspace to a resource center. The endpoint

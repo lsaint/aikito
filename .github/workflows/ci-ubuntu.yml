@@ -414,6 +414,8 @@ jobs:
           test ! -e "$REMOTE_FORMAT_SMOKE/future/fresh/.local/state/aikito/workspace-reconcile/binding.json"
           REMOTE_CLI_SMOKE=${{ runner.temp }}/remote-cli-smoke
           python3 tests/workspace_remote_cli_smoke.py "$REMOTE_CLI_SMOKE"
+          ! python3 -m aikito remote bind http://invalid.example --workspace "$REMOTE_CLI_SMOKE/ws_a" --rebind > "$REMOTE_CLI_SMOKE/invalid-service.log" 2>&1
+          grep -Fq 'A service HTTPS origin is required' "$REMOTE_CLI_SMOKE/invalid-service.log"
           test -f "$REMOTE_CLI_SMOKE/archive-fields-checked.txt"
           test -f "$REMOTE_CLI_SMOKE/ws_a/.local/state/aikito/workspace-reconcile/binding.json"
           test -f "$REMOTE_CLI_SMOKE/ws_b/.local/state/aikito/workspace-reconcile/binding.json"

@@ -114,7 +114,7 @@ def run_smoke(base: Path) -> None:
 
         # 2. Bind workspace without ambient env var (using stored credential)
         res_bind = run_cli(
-            ["remote", "bind", server.url, "--token-env", TOKEN_ENV],
+            ["remote", "bind", "--endpoint", server.url, "--token-env", TOKEN_ENV],
             workspace=ws_a,
             home=home,
         )

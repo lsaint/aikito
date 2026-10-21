@@ -63,7 +63,7 @@ def main(base: Path) -> None:
         env = {TOKEN_ENV: TOKEN}
         with HTTPRemoteServer(backend, token=TOKEN) as server:
             bound = run_cli(
-                ["remote", "bind", server.url, "--token-env", TOKEN_ENV],
+                ["remote", "bind", "--endpoint", server.url, "--token-env", TOKEN_ENV],
                 workspace=local,
                 home=home,
                 env_vars=env,
@@ -93,7 +93,14 @@ def main(base: Path) -> None:
             for label, args, workspace in (
                 (
                     "bind",
-                    ["remote", "bind", server.url, "--token-env", TOKEN_ENV],
+                    [
+                        "remote",
+                        "bind",
+                        "--endpoint",
+                        server.url,
+                        "--token-env",
+                        TOKEN_ENV,
+                    ],
                     fresh,
                 ),
                 ("preview", ["remote", "sync", "--dry-run"], local),

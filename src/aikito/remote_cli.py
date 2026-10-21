@@ -220,7 +220,7 @@ def render_remote_status(
 
 
 def cmd_remote_bind(args: argparse.Namespace) -> None:
-    """Handle 'aikito remote bind [endpoint] [--rebind] [--token-env <VAR>] [--recovery-fd <FD>] [--recovery-output-fd <FD>] [--no-initialize] [--workspace <PATH>]'."""
+    """Handle 'aikito remote bind [url] [--rebind] [--token-env <VAR>] [--recovery-fd <FD>] [--recovery-output-fd <FD>] [--no-initialize] [--workspace <PATH>]'."""
     home = Path.home()
     workspace = _resolve_cli_workspace(args, home)
     if not is_recognized_workspace(workspace):
@@ -236,8 +236,8 @@ def cmd_remote_bind(args: argparse.Namespace) -> None:
     recovery_fd = getattr(args, "recovery_fd", None)
     recovery_output_fd = getattr(args, "recovery_output_fd", None)
     no_initialize = getattr(args, "no_initialize", False)
-    if endpoint is not None and getattr(args, "service", None):
-        print("[ERROR] Use either an endpoint or --service.", file=sys.stderr)
+    if endpoint is not None and args.url:
+        print("[ERROR] Use either a service URL or --endpoint.", file=sys.stderr)
         raise SystemExit(1)
     if endpoint is None:
         existing = get_workspace_remote_binding(workspace)
@@ -247,13 +247,11 @@ def cmd_remote_bind(args: argparse.Namespace) -> None:
             rebind = True
         else:
             try:
-                service = getattr(args, "service", None) or os.environ.get(
-                    "AIKITO_REMOTE_SERVICE_URL", ""
-                )
+                service = args.url or os.environ.get("AIKITO_REMOTE_SERVICE_URL", "")
                 if not service:
                     if not sys.stdin.isatty():
                         raise RemoteBindingError(
-                            "Provide --service with your HTTPS service URL."
+                            "Provide your HTTPS service URL: aikito remote bind <url>."
                         )
                     service = input(
                         "Service URL (shown on your account page): "
@@ -356,9 +354,7 @@ def cmd_remote_bind(args: argparse.Namespace) -> None:
                 initialize_encrypted_workspace(workspace, home, deliver)
                 print("[SUCCESS] Device key created and saved to device keystore.")
                 print("[SUCCESS] Synchronization connected.")
-                print(
-                    "\nNext: Run 'aikito remote sync' to synchronize your workspace."
-                )
+                print("\nNext: Run 'aikito remote sync' to synchronize your workspace.")
                 return
             except Exception as exc:
                 print(

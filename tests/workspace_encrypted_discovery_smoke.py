@@ -70,7 +70,9 @@ def main(base: Path):
     assert result.returncode == 0, result.stderr
     backend = InMemoryRemote("11223344556677889900aabbccddeeff")
     with HTTPRemoteServer(backend, token=env["AIKITO_REMOTE_TOKEN"]) as server:
-        result = run(["remote", "bind", server.url, "--workspace", str(workspace)])
+        result = run(
+            ["remote", "bind", "--endpoint", server.url, "--workspace", str(workspace)]
+        )
         assert result.returncode == 0, result.stderr
         # Test-only publication is external to the production sync engine.
         key, code = bytes(range(32)), bytes([42]) * 32
