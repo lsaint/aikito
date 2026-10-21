@@ -158,9 +158,12 @@ def refresh_remote_binding_auth(
     with WorkspaceWriterLock(home):
         current = load_remote_binding(workspace)
         if current is None or (current.endpoint, current.sync_id) != (
-            binding.endpoint, binding.sync_id
+            binding.endpoint,
+            binding.sync_id,
         ):
-            raise StoreIdentityMismatch("Synchronization connection changed during approval")
+            raise StoreIdentityMismatch(
+                "Synchronization connection changed during approval"
+            )
         atomic_text(
             state_path(workspace, REMOTE_BINDING_STATE, create=True), binding.encode()
         )

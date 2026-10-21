@@ -252,7 +252,10 @@ def test_nonconflicting_resolution_is_rejected_without_writes(
             "aikito.workspace.remote_limits.MAX_RESOURCE_PAYLOAD_BYTES", 1024
         )
     plan = build_reconcile_plan(a, remote)
-    assert next(i for i in plan.items if i.id == "global-memory:notes/n.md").action == action
+    assert (
+        next(i for i in plan.items if i.id == "global-memory:notes/n.md").action
+        == action
+    )
     before = (
         {p.relative_to(a): p.read_bytes() for p in a.rglob("*") if p.is_file()},
         store_content(remote),
@@ -261,7 +264,11 @@ def test_nonconflicting_resolution_is_rejected_without_writes(
         WorkspaceReconcileError, match="requires a conflicting resource"
     ):
         run_reconciliation(
-            a, remote, home, dry_run=False, resolutions={"global-memory:notes/n.md": side}
+            a,
+            remote,
+            home,
+            dry_run=False,
+            resolutions={"global-memory:notes/n.md": side},
         )
     assert before == (
         {p.relative_to(a): p.read_bytes() for p in a.rglob("*") if p.is_file()},

@@ -192,9 +192,9 @@ def test_import_creates_memory_then_becomes_noop(tmp_path: Path) -> None:
     run_workspace_import(source, target, home, dry_run=False)
     assert (target / note).read_text(encoding="utf-8") == "# Example\n"
     again = build_import_plan(source, target)
-    assert [item.action for item in again.items if item.resource.kind == "global-memory"] == [
-        "NOOP"
-    ]
+    assert [
+        item.action for item in again.items if item.resource.kind == "global-memory"
+    ] == ["NOOP"]
 
 
 def test_conflict_keeps_target_and_applies_unrelated_creates(tmp_path: Path) -> None:
@@ -205,7 +205,9 @@ def test_conflict_keeps_target_and_applies_unrelated_creates(tmp_path: Path) -> 
     (target / "memory/notes/a.md").write_text("other", encoding="utf-8")
 
     plan = run_workspace_import(source, target, tmp_path / "home", dry_run=False)
-    assert [item.action for item in plan.items if item.resource.kind == "global-memory"] == [
+    assert [
+        item.action for item in plan.items if item.resource.kind == "global-memory"
+    ] == [
         "CONFLICT",
         "CREATE",
     ]

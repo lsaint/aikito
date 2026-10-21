@@ -6,11 +6,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.60.0] - 2026-10-21
+
+### Added
+
+- Added end-to-end encrypted remote synchronization (`cryptography>=47`) with authenticated encrypted resource discovery, HPKE sealed key packages, AES-GCM sealed project memory read exports, and fenced encrypted migration with rollback.
+- Added native device key storage and automatic local sync recovery code generation during remote store binding.
+- Added browser-based device pairing and authorization flow for remote synchronization with grouped pairing codes.
+- Added Web Console store and authorization review UI: pending requests, Cloud authorization banners, project memory access management, online access confirmation, and asynchronous store unbind/rebind.
+- Added remote store status summary to `aikito status` dashboard and single-line sync progress reporting.
+- Added account-based synchronization guide and remote storage documentation.
+
+### Changed
+
+- Required encrypted-only remote synchronization, dropping plaintext remote sync and retiring legacy unencrypted migration state.
+- Defaulted `aikito remote sync` to apply changes directly without requiring explicit flags.
+
 ### Fixed
 
-- Keep replaced remote versions in independent per-round and per-resource archives, including shared TOML fields and portable execution metadata.
-- Include overwrite-archive downloads in reconciliation budgets and reuse validated payloads instead of fetching them again.
-- Reject unsupported encrypted remote snapshots before binding, resource decoding, or retrying unaccepted pending requests.
+- Kept replaced remote versions in independent per-round and per-resource archives, including shared TOML fields and portable execution metadata.
+- Included overwrite-archive downloads in reconciliation budgets and reused validated payloads instead of fetching them again.
+- Rejected unsupported encrypted remote snapshots before binding, resource decoding, or retrying unaccepted pending requests.
+- Accepted sync service URL as positional argument in `aikito remote bind`.
+- Handled broken pipe gracefully on client disconnect in Web Console.
+- Retained memory access history, authorization confirmation feedback, and revocation actions in saved access views.
 
 ## [1.59.0] - 2026-10-13
 
@@ -1168,7 +1187,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.59.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.60.0...HEAD
+[1.60.0]: https://github.com/lsaint/aikito/compare/v1.59.0...v1.60.0
 [1.59.0]: https://github.com/lsaint/aikito/compare/v1.58.2...v1.59.0
 [1.58.2]: https://github.com/lsaint/aikito/compare/v1.58.1...v1.58.2
 [1.58.1]: https://github.com/lsaint/aikito/compare/v1.58.0...v1.58.1

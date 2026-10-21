@@ -157,7 +157,9 @@ def delivery_scenarios(root, factory):
                 result = original.result(timeout=15)
                 assert remote.results == (result, result)
         assert backend.read().revision == 1
-        assert ("global-memory:notes/upload.md" in backend.read().resources) != competing
+        assert (
+            "global-memory:notes/upload.md" in backend.read().resources
+        ) != competing
         assert PendingCommitStore(local, home).load() is None
         report(
             case,
@@ -200,7 +202,11 @@ def historical_scenario(root, factory):
                 b"current download",
                 snapshot.resources["global-memory:notes/download.md"],
             ),
-            put("noop", b"current noop", snapshot.resources["global-memory:notes/noop.md"]),
+            put(
+                "noop",
+                b"current noop",
+                snapshot.resources["global-memory:notes/noop.md"],
+            ),
             ResourceMutation(
                 "global-memory:notes/upload.md",
                 snapshot.resources["global-memory:notes/upload.md"],
@@ -226,7 +232,9 @@ def historical_scenario(root, factory):
                 == before.base[f"global-memory:notes/{name}.md"]
             )
         uploaded = next(
-            m for m in pending.request.mutations if m.id == "global-memory:notes/upload.md"
+            m
+            for m in pending.request.mutations
+            if m.id == "global-memory:notes/upload.md"
         )
         assert state.base[uploaded.id].fingerprint == uploaded.after.fingerprint
         latest = backend.read().revision
@@ -236,14 +244,22 @@ def historical_scenario(root, factory):
             "global-memory:notes/download.md",
         }
         assert (
-            next(item for item in plan.items if item.id == "global-memory:notes/blocked.md").action
+            next(
+                item
+                for item in plan.items
+                if item.id == "global-memory:notes/blocked.md"
+            ).action
             == "BLOCKED"
         )
         assert (local / "memory/notes/upload.md").read_text() == "user changed upload"
-        assert (local / "memory/notes/download.md").read_text() == "user changed download"
+        assert (
+            local / "memory/notes/download.md"
+        ).read_text() == "user changed download"
         assert (local / "memory/notes/noop.md").read_bytes() == b"current noop"
         assert backend.read().revision == latest
-        report(case, revision=latest, preserved_conflicts=2, blocked_base_preserved=True)
+        report(
+            case, revision=latest, preserved_conflicts=2, blocked_base_preserved=True
+        )
     finally:
         remote_limits.MAX_RESOURCE_PAYLOAD_BYTES = original_limit
 
@@ -332,7 +348,10 @@ def local_crashes(root):
         else:
             assert not recover_reconciliation(local, reopened, home)
             assert not (local / "memory/notes/download.md").exists()
-            assert "global-memory:notes/download.md" not in load_replica_state(local)[0].base
+            assert (
+                "global-memory:notes/download.md"
+                not in load_replica_state(local)[0].base
+            )
             assert load_replica_state(local)[0].completion_marker is not None
         assert PendingCommitStore(local, home).load() is None
         assert backend.read().revision == 3

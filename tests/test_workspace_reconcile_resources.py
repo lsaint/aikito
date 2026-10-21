@@ -499,7 +499,9 @@ def test_oversized_resource_blocks_only_its_upload(replicas, monkeypatch, relati
     write(a, "memory/notes/small.md", "small\n")
     plan = run_reconciliation(a, remote, home, dry_run=False)
     identity = (
-        "skill:large" if relative.startswith("skills/") else "global-memory:notes/large.md"
+        "skill:large"
+        if relative.startswith("skills/")
+        else "global-memory:notes/large.md"
     )
     item = next(i for i in plan.items if i.id == identity)
     assert item.action == "BLOCKED" and "size limit" in item.reason

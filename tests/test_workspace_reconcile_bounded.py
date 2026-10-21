@@ -498,7 +498,9 @@ def test_unpaired_id_disappearing_on_both_sides_is_confirmed(bounded):
     apply(left, store, home)
     plan = reconcile.build_reconcile_plan(right, store)
     reconcile.apply_reconcile_plan(plan, home, remote=store)
-    identity = next(item.id for item in plan.deferred if item.id.startswith("global-memory:"))
+    identity = next(
+        item.id for item in plan.deferred if item.id.startswith("global-memory:")
+    )
     assert identity in load_replica_state(right)[0].unpaired_ids
     path = left / "memory" / identity.partition(":")[2]
     path.unlink()

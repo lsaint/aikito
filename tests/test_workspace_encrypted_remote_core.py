@@ -35,7 +35,12 @@ def without_crypto(monkeypatch):
 def test_core_parser_and_future_format_guard_do_not_import_crypto(without_crypto):
     parser = build_parser()
     assert parser.parse_args(["remote", "key", "path"]).key_action == "path"
-    assert parser.parse_args(["remote", "key", "inspect", "--workspace", "workspace"]).key_action == "inspect"
+    assert (
+        parser.parse_args(
+            ["remote", "key", "inspect", "--workspace", "workspace"]
+        ).key_action
+        == "inspect"
+    )
     with pytest.raises(EncryptedStoreUnsupported):
         require_plaintext_snapshot(
             RemoteSnapshot(
@@ -75,10 +80,14 @@ def test_missing_extra_does_not_read_recovery_input(
     assert not (tmp_path / "config").exists()
 
 
-def test_missing_extra_stops_inspection_before_network(tmp_path, monkeypatch, without_crypto, capsys):
+def test_missing_extra_stops_inspection_before_network(
+    tmp_path, monkeypatch, without_crypto, capsys
+):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("APPDATA", str(tmp_path / "config"))
-    monkeypatch.setattr("aikito.remote_key_cli.is_recognized_workspace", lambda path: True)
+    monkeypatch.setattr(
+        "aikito.remote_key_cli.is_recognized_workspace", lambda path: True
+    )
     read = Mock(side_effect=AssertionError("No remote read without encrypted support"))
     monkeypatch.setattr("aikito.remote_key_cli.inspect_bound_workspace", read)
     args = SimpleNamespace(key_action="inspect", workspace=str(tmp_path / "workspace"))

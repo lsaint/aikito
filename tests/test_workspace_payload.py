@@ -219,12 +219,17 @@ def test_download_validation_precedes_staging_writes(tmp_path):
         "global-memory:notes/a.md": resource_for_id(
             "global-memory:notes/a.md", hashlib.sha256(good.data).hexdigest()
         ),
-        "global-memory:notes/b.md": resource_for_id("global-memory:notes/b.md", "0" * 64),
+        "global-memory:notes/b.md": resource_for_id(
+            "global-memory:notes/b.md", "0" * 64
+        ),
     }
     with pytest.raises(PayloadError):
         materialize_resources(
             resources,
-            {"global-memory:notes/a.md": good, "global-memory:notes/b.md": FilePayload(b"bad")},
+            {
+                "global-memory:notes/a.md": good,
+                "global-memory:notes/b.md": FilePayload(b"bad"),
+            },
             tmp_path,
         )
     assert not list(tmp_path.iterdir())

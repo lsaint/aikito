@@ -57,7 +57,9 @@ def mutation(name="one", data=b"one", before=None):
         payload_hash(payload),
         len(encode_payload(payload)),
     )
-    return ResourceMutation(f"global-memory:notes/{name}.md", before, descriptor, payload)
+    return ResourceMutation(
+        f"global-memory:notes/{name}.md", before, descriptor, payload
+    )
 
 
 def test_engine_uses_only_portable_interface(tmp_path):

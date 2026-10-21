@@ -42,7 +42,9 @@ def exercise(base: Path) -> None:
     try:
         result = run_reconciliation(local, remote, home, dry_run=False)
         item = next(
-            item for item in result.items if item.id == "global-memory:notes/capacity.md"
+            item
+            for item in result.items
+            if item.id == "global-memory:notes/capacity.md"
         )
         assert item.action == "BLOCKED" and "wire budget" in item.reason
         assert commits == []

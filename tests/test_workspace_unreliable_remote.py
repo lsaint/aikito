@@ -133,7 +133,9 @@ def test_delayed_original_and_exact_retry_share_cas_and_receipt(case, competing)
     assert backend.read().revision == 1
     state, _ = load_replica_state(local)
     assert ("global-memory:notes/upload.md" in state.base) == (not competing)
-    assert ("global-memory:notes/upload.md" in backend.read().resources) == (not competing)
+    assert ("global-memory:notes/upload.md" in backend.read().resources) == (
+        not competing
+    )
     assert PendingCommitStore(local, home).load() is None
 
 

@@ -72,7 +72,9 @@ def main():
     else:
         remote = FilesystemRemote(root / "center")
         plan = run_reconciliation(local, remote, home, dry_run=False)
-        assert {item.id for item in plan.conflicts} == {"global-memory:notes/download.md"}
+        assert {item.id for item in plan.conflicts} == {
+            "global-memory:notes/download.md"
+        }
         assert (
             local / "memory/notes/download.md"
         ).read_text() == "user edit after response loss"

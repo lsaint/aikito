@@ -129,7 +129,9 @@ def main() -> None:
             encoding="utf-8"
         )
         choices = {
-            f"global-memory:notes/{name}.md": "target" if name.startswith("keep") else "source"
+            f"global-memory:notes/{name}.md": "target"
+            if name.startswith("keep")
+            else "source"
             for name in ("keep", "keep-again", "take", "take-again")
         }
         resolved = run_workspace_import(
