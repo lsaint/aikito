@@ -666,6 +666,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                 )
                 env_a = dict(ENV)
                 env_a["XDG_CONFIG_HOME"] = str(home_a / ".config")
+                env_a["APPDATA"] = str(home_a / ".config")
                 with (
                     patch("aikito.remote_cli.Path.home", return_value=home_a),
                     patch.dict(os.environ, env_a, clear=False),
@@ -698,6 +699,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                 stdout_b = io.StringIO()
                 env_b = dict(ENV)
                 env_b["XDG_CONFIG_HOME"] = str(home_b / ".config")
+                env_b["APPDATA"] = str(home_b / ".config")
                 with (
                     patch("aikito.remote_cli.Path.home", return_value=home_b),
                     patch.dict(os.environ, env_b, clear=False),
@@ -738,6 +740,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                 )
                 env_a = dict(ENV)
                 env_a["XDG_CONFIG_HOME"] = str(home_a / ".config")
+                env_a["APPDATA"] = str(home_a / ".config")
                 with (
                     patch("aikito.remote_cli.Path.home", return_value=home_a),
                     patch.dict(os.environ, env_a, clear=False),
@@ -763,6 +766,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                 stdout_b = io.StringIO()
                 env_b = dict(ENV)
                 env_b["XDG_CONFIG_HOME"] = str(home_b / ".config")
+                env_b["APPDATA"] = str(home_b / ".config")
                 with (
                     patch("aikito.remote_cli.Path.home", return_value=home_b),
                     patch.dict(os.environ, env_b, clear=False),
@@ -803,6 +807,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                 )
                 env_a = dict(ENV)
                 env_a["XDG_CONFIG_HOME"] = str(home_a / ".config")
+                env_a["APPDATA"] = str(home_a / ".config")
                 with (
                     patch("aikito.remote_cli.Path.home", return_value=home_a),
                     patch.dict(os.environ, env_a, clear=False),
@@ -827,6 +832,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                 stderr_b = io.StringIO()
                 env_b = dict(ENV)
                 env_b["XDG_CONFIG_HOME"] = str(home_b / ".config")
+                env_b["APPDATA"] = str(home_b / ".config")
                 with (
                     patch("aikito.remote_cli.Path.home", return_value=home_b),
                     patch.dict(os.environ, env_b, clear=False),
@@ -865,6 +871,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                 stdout.isatty = lambda: True
                 env = dict(ENV)
                 env["XDG_CONFIG_HOME"] = str(home / ".config")
+                env["APPDATA"] = str(home / ".config")
                 with (
                     patch("aikito.remote_cli.Path.home", return_value=home),
                     patch.dict(os.environ, env, clear=False),
@@ -917,6 +924,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                 stdout = io.StringIO()
                 env = dict(ENV)
                 env["XDG_CONFIG_HOME"] = str(home / ".config")
+                env["APPDATA"] = str(home / ".config")
                 with (
                     patch("aikito.remote_cli.Path.home", return_value=home),
                     patch.dict(os.environ, env, clear=False),
@@ -960,6 +968,7 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                 stdout.isatty = lambda: True
                 env = dict(ENV)
                 env["XDG_CONFIG_HOME"] = str(home / ".config")
+                env["APPDATA"] = str(home / ".config")
                 with (
                     patch("aikito.remote_cli.Path.home", return_value=home),
                     patch.dict(os.environ, env, clear=False),
