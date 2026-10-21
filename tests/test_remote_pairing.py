@@ -40,8 +40,8 @@ def test_invalid_service(origin):
         _service_origin(origin)
 
 
-def test_browser_pairing_persists_only_after_valid_approval(tmp_path):
-    request = "a" * 64
+def test_browser_pairing_persists_only_after_valid_approval(tmp_path, capsys):
+    request = "dc9b4280" + "a" * 56
     started = {
         "request": request,
         "verification_uri": "https://example.com/sync/connect?request=" + request,
@@ -70,6 +70,7 @@ def test_browser_pairing_persists_only_after_valid_approval(tmp_path):
         patch("aikito.workspace.remote_pairing.save_credential") as save,
     ):
         endpoint, key = pair_device("https://example.com/", home=tmp_path)
+    assert "Check code: dc9b-4280." in capsys.readouterr().out
     assert endpoint == "https://example.com/v1/stores/auto/remote"
     assert key.startswith("AIKITO_REMOTE_DEVICE_")
     assert call.call_args_list[0].args[2] == {

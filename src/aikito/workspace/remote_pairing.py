@@ -97,7 +97,7 @@ def pair_device(service: str, *, home: Path) -> tuple[str, str]:
     ):
         raise RemoteBindingError("Invalid device connection response.")
     print(f"Open {started['verification_uri']}")
-    print(f"Check code: {request[:8]}. Approve only your own device.")
+    print(f"Check code: {request[:4]}-{request[4:8]}. Approve only your own device.")
     try:
         webbrowser.open(started["verification_uri"])
     except webbrowser.Error:
