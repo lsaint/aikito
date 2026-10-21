@@ -1130,10 +1130,8 @@ def render_status_report(
             ws_line += f" ({workspace_source})"
         output_sections.append(ws_line)
 
-    # Summary Line 4: Remote Store (only rendered when bound)
+    # Synchronization summary is shown only when connected.
     if data.remote_status and data.remote_status.get("binding"):
-        b = data.remote_status["binding"]
-        ep = b.get("endpoint", "")
         svc = data.remote_status.get("service", {})
         running = svc.get("running", False)
         pid = svc.get("pid")
@@ -1169,7 +1167,7 @@ def render_status_report(
             else ("running" if running else "stopped")
         )
         rev_str = f" · Rev {last_rev}" if last_rev is not None else ""
-        output_sections.append(f"Remote: {icon} {tag} · {ep}")
+        output_sections.append(f"Remote: {icon} {tag}")
         output_sections.append(
             f"        Service: {svc_state}{rev_str} · Pending: {pending}"
         )

@@ -29,6 +29,7 @@ from .remote_binding import (
     RemoteBinding,
     load_remote_binding,
     remove_remote_binding,
+    refresh_remote_binding_auth,
     save_remote_binding,
     validate_binding_endpoint,
 )
@@ -141,13 +142,29 @@ def bind_remote(
             status = "recovered"
 
     with WorkspaceWriterLock(home):
-        if load_remote_binding(workspace) is not None:
-            if not rebind:
-                raise RemoteBindingExists("Remote binding already exists")
-            remove_remote_binding(workspace, force=True, home=home)
+        current = load_remote_binding(workspace)
+        if current is not None and not rebind:
+            raise RemoteBindingExists("Remote binding already exists")
+        if (
+            current is not None
+            and current.endpoint == endpoint
+            and current.sync_id != snapshot.sync_id
+        ):
+            raise StoreIdentityMismatch(
+                "Synchronization identity changed at the pinned endpoint"
+            )
         if recovered_vault is not None:
             store.save(recovered_vault.vault_id, recovered_vault.vrk)
         binding = RemoteBinding(1, endpoint, snapshot.sync_id, auth, status=status)
+        if current is not None and (current.endpoint, current.sync_id) == (
+            endpoint,
+            snapshot.sync_id,
+        ):
+            # Reauthentication must not discard a commit whose result is unknown.
+            refresh_remote_binding_auth(workspace, binding, home=home)
+            return binding
+        if current is not None:
+            remove_remote_binding(workspace, force=True, home=home)
         save_remote_binding(workspace, binding, home=home)
         return binding
 

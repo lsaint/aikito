@@ -62,7 +62,7 @@ def run_smoke(base: Path) -> None:
             env_vars=env_auth,
         )
         assert res.returncode == 0, f"Bind A failed: {res.stderr}\n{res.stdout}"
-        assert "[SUCCESS] Bound workspace to remote store" in res.stdout
+        assert "[SUCCESS] Synchronization connected." in res.stdout
         assert "aikito remote key initialize" in res.stdout
         assert (ws_a / REMOTE_BINDING_STATE).exists(), (
             "Binding state file missing in ws_a"

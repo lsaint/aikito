@@ -127,6 +127,15 @@ jobs:
           test -f "$SUBMIT_SMOKE/sealed.json"
           test -f "$SUBMIT_SMOKE/workspace/layout.toml"
 
+      - name: Browser device connection CLI smoke
+        run: |
+          PAIR_SMOKE=${{ runner.temp }}/remote-pairing
+          python tests/workspace_remote_pairing_smoke.py "$PAIR_SMOKE"
+          test -f "$PAIR_SMOKE/checked.txt"
+          test -f "$PAIR_SMOKE/bind.out"
+          test -f "$PAIR_SMOKE/workspace/layout.toml"
+          test -f "$PAIR_SMOKE/workspace/.local/state/aikito/workspace-reconcile/binding.json"
+
       - name: HTTPS Store ownership proof CLI smoke
         run: |
           CLAIM_SMOKE=${{ runner.temp }}/remote-claim

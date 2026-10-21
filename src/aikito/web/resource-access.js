@@ -202,7 +202,7 @@ async function showAccess(data, remember = true) {
         card.append(rec);
       }
       if (grant.store_id) {
-        const store = element("p", `Store: ${grant.store_id}`);
+        const store = element("p", "Synchronization connected");
         store.className = "approval-active-meta";
         card.append(store);
       }
@@ -333,7 +333,7 @@ async function showAccess(data, remember = true) {
           Active_Grants: latestCloudGrants.length,
           Pending_Requests: pending.length,
           Gateway: latestOrigin || "Offline",
-          Store: result.store_id || "Unbound",
+          Synchronization: result.store_id ? "Connected" : "Not connected",
           Local_Approval: "Device-confirmed",
           Cloud_Enforcement: "Zero-Knowledge",
         })}`;
@@ -363,7 +363,7 @@ async function showAccess(data, remember = true) {
         const heading = document.createElement("div");
         heading.className = "approval-request-heading";
         heading.append(element("strong", request.username || request.account_id));
-        if (request.store_id) heading.append(element("span", request.store_id, "approval-request-pill"));
+
         if (request.recipient) heading.append(element("span", `Recipient: ${request.recipient}`, "approval-request-pill"));
 
         const collections = request.items

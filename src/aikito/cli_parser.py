@@ -782,11 +782,16 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     # remote bind <endpoint> [--token-env <VAR>] [--workspace <PATH>]
     p_remote_bind = remote_subparsers.add_parser(
         "bind",
-        help="Bind workspace to an external remote store endpoint",
+        help="Connect workspace synchronization through browser approval or an endpoint",
     )
     p_remote_bind.add_argument(
         "endpoint",
-        help="Remote store URL endpoint (must use HTTPS unless on loopback)",
+        nargs="?",
+        help="Optional remote endpoint; omit to connect through browser approval",
+    )
+    p_remote_bind.add_argument(
+        "--service",
+        help="HTTPS service origin for browser approval (or AIKITO_REMOTE_SERVICE_URL)",
     )
     p_remote_bind.add_argument(
         "--token-env",

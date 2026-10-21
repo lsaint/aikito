@@ -151,6 +151,21 @@ def save_remote_binding(
         )
 
 
+def refresh_remote_binding_auth(
+    workspace: Path, binding: RemoteBinding, *, home: Path
+) -> None:
+    """Replace credentials for the same pinned destination, preserving all journals."""
+    with WorkspaceWriterLock(home):
+        current = load_remote_binding(workspace)
+        if current is None or (current.endpoint, current.sync_id) != (
+            binding.endpoint, binding.sync_id
+        ):
+            raise StoreIdentityMismatch("Synchronization connection changed during approval")
+        atomic_text(
+            state_path(workspace, REMOTE_BINDING_STATE, create=True), binding.encode()
+        )
+
+
 def remove_remote_binding(
     workspace: Path, *, force: bool = False, home: Path | None = None
 ) -> None:

@@ -2,7 +2,7 @@ const groups = [
   ["RESOURCES", [["instructions","Instructions"],["skills","Skills"],["mcps","MCP"],["subagents","Subagents"]]],
   ["KNOWLEDGE", [["inbox","Inbox"],["memory","Memory"]]],
   ["TARGETS", [["projects","Projects"],["agents","Agents"]]],
-  ["REMOTE", [["remote","Store & Sync"],["access","Resource Access"]]],
+  ["REMOTE", [["remote","Sync"],["access","Resource Access"]]],
   ["HEALTH", [["doctor","Doctor"],["diff","Diff"]]],
 ];
 const explorer = document.querySelector("#explorer");
@@ -213,15 +213,15 @@ function updateStoreBadge(data) {
   if (!storeBadge) return;
   const remote = (data && "remote" in data) ? data.remote : data;
   if (!remote) {
-    storeBadge.textContent = "Store: unbound";
+    storeBadge.textContent = "Sync: not connected";
     storeBadge.className = "unbound";
     return;
   }
   if (remote.store_id) {
-    storeBadge.textContent = `Store: ${remote.store_id}`;
+    storeBadge.textContent = "Sync: connected";
     storeBadge.className = remote.service?.running ? "ok" : "idle";
   } else {
-    storeBadge.textContent = "Store: unbound";
+    storeBadge.textContent = "Sync: not connected";
     storeBadge.className = "unbound";
   }
   storeBadge.style.cursor = "pointer";
@@ -238,11 +238,10 @@ async function showRemote(report, remember = true) {
   rememberView("remote", report, remember);
   selectResource(document.querySelector('.resource[data-remote="true"]') || null);
   const bound = Boolean(report.binding);
-  const storeId = report.store_id || (bound ? "Custom Store" : "Unbound");
 
   const statusBadge = bound
-    ? `<span class="kind-badge ok">Bound</span>`
-    : `<span class="kind-badge issue">Unbound</span>`;
+    ? `<span class="kind-badge ok">Connected</span>`
+    : `<span class="kind-badge issue">Not connected</span>`;
 
   let bodyHtml = "";
   if (bound) {
@@ -250,28 +249,24 @@ async function showRemote(report, remember = true) {
     bodyHtml = `
       <div class="remote-panel">
         <div class="remote-grid">
-          <div class="remote-item"><span class="remote-item-label">Store ID</span><strong>${escapeHtml(storeId)}</strong></div>
           <div class="remote-item"><span class="remote-item-label">Sync Service</span><strong class="${running ? "status-running" : "status-stopped"}">${escapeHtml(running ? "Running (PID " + report.service.pid + ")" : "Idle / Stopped")}</strong></div>
-          <div class="remote-item full-width"><span class="remote-item-label">Endpoint</span><span class="remote-code-text" title="${escapeAttribute(report.binding.endpoint)}">${escapeHtml(report.binding.endpoint)}</span></div>
-          <div class="remote-item full-width"><span class="remote-item-label">Sync ID</span><span class="remote-code-text">${escapeHtml(report.binding.sync_id)}</span></div>
-          <div class="remote-item"><span class="remote-item-label">Token Env</span><code>${escapeHtml(report.binding.token_env)}</code></div>
           <div class="remote-item"><span class="remote-item-label">Last Revision</span><span>${escapeHtml(report.last_revision || "Initial")}</span></div>
         </div>
         <div class="remote-actions">
           <button type="button" class="action-btn primary" id="remote-sync-btn">Sync Now</button>
-          <button type="button" class="action-btn secondary" id="remote-rebind-toggle">Rebind Store</button>
-          <button type="button" class="action-btn danger" id="remote-unbind-btn">Unbind Store</button>
+          <button type="button" class="action-btn secondary" id="remote-rebind-toggle">Advanced connection</button>
+          <button type="button" class="action-btn danger" id="remote-unbind-btn">Disconnect sync</button>
         </div>
         <p id="remote-feedback" class="remote-feedback" role="status" hidden></p>
       </div>
 
       <div id="remote-bind-box" class="remote-box" hidden>
-        <h3>Rebind to a New Store</h3>
-        <p class="muted">Replace the current binding with a new Store endpoint. Background sync will be reconfigured.</p>
+        <h3>Change synchronization endpoint</h3>
+        <p class="muted">For account-based reconnection, run aikito remote bind --rebind in your terminal. Custom endpoints can be configured below.</p>
         <form id="remote-rebind-form" class="remote-form">
           <div class="form-group">
-            <label for="rebind-endpoint">Remote Store Endpoint</label>
-            <input id="rebind-endpoint" type="url" name="endpoint" required value="${escapeAttribute(report.binding.endpoint)}" placeholder="https://aikito.notsonan.com/v1/stores/main/remote">
+            <label for="rebind-endpoint">Custom synchronization endpoint</label>
+            <input id="rebind-endpoint" type="url" name="endpoint" required value="${escapeAttribute(report.binding.endpoint)}" placeholder="https://sync.example.com/v1/stores/example/remote">
           </div>
           <div class="form-group">
             <label for="rebind-token-env">Token Environment Variable</label>
@@ -284,19 +279,19 @@ async function showRemote(report, remember = true) {
   } else {
     bodyHtml = `
       <div class="remote-panel empty-remote">
-        <h2>No Remote Store Bound</h2>
-        <p class="muted">Connect your local workspace to an external Aikito Store to enable zero-knowledge encrypted backups, multi-device synchronization, and AI client access.</p>
-        <form id="remote-bind-form" class="remote-form">
+        <h2>Connect synchronization</h2>
+        <p class="muted">Copy the connection command from your account page, or run <code>aikito remote bind</code> in your terminal. Sign in through your browser and follow the encryption setup prompts.</p>
+        <details class="project-details"><summary>Custom endpoint settings</summary><form id="remote-bind-form" class="remote-form">
           <div class="form-group">
-            <label for="bind-endpoint">Remote Store Endpoint</label>
-            <input id="bind-endpoint" type="url" name="endpoint" required placeholder="https://aikito.notsonan.com/v1/stores/main/remote">
+            <label for="bind-endpoint">Custom synchronization endpoint</label>
+            <input id="bind-endpoint" type="url" name="endpoint" required placeholder="https://sync.example.com/v1/stores/example/remote">
           </div>
           <div class="form-group">
             <label for="bind-token-env">Token Environment Variable</label>
             <input id="bind-token-env" type="text" name="token_env" required value="AIKITO_REMOTE_TOKEN" placeholder="AIKITO_REMOTE_TOKEN">
           </div>
-          <button type="submit" class="action-btn primary">Bind Store</button>
-        </form>
+          <button type="submit" class="action-btn primary">Connect endpoint</button>
+        </form></details>
         <p id="remote-feedback" class="remote-feedback" role="status" hidden></p>
       </div>
     `;
@@ -304,12 +299,11 @@ async function showRemote(report, remember = true) {
 
   bodyHtml += `<details class="project-details" style="margin-top: 20px;"><summary>Technical details &amp; diagnostics</summary>${properties(report)}</details>`;
 
-  content.innerHTML = `<div class="title"><h1>Store &amp; Sync</h1><div class="title-meta">${statusBadge}</div></div>${bodyHtml}`;
+  content.innerHTML = `<div class="title"><h1>Sync</h1><div class="title-meta">${statusBadge}</div></div>${bodyHtml}`;
   addBackButton();
   governance.innerHTML = `<h2>Governance</h2>${properties({
-    Scope: "Remote Store",
-    Store: storeId,
-    Status: bound ? "Bound" : "Unbound",
+    Scope: "Synchronization",
+    Status: bound ? "Connected" : "Not connected",
     Sync: report.service?.running ? "Continuous" : "Manual",
   })}`;
 
@@ -336,7 +330,7 @@ async function showRemote(report, remember = true) {
     syncBtn.onclick = async () => {
       syncBtn.disabled = true;
       syncBtn.textContent = "Syncing...";
-      showFeedback("Synchronizing with remote store...", "notice");
+      showFeedback("Synchronizing...", "notice");
       try {
         const res = await post("/api/remote/sync");
         if (res.conflicts_count > 0) {
@@ -356,17 +350,17 @@ async function showRemote(report, remember = true) {
   const unbindBtn = content.querySelector("#remote-unbind-btn");
   if (unbindBtn) {
     unbindBtn.onclick = async () => {
-      if (!confirm("Are you sure you want to unbind this workspace from the remote Store? Background sync will be stopped.")) return;
+      if (!confirm("Disconnect synchronization for this workspace? Background sync will be stopped.")) return;
       unbindBtn.disabled = true;
       unbindBtn.textContent = "Unbinding...";
-      showFeedback("Unbinding workspace from store...", "notice");
+      showFeedback("Disconnecting synchronization...", "notice");
       try {
         await post("/api/remote/unbind", { force: true });
         showFeedback("Workspace unbound successfully.", "success");
         setTimeout(reloadRemote, 1000);
       } catch (err) {
         unbindBtn.disabled = false;
-        unbindBtn.textContent = "Unbind Store";
+        unbindBtn.textContent = "Disconnect sync";
         showFeedback(err.message, "error");
       }
     };
@@ -388,10 +382,10 @@ async function showRemote(report, remember = true) {
       const token_env = rebindForm.token_env.value.trim();
       const submitBtn = rebindForm.querySelector("button");
       submitBtn.disabled = true;
-      showFeedback("Rebinding to remote store...", "notice");
+      showFeedback("Updating synchronization connection...", "notice");
       try {
         await post("/api/remote/bind", { endpoint, token_env, rebind: true });
-        showFeedback("Rebound successfully to store.", "success");
+        showFeedback("Synchronization connection updated.", "success");
         setTimeout(reloadRemote, 1000);
       } catch (err) {
         submitBtn.disabled = false;
@@ -408,10 +402,10 @@ async function showRemote(report, remember = true) {
       const token_env = bindForm.token_env.value.trim();
       const submitBtn = bindForm.querySelector("button");
       submitBtn.disabled = true;
-      showFeedback("Binding workspace to remote store...", "notice");
+      showFeedback("Connecting synchronization...", "notice");
       try {
         await post("/api/remote/bind", { endpoint, token_env });
-        showFeedback("Bound workspace to store successfully.", "success");
+        showFeedback("Synchronization connected.", "success");
         setTimeout(reloadRemote, 1000);
       } catch (err) {
         submitBtn.disabled = false;
@@ -427,14 +421,14 @@ function showWorkspace(overview, remember = true) {
   governance.innerHTML = '<h2>Governance</h2><p class="muted">Select a resource.</p>';
   const storeBound = Boolean(overview.remote?.store_id);
   const storeTitle = storeBound
-    ? `Cloud Sync Store: ${overview.remote.store_id}`
-    : "Connect Cloud Sync Store";
+    ? "Synchronization"
+    : "Connect synchronization";
   const storeDesc = storeBound
-    ? "View remote store diagnostics, connection settings, and sync activity."
-    : "Bind this workspace to a remote store to publish and sync resources.";
+    ? "View synchronization activity, connected devices, and connection settings."
+    : "Connect this workspace to synchronize encrypted resources across your devices.";
   const storeMeta = storeBound
     ? (overview.remote.service?.running ? "sync active" : "sync idle")
-    : "Unbound · Connect store";
+    : "Not connected";
 
   content.innerHTML = `<div class="project-heading"><span class="eyebrow">YOUR WORKSPACE</span><h1>Context, in one place.</h1><p>Browse your workspace and confirm authorization requests selected online.</p></div><div class="workspace-action-grid"><section class="project-card workspace-action-card" id="workspace-store-card"><h2><button type="button" class="project-open" id="workspace-open-remote">${escapeHtml(storeTitle)}</button></h2><p>${escapeHtml(storeDesc)}</p><div class="project-card-meta">${escapeHtml(storeMeta)}</div></section><section class="project-card workspace-action-card" id="workspace-access-card"><h2><button type="button" class="project-open" id="workspace-access">Resource authorizations & access</button></h2><p>Review pending requests and manage active collection grants for external AI clients.</p><div class="project-card-meta">Local confirmation · Cloud revocation</div></section></div><div class="project-grid">${overview.projects.map(project => `<section class="project-card"><h2><button class="project-open" data-project-open="${escapeAttribute(project.name)}">${escapeHtml(project.name)}</button></h2>${project.description?.trim() ? `<p>${escapeHtml(project.description.trim())}</p>` : ""}<div class="project-card-meta">${escapeHtml(project.memory_notes_count)} Memory notes · ${escapeHtml(project.skills_count)} skills</div></section>`).join("") || '<p>No projects registered yet.</p>'}</div>`;
 

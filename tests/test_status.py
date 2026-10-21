@@ -1499,7 +1499,7 @@ instruction_path = ".codex/AGENTS.md"
             home=Path("/Users/user"),
         )
         self.assertIn("Remote:", rendered)
-        self.assertIn("https://example.com/v1/remote", rendered)
+        self.assertNotIn("https://example.com/v1/remote", rendered)
         self.assertIn("running (PID 4321)", rendered)
         self.assertIn("Rev 12", rendered)
 

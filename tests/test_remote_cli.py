@@ -198,10 +198,8 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                         initialize_encrypted_workspace(ws_a, home, lambda code: None)
 
                 self.assertIn(
-                    "[SUCCESS] Bound workspace to remote store", stdout_bind.getvalue()
+                    "[SUCCESS] Synchronization connected.", stdout_bind.getvalue()
                 )
-                self.assertIn(server.url, stdout_bind.getvalue())
-                self.assertIn(AUTH.env, stdout_bind.getvalue())
                 self.assertIn(
                     "aikito remote key initialize",
                     stdout_bind.getvalue(),
@@ -669,8 +667,10 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                 os.close(r_fd)
 
                 out = stdout_b.getvalue()
-                self.assertIn("Store key authorized and saved to device keystore", out)
-                self.assertIn("Bound workspace to remote store at " + server.url, out)
+                self.assertIn(
+                    "Synchronization key authorized and saved to device keystore", out
+                )
+                self.assertIn("Synchronization connected.", out)
 
     def test_bind_encrypted_store_interactive(self):
         import tempfile
@@ -731,7 +731,9 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                     cmd_remote_bind(args_bind_b)
 
                 out = stdout_b.getvalue()
-                self.assertIn("Store key authorized and saved to device keystore", out)
+                self.assertIn(
+                    "Synchronization key authorized and saved to device keystore", out
+                )
 
     def test_bind_encrypted_store_non_interactive_without_fd_fails(self):
         import tempfile
@@ -822,12 +824,14 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                     patch("aikito.remote_cli.Path.home", return_value=home),
                     patch.dict(os.environ, env, clear=False),
                     patch("sys.stdout", stdout),
+                    patch("sys.stdin.isatty", return_value=True),
+                    patch("builtins.input", return_value="y"),
                 ):
                     cmd_remote_bind(args)
 
                 out = stdout.getvalue()
                 self.assertIn("Initializing end-to-end encryption", out)
-                self.assertIn("STORE RECOVERY CODE", out)
+                self.assertIn("SYNC RECOVERY CODE", out)
                 self.assertIn("Device key created and saved to device keystore", out)
                 self.assertIn("format:encrypted-v1", backend.read().resources)
 

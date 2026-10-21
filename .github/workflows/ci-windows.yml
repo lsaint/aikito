@@ -130,6 +130,16 @@ jobs:
             if (!(Test-Path "$submitBase/$relative" -PathType Leaf)) { throw "Missing scoped submission artifact: $relative" }
           }
 
+      - name: Browser device connection CLI smoke
+        shell: pwsh
+        run: |
+          $pairBase = Join-Path $env:RUNNER_TEMP "remote-pairing"
+          python tests/workspace_remote_pairing_smoke.py "$pairBase"
+          if ($LASTEXITCODE -ne 0) { throw "Device connection smoke failed" }
+          foreach ($relative in @("checked.txt", "bind.out", "workspace/layout.toml", "workspace/.local/state/aikito/workspace-reconcile/binding.json")) {
+            if (!(Test-Path "$pairBase/$relative" -PathType Leaf)) { throw "Missing device connection artifact: $relative" }
+          }
+
       - name: HTTPS Store ownership proof CLI smoke
         shell: pwsh
         run: |
