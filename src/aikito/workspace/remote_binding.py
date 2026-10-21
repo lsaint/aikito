@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import parse_qsl
 
@@ -75,7 +75,7 @@ class RemoteBinding:
     endpoint: str
     sync_id: str
     auth: RemoteAuth
-    status: str = "bound"
+    status: str = field(default="bound", compare=False)
 
     def __post_init__(self) -> None:
         if type(self.version) is not int or self.version != 1:
