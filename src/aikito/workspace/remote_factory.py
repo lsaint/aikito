@@ -33,6 +33,7 @@ from .remote_binding import (
     save_remote_binding,
     validate_binding_endpoint,
 )
+from .recovery_codes import save_recovery_code
 from .remote_credentials import resolve_credential
 from .remote_format import FORMAT_RESOURCE_ID, require_encrypted_snapshot
 from .remote_store import (
@@ -154,6 +155,13 @@ def bind_remote(
                 "Synchronization identity changed at the pinned endpoint"
             )
         if recovered_vault is not None:
+            save_recovery_code(
+                snapshot.sync_id,
+                code,
+                home=home,
+                workspace=workspace,
+                endpoint=endpoint,
+            )
             store.save(recovered_vault.vault_id, recovered_vault.vrk)
         binding = RemoteBinding(1, endpoint, snapshot.sync_id, auth, status=status)
         if current is not None and (current.endpoint, current.sync_id) == (

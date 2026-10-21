@@ -33,6 +33,9 @@ def test_parser_accepts_descriptor_and_public_header_only():
 
 @pytest.fixture
 def recovery(tmp_path, monkeypatch):
+    monkeypatch.setattr("aikito.remote_key_cli.Path.home", lambda: tmp_path / "home")
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("APPDATA", raising=False)
     path = tmp_path / "header.json"
     path.write_bytes(b"{}")
     monkeypatch.setattr(
@@ -45,7 +48,7 @@ def recovery(tmp_path, monkeypatch):
         key_action="recover",
         workspace=str(tmp_path / "workspace"),
         header=str(path),
-        sync_id="store",
+        sync_id="1" * 32,
         recovery_fd=None,
     )
     return args, store

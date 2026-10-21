@@ -366,3 +366,16 @@ def test_reconciliation_reports_real_stages(clients, dry_run):
         assert not any(stage.startswith("Uploading") for stage in stages)
     else:
         assert any(stage.startswith("Uploading") for stage in stages)
+
+
+def test_recovery_backup_failure_prevents_initialization_commit(clients, monkeypatch):
+    remote, workspace, home, _, _ = clients
+    monkeypatch.setattr(
+        sync, "save_recovery_code", Mock(side_effect=OSError("disk failure"))
+    )
+    deliver = Mock()
+    with pytest.raises(OSError):
+        sync.initialize_encrypted_workspace(workspace, home, deliver)
+    assert remote.requests == []
+    deliver.assert_not_called()
+    assert not (workspace / sync.INITIALIZATION_STATE).exists()

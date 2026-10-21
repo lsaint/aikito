@@ -38,6 +38,7 @@ from .encrypted_remote import (
 from .payload import ResourceMutation, payload_hash
 from .payload_io import capture_resources
 from .reconcile_budget import fetch_response_size
+from .recovery_codes import save_recovery_code
 from .remote_binding import load_remote_binding
 from .remote_factory import BoundRemoteReader, _open_remote
 from .remote_format import (
@@ -394,8 +395,8 @@ def run_encrypted_reconciliation(
 def initialize_encrypted_workspace(workspace, home, deliver_recovery):
     """Create an empty Store Vault by durable CAS; never migrate plaintext data.
 
-    The recovery code is delivered to the caller's secure channel before any
-    commit can happen. Response-loss recovery reuses the persisted public header
+    The recovery code is saved outside the workspace and delivered to the
+    caller's secure channel before any commit can happen. Response-loss recovery reuses the persisted public header
     request; it never regenerates keys, codes, salts or identities.
     """
     with WorkspaceWriterLock(home):
@@ -462,7 +463,15 @@ def initialize_encrypted_workspace(workspace, home, deliver_recovery):
                 <= remote_limits.MAX_REMOTE_REQUEST_BYTES
             )
             keys.save(vault_id, key)
-            deliver_recovery(encode_recovery_code(code))
+            recovery_code = encode_recovery_code(code)
+            save_recovery_code(
+                snapshot.sync_id,
+                recovery_code,
+                home=home,
+                workspace=workspace,
+                endpoint=binding.endpoint,
+            )
+            deliver_recovery(recovery_code)
             record = {
                 "version": 1,
                 "vault_id": vault_id,

@@ -50,6 +50,7 @@ from .workspace.remote_credentials import (
     read_credentials_file,
     save_keychain,
 )
+from .workspace.recovery_codes import recovery_file_path
 from .workspace.remote_pairing import pair_device
 from .workspace.encrypted_sync import initialize_encrypted_workspace
 from .workspace.remote_store import (
@@ -321,28 +322,9 @@ def cmd_remote_bind(args: argparse.Namespace) -> None:
 
                 def deliver(code: str) -> None:
                     print(
-                        "\n========================================================================"
+                        f"[SUCCESS] Recovery code saved to {recovery_file_path(home)}"
                     )
-                    print("⚠️  IMPORTANT: SYNC RECOVERY CODE")
-                    print(
-                        "Keep this recovery code safe. You will need it to connect other devices"
-                    )
-                    print("or recover your data if this device is lost:\n")
-                    print(f"    {code}\n")
-                    print(
-                        "It will NOT be shown again. Your account password cannot replace it."
-                    )
-                    if (
-                        not sys.stdin.isatty()
-                        or input("Have you saved it safely? [y/N] ").strip().lower()
-                        != "y"
-                    ):
-                        raise ValueError(
-                            "Recovery code was not confirmed; encryption was not initialized."
-                        )
-                    print(
-                        "========================================================================\n"
-                    )
+                    print("Keep a separate copy in case this device is lost.")
 
                 auto_init = True
 

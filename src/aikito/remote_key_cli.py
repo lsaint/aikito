@@ -10,6 +10,7 @@ import warnings
 from pathlib import Path
 
 from .skill_state import WorkspaceWriterLock
+from .workspace.recovery_codes import save_recovery_code
 from .workspace.remote_export import ExportSubmissionError, submit_bound_export
 from .workspace.recipient_keys import RecipientKeyError, fetch_recipient
 from .workspace.remote_binding import (
@@ -182,6 +183,9 @@ def cmd_remote_key(args: argparse.Namespace) -> None:
                 warnings.simplefilter("error", getpass.GetPassWarning)
                 text = getpass.getpass("Recovery code: ")
         vault = recover_vault(encoded, sync_id, decode_recovery_code(text))
+        save_recovery_code(
+            sync_id, text, home=home, workspace=workspace, endpoint=joining
+        )
         if getattr(args, "file_storage", False):
             store.recover_file(vault.vault_id, vault.vrk)
         else:

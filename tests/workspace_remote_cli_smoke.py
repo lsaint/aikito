@@ -32,6 +32,8 @@ def run_cli(
     env["AIKITO_DIR"] = str(workspace)
     env["HOME"] = str(home)
     env["USERPROFILE"] = str(home)
+    env["XDG_CONFIG_HOME"] = str(home / ".config")
+    env["APPDATA"] = str(home / ".config")
     if env_vars:
         env.update(env_vars)
 
@@ -97,6 +99,16 @@ def run_smoke(base: Path) -> None:
         )
 
         initialize_cli(run_cli, ws_a, home, env_auth)
+        recovery_file = home / ".config/aikito/encrypted-remote/recovery.txt"
+        saved = recovery_file.read_text()
+        assert "sync_id: " + backend.read().sync_id in saved
+        assert "service: " + server.url.rsplit("/v1/", 1)[0] in saved
+        assert "workspace: " in saved
+        assert "code: aikito-recovery-v1:" in saved
+        if os.name != "nt":
+            assert recovery_file.stat().st_mode & 0o777 == 0o600
+        assert not any(ws_a.rglob("recovery.txt"))
+        (base / "recovery-saved-checked.txt").write_text("checked\n")
 
         # 4. Workspace A: initial apply to push default resources
         res = run_cli(

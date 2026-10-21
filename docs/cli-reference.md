@@ -115,9 +115,9 @@ aikito remote bind https://sync.example.com
 
 The browser asks you to sign in, compare the connection code and approve your device. Your account synchronization space and device credentials are configured automatically.
 
-When connecting to a new empty space, `aikito remote bind` automatically initializes end-to-end encryption in interactive terminals and displays the Store recovery code, or outputs it to `--recovery-output-fd <FD>`. To bind without initializing immediately, pass `--no-initialize`.
+When connecting to a new empty space, `aikito remote bind` automatically initializes end-to-end encryption in interactive terminals and saves the recovery code to the private configuration file `~/.config/aikito/encrypted-remote/recovery.txt`. An explicit copy can also be sent to `--recovery-output-fd <FD>`. To bind without initializing immediately, pass `--no-initialize`.
 
-When connecting to an already initialized encrypted Store (e.g. connecting a second device), `aikito remote bind` automatically detects the existing encryption header and prompts for the Store recovery code, storing the unlocked Device Key in the local keystore. Non-interactive environments can supply `--recovery-fd <FD>`. Existing bindings can be updated with `--rebind`.
+When connecting to an already initialized encrypted Store (e.g. connecting a second device), `aikito remote bind` automatically detects the existing encryption header and prompts for the Store recovery code, storing the unlocked Device Key in the local keystore and the verified recovery code in the same local recovery file. Non-interactive environments can supply `--recovery-fd <FD>`. Existing bindings can be updated with `--rebind`.
 
 To disconnect the workspace from the remote store and halt background sync:
 
@@ -714,7 +714,7 @@ Replica Base. An incomplete view cannot authorize deletions or writes. Ordinary 
 
 Use the explicit encrypted commands with an existing binding to initialize an
 empty Store. Initialization refuses any Store containing plaintext resources.
-The recovery code is generated independently, delivered once to a secure terminal
+The recovery code is generated independently, saved in the private local recovery file, and optionally delivered to a secure terminal
 or explicit output descriptor, and never persisted in the workspace or Git.
 
 ```bash

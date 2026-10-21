@@ -870,13 +870,22 @@ class RemoteCLIOperationsTest(unittest.TestCase):
                     patch.dict(os.environ, env, clear=False),
                     patch("sys.stdout", stdout),
                     patch("sys.stdin.isatty", return_value=True),
-                    patch("builtins.input", return_value="y"),
+                    patch(
+                        "builtins.input",
+                        side_effect=AssertionError("Unexpected confirmation"),
+                    ),
                 ):
                     cmd_remote_bind(args)
 
                 out = stdout.getvalue()
                 self.assertIn("Initializing end-to-end encryption", out)
-                self.assertIn("SYNC RECOVERY CODE", out)
+                self.assertIn("Recovery code saved to", out)
+                recovery_file = home / ".config/aikito/encrypted-remote/recovery.txt"
+                self.assertTrue(recovery_file.is_file())
+                self.assertIn(
+                    "sync_id: " + backend.read().sync_id, recovery_file.read_text()
+                )
+                self.assertNotIn("aikito-recovery-v1:", out)
                 self.assertIn("Device key created and saved to device keystore", out)
                 self.assertIn("format:encrypted-v1", backend.read().resources)
 

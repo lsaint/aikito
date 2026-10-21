@@ -14,7 +14,11 @@ synchronization space automatically; credentials are generated locally and saved
 the workspace. No endpoint path or bearer token needs to be copied.
 
 Omit the URL to use `AIKITO_REMOTE_SERVICE_URL` or an interactive service URL prompt.
-First-time encryption asks you to save and confirm a recovery code. Another device signs
+Recovery codes are automatically saved outside the workspace to the private configuration file
+`~/.config/aikito/encrypted-remote/recovery.txt` (`XDG_CONFIG_HOME` or `%APPDATA%` is honored).
+The file keeps one `sync_id`/`code` record per synchronization space, with service and
+workspace labels so multiple records can be distinguished. Files use owner-only permissions
+and updates are locked and atomic. Save a separate copy in case this device is lost. Another device signs
 in to the same account and enters that recovery code. Account passwords cannot decrypt
 synchronized data. Repeating the command on a configured workspace does not allocate new
 credentials; use `--rebind` explicitly when reconnecting after account reset.
