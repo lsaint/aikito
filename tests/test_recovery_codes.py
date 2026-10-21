@@ -60,7 +60,7 @@ def test_shared_space_retains_multiple_workspace_labels(location, tmp_path):
     text = path.read_text(encoding="utf-8")
     assert text.count("sync_id: ") == 1
     assert text.count("workspace: ") == 2
-    assert str(other) in text
+    assert json.dumps(str(other), ensure_ascii=False) in text
 
 
 def test_concurrent_workspaces_do_not_lose_records(location):
