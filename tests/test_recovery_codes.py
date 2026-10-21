@@ -118,3 +118,42 @@ def test_cannot_store_inside_workspace(location, monkeypatch):
     with pytest.raises(ValueError, match="outside the workspace"):
         save(location, 1)
     assert not (workspace / "config").exists()
+
+
+@pytest.mark.parametrize(
+    "valid_id",
+    [
+        "sync-demo-001",
+        "00112233445566778899aabbccddeeff",
+        "store.alpha_1",
+    ],
+)
+def test_valid_sync_id_accepted(location, valid_id):
+    home, workspace = location
+    path = recovery_codes.save_recovery_code(
+        valid_id,
+        encode_recovery_code(bytes(32)),
+        home=home,
+        workspace=workspace,
+    )
+    assert f"sync_id: {valid_id}\n" in path.read_text()
+
+
+@pytest.mark.parametrize(
+    "invalid_id",
+    [
+        "",
+        "sync id with space",
+        "sync\nid",
+        "a" * 129,
+    ],
+)
+def test_invalid_sync_id_rejected(location, invalid_id):
+    home, workspace = location
+    with pytest.raises(ValueError, match="Invalid synchronization identity"):
+        recovery_codes.save_recovery_code(
+            invalid_id,
+            encode_recovery_code(bytes(32)),
+            home=home,
+            workspace=workspace,
+        )

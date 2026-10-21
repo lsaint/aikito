@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -38,7 +37,12 @@ def recovery_file_path(home: Path) -> Path:
 
 
 def _validate_record(sync_id: str, code: str) -> str:
-    if not isinstance(sync_id, str) or re.fullmatch(r"[0-9a-f]{32}", sync_id) is None:
+    if (
+        not isinstance(sync_id, str)
+        or not sync_id
+        or any(c.isspace() for c in sync_id)
+        or len(sync_id) > 128
+    ):
         raise ValueError("Invalid synchronization identity for recovery storage.")
     return encode_recovery_code(decode_recovery_code(code))
 
