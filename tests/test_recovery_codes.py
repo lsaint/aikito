@@ -41,7 +41,7 @@ def test_multiple_records_update_without_duplicates_and_keep_labels(location):
     save(location, 2)
     replacement = encode_recovery_code(bytes([3]) * 32)
     save(location, 1, replacement)
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     assert text.count("sync_id: ") == 2
     assert encode_recovery_code(bytes([1]) * 32) not in text
     assert replacement in text and encode_recovery_code(bytes([2]) * 32) in text
@@ -57,7 +57,7 @@ def test_shared_space_retains_multiple_workspace_labels(location, tmp_path):
     other = tmp_path / "another-工作区"
     other.mkdir()
     save((location[0], other), 1)
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     assert text.count("sync_id: ") == 1
     assert text.count("workspace: ") == 2
     assert str(other) in text
@@ -66,7 +66,7 @@ def test_shared_space_retains_multiple_workspace_labels(location, tmp_path):
 def test_concurrent_workspaces_do_not_lose_records(location):
     with ThreadPoolExecutor(max_workers=4) as executor:
         paths = list(executor.map(lambda number: save(location, number), range(1, 9)))
-    text = paths[0].read_text()
+    text = paths[0].read_text(encoding="utf-8")
     assert text.count("sync_id: ") == 8
     for number in range(1, 9):
         assert f"sync_id: {number:032x}\n" in text
@@ -74,10 +74,10 @@ def test_concurrent_workspaces_do_not_lose_records(location):
 
 def test_malformed_file_is_not_overwritten(location):
     path = save(location, 1)
-    path.write_text("unrecognized recovery record\n")
+    path.write_text("unrecognized recovery record\n", encoding="utf-8")
     with pytest.raises(ValueError, match="format"):
         save(location, 2)
-    assert path.read_text() == "unrecognized recovery record\n"
+    assert path.read_text(encoding="utf-8") == "unrecognized recovery record\n"
 
 
 def test_failed_atomic_replace_preserves_previous_records(location, monkeypatch):
@@ -136,7 +136,7 @@ def test_valid_sync_id_accepted(location, valid_id):
         home=home,
         workspace=workspace,
     )
-    assert f"sync_id: {valid_id}\n" in path.read_text()
+    assert f"sync_id: {valid_id}\n" in path.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize(
