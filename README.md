@@ -144,6 +144,7 @@ Visit the full [documentation site](https://lsaint.github.io/aikito/guide/) or d
 
 - [Getting started](docs/guide.md): installation through adopting your existing setup.
 - [Workspace and synchronization](docs/architecture.md): directory layout, scopes, and linking model.
+- [Aikito Cloud](docs/remote-sync.md): account connection, automatic synchronization, and recovery.
 - [Connect another machine](docs/workspace-portability.md): multi-machine sync and custom paths.
 - [CLI reference](docs/cli-reference.md): commands, options, and shell completion.
 - [Chat Distiller](docs/chat-distiller.md): distill browser AI chats into Markdown notes in your Inbox.

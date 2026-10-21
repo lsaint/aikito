@@ -35,6 +35,7 @@ the workspace, skip adoption when nothing is detected, then
 - [Stage notes in Inbox](inbox.md) or [distill conversations](chat-distiller.md).
 - [Diagnose missing links, conflicts, or drift](troubleshooting.md).
 - [Configure multiple project paths or copied skills](project-configuration.md).
+- [Aikito Cloud](remote-sync.md).
 - [Connect an existing workspace on another machine](workspace-portability.md).
 
 ## Understand or look up details

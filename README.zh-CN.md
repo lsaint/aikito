@@ -133,6 +133,7 @@ Aikito 遵循 Local-first 原则与透明设计：
 
 - [入门教程](docs/guide.md)：从安装到接管并同步现有 Agent 配置。
 - [工作区与架构](docs/architecture.md)：目录结构、作用域划分与软链模型。
+- [Aikito Cloud](docs/remote-sync.zh-CN.md)：账号连接、自动同步与恢复码备份。
 - [多机器连接](docs/workspace-portability.md)：多端同步与自定义路径。
 - [CLI 命令参考](docs/cli-reference.md)：命令、参数与 Shell 补全。
 - [Chat Distiller](docs/chat-distiller.md)：将浏览器 AI 对话沉淀为 Inbox 笔记。

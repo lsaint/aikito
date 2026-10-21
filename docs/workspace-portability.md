@@ -1,7 +1,8 @@
 # Connect a Workspace on Another Machine
 
 Use this guide when you already have a Git-managed Aikito workspace and want
-to connect it on another host. For a new workspace, start with
+to connect it on another host. For account-based synchronization, use
+[Aikito Cloud](remote-sync.md). For a new workspace, start with
 [the getting-started guide](installation.md).
 
 ## Ask your agent

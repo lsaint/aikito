@@ -52,6 +52,7 @@ nav:
       - Manage MCP Servers: mcp-servers.md
       - Manage Subagents: subagents.md
       - Review Inbox Notes: inbox.md
+      - Aikito Cloud: remote-sync.md
       - Capture Browser Conversations: chat-distiller.md
   - Maintenance & Advanced:
       - Check and Repair Synchronization: troubleshooting.md
@@ -88,6 +89,7 @@ nav:
       - Roadmap: roadmap.md
       - About: about.md
   - 中文:
+      - Aikito Cloud: remote-sync.zh-CN.md
       - Inbox: inbox.zh-CN.md
       - Memory 需要维护者: programming-agent-memory.zh-CN.md
 

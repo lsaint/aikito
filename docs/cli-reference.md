@@ -106,6 +106,9 @@ version.
 
 ## Remote Store Synchronization
 
+For a step-by-step account connection and recovery walkthrough, see
+[Aikito Cloud](remote-sync.md).
+
 Aikito allows synchronizing workspace resources with an external remote store.
 To configure synchronization, first connect through your service URL:
 
