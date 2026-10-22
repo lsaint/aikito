@@ -1,5 +1,6 @@
 """Real CLI pairing over HTTPS; a test service simulates browser approval."""
 
+import base64
 import hashlib
 import json
 import os
@@ -24,10 +25,29 @@ def main(base):
     fixture = Path(__file__).parent / "fixtures/https_claim"
     backend = RemoteProtocolHandler(InMemoryRemote("11223344556677889900aabbccddeeff"))
     state = {}
+    public_identity = {
+        "version": 1,
+        "algorithm": "hpke-x25519-hkdf-sha256-a256gcm",
+        "key_id": "pairing-recipient",
+        "public_key": base64.b64encode(bytes(range(32))).decode(),
+    }
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
+
+        def do_GET(self):
+            assert self.path == "/v1/keys/recipient"
+            assert "secret" in state, "Service key fetched before browser approval"
+            assert self.headers.get("Authorization") is None
+            response = json.dumps(
+                public_identity, sort_keys=True, separators=(",", ":")
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(response)))
+            self.end_headers()
+            self.wfile.write(response)
 
         def do_POST(self):
             raw = self.rfile.read(int(self.headers["Content-Length"]))
@@ -108,6 +128,18 @@ def main(base):
         binding = json.loads((workspace / REMOTE_BINDING_STATE).read_text())
         assert binding["endpoint"] == origin + "/v1/stores/auto/remote"
         assert state["secret"] not in json.dumps(binding)
+        pin = (
+            base
+            / "config/aikito/remote-recipients"
+            / (hashlib.sha256(origin.encode()).hexdigest() + ".json")
+        )
+        before_pin = pin.read_bytes()
+        assert json.loads(before_pin)["recipient"] == public_identity
+        assert not list(workspace.rglob("*recipient*.json"))
+        assert not (home / "aikito-recipient.json").exists()
+        (base / "pin-checked.txt").write_text(
+            "approved service identity saved automatically\n"
+        )
         (base / "bind.out").write_text(result.stdout)
         repeated = subprocess.run(
             [sys.executable, "-m", "aikito", "remote", "bind"],
@@ -119,6 +151,36 @@ def main(base):
         )
         assert repeated.returncode == 0, repeated.stderr
         assert "Synchronization connected" in repeated.stdout
+        before_binding = (workspace / REMOTE_BINDING_STATE).read_bytes()
+        credentials = base / "config/aikito/credentials"
+        before_credentials = credentials.read_bytes()
+        public_identity["public_key"] = base64.b64encode(b"x" * 32).decode()
+        changed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                runner,
+                "remote",
+                "bind",
+                origin,
+                "--rebind",
+                "--no-initialize",
+            ],
+            env=env,
+            cwd=workspace,
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+        assert changed.returncode != 0
+        assert "recipient_key_changed" in changed.stderr
+        assert pin.read_bytes() == before_pin
+        assert (workspace / REMOTE_BINDING_STATE).read_bytes() == before_binding
+        assert credentials.read_bytes() == before_credentials
+        assert state["secret"] not in changed.stdout + changed.stderr
+        (base / "changed-key-checked.txt").write_text(
+            "changed service identity rejected without overwriting local state\n"
+        )
         (base / "checked.txt").write_text(
             "HTTPS pairing, private credentials, binding and repeat connection verified\n"
         )

@@ -190,9 +190,10 @@ def _write(path, encoded):
         temporary.unlink(missing_ok=True)
 
 
-def fetch_recipient(workspace, home, *, origin, output, accept_key_change=False):
+def fetch_recipient(workspace, home, *, origin, output=None, accept_key_change=False):
     """Persist trust before publishing an immutable recipient document for export.
 
+    Omitting output records trust without exporting a separate public document.
     A failed output write may follow a successful pin; retry with a fresh output
     path. Fetching never resolves Store credentials or changes Remote bindings.
     """
@@ -203,9 +204,10 @@ def fetch_recipient(workspace, home, *, origin, output, accept_key_change=False)
             raise ValueError()
         if root.resolve().is_relative_to(Path(workspace).resolve()):
             raise ValueError()
-        output = Path(output)
-        if os.path.lexists(output):
-            raise ValueError()
+        if output is not None:
+            output = Path(output)
+            if os.path.lexists(output):
+                raise ValueError()
         document = _fetch(origin)
         _directories(root)
         path = root / (hashlib.sha256(origin.encode("ascii")).hexdigest() + ".json")
@@ -222,7 +224,8 @@ def fetch_recipient(workspace, home, *, origin, output, accept_key_change=False)
                     _canonical({"version": 1, "origin": origin, "recipient": document}),
                 )
             # Never expose an output before its corresponding trust record exists.
-            _publish(output, _canonical(document))
+            if output is not None:
+                _publish(output, _canonical(document))
         return document
     except RecipientKeyError:
         raise

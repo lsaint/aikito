@@ -27,10 +27,10 @@ aikito init workspace ~/aikito
 ```
 
 Copy the connection command from your account page and run it in an interactive
-terminal. For example, replacing the example URL with your service address:
+terminal:
 
 ```bash
-aikito remote bind https://sync.example.com
+aikito remote bind https://aikito.notsonan.com
 ```
 
 1. Open the link printed in the terminal if the browser does not open automatically.
@@ -80,7 +80,7 @@ Install a compatible Aikito client and initialize a workspace on the new machine
 
 ```bash
 aikito init workspace ~/aikito
-aikito remote bind https://sync.example.com
+aikito remote bind https://aikito.notsonan.com
 ```
 
 Use the same service address and account. Approve the browser connection, then
@@ -102,7 +102,86 @@ repositories. Clone project code separately and
 [connect its local path](project-setup.md). You do not need to copy hidden local
 state from the other machine.
 
-## Find and back up your recovery code
+## Connect AI clients through MCP
+
+Aikito Cloud exposes synchronized content through a remote MCP endpoint. Complete
+the first synchronization above before connecting an AI client. Synchronization
+alone does not allow any AI client to read or change your resources.
+
+!!! note "Supported clients"
+    Currently, only ChatGPT can connect to Aikito Cloud. Other MCP clients cannot
+    connect yet; support will be rolled out gradually.
+
+### Choose the resources to share
+
+On the connected machine that holds its decryption key, open the local console.
+The browser connection already saves the service's public identity automatically;
+you do not need to fetch a key or manage a separate public-key file.
+
+```bash
+aikito web
+```
+
+Use the same active workspace you connected. Keep the console running and open
+**Resource Access**. Then:
+
+1. Open your [Aikito Cloud account page](https://aikito.notsonan.com/account).
+2. Under **Authorize collections**, select the resources to share. Choose **Read**
+   for lookup, and **Write** only for resources you want an AI client to change. Select
+   an authorization lifetime and click **Send for local confirmation**.
+3. In the local console, review the account, service, selected resources,
+   permissions, and lifetime, then confirm the request.
+4. Check that the resources appear under **Authorized collections** online.
+
+If the resource list is empty, open Resource Access locally to publish the
+current list, then refresh the account page. Aikito Cloud can process the selected
+resources for authorized AI clients; unselected resources remain unavailable.
+
+### Connect ChatGPT
+
+In ChatGPT on the web, open **Plugins**, use the plus button to add a custom MCP
+server, and enter these Aikito Cloud settings:
+
+| Setting | Value |
+| --- | --- |
+| Name | `Aikito Cloud` |
+| Server URL | `https://aikito.notsonan.com/mcp` |
+| Authentication | OAuth |
+| Client ID | `aikito-chatgpt` |
+| Client secret | Leave empty; this connection uses a public client |
+
+Use the connection settings supplied by your service if they differ. Review
+ChatGPT's connection notice and create the plugin, then complete its account
+connection: sign in to the same Aikito Cloud account, select the resources and
+permissions for this ChatGPT connection, and approve. Install the resulting
+plugin if prompted. Resources must be authorized in Aikito before they can be
+selected here; a ChatGPT connection cannot expand that authorization.
+
+Account and workspace policies may limit this entry point. For the current UI
+and installation steps, see OpenAI's
+[custom MCP server guide](https://developers.openai.com/api/docs/guides/custom-mcp-server).
+Never enter your Aikito recovery code in ChatGPT.
+
+### Use or revoke access
+
+In ChatGPT, start a conversation, type `@`, and select the Aikito Cloud plugin. Try:
+
+> Use Aikito Cloud to find my notes about this project and summarize them.
+
+For resources you allowed an AI client to edit, ask it to show the proposed changes
+before you confirm them. Keep background synchronization running on your machines
+to receive changes made through that client.
+
+Your Aikito Cloud account page lists the connection under **Connected AI clients**.
+Revoke it there to stop that AI client connection without disconnecting workspace
+synchronization. Revoke a resource authorization under **Authorized collections**
+to remove access to those resources for all AI clients using that authorization.
+If resources are missing or access has expired, check both the resource
+authorization and that connection's permissions before reconnecting.
+
+## Local files and recovery
+
+### Recovery code backup
 
 The default file location on macOS and Linux is:
 
@@ -129,12 +208,28 @@ Codes are saved when first generated or successfully entered during recovery.
 Reconnecting an older device that only has its decryption key cannot reconstruct
 a recovery code that was never backed up.
 
+### Service public key
+
+The browser connection automatically saves the service's public key and identity
+record. The default location on macOS and Linux is:
+
+```text
+~/.config/aikito/remote-recipients/<service-origin-hash>.json
+```
+
+The configuration-directory rules above also apply here for `XDG_CONFIG_HOME`
+and Windows `APPDATA`. The filename is derived from the service address, and
+Aikito manages it automatically; no manual key-fetch command or file selection
+is needed. This is public service identity information, distinct from your secret
+recovery code. A changed service key is rejected rather than silently replacing
+the saved identity. Resource access still requires the separate approval above.
+
 ## Reconnect or disconnect
 
 If an account password reset invalidates your device connection, reconnect with:
 
 ```bash
-aikito remote bind https://sync.example.com --rebind
+aikito remote bind https://aikito.notsonan.com --rebind
 ```
 
 Aikito reuses your account's existing synchronized content. If this machine still

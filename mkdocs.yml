@@ -52,12 +52,12 @@ nav:
       - Manage MCP Servers: mcp-servers.md
       - Manage Subagents: subagents.md
       - Review Inbox Notes: inbox.md
-      - Aikito Cloud: remote-sync.md
       - Capture Browser Conversations: chat-distiller.md
   - Maintenance & Advanced:
       - Check and Repair Synchronization: troubleshooting.md
       - Advanced Project Setup: project-configuration.md
       - Connect Another Machine: workspace-portability.md
+      - Aikito Cloud: remote-sync.md
   - Core Concepts:
       - Workspace and Synchronization: architecture.md
       - Memory Scope and Lifecycle: memory-workflow.md

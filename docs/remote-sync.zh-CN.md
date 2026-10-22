@@ -22,10 +22,10 @@
 aikito init workspace ~/aikito
 ```
 
-从账号页复制连接命令，在交互式终端中运行。下面是示例，请将示例 URL 替换为实际服务地址：
+从账号页复制连接命令，在交互式终端中运行：
 
 ```bash
-aikito remote bind https://sync.example.com
+aikito remote bind https://aikito.notsonan.com
 ```
 
 1. 如果浏览器没有自动打开，打开终端打印的链接。
@@ -71,7 +71,7 @@ aikito remote stop
 
 ```bash
 aikito init workspace ~/aikito
-aikito remote bind https://sync.example.com
+aikito remote bind https://aikito.notsonan.com
 ```
 
 使用相同的服务地址和账号。在浏览器中批准连接后，按终端提示输入恢复码。
@@ -90,7 +90,73 @@ aikito remote start
 同步的内容是 Aikito 管理的资源，不包含项目源码仓库。请单独克隆项目源码，
 再[连接项目的本机路径](project-setup.md)。无需从另一台机器复制隐藏的本地状态。
 
-## 查找和备份恢复码
+## 连接 AI 客户端（MCP）
+
+Aikito Cloud 通过远程 MCP 接口提供已经同步的内容，请先完成前面的首次同步。
+仅开启同步不会自动允许任何 AI 客户端读取或修改资源。
+
+!!! note "支持的客户端"
+    目前仅支持 ChatGPT 接入。其他 MCP 客户端暂不可直接连接，后续将陆续开放。
+
+### 选择允许访问的资源
+
+在已经连接、持有解密密钥的机器上，打开本机控制台。
+浏览器连接流程已自动保存服务公钥，无需另外获取公钥或管理公钥文件。
+
+```bash
+aikito web
+```
+
+使用之前连接的同一当前工作区，保持控制台运行，打开 **Resource Access**，然后：
+
+1. 打开 [Aikito Cloud 账号页](https://aikito.notsonan.com/account)。
+2. 在 **Authorize collections** 中勾选要共享的资源。只需查阅时选择 **Read**；
+   需要 AI 客户端修改的资源再选择 **Write**。选择授权期限，点击 **Send for local confirmation**。
+3. 回到本机控制台，核对账号、服务、资源范围、读写权限和期限，确认这次授权请求。
+4. 在账号页确认这些资源已经出现在 **Authorized collections** 中。
+
+如果账号页资源列表为空，先在本机打开 Resource Access 发布当前资源目录，再刷新账号页。
+授权后，Aikito Cloud 可以为获准的 AI 客户端处理所选资源；未选择的资源不会开放。
+
+### 在 ChatGPT 中添加连接
+
+在 ChatGPT 网页版打开 **Plugins**，点击加号，添加自定义 MCP 服务器。
+填写以下 Aikito Cloud 连接设置：
+
+| 设置 | 内容 |
+| --- | --- |
+| 名称 | `Aikito Cloud` |
+| Server URL | `https://aikito.notsonan.com/mcp` |
+| 认证方式 | OAuth |
+| Client ID | `aikito-chatgpt` |
+| Client secret | 留空；此连接使用公开客户端，无需客户端密钥 |
+
+如果服务提供的连接设置不同，以服务提供的值为准。阅读 ChatGPT 的连接提示，创建插件，
+然后完成账号连接：登录同一个 Aikito Cloud 账号，选择允许此 ChatGPT 连接使用的资源
+和权限，再确认授权。如果提示安装插件，请完成安装。
+这里仅能选择已在 Aikito 中授权的资源，不能扩大之前批准的访问范围。
+
+这个入口可能受 ChatGPT 账号或工作区策略限制。最新界面和安装步骤见
+[OpenAI 自定义 MCP 服务器指南](https://developers.openai.com/api/docs/guides/custom-mcp-server)。
+不要在 ChatGPT 中输入 Aikito 恢复码。
+
+### 使用和撤销访问
+
+在 ChatGPT 中打开对话，输入 `@` 并选择 Aikito Cloud 插件。例如：
+
+> 使用 Aikito Cloud 查找我关于这个项目的笔记，并做一个摘要。
+
+对于允许 AI 客户端修改的资源，可以先让它展示拟修改的内容，确认后再提交。
+保持各台机器的后台同步运行，即可同步 AI 客户端提交的变更。
+
+Aikito Cloud 账号页的 **Connected AI clients** 会显示这次连接。
+在这里撤销即可停止该 AI 客户端连接的访问，不影响工作区同步。
+在 **Authorized collections** 撤销某项资源授权，则所有依赖该授权的 AI 客户端都将失去访问权限。
+如果找不到资源或授权到期，先检查资源授权和对应连接的权限，必要时重新授权连接。
+
+## 本地文件与恢复码
+
+### 恢复码备份
 
 macOS 和 Linux 上的默认保存路径是：
 
@@ -114,12 +180,26 @@ Windows 上位于 `%APPDATA%\aikito\encrypted-remote\recovery.txt`；
 恢复码会在首次生成或输入并验证成功时保存。旧设备如果只持有解密密钥，
 重新连接时无法反推出之前未备份的恢复码。
 
+### 服务公钥
+
+浏览器连接成功后，程序会自动保存服务公钥和身份信任记录。
+macOS 和 Linux 上的默认位置是：
+
+```text
+~/.config/aikito/remote-recipients/<服务地址哈希>.json
+```
+
+这里同样遵循前面介绍的 `XDG_CONFIG_HOME` 和 Windows `APPDATA` 配置目录规则。
+文件名由服务地址生成，由 Aikito 自动维护，无需手动获取公钥或选择文件。
+它记录的是公开的服务身份信息，与需要额外备份的秘密恢复码不同。
+服务公钥变化时，程序会拒绝静默替换已有记录。保存公钥不会代替前面的资源访问授权。
+
 ## 重新连接或断开连接
 
 如果重置账号密码后，设备连接失效，可重新连接：
 
 ```bash
-aikito remote bind https://sync.example.com --rebind
+aikito remote bind https://aikito.notsonan.com --rebind
 ```
 
 Aikito 会复用账号原有的同步内容。如果这台机器仍有解密密钥，通常无需再次输入恢复码。

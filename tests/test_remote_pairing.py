@@ -8,6 +8,7 @@ import pytest
 
 from aikito.cli_parser import build_parser
 from aikito.workspace.remote_access import RemoteBindingError
+from aikito.workspace.recipient_keys import RecipientKeyError
 from aikito.workspace.remote_factory import bind_remote
 
 from aikito.workspace.remote_binding import (
@@ -69,8 +70,11 @@ def test_browser_pairing_persists_only_after_valid_approval(tmp_path, capsys):
         patch("aikito.workspace.remote_pairing.time.sleep"),
         patch("aikito.workspace.remote_pairing.webbrowser.open") as browser,
         patch("aikito.workspace.remote_pairing.save_credential") as save,
+        patch("aikito.workspace.remote_pairing.fetch_recipient") as pin,
     ):
-        endpoint, key = pair_device("https://example.com/", home=tmp_path)
+        endpoint, key = pair_device(
+            "https://example.com/", home=tmp_path, workspace=tmp_path / "workspace"
+        )
     assert "Check code: dc9b-4280." in capsys.readouterr().out
     assert endpoint == "https://example.com/v1/stores/auto/remote"
     assert key.startswith("AIKITO_REMOTE_DEVICE_")
@@ -78,6 +82,9 @@ def test_browser_pairing_persists_only_after_valid_approval(tmp_path, capsys):
         "challenge": hashlib.sha256(secret.encode()).hexdigest()
     }
     save.assert_called_once_with(key, secret, home=tmp_path)
+    pin.assert_called_once_with(
+        tmp_path / "workspace", tmp_path, origin="https://example.com"
+    )
     browser.assert_called_once_with(started["verification_uri"])
 
 
@@ -92,11 +99,15 @@ def test_cross_origin_response_never_opens_browser_or_saves_credentials(tmp_path
         patch("aikito.workspace.remote_pairing._request", return_value=(201, started)),
         patch("aikito.workspace.remote_pairing.webbrowser.open") as browser,
         patch("aikito.workspace.remote_pairing.save_credential") as save,
+        patch("aikito.workspace.remote_pairing.fetch_recipient") as pin,
         pytest.raises(RemoteBindingError),
     ):
-        pair_device("https://example.com", home=tmp_path)
+        pair_device(
+            "https://example.com", home=tmp_path, workspace=tmp_path / "workspace"
+        )
     browser.assert_not_called()
     save.assert_not_called()
+    pin.assert_not_called()
 
 
 def test_cross_origin_endpoint_never_saves_credentials(tmp_path):
@@ -127,10 +138,14 @@ def test_cross_origin_endpoint_never_saves_credentials(tmp_path):
         patch("aikito.workspace.remote_pairing.time.sleep"),
         patch("aikito.workspace.remote_pairing.webbrowser.open"),
         patch("aikito.workspace.remote_pairing.save_credential") as save,
+        patch("aikito.workspace.remote_pairing.fetch_recipient") as pin,
         pytest.raises(RemoteBindingError),
     ):
-        pair_device("https://example.com", home=tmp_path)
+        pair_device(
+            "https://example.com", home=tmp_path, workspace=tmp_path / "workspace"
+        )
     save.assert_not_called()
+    pin.assert_not_called()
 
 
 def test_bind_parser_accepts_service_url():
@@ -224,3 +239,69 @@ def test_bind_service_url_uses_browser_pairing(tmp_path, rebind):
         "https://example.com/v1/stores/auto/remote",
         "DEVICE",
     )
+
+
+@pytest.mark.parametrize(
+    "error", ["recipient_key_changed", "recipient_key_unavailable"]
+)
+def test_unverified_service_identity_never_saves_device_credential(tmp_path, error):
+    request = "a" * 64
+    started = {
+        "request": request,
+        "verification_uri": "https://example.com/sync/connect?request=" + request,
+        "code": request[:8],
+        "expires_in": 300,
+    }
+    with (
+        patch(
+            "aikito.workspace.remote_pairing._request",
+            side_effect=[
+                (201, started),
+                (
+                    200,
+                    {
+                        "endpoint": "https://example.com/v1/stores/auto/remote",
+                        "account_id": "alice",
+                    },
+                ),
+            ],
+        ),
+        patch("aikito.workspace.remote_pairing.time.sleep"),
+        patch("aikito.workspace.remote_pairing.webbrowser.open"),
+        patch(
+            "aikito.workspace.remote_pairing.fetch_recipient",
+            side_effect=RecipientKeyError(error),
+        ),
+        patch("aikito.workspace.remote_pairing.save_credential") as save,
+        pytest.raises(RemoteBindingError, match=error),
+    ):
+        pair_device(
+            "https://example.com", home=tmp_path, workspace=tmp_path / "workspace"
+        )
+    save.assert_not_called()
+
+
+def test_expired_pairing_never_pins_service_identity(tmp_path):
+    request = "a" * 64
+    started = {
+        "request": request,
+        "verification_uri": "https://example.com/sync/connect?request=" + request,
+        "code": request[:8],
+        "expires_in": 1,
+    }
+    with (
+        patch(
+            "aikito.workspace.remote_pairing._request", return_value=(201, started)
+        ) as request_call,
+        patch("aikito.workspace.remote_pairing.time.monotonic", side_effect=[0, 2]),
+        patch("aikito.workspace.remote_pairing.webbrowser.open"),
+        patch("aikito.workspace.remote_pairing.fetch_recipient") as pin,
+        patch("aikito.workspace.remote_pairing.save_credential") as save,
+        pytest.raises(RemoteBindingError, match="expired"),
+    ):
+        pair_device(
+            "https://example.com", home=tmp_path, workspace=tmp_path / "workspace"
+        )
+    request_call.assert_called_once()
+    pin.assert_not_called()
+    save.assert_not_called()

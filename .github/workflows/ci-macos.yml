@@ -133,6 +133,9 @@ jobs:
           python tests/workspace_remote_pairing_smoke.py "$PAIR_SMOKE"
           test -f "$PAIR_SMOKE/checked.txt"
           test -f "$PAIR_SMOKE/bind.out"
+          test -f "$PAIR_SMOKE/pin-checked.txt"
+          test -f "$PAIR_SMOKE/changed-key-checked.txt"
+          test -d "$PAIR_SMOKE/config/aikito/remote-recipients"
           test -f "$PAIR_SMOKE/workspace/layout.toml"
           test -f "$PAIR_SMOKE/workspace/.local/state/aikito/workspace-reconcile/binding.json"
 

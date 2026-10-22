@@ -160,3 +160,24 @@ def test_failed_output_keeps_successful_pin(recipient, tmp_path):
         invoke(recipient, tmp_path, "missing/output.json")
     assert len(list((recipient[2] / "aikito/remote-recipients").glob("*.json"))) == 1
     invoke(recipient, tmp_path, "retry.json")
+
+
+def test_pin_without_export_preserves_existing_identity(recipient):
+    home, workspace, config, document = recipient
+    assert (
+        keys.fetch_recipient(workspace, home, origin="https://recipient.example")
+        == document
+    )
+    pin = next((config / "aikito/remote-recipients").glob("*.json"))
+    original = pin.read_bytes()
+    keys.fetch_recipient(workspace, home, origin="https://recipient.example")
+    assert pin.read_bytes() == original
+    assert (
+        keys.require_pinned_recipient(workspace, home, "https://recipient.example")[1]
+        == document
+    )
+    document["public_key"] = base64.b64encode(b"x" * 32).decode()
+    with pytest.raises(keys.RecipientKeyError, match="recipient_key_changed"):
+        keys.fetch_recipient(workspace, home, origin="https://recipient.example")
+    assert pin.read_bytes() == original
+    assert not list(workspace.iterdir())

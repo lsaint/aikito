@@ -11,7 +11,11 @@ aikito remote bind https://sync.example.com
 The browser asks you to sign in and compare the connection code with your terminal.
 Only approve a command you started on your own device. The service selects your account's
 synchronization space automatically; credentials are generated locally and saved outside
-the workspace. No endpoint path or bearer token needs to be copied.
+the workspace. After browser approval, the client also fetches and pins the same
+HTTPS origin's recipient public key before saving the device credential. Existing
+pins must still match; reconnecting never silently accepts a changed service key.
+This prepares local resource approval without granting resource access. No endpoint
+path, bearer token or public-key document needs to be copied.
 
 Omit the URL to use `AIKITO_REMOTE_SERVICE_URL` or an interactive service URL prompt.
 Recovery codes are automatically saved outside the workspace to the private configuration file

@@ -18,6 +18,7 @@ import webbrowser
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from .recipient_keys import RecipientKeyError, fetch_recipient
 from .remote_access import RemoteBindingError
 from .remote_credentials import save_credential
 
@@ -79,7 +80,7 @@ def _request(origin: str, path: str, body: dict) -> tuple[int, dict]:
         connection.close()
 
 
-def pair_device(service: str, *, home: Path) -> tuple[str, str]:
+def pair_device(service: str, *, home: Path, workspace: Path) -> tuple[str, str]:
     origin = _service_origin(service)
     secret = secrets.token_hex(32)
     challenge = hashlib.sha256(secret.encode()).hexdigest()
@@ -128,6 +129,14 @@ def pair_device(service: str, *, home: Path) -> tuple[str, str]:
             or not result["account_id"]
         ):
             raise RemoteBindingError("Invalid device connection response.")
+        # Browser approval establishes trust in this origin, not resource access.
+        # Verify its public identity before publishing any device credentials.
+        try:
+            fetch_recipient(workspace, home, origin=origin)
+        except RecipientKeyError as exc:
+            raise RemoteBindingError(
+                f"Service identity verification failed: {exc}"
+            ) from None
         key = "AIKITO_REMOTE_DEVICE_" + challenge[:24].upper()
         save_credential(key, secret, home=home)
         return endpoint, key

@@ -135,7 +135,10 @@ jobs:
         run: |
           $pairBase = Join-Path $env:RUNNER_TEMP "remote-pairing"
           python tests/workspace_remote_pairing_smoke.py "$pairBase"
-          if ($LASTEXITCODE -ne 0) { throw "Device connection smoke failed" }
+          if ($LASTEXITCODE -ne 0) { throw "Browser pairing smoke failed" }
+          foreach ($relative in @("pin-checked.txt", "changed-key-checked.txt")) {
+            if (!(Test-Path "$pairBase/$relative" -PathType Leaf)) { throw "Missing automatic recipient check: $relative" }
+          }
           foreach ($relative in @("checked.txt", "bind.out", "workspace/layout.toml", "workspace/.local/state/aikito/workspace-reconcile/binding.json")) {
             if (!(Test-Path "$pairBase/$relative" -PathType Leaf)) { throw "Missing device connection artifact: $relative" }
           }

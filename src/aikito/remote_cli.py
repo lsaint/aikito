@@ -257,7 +257,9 @@ def cmd_remote_bind(args: argparse.Namespace) -> None:
                     service = input(
                         "Service URL (shown on your account page): "
                     ).strip()
-                endpoint, token_env = pair_device(service, home=home)
+                endpoint, token_env = pair_device(
+                    service, home=home, workspace=workspace
+                )
             except (RemoteBindingError, EOFError, KeyboardInterrupt) as exc:
                 print(f"[ERROR] {exc}", file=sys.stderr)
                 raise SystemExit(1) from None
