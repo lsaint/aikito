@@ -426,8 +426,42 @@ async function showRemote(report, remember = true) {
   }
 }
 
+const CACHE_WORKSPACE_KEY = "aikito-cached-workspace";
+
+function restoreCachedWorkspace() {
+  try {
+    const raw = localStorage.getItem(CACHE_WORKSPACE_KEY);
+    if (raw) {
+      const cached = JSON.parse(raw);
+      if (cached && Array.isArray(cached.projects)) {
+        if (cached.workspace) {
+          const wsEl = document.querySelector("#workspace");
+          if (wsEl) wsEl.textContent = cached.workspace;
+        }
+        if (cached.version) {
+          const verEl = document.querySelector("#version");
+          if (verEl) verEl.textContent = `Aikito ${cached.version}`;
+        }
+        if (cached.healthy !== undefined) {
+          const healthEl = document.querySelector("#health");
+          if (healthEl) {
+            healthEl.textContent = cached.healthy
+              ? "Healthy"
+              : `${cached.counts?.issues || 0} issues`;
+            healthEl.className = cached.healthy ? "ok" : "issue";
+          }
+        }
+        showWorkspace(cached, false);
+      }
+    }
+  } catch {}
+}
+
 function showWorkspace(overview, remember = true) {
   rememberView("workspace", overview, remember);
+  try {
+    localStorage.setItem(CACHE_WORKSPACE_KEY, JSON.stringify(overview));
+  } catch {}
   selectResource(null);
   governance.innerHTML = '<h2>Governance</h2><p class="muted">Select a resource.</p>';
   const storeBound = Boolean(overview.remote?.store_id);
@@ -562,6 +596,8 @@ async function renderGroup(title, entries, section) {
 }
 (async () => {
   try {
+    restoreCachedWorkspace();
+
     const remotePromise = get("/api/remote")
       .then((remote) => {
         updateStoreBadge(remote);
@@ -570,7 +606,7 @@ async function renderGroup(title, entries, section) {
       .catch(() => null);
 
     const overviewPromise = get("/api/overview")
-      .then(async (overview) => {
+      .then((overview) => {
         document.querySelector("#workspace").textContent = overview.workspace;
         document.querySelector("#version").textContent = `Aikito ${overview.version}`;
         const health = document.querySelector("#health");
@@ -578,10 +614,34 @@ async function renderGroup(title, entries, section) {
           ? "Healthy"
           : `${overview.counts.issues} issues`;
         health.className = overview.healthy ? "ok" : "issue";
-        const remote = await remotePromise;
-        if (remote) overview.remote = remote;
         updateStoreBadge(overview);
         showWorkspace(overview);
+
+        remotePromise.then((remote) => {
+          if (remote) {
+            overview.remote = remote;
+            updateStoreBadge(overview);
+            const storeCard = document.querySelector("#workspace-store-card");
+            if (storeCard) {
+              const storeBound = Boolean(remote.store_id);
+              const storeTitle = storeBound
+                ? "Synchronization"
+                : "Connect synchronization";
+              const storeDesc = storeBound
+                ? "View synchronization activity, connected devices, and connection settings."
+                : "Connect this workspace to synchronize encrypted resources across your devices.";
+              const storeMeta = storeBound
+                ? (remote.service?.running ? "sync active" : "sync idle")
+                : "Not connected";
+              const titleBtn = storeCard.querySelector("h2 button");
+              if (titleBtn) titleBtn.textContent = storeTitle;
+              const descP = storeCard.querySelector("p");
+              if (descP) descP.textContent = storeDesc;
+              const metaDiv = storeCard.querySelector(".project-card-meta");
+              if (metaDiv) metaDiv.textContent = storeMeta;
+            }
+          }
+        });
         return overview;
       })
       .catch((error) => {

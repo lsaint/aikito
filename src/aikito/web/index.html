@@ -12,7 +12,22 @@
   <main>
     <nav id="explorer" aria-label="Resource Explorer"></nav>
     <div class="resizer" id="resizer-left" title="Drag to resize"></div>
-    <section id="content"><div class="empty"><h1>Aikito Workspace</h1><p>Select a resource to inspect its canonical content.</p></div></section>
+    <section id="content">
+      <div class="project-heading"><span class="eyebrow">YOUR WORKSPACE</span><h1>Context, in one place.</h1><p>Browse your workspace and confirm authorization requests selected online.</p></div>
+      <div class="workspace-action-grid">
+        <section class="project-card workspace-action-card" id="workspace-store-card">
+          <h2><button type="button" class="project-open" id="workspace-open-remote">Synchronization</button></h2>
+          <p>View synchronization activity, connected devices, and connection settings.</p>
+          <div class="project-card-meta">Checking status…</div>
+        </section>
+        <section class="project-card workspace-action-card" id="workspace-access-card">
+          <h2><button type="button" class="project-open" id="workspace-access">Resource authorizations & access</button></h2>
+          <p>Review pending requests and manage active collection grants for external AI clients.</p>
+          <div class="project-card-meta">Local confirmation · Cloud revocation</div>
+        </section>
+      </div>
+      <div class="project-grid"><p class="muted">Loading projects…</p></div>
+    </section>
     <div class="resizer" id="resizer-right" title="Drag to resize"></div>
     <aside id="governance"><h2>Governance</h2><p class="muted">Select a resource.</p></aside>
   </main>
