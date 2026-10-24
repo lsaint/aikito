@@ -50,8 +50,12 @@ class ConsoleAccess:
             binding, origin, store = target(self.workspace)
             if self._last_catalog is None or time.monotonic() - self._last_catalog > 60:
                 with WorkspaceWriterLock(self.home):
-                    publish_catalog(self.workspace, self.home)
-                self._last_catalog = time.monotonic()
+                    try:
+                        publish_catalog(self.workspace, self.home)
+                        self._last_catalog = time.monotonic()
+                    except Exception as exc:
+                        if "recipient_key_changed" in str(exc):
+                            raise
             result = exchange(self.workspace, self.home, "requests")
             allowed = set(collections(self.workspace))
             journal = state_path(

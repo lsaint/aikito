@@ -10,7 +10,7 @@ import ssl
 from .device_keys import DeviceKeyStore
 from .encrypted_discovery import unlock_encrypted_snapshot
 from .http_transport import validate_endpoint
-from .recipient_keys import require_pinned_recipient
+from .recipient_keys import fetch_recipient
 from .remote_binding import load_remote_binding
 from .remote_credentials import resolve_credential
 from .remote_factory import BoundRemoteReader, _open_remote
@@ -101,7 +101,7 @@ def exchange(workspace, home, suffix, *, body=None, post=False):
 
 def publish_catalog(workspace, home):
     binding, origin, _ = target(workspace)
-    require_pinned_recipient(workspace, home, origin)
+    fetch_recipient(workspace, home, origin=origin)
     reader = BoundRemoteReader(
         _open_remote(binding.endpoint, binding.auth, None, home=home), binding.sync_id
     )

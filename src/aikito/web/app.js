@@ -12,7 +12,18 @@ const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"
 const escapeAttribute = escapeHtml;
 const label = item => item.skill_name || item.note_name || item.agent_name || item.name || item.server_name;
 const id = (kind,item) => kind === "memory" ? `${item.scope_name}/${item.note_name}` : (item.agent_name || item.skill_name || item.name);
-async function get(path) { const response=await fetch(path); if(!response.ok) throw new Error((await response.json()).error || response.statusText); return response.json(); }
+async function get(path) {
+  const response = await fetch(path);
+  if (!response.ok) {
+    let payload = {};
+    try { payload = await response.json(); } catch {}
+    const error = new Error(payload.error || response.statusText);
+    error.data = payload;
+    error.status = response.status;
+    throw error;
+  }
+  return response.json();
+}
 async function post(path, body = {}) {
   const { token } = await get("/api/console-session");
   const response = await fetch(path, {

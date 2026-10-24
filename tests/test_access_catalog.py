@@ -35,7 +35,7 @@ def test_untrusted_recipient_cannot_receive_directory(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(
         access,
-        "require_pinned_recipient",
+        "fetch_recipient",
         Mock(side_effect=ValueError("fixture untrusted recipient")),
     )
     transport = Mock()
@@ -43,6 +43,39 @@ def test_untrusted_recipient_cannot_receive_directory(tmp_path, monkeypatch):
     with pytest.raises(ValueError):
         access.publish_catalog(tmp_path, tmp_path)
     transport.assert_not_called()
+
+
+def test_catalog_auto_pins_recipient_on_first_use(tmp_path, monkeypatch):
+    binding = SimpleNamespace(
+        endpoint="https://example.com/v1/stores/main/remote",
+        sync_id="a" * 32,
+        auth=None,
+    )
+    monkeypatch.setattr(
+        access, "target", lambda _: (binding, "https://example.com", "main")
+    )
+    pinned = []
+    monkeypatch.setattr(
+        access,
+        "fetch_recipient",
+        lambda ws, home, origin: pinned.append(origin),
+    )
+    monkeypatch.setattr(access, "_open_remote", lambda *a, **kw: object())
+    monkeypatch.setattr(
+        access, "BoundRemoteReader", lambda *a: SimpleNamespace(read=lambda: object())
+    )
+    monkeypatch.setattr(access, "DeviceKeyStore", lambda **kw: object())
+    monkeypatch.setattr(
+        access, "unlock_encrypted_snapshot", lambda *a: SimpleNamespace(vault_id="b" * 32)
+    )
+    exchanged = []
+    monkeypatch.setattr(
+        access, "exchange", lambda ws, home, path, body: exchanged.append((path, body))
+    )
+    access.publish_catalog(tmp_path, tmp_path)
+    assert pinned == ["https://example.com"]
+    assert len(exchanged) == 1
+    assert exchanged[0][0] == "catalog"
 
 
 @pytest.mark.parametrize(

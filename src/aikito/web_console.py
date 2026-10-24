@@ -41,6 +41,7 @@ from .status import (
     collect_subagent_details,
     get_status_report_data,
 )
+from .workspace.access_catalog import target as access_target
 
 
 @functools.cache
@@ -579,7 +580,16 @@ def make_handler(data: ConsoleData, web_dir: Path) -> type[BaseHTTPRequestHandle
                 try:
                     pending = data.access.pending()
                 except Exception:  # noqa: BLE001 - Never expose transport or credential errors.
-                    self._json({"error": "Authorization service is unavailable"}, 503)
+                    payload: dict[str, Any] = {
+                        "error": "Authorization service is unavailable"
+                    }
+                    try:
+                        _, origin, _ = access_target(data.aikito_dir)
+                        if origin:
+                            payload["origin"] = origin
+                    except Exception:  # noqa: BLE001, S110
+                        pass
+                    self._json(payload, 503)
                     return
                 self._json(pending)
             elif parts == ["overview"]:

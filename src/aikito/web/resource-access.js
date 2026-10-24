@@ -151,6 +151,17 @@ async function showAccess(data, remember = true) {
   const displayed = new Set(),
     outcomes = new Map();
 
+  if (cloudLink) {
+    cloudLink.addEventListener("click", (e) => {
+      if (!latestOrigin) e.preventDefault();
+    });
+  }
+  if (manageCloudBtn) {
+    manageCloudBtn.addEventListener("click", (e) => {
+      if (!latestOrigin) e.preventDefault();
+    });
+  }
+
   function element(tag, text, className) {
     const node = document.createElement(tag);
     if (text !== undefined) node.textContent = text;
@@ -475,7 +486,11 @@ async function showAccess(data, remember = true) {
         list.append(card);
       }
       return true;
-    } catch {
+    } catch (err) {
+      if (err && err.data && err.data.origin) {
+        latestOrigin = err.data.origin;
+        if (originEl) originEl.textContent = latestOrigin;
+      }
       renderActiveGrants();
       return false;
     } finally {

@@ -111,6 +111,28 @@ name_style = "verbatim"
                 {"error": "Authorization service is unavailable"},
             )
 
+    def test_access_pending_service_unavailable_includes_bound_origin(self):
+        with (
+            mock.patch(
+                "aikito.console_access.ConsoleAccess.pending",
+                side_effect=RuntimeError("backend down"),
+            ),
+            mock.patch(
+                "aikito.web_console.access_target",
+                return_value=(mock.MagicMock(), "https://cloud.example", "main"),
+            ),
+        ):
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                self.get_json("/api/access")
+            self.assertEqual(error.exception.code, 503)
+            self.assertEqual(
+                json.loads(error.exception.read().decode("utf-8")),
+                {
+                    "error": "Authorization service is unavailable",
+                    "origin": "https://cloud.example",
+                },
+            )
+
     def test_client_disconnect_during_json_response_sets_close_connection(self):
         handler_cls = make_handler(ConsoleData(self.root, self.root, "test"), self.web)
         handler = handler_cls.__new__(handler_cls)
