@@ -246,9 +246,6 @@ class PendingCommitStore:
         return pending
 
     def load(self) -> PendingCommit | None:
-        path = state_path(self.local, PENDING_COMMIT_STATE)
-        if entry_type(path) == "missing":
-            return None
         with self._locked():
             return self._load()
 
