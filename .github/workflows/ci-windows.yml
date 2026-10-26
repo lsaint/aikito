@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: ["core-cli", "core-misc", "workspace", "workspace-remote", "workspace-reconcile", "reconcile-resources", "reconcile-resolution"]
+        group: ["core-cli", "core-resources", "core-misc", "workspace", "workspace-encrypted", "workspace-remote-protocol", "workspace-reconcile", "reconcile-resources", "reconcile-resolution"]
 
     steps:
       - uses: actions/checkout@v4
@@ -45,10 +45,15 @@ jobs:
         shell: pwsh
         run: python -m pytest -n auto --basetemp="$env:RUNNER_TEMP\pytest" tests/test_cli.py tests/test_add.py tests/test_doctor.py tests/test_status.py tests/test_adopt.py tests/test_remove.py
 
+      - name: Run core resource unit tests
+        if: matrix.group == 'core-resources'
+        shell: pwsh
+        run: python -m pytest -n auto --basetemp="$env:RUNNER_TEMP\pytest" tests/test_skill*.py tests/test_bundled_skills.py tests/test_global_skills.py tests/test_subagent*.py tests/test_mcp*.py tests/test_memory*.py tests/test_instruction*.py tests/test_agents.py tests/test_adopt_definitions.py
+
       - name: Run core misc unit tests
         if: matrix.group == 'core-misc'
         shell: pwsh
-        run: python -m pytest -n auto --basetemp="$env:RUNNER_TEMP\pytest" '--ignore-glob=tests/test_workspace*.py' '--ignore=tests/test_remote_service.py' '--ignore=tests/test_cli.py' '--ignore=tests/test_add.py' '--ignore=tests/test_doctor.py' '--ignore=tests/test_status.py' '--ignore=tests/test_adopt.py' '--ignore=tests/test_remove.py'
+        run: python -m pytest -n auto --basetemp="$env:RUNNER_TEMP\pytest" '--ignore-glob=tests/test_workspace*.py' '--ignore=tests/test_remote_service.py' '--ignore=tests/test_cli.py' '--ignore=tests/test_add.py' '--ignore=tests/test_doctor.py' '--ignore=tests/test_status.py' '--ignore=tests/test_adopt.py' '--ignore=tests/test_remove.py' '--ignore-glob=tests/test_skill*.py' '--ignore=tests/test_bundled_skills.py' '--ignore=tests/test_global_skills.py' '--ignore-glob=tests/test_subagent*.py' '--ignore-glob=tests/test_mcp*.py' '--ignore-glob=tests/test_memory*.py' '--ignore-glob=tests/test_instruction*.py' '--ignore=tests/test_agents.py' '--ignore=tests/test_adopt_definitions.py'
 
       - name: Run workspace unit tests
         if: matrix.group == 'workspace'
@@ -56,18 +61,17 @@ jobs:
         run: python -m pytest -n auto --basetemp="$env:RUNNER_TEMP\pytest" tests/test_workspace.py tests/test_workspace_characterization.py tests/test_workspace_import.py tests/test_workspace_import_conflicts.py tests/test_workspace_inspection_golden.py tests/test_workspace_layout.py tests/test_workspace_payload.py tests/test_workspace_resources.py tests/test_workspace_revision.py tests/test_workspace_sync_golden.py tests/test_workspace_sync_plan.py
 
       - name: Verify encrypted core without optional dependency
-        if: matrix.group == 'workspace-remote'
+        if: matrix.group == 'workspace-encrypted'
         run: python -m pytest tests/test_workspace_encrypted_remote_core.py tests/test_workspace_device_keys.py
 
-
       - name: Verify encrypted optional dependency
-        if: matrix.group == 'workspace-remote'
+        if: matrix.group == 'workspace-encrypted'
         run: |
           uv pip install --system '.[encrypted]'
           python -m pytest -n auto --basetemp="$env:RUNNER_TEMP\pytest" tests/test_workspace_encrypted_remote_core.py tests/test_workspace_device_keys.py tests/test_recovery_codes.py tests/test_workspace_native_keys.py tests/test_workspace_encrypted_remote.py tests/test_remote_key_cli.py tests/test_workspace_encrypted_discovery.py tests/test_workspace_encrypted_sync.py tests/test_workspace_scoped_export.py tests/test_workspace_context_export.py tests/test_recipient_keys.py tests/test_remote_export.py
 
       - name: Run workspace remote and protocol unit tests
-        if: matrix.group == 'workspace-remote'
+        if: matrix.group == 'workspace-remote-protocol'
         shell: pwsh
         run: python -m pytest -n auto --basetemp="$env:RUNNER_TEMP\pytest" tests/test_workspace_remote_binding.py tests/test_workspace_remote_factory.py tests/test_workspace_http_transport.py tests/test_workspace_http_remote_recovery.py tests/test_workspace_http_external.py tests/test_workspace_http_multistore_contract.py tests/test_workspace_remote_protocol_vectors.py tests/test_workspace_commit_encoding.py tests/test_workspace_loopback_remote.py tests/test_workspace_memory_remote.py tests/test_workspace_pending_commit.py tests/test_workspace_remote_commit.py tests/test_workspace_remote_protocol.py tests/test_workspace_remote_protocol_handler.py tests/test_workspace_remote_protocol_hardening.py tests/test_workspace_remote_protocol_regressions.py tests/test_workspace_remote_receipt_crashes.py tests/test_workspace_remote_receipts.py tests/test_workspace_remote_store.py tests/test_workspace_remote_store_contract.py tests/test_workspace_serialized_remote.py tests/test_workspace_serialized_remote_acceptance.py tests/test_workspace_serialized_remote_recovery.py tests/test_workspace_unreliable_remote.py tests/test_remote_service.py
 
@@ -86,7 +90,7 @@ jobs:
         shell: pwsh
         run: python -m pytest -n auto --basetemp="$env:RUNNER_TEMP\pytest" tests/test_workspace_reconcile_resolution.py
 
-  windows-smoke-test:
+  windows-remote-smoke:
     runs-on: windows-latest
     env:
       PYTHONPATH: ${{ github.workspace }}/src
@@ -187,6 +191,37 @@ jobs:
             if (!(Test-Path "$claimBase/$relative" -PathType Leaf)) { throw "Missing claim artifact: $relative" }
           }
           if (Test-Path "$claimBase/workspace/.local/state/aikito/workspace-reconcile/pending.json") { throw "Claim wrote pending" }
+
+  windows-smoke-test:
+    runs-on: windows-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Optimize Windows Defender for CI
+        shell: pwsh
+        run: |
+          try {
+            Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+          } catch {}
+          try {
+            Add-MpPreference -ExclusionPath $env:RUNNER_TEMP, $env:GITHUB_WORKSPACE, $env:TEMP, $env:TMP, $HOME, "C:\hostedtoolcache" -ErrorAction SilentlyContinue
+            Add-MpPreference -ExclusionProcess @("python.exe", "git.exe") -ErrorAction SilentlyContinue
+          } catch {}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install smoke test dependencies
+        run: uv pip install --system '.[encrypted]'
 
       - name: Agent detection and adapter reuse CLI smoke
         shell: pwsh
