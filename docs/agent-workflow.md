@@ -39,6 +39,19 @@ initialized:
 > before adopting or replacing anything, and verify the finished setup. Don't
 > register a project or push yet.
 
+## Connect to Aikito Cloud
+
+Use this with a local coding Agent to set up Cloud synchronization:
+
+> Connect my Aikito workspace to Aikito Cloud using the service address from my
+> account page. Let me complete sign-in and any recovery-code entry locally.
+> Preview the first synchronization, explain any conflicts, then synchronize,
+> enable background synchronization, and verify the result. Keep recovery codes
+> out of the conversation.
+
+See [Aikito Cloud](remote-sync.md#ask-your-agent) for requests covering another
+machine and ChatGPT resource access, along with the manual steps.
+
 ## Register the Current Project
 
 Use this from a code repository that needs project-specific instructions,

@@ -15,6 +15,47 @@ Connect your Aikito workspace to Aikito Cloud to keep your resources up to date
 across machines. You need an Aikito Cloud account and the connection command
 shown on your account page.
 
+## Ask your agent
+
+Give these requests to a local coding Agent with terminal access, such as Codex
+or Claude Code. The Agent can inspect your workspace, run the setup commands,
+and verify synchronization. You complete account sign-in, recovery-code entry,
+and authorization confirmations yourself. If the Agent cannot keep an interactive
+terminal open, it should hand you the connection command and resume after you
+finish. Keep passwords and recovery codes out of the conversation.
+
+### Set up Cloud synchronization
+
+> Connect this machine's Aikito workspace to Aikito Cloud using the service
+> address from my account page. Follow the [Cloud guide](remote-sync.md), check
+> the active workspace and encrypted runtime, and reuse my existing workspace.
+> Guide me through signing in and approving the device connection. Preview the
+> first synchronization and explain any conflicts before applying it. Then
+> synchronize, enable background synchronization, and verify the remote status.
+> Report the recovery-code backup location without reading or printing the code.
+
+### Connect another machine
+
+> Set up Aikito Cloud on this new machine using my existing account and service.
+> Follow the [Cloud guide](remote-sync.md), check the installation and workspace,
+> and let me complete sign-in and enter the recovery code in the local terminal.
+> Download my synchronized resources, enable background synchronization, then
+> synchronize and verify the local Agent setup. Ask me for local project paths
+> where needed, and explain any conflicts before resolving them.
+
+### Make resources available to ChatGPT
+
+> Help me connect ChatGPT to Aikito Cloud following the
+> [MCP setup below](#connect-ai-clients-through-mcp). Verify that Cloud
+> synchronization works and open the local console. Ask which resources I want
+> to share and whether each needs read or write access. Guide me through resource
+> authorization, local confirmation, and ChatGPT connection, leaving those
+> approvals to me. Then help me verify access with a read-only lookup of a resource
+> I selected. Do not request or display my recovery code.
+
+The following sections provide the manual steps and completion checks for each
+request. More examples are in [Agent Request Examples](agent-workflow.md).
+
 ## Connect your first machine
 
 If you received an invitation, open its link and set your account password.
