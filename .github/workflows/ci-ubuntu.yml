@@ -250,6 +250,15 @@ jobs:
           test ! -e "$ENCRYPTED_SMOKE/scoped-check/migration-denied.json"
           test ! -e "$ENCRYPTED_SMOKE/scoped-check/workspace/.local/state/aikito/encrypted-discovery.json"
 
+      - name: Approved project auto application CLI smoke
+        run: |
+          PROJECT_APPLY_SMOKE=${{ runner.temp }}/project-auto-apply-smoke
+          python3 tests/project_auto_apply_smoke.py "$PROJECT_APPLY_SMOKE"
+          test -f "$PROJECT_APPLY_SMOKE/copy-checkout/.agents/skills/example/SKILL.md"
+          test -L "$PROJECT_APPLY_SMOKE/link-checkout/.agents/skills/example"
+          test ! -e "$PROJECT_APPLY_SMOKE/unapproved-checkout/.agents"
+          test -f "$PROJECT_APPLY_SMOKE/approval-cleanup.json"
+
       - name: HTTPS recipient trust CLI smoke without optional dependencies
         run: |
           RECIPIENT_SMOKE=${{ runner.temp }}/recipient-keys

@@ -27,7 +27,7 @@ from ..config import LEGACY_DEFAULT_INBOX_PATH, get_inbox_path, load_workspace_c
 from ..diagnostics import Finding
 from ..init import _validate_project_name, is_recognized_workspace
 from ..memory import validate_memory_name
-from ..project_config import get_project_candidate_paths
+from ..project_config import get_project_candidate_paths, project_sync_trigger
 from ..subagent import SUBAGENT_NAME_PATTERN
 from ..templating import BUNDLED_SKILL_NAMES
 from .layout import (
@@ -572,6 +572,10 @@ def _scan_project(scanner: _Scanner, project: Path) -> None:
         return
     config = scanner.toml(config_path)
     if config is not None:
+        try:
+            project_sync_trigger(config)
+        except ValueError as exc:
+            scanner.error("invalid-project-field", str(exc), config_path)
         if (
             (
                 "path" in config

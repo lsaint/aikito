@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .project_auto_apply import reconcile_local_projects, render_auto_project_result
 from .init import is_recognized_workspace
 from .remote_service import (
     bind_workspace_remote,
@@ -199,6 +200,12 @@ def render_remote_status(
         f"  Last error:      {last_err}",
     ]
 
+    project_apply = status.get("project_apply") or {}
+    if project_apply:
+        lines.append(
+            f"  Project checked: {project_apply.get('last_checked') or 'Never'}"
+        )
+        lines.append(f"  Project error:   {project_apply.get('last_error') or 'None'}")
     log_path_str = svc.get("log_path")
     if log_path_str:
         log_path = Path(log_path_str)
@@ -445,6 +452,19 @@ def cmd_remote_sync(args: argparse.Namespace) -> None:
         or bool(plan.deferred)
     ):
         sys.exit(1)
+
+    if not dry_run:
+        print("[REMOTE_SYNC_OK] Workspace synchronized")
+    try:
+        project_result = reconcile_local_projects(workspace, home, dry_run=dry_run)
+    except Exception as exc:  # noqa: BLE001 - Keep remote success distinct.
+        print(f"[PROJECT_APPLY_FAILED] {exc}", file=sys.stderr)
+        sys.exit(2)
+    rendered_projects = render_auto_project_result(project_result)
+    if rendered_projects:
+        print(rendered_projects)
+    if project_result.failed:
+        sys.exit(2)
 
 
 def cmd_remote_watch(args: argparse.Namespace) -> None:

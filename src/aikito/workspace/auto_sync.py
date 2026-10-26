@@ -682,6 +682,7 @@ class AutoSyncScheduler:
         verbose: bool = False,
         on_status_change: Callable[[AutoSyncState, str | None], None] | None = None,
         on_reconciled: Callable[[ReconcilePlan], None] | None = None,
+        on_local_reconcile: Callable[..., dict] | None = None,
         logger: Callable[[str], None] | None = None,
     ) -> None:
         self.workspace = workspace.expanduser().resolve()
@@ -696,6 +697,7 @@ class AutoSyncScheduler:
         self.verbose = verbose
         self.on_status_change = on_status_change
         self._on_reconciled = on_reconciled
+        self._on_local_reconcile = on_local_reconcile
         self.logger = logger or (lambda msg: None)
 
         self.state = AutoSyncState.IDLE
@@ -724,6 +726,7 @@ class AutoSyncScheduler:
         self._last_logged_conflicts: set[tuple[str, str]] = set()
         self._last_logged_findings: set[str] = set()
         self._last_logged_stop_reason: str | None = None
+        self._last_logged_remote_revision: int | None = None
 
         existing = load_worker_status(self.workspace)
         if existing and isinstance(existing, dict):
@@ -793,7 +796,41 @@ class AutoSyncScheduler:
             self._event_seq += 1
         self._wake_event.set()
 
+    def _apply_local_projects(self, *, force: bool = False) -> None:
+        if self._on_local_reconcile is None:
+            return
+        try:
+            result = self._on_local_reconcile(force=force)
+            if result is self._status.get("project_apply"):
+                return
+            self._status["project_apply"] = result
+        except Exception as exc:  # noqa: BLE001 - Local apply cannot change remote state.
+            previous = self._status.get("project_apply", {})
+            if previous.get("last_error") != str(exc):
+                self.logger(f"[PROJECT_APPLY_FAILED] {exc}")
+            self._status["project_apply"] = {
+                "last_checked": datetime.now(UTC).isoformat(),
+                "last_error": str(exc),
+            }
+        try:
+            save_worker_status(self.workspace, self._status)
+        except OSError:
+            # A status write failure must not become a remote synchronization failure.
+            pass
+
     def step(self) -> ReconcilePlan:
+        """Run remote convergence, then independently reconcile local projects."""
+        result = None
+        try:
+            result = self._step()
+            return result
+        finally:
+            with self._lock:
+                dirty = self._event_seq > self._processed_seq
+            changed = result is not None and bool(result.applied_items)
+            self._apply_local_projects(force=dirty or changed)
+
+    def _step(self) -> ReconcilePlan:
         """Run a single check and reconciliation step, resolving any conflicts."""
         self._rotate_log()
         self._status["last_checked"] = datetime.now(UTC).isoformat()
@@ -936,10 +973,19 @@ class AutoSyncScheduler:
             ):
                 self._status["last_revision"] = result.remote_snapshot.revision
             self._set_state(AutoSyncState.IDLE)
+            revision = self._status.get("last_revision")
+            if revision != self._last_logged_remote_revision:
+                self.logger(
+                    f"[REMOTE_SYNC_OK] Workspace synchronized at revision {revision}"
+                )
+                self._last_logged_remote_revision = revision
         save_worker_status(self.workspace, self._status)
 
         if self._on_reconciled is not None:
-            self._on_reconciled(result)
+            try:
+                self._on_reconciled(result)
+            except Exception as exc:  # noqa: BLE001 - Post-sync hooks are best effort.
+                self.logger(f"[WARN] Post-sync callback failed: {exc}")
         return result
 
     def run(self, *, once: bool = False) -> None:
@@ -962,6 +1008,7 @@ class AutoSyncScheduler:
             except (ValueError, AttributeError):
                 pass
 
+            self._apply_local_projects(force=True)
             if once:
                 self.step()
                 return
@@ -1043,6 +1090,7 @@ class AutoSyncScheduler:
                     with self._lock:
                         target_seq = self._event_seq
 
+                    self._apply_local_projects(force=local_triggered)
                     should_step = False
 
                     if (

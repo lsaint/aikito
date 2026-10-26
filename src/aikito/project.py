@@ -5,6 +5,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from .project_approval import candidate_checkout, checkout_approval_error
 from .context_footprint import GlobalContextCache, estimate_project_context
 from .diff_model import DriftDiff
 from .instructions import build_project_instruction_batch, plan_instructions
@@ -14,6 +15,7 @@ from .project_config import (
     candidate_path_views as _candidate_path_views,
     joined_candidate_paths as _joined_candidate_paths,
     resolve_project_binding,
+    project_sync_trigger,
 )
 from .skill_plan import SkillOperation, SkillTarget, plan_single_skill
 from .skill_runtime import ObservedSkill, inspect_skill_target
@@ -65,6 +67,8 @@ class ProjectSummary:
     offline_paths: tuple[tuple[str, str], ...] = ()
     candidate_paths: tuple[tuple[str, str, bool], ...] = ()
     context_tokens: int = 0
+    sync_trigger: str = "auto"
+    auto_apply_status: str = ""
 
     @property
     def has_conflict(self) -> bool:
@@ -84,7 +88,12 @@ class ProjectSummary:
 
     @property
     def is_sync_fixable(self) -> bool:
-        if self.runtime_status not in ("MISSING", "DRIFT"):
+        if self.runtime_status in ("UNBOUND", "OFFLINE", "INVALID CONFIG"):
+            return False
+        if (
+            self.runtime_status not in ("MISSING", "DRIFT", "UPDATE")
+            and self.auto_apply_status != "UNAPPROVED"
+        ):
             return False
         if self.has_conflict or self.has_copied_skill_drift:
             return False
@@ -111,7 +120,7 @@ class ProjectSummary:
                 f"Run 'aikito diff project {self.name}' to review changes, then 'aikito sync "
                 f"project {self.name} --force' after review"
             )
-        if self.is_sync_fixable:
+        if self.is_sync_fixable or self.auto_apply_status == "UNAPPROVED":
             return (
                 f"Run 'aikito sync project {self.name}' (or 'aikito sync') "
                 "to reconcile runtime"
@@ -245,7 +254,7 @@ def find_selected_runtime_conflicts(
 
 
 def _aggregate_runtime_status(statuses: list[str]) -> str:
-    for status in ("CONFLICT", "DRIFT", "MISSING"):
+    for status in ("CONFLICT", "DRIFT", "MISSING", "UPDATE"):
         if status in statuses:
             return status
     return "OK"
@@ -270,7 +279,8 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
         try:
             with open(config_path, "rb") as config_file:
                 config = tomllib.load(config_file)
-        except (OSError, tomllib.TOMLDecodeError) as exc:
+            project_sync_trigger(config)
+        except (OSError, ValueError) as exc:
             summaries.append(
                 ProjectSummary(
                     name=project_dir.name,
@@ -528,6 +538,34 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
                 active_statuses.append(_aggregate_runtime_status(statuses))
             runtime_status = _aggregate_runtime_status(active_statuses)
 
+        auto_apply_status = (
+            "manual"
+            if project_sync_trigger(config) == "manual"
+            else "approved"
+            if binding.active_entries
+            else "offline"
+            if binding.entries
+            else "unbound"
+        )
+        if auto_apply_status != "manual":
+            for entry in binding.active_entries:
+                error = checkout_approval_error(
+                    aikito_dir,
+                    home,
+                    project_dir.name,
+                    candidate_checkout(entry.raw_path, home),
+                )
+                if error:
+                    auto_apply_status = "UNAPPROVED"
+                    details.append(
+                        ProjectResourceDetail(
+                            resource=f"Auto apply [{entry.label}]",
+                            canonical_path=config_path,
+                            runtime_path=entry.resolved_path,
+                            status="UNAPPROVED",
+                            detail=error,
+                        )
+                    )
         instructions_notice = "\n".join(instructions_notices)
         skills_notice = "\n".join(skills_notices)
 
@@ -543,6 +581,8 @@ def collect_project_summaries(aikito_dir: Path, home: Path) -> list[ProjectSumma
                 name=project_dir.name,
                 path=joined_paths,
                 sync_mode=sync_mode,
+                sync_trigger=project_sync_trigger(config),
+                auto_apply_status=auto_apply_status,
                 instructions_status=instructions_status,
                 skills_count=len(skill_names),
                 memory_notes_count=memory_notes_count,
@@ -698,7 +738,8 @@ def collect_project_skill_states(
         try:
             with open(config_path, "rb") as config_file:
                 config = tomllib.load(config_file)
-        except (OSError, tomllib.TOMLDecodeError):
+            project_sync_trigger(config)
+        except (OSError, ValueError):
             continue
         if str(config.get("sync_mode", "link")).lower() != "copy":
             continue
@@ -832,6 +873,7 @@ def evaluate_project_health(
         ("CONFLICT", "conflict"),
         ("DRIFT", "drift"),
         ("MISSING", "missing"),
+        ("UPDATE", "update"),
         ("UNBOUND", "unbound"),
     ]
 

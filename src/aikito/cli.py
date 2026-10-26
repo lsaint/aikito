@@ -36,6 +36,7 @@ from .cli_parser import (
     resolve_color_flags,
 )
 from .cli_show import (
+    print_project_approval_notice,
     cmd_show_project as cmd_show_project,
     cmd_show_skill as cmd_show_skill,
     cmd_show_instructions as cmd_show_instructions,
@@ -629,6 +630,7 @@ def cmd_status(args: argparse.Namespace) -> None:
     )
     print(rendered)
     print_bundled_skill_notice(aikito_dir)
+    print_project_approval_notice(report_data.projects)
 
 
 def cmd_web(args: argparse.Namespace) -> None:

@@ -1500,8 +1500,43 @@ instruction_path = ".codex/AGENTS.md"
         )
         self.assertIn("Remote:", rendered)
         self.assertNotIn("https://example.com/v1/remote", rendered)
-        self.assertIn("running (PID 4321)", rendered)
-        self.assertIn("Rev 12", rendered)
+        self.assertIn(
+            "Remote: ✓ · Service: running (PID 4321) · Rev 12 · Pending: 0",
+            rendered.splitlines(),
+        )
+        self.assertNotIn("Synced", rendered)
+        lines = rendered.splitlines()
+        global_index = next(
+            i for i, line in enumerate(lines) if line.startswith("Global:")
+        )
+        self.assertTrue(lines[global_index + 1].startswith("Remote:"))
+        self.assertTrue(lines[global_index + 2].startswith("Consumers"))
+        self.assertTrue(lines[global_index + 3].startswith("All in one workspace:"))
+
+    def test_remote_summary_keeps_errors_on_one_line(self):
+        for fields, expected in (
+            ({"conflicts": 2}, "Conflicts: 2"),
+            ({"pending": 1}, "1 pending"),
+            ({"last_error": "offline"}, "Sync error"),
+        ):
+            with self.subTest(fields=fields):
+                remote = {
+                    "binding": {"sync_id": "test"},
+                    "service": {"running": False},
+                    **fields,
+                }
+                rendered = render_status_report(
+                    StatusReportData(agents=[], memories=[], remote_status=remote),
+                    is_tty=False,
+                    no_color=True,
+                )
+                lines = [
+                    line for line in rendered.splitlines() if line.startswith("Remote:")
+                ]
+                self.assertEqual(len(lines), 1)
+                self.assertIn(f"Remote: ! · {expected} · Service: stopped", lines[0])
+                self.assertIn("Pending:", lines[0])
+                self.assertNotIn("Rev None", lines[0])
 
 
 if __name__ == "__main__":

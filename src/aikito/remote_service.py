@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .workspace.access_catalog import publish_catalog
+from .project_auto_apply import ProjectAutoApply
 from .workspace.auto_sync import (
     AutoSyncScheduler,
     is_worker_running,
@@ -141,12 +142,14 @@ def watch_workspace_remote(
                     "Resource directory unavailable; encrypted synchronization continues"
                 )
 
+    project_apply = ProjectAutoApply(workspace, home, logger or (lambda message: None))
     scheduler = AutoSyncScheduler(
         workspace,
         remote,
         home=home,
         remote_opener=remote_opener,
         on_reconciled=publish_directory,
+        on_local_reconcile=project_apply.run,
         poll_interval=poll_interval,
         debounce_delay=debounce_delay,
         version_check_interval=version_check_interval,
@@ -300,6 +303,7 @@ def get_workspace_remote_status(
         "last_success": raw_status.get("last_success"),
         "last_revision": raw_status.get("last_revision"),
         "last_error": raw_status.get("last_error") or cred_error,
+        "project_apply": raw_status.get("project_apply", {}),
         "conflicts": raw_status.get("conflicts", 0),
         "pending": pending_count,
         "credential_source": cred_source,

@@ -114,6 +114,17 @@ jobs:
           if (!(Test-Path "$maintenanceBase/checked.txt")) { throw "Missing maintenance check" }
           if (!(Test-Path "$maintenanceBase/workspace with spaces/agents/pi.toml")) { throw "Missing Pi runner" }
 
+      - name: Approved project auto application CLI smoke
+        shell: pwsh
+        run: |
+          $projectApplyBase = Join-Path $env:RUNNER_TEMP "project-auto-apply-smoke"
+          python tests/project_auto_apply_smoke.py "$projectApplyBase"
+          if ($LASTEXITCODE -ne 0) { throw "Project auto apply smoke failed" }
+          if (-not (Test-Path "$projectApplyBase/copy-checkout/.agents/skills/example/SKILL.md")) { throw "Copy runtime missing" }
+          if ((Get-Item "$projectApplyBase/link-checkout/.agents/skills/example").LinkType -ne "SymbolicLink") { throw "Skill link missing" }
+          if (Test-Path "$projectApplyBase/unapproved-checkout/.agents") { throw "Unapproved checkout was modified" }
+          if (-not (Test-Path "$projectApplyBase/approval-cleanup.json")) { throw "Approval cleanup proof missing" }
+
       - name: HTTPS recipient trust CLI smoke without optional dependencies
         shell: pwsh
         run: |

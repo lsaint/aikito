@@ -22,6 +22,7 @@ from .project_config import (
     append_candidate_path_to_config,
     resolve_project_binding,
     resolve_project_path,
+    project_sync_trigger,
 )
 from .project_sync import apply_project_sync_batch, build_project_sync_batch
 from .workspace.paths import resolve_workspace
@@ -262,6 +263,10 @@ def _resolve_supplied_project_path(path: Path | str, home: Path) -> Path:
 
 
 def _validate_project_config(config_path: Path, config: dict[str, Any]) -> None:
+    try:
+        project_sync_trigger(config)
+    except ValueError as exc:
+        raise InvalidProjectConfigError(f"{exc} in {config_path}") from exc
     for field in ("skills", "memory"):
         value = config.get(field, [])
         if not isinstance(value, list) or not all(

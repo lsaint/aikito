@@ -497,6 +497,7 @@ class ProjectSummaryTest(unittest.TestCase):
         )
         self.assertNotIn("runtime OK\nSelected skills", detail)
         self.assertIn("OK", detail)
+        self.assertIn("Auto apply [default] [UNAPPROVED]", detail)
         self.assertNotIn("Issue:", detail)
         self.assertNotIn("Resource     | Canonical", detail)
 
@@ -554,6 +555,7 @@ class ProjectSummaryTest(unittest.TestCase):
         self.assertEqual(summary.instructions_status, "EMPTY")
         self.assertEqual(summary.runtime_status, "OK")
         self.assertIn("Project-owned AGENTS.md detected:", detail)
+        self.assertIn("Auto apply [default] [UNAPPROVED]", detail)
         self.assertNotIn("Issue:", detail)
 
     def test_project_owned_unselected_skill_is_only_a_notice(self) -> None:
@@ -577,6 +579,7 @@ class ProjectSummaryTest(unittest.TestCase):
 
         self.assertEqual(summary.runtime_status, "OK")
         self.assertIn("Project-owned skills detected: local-skill", detail)
+        self.assertIn("Auto apply [default] [UNAPPROVED]", detail)
         self.assertNotIn("Issue:", detail)
 
     def test_detail_explains_resource_sync_failure(self) -> None:

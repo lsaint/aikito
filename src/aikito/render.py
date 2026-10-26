@@ -961,6 +961,8 @@ def render_project_detail(
         ("Canonical path:", str(project.config_path.parent)),
         ("Project paths:", format_project_paths(project, use_unicode)),
         ("Sync mode:", project.sync_mode),
+        ("Sync trigger:", project.sync_trigger),
+        ("Auto apply:", project.auto_apply_status or "-"),
         (
             "Instructions:",
             "configured" if project.instructions_status == "OK" else "not configured",
@@ -980,7 +982,16 @@ def render_project_detail(
         for notice in project.skills_notice.splitlines():
             if notice.strip():
                 fields.append(("Notice:", f"{notice.strip()} (not managed by Aikito)"))
-    issues = [detail for detail in project.details if detail.status != "OK"]
+    for detail in project.details:
+        if detail.status == "UNAPPROVED":
+            fields.append(
+                ("Notice:", f"{detail.resource} [UNAPPROVED]: {detail.detail}")
+            )
+    issues = [
+        detail
+        for detail in project.details
+        if detail.status not in ("OK", "UNAPPROVED")
+    ]
     if issues:
         for detail in issues:
             messages = detail.detail.split("; ") if detail.detail else [""]
@@ -1098,37 +1109,16 @@ def render_status_report(
     )
     output_sections.append(projects_table)
 
-    # 2. Three summary lines separated by a blank line
+    # 2. Status summaries follow the project table
     output_sections.append("")
 
-    # Summary Line 1: Global
+    # Global
     global_summary = data.global_summary
     if global_summary is None:
         global_summary = _build_fallback_global_summary(data)
     output_sections.append(
         format_global_summary_line(global_summary, use_unicode, use_color)
     )
-
-    # Summary Line 2: Consumers
-    consumers = data.consumers
-    if not consumers and data.agents:
-        consumers = sorted(
-            dict.fromkeys((a.consumer_name or a.agent_name) for a in data.agents)
-        )
-    consumer_str = " · ".join(consumers) if consumers else "-"
-    output_sections.append(f"Consumers ({len(consumers)}): {consumer_str}")
-
-    # Summary Line 3: Workspace
-    if workspace:
-        ws_display = _format_workspace_path(workspace, home)
-        ws_prefix = f"All in one workspace: {ws_display}"
-        if use_color:
-            ws_line = _colorize(ws_prefix, COLOR_BOLD, True)
-        else:
-            ws_line = ws_prefix
-        if workspace_source:
-            ws_line += f" ({workspace_source})"
-        output_sections.append(ws_line)
 
     # Synchronization summary is shown only when connected.
     if data.remote_status and data.remote_status.get("binding"):
@@ -1156,8 +1146,8 @@ def render_status_report(
             if use_color:
                 icon = _colorize(icon, COLOR_RED, True)
         else:
-            icon = "✓" if use_unicode else "OK"
-            tag = "Synced"
+            icon = "✓" if use_unicode else "v"
+            tag = ""
             if use_color:
                 icon = _colorize(icon, COLOR_GREEN, True)
 
@@ -1166,11 +1156,40 @@ def render_status_report(
             if (running and pid)
             else ("running" if running else "stopped")
         )
-        rev_str = f" · Rev {last_rev}" if last_rev is not None else ""
-        output_sections.append(f"Remote: {icon} {tag}")
-        output_sections.append(
-            f"        Service: {svc_state}{rev_str} · Pending: {pending}"
+        remote_parts = [f"Remote: {icon}"]
+        if tag:
+            remote_parts.append(tag)
+        remote_parts.append(f"Service: {svc_state}")
+        if last_rev is not None:
+            remote_parts.append(f"Rev {last_rev}")
+        remote_parts.append(f"Pending: {pending}")
+        output_sections.append(" · ".join(remote_parts))
+
+    if data.remote_status:
+        project_apply = data.remote_status.get("project_apply") or {}
+        if project_apply.get("last_error"):
+            output_sections.append(f"Project apply: ! {project_apply['last_error']}")
+
+    # Consumers
+    consumers = data.consumers
+    if not consumers and data.agents:
+        consumers = sorted(
+            dict.fromkeys((a.consumer_name or a.agent_name) for a in data.agents)
         )
+    consumer_str = " · ".join(consumers) if consumers else "-"
+    output_sections.append(f"Consumers ({len(consumers)}): {consumer_str}")
+
+    # Workspace
+    if workspace:
+        ws_display = _format_workspace_path(workspace, home)
+        ws_prefix = f"All in one workspace: {ws_display}"
+        if use_color:
+            ws_line = _colorize(ws_prefix, COLOR_BOLD, True)
+        else:
+            ws_line = ws_prefix
+        if workspace_source:
+            ws_line += f" ({workspace_source})"
+        output_sections.append(ws_line)
 
     return "\n".join(output_sections)
 

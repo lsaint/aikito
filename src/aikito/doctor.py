@@ -1012,7 +1012,7 @@ def check_projects(aikito_dir: Path, home: Path) -> DoctorSection:
         if project.details:
             counts: dict[str, int] = {}
             for detail in project.details:
-                if detail.status != "OK":
+                if detail.status not in ("OK", "UNAPPROVED"):
                     counts[detail.status] = counts.get(detail.status, 0) + 1
             summary = ", ".join(
                 f"{count} {status.lower()}"
@@ -1499,7 +1499,9 @@ def run_doctor_fixes(aikito_dir: Path, home: Path | None = None) -> list[str]:
 def check_local_state(home: Path) -> DoctorSection:
     findings = inspect_local_state(home)
     if not findings:
-        findings.append(_ok("No stale or unverifiable local skill state"))
+        findings.append(
+            _ok("No stale or unverifiable local skill state or checkout approval")
+        )
     return DoctorSection(name="LocalState", findings=findings)
 
 

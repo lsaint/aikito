@@ -39,6 +39,7 @@ from .plan_observation import (
 from .project_config import (
     add_candidate_path,
     resolve_project_binding,
+    project_sync_trigger,
 )
 from .skill_plan import (
     CandidatePathCAS,
@@ -55,7 +56,8 @@ from .skill_runtime import (
     execute_skill_plan,
     inspect_skill_target,
 )
-from .skill_state import load_project_skill_state
+from .skill_state import WorkspaceWriterLock, load_project_skill_state
+from .project_approval import approve_checkouts
 
 
 @dataclass(frozen=True)
@@ -180,6 +182,10 @@ def build_project_sync_batch(
         active_checkouts = [e.resolved_path for e in binding.active_entries]
 
     errors: list[str] = []
+    try:
+        project_sync_trigger(data)
+    except ValueError as exc:
+        errors.append(str(exc))
     for checkout in active_checkouts:
         v_err = project_sync_validation_error(
             workspace_root, project_name, checkout, home
@@ -399,6 +405,20 @@ def apply_project_sync_batch(
     *,
     dry_run: bool = False,
 ) -> ProjectSyncExecutionResult:
+    """Serialize all resource phases; each phase retains its own rollback boundary."""
+    if dry_run:
+        return _apply_project_sync_batch(batch, data, home, dry_run=True)
+    with WorkspaceWriterLock(home):
+        return _apply_project_sync_batch(batch, data, home)
+
+
+def _apply_project_sync_batch(
+    batch: ProjectSyncBatch,
+    data: Mapping[str, Any],
+    home: Path,
+    *,
+    dry_run: bool = False,
+) -> ProjectSyncExecutionResult:
     """Execute skill plan and compatible instruction/memory synchronizations."""
     if not batch.can_apply and not dry_run:
         blocking_findings = tuple(
@@ -496,6 +516,31 @@ def apply_project_sync_batch(
 
 
 def sync_project(
+    aikito_dir: Path,
+    home: Path,
+    project_name: str,
+    *,
+    project_path: Path | str | None = None,
+    dry_run: bool = False,
+    force: bool = False,
+) -> bool:
+    """Keep manual planning, execution and approval under one writer lock."""
+    if dry_run:
+        return _sync_project(
+            aikito_dir,
+            home,
+            project_name,
+            project_path=project_path,
+            dry_run=True,
+            force=force,
+        )
+    with WorkspaceWriterLock(home):
+        return _sync_project(
+            aikito_dir, home, project_name, project_path=project_path, force=force
+        )
+
+
+def _sync_project(
     aikito_dir: Path,
     home: Path,
     project_name: str,
@@ -617,6 +662,10 @@ def sync_project(
             if res.error_message:
                 print(f"[ERROR] {res.error_message}", file=sys.stderr)
             return False
+        if not dry_run:
+            approve_checkouts(
+                aikito_dir, home, project_name, batch.active_checkouts, dict(data)
+            )
         result = "sync preview completed" if dry_run else "synced successfully"
         print(f"[SUCCESS] Project '{project_name}' {result} at {target_path}.")
         return True
@@ -644,6 +693,10 @@ def sync_project(
             print(f"[ERROR] {res.error_message}", file=sys.stderr)
         return False
 
+    if not dry_run:
+        approve_checkouts(
+            aikito_dir, home, project_name, batch.active_checkouts, dict(data)
+        )
     result = "sync preview completed" if dry_run else "synced successfully"
     print(f"[SUCCESS] Project '{project_name}' {result}.")
     return True

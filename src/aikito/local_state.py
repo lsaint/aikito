@@ -1,4 +1,4 @@
-"""Inspect host-local skill state and remove proven abandoned temporary bindings.
+"""Inspect host-local skill state and approval; remove proven obsolete bindings.
 
 Missing paths outside temporary storage may be offline, so they are diagnostic
 only. Cleanup rechecks the inventory under the existing writer lock and never
@@ -12,11 +12,15 @@ import json
 import os
 import re
 import tempfile
+import tomllib
 from dataclasses import replace
 from pathlib import Path
 
 from .compat import get_physical_path, is_reparse_point, is_windows
 from .diagnostics import Finding, FindingAction
+from .init import is_recognized_workspace
+from .project_approval import candidate_checkout, checkout_approval_error
+from .project_config import get_project_candidate_paths
 from .skill_state import (
     WorkspaceWriterLock,
     get_binding_hash,
@@ -206,6 +210,114 @@ def _inspect_file(path: Path, cleanup_allowed: bool) -> Finding | None:
         return _warning(path, "invalid", f"cannot verify state: {exc}")
 
 
+def _stale_approval(path: Path, reason: str, cleanup_allowed: bool) -> Finding:
+    finding = _warning(path, "stale", reason)
+    if not cleanup_allowed:
+        return finding
+    return replace(
+        finding,
+        fix_hint="aikito doctor --fix",
+        actions=(FindingAction("Clean up", "aikito doctor --fix"),),
+    )
+
+
+def _inspect_approval(path: Path, home: Path, cleanup_allowed: bool) -> Finding | None:
+    """Revoke only demonstrably obsolete approval; offline paths remain diagnostic."""
+    try:
+        if is_reparse_point(path) or not path.is_file():
+            raise ValueError("not a regular approval file")
+        if not re.fullmatch(r"[0-9a-f]{64}\.approval", path.name):
+            raise ValueError("unrecognized approval filename")
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if (
+            not isinstance(raw, dict)
+            or type(raw.get("version")) is not int
+            or raw["version"] != 1
+        ):
+            raise ValueError("invalid approval version")
+        for key in ("workspace", "project", "checkout"):
+            if not isinstance(raw.get(key), str) or not raw[key]:
+                raise ValueError("missing approval identity")
+        for key in ("device", "inode"):
+            if type(raw.get(key)) is not int or raw[key] < (1 if key == "inode" else 0):
+                raise ValueError("invalid directory identity")
+        workspace, checkout, project = (
+            Path(raw["workspace"]),
+            Path(raw["checkout"]),
+            raw["project"],
+        )
+        if (
+            not workspace.is_absolute()
+            or not checkout.is_absolute()
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", project)
+        ):
+            raise ValueError("invalid approval binding")
+        if not _matches_binding(workspace, project, checkout, path.stem):
+            raise ValueError("approval identity does not match filename")
+        if _missing(workspace):
+            if _missing(checkout) and _temporary(workspace) and _temporary(checkout):
+                return _stale_approval(
+                    path,
+                    "temporary workspace and checkout no longer exist",
+                    cleanup_allowed,
+                )
+            return _warning(
+                path, "unavailable", "workspace is unavailable; approval retained"
+            )
+        if is_reparse_point(workspace) or not is_recognized_workspace(workspace):
+            return _warning(
+                path, "unavailable", "workspace cannot be verified; approval retained"
+            )
+        project_dir = workspace / "projects" / project
+        config = project_dir / "agent.toml"
+        if any(
+            is_reparse_point(item)
+            for item in (workspace / "projects", project_dir, config)
+        ):
+            raise ValueError("unsafe project configuration path")
+        if _missing(config):
+            return _stale_approval(
+                path, "project is no longer registered", cleanup_allowed
+            )
+        data = tomllib.loads(config.read_text(encoding="utf-8"))
+        for field in ("path", "paths"):
+            if field not in data:
+                continue
+            value = data[field]
+            values = [value] if isinstance(value, str) else value
+            if field == "paths" and isinstance(values, dict):
+                values = list(values.values())
+            if not isinstance(values, list) or any(
+                not isinstance(item, str) or not item.strip() for item in values
+            ):
+                raise ValueError("invalid project paths; approval retained")
+        candidates = [
+            candidate_checkout(raw_path, home).resolve()
+            for _, raw_path in get_project_candidate_paths(data)
+        ]
+        if checkout.resolve() not in candidates:
+            return _stale_approval(
+                path, "checkout is no longer registered", cleanup_allowed
+            )
+        if _missing(checkout):
+            return _warning(
+                path, "unavailable", "checkout is unavailable; approval retained"
+            )
+        info = checkout.stat()
+        if is_reparse_point(checkout):
+            raise ValueError("checkout is a symbolic link or reparse point")
+        if info.st_dev != raw["device"] or info.st_ino != raw["inode"]:
+            return _stale_approval(
+                path, "checkout directory identity changed", cleanup_allowed
+            )
+        error = checkout_approval_error(workspace, home, project, checkout)
+        if error:
+            raise ValueError(error)
+        return None
+    except (OSError, ValueError, RuntimeError) as exc:
+        return _warning(path, "invalid", f"cannot verify approval: {exc}")
+
+
 def inspect_local_state(home: Path) -> list[Finding]:
     """Inspect all local bindings read-only, independently of the active workspace."""
     state_dir, error = validate_state_store_root(home)
@@ -247,8 +359,13 @@ def inspect_local_state(home: Path) -> list[Finding]:
             )
             for path in journals
         ]
-        for path in sorted(state_dir.glob("*.json")):
-            finding = _inspect_file(path, cleanup_allowed=not journals)
+        for path in sorted(state_dir.iterdir()):
+            if path.suffix == ".approval":
+                finding = _inspect_approval(path, home, cleanup_allowed=not journals)
+            elif path.suffix == ".json":
+                finding = _inspect_file(path, cleanup_allowed=not journals)
+            else:
+                continue
             if finding is not None:
                 findings.append(finding)
         return findings
@@ -267,5 +384,8 @@ def clean_local_state(home: Path) -> list[str]:
             if finding.code == "local-state.stale" and finding.actions:
                 path = Path(finding.source)
                 path.unlink()
-                removed.append(f"Removed stale local skill state: {path}")
+                kind = (
+                    "checkout approval" if path.suffix == ".approval" else "skill state"
+                )
+                removed.append(f"Removed stale local {kind}: {path}")
     return removed

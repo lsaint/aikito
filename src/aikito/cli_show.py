@@ -4,6 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from .workspace.auto_sync import load_worker_status
 from .bundled_skills import print_bundled_skill_notice
 from .cli_parser import resolve_color_flags
 from .resolve import (
@@ -19,7 +20,7 @@ from .resolve import (
 )
 from .memory import resolve_memory_target_for_command
 from .mcp import MCPConfigError
-from .project import collect_project_summaries
+from .project import ProjectSummary, collect_project_summaries
 from .config import get_inbox_path
 from .inbox import collect_inbox_rows, resolve_inbox_target_for_command
 from .render import (
@@ -50,6 +51,16 @@ from .status import (
 )
 from .subagent import SubagentConfigError
 from .workspace.paths import resolve_workspace
+
+
+def print_project_approval_notice(projects: list[ProjectSummary]) -> None:
+    """Keep migration guidance in the CLI notification area, outside resource views."""
+    if any(project.auto_apply_status == "UNAPPROVED" for project in projects):
+        print(
+            "[NOTICE] Automatic application is not approved for some checkouts. "
+            "Run 'aikito sync' once to approve all configured local checkouts.",
+            file=sys.stderr,
+        )
 
 
 def cmd_show_project(args: argparse.Namespace) -> None:
@@ -100,6 +111,8 @@ def cmd_show_project(args: argparse.Namespace) -> None:
                 projects, use_unicode, use_color, memory_rows=memory_rows
             )
         )
+        print_bundled_skill_notice(aikito_dir)
+        print_project_approval_notice(projects)
         return
 
     exact = [project for project in projects if project.name == target]
@@ -108,6 +121,21 @@ def cmd_show_project(args: argparse.Namespace) -> None:
     ]
     if len(matches) == 1:
         print(render_project_detail(matches[0], use_unicode, use_color))
+        worker = load_worker_status(aikito_dir) or {}
+        project_apply = worker.get("project_apply") or {}
+        for item in project_apply.get("checkouts", []):
+            if item.get("project") == matches[0].name and item.get("status") in (
+                "failed",
+                "blocked",
+            ):
+                print(
+                    f"Last auto apply ({project_apply.get('last_checked', 'unknown')}): {item.get('checkout', '')}: {item.get('reason', '')}"
+                )
+                print(
+                    "Run manual project sync or grant filesystem access if permission was denied."
+                )
+        print_bundled_skill_notice(aikito_dir)
+        print_project_approval_notice(matches)
         return
     if not matches:
         print(f"[ERROR] Project '{target}' not found.", file=sys.stderr)

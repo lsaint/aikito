@@ -58,6 +58,7 @@ from ..project_sync import (
     build_project_sync_batch,
 )
 from ..skill_state import WorkspaceWriterLock
+from ..project_approval import approve_checkouts
 from ..subagent import (
     SubagentConfigError,
     SubagentExecutionResult,
@@ -1228,7 +1229,19 @@ def execute_workspace_sync_plan(
     for entry in plan.project_entries:
         if entry.batch is None:
             continue
-        p_res = apply_batch(entry.batch, entry.config_data, home, dry_run=dry_run)
+        if dry_run or apply_project_batch_fn is not None:
+            p_res = apply_batch(entry.batch, entry.config_data, home, dry_run=dry_run)
+        else:
+            with WorkspaceWriterLock(home):
+                p_res = apply_batch(entry.batch, entry.config_data, home)
+                if p_res.is_success:
+                    approve_checkouts(
+                        workspace,
+                        home,
+                        entry.project_name,
+                        entry.batch.active_checkouts,
+                        dict(entry.config_data),
+                    )
         project_results.append(p_res)
         if not p_res.is_success:
             projects_ok = False

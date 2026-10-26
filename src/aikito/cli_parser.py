@@ -703,7 +703,7 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     # sync project <project_name> [project_path]
     p_sync_project = sync_subparsers.add_parser(
         "project",
-        help="Sync project skills and memory to <project-path>/.agents/",
+        help="Sync project resources and approve this checkout for auto apply (sync_trigger = auto|manual in agent.toml)",
     )
     p_sync_project.add_argument(
         "project_name",

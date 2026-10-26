@@ -15,6 +15,14 @@ from .compat import _atomic_write_text, safe_relative_path
 DEFAULT_PROJECT_SYNC_MODE = "link"
 
 
+def project_sync_trigger(config: Mapping[str, Any]) -> str:
+    """Validate the automatic application policy without silently enabling writes."""
+    value = config.get("sync_trigger", "auto")
+    if value not in ("auto", "manual"):
+        raise ValueError('Project sync_trigger must be "auto" or "manual"')
+    return value
+
+
 @dataclass(frozen=True)
 class ProjectPathEntry:
     label: str
