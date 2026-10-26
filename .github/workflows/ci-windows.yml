@@ -1278,7 +1278,7 @@ jobs:
             throw "Workspace reconcile did not create the note"
           }
 
-      # group=acceptance: workspace_reconcile_acceptance + workspace_remote_store_smoke + workspace_revision_smoke
+      # group=acceptance: reconciliation, serialized stores, revision state, and workspace import
       - name: Acceptance smoke
         if: matrix.group == 'acceptance'
         shell: pwsh
@@ -1316,6 +1316,104 @@ jobs:
           foreach ($relative in @("right/capture-b/safe.md", "moved-left/capture-a/safe.md", "moved-left/.local/state/aikito/workspace-transactions/pending.json", "moved-center/.local/state/aikito/workspace-transactions/pending.json")) {
             if (Test-Path (Join-Path $acceptanceBase $relative)) { throw "Unexpected acceptance artifact: $relative" }
           }
+
+      - name: Workspace Import Smoke on Windows
+        if: matrix.group == 'acceptance'
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $previousWorkspace = $env:AIKITO_DIR
+          $importBase = Join-Path $env:RUNNER_TEMP "import-smoke"
+          python tests/workspace_import_smoke.py "$importBase" --prepare-only
+          $env:AIKITO_DIR = Join-Path $importBase "target"
+          python -m aikito import workspace (Join-Path $importBase "source") --dry-run
+          if ($LASTEXITCODE -ne 0) { throw "Workspace import dry run failed" }
+          $importVerbose = python -m aikito import workspace (Join-Path $importBase "source") --dry-run --verbose
+          if ($LASTEXITCODE -ne 0) { throw "Verbose workspace import dry run failed" }
+          $importVerbose | Select-String "\[SUMMARY\]"
+          if (-not ($importVerbose | Select-String -SimpleMatch "[UPDATE] skills.toml (skill-selection:import-smoke)")) { throw "Import did not group skills.toml" }
+          if ($importVerbose | Select-String -SimpleMatch "[MERGE]") { throw "Import still reports MERGE" }
+          if (Test-Path (Join-Path $importBase "target\inbox\deep\import-smoke.md")) { throw "Dry run wrote inbox note" }
+          python -m aikito import workspace (Join-Path $importBase "source")
+          if ($LASTEXITCODE -ne 0) { throw "Workspace import failed" }
+          $env:AIKITO_DIR = $previousWorkspace
+          foreach ($resource in @(
+            "target\inbox\deep\import-smoke.md",
+            "target\skills\import-smoke\SKILL.md",
+            "target\subagents\import-smoke.md",
+            "target\mcps\import-smoke.toml",
+            "target\memory\index.md",
+            "target\projects\new-project\agent.toml",
+            "target\projects\new-project\memory\index.md"
+          )) {
+            if (-not (Test-Path (Join-Path $importBase $resource))) {
+              throw "Workspace import did not create $resource"
+            }
+          }
+          if (-not (Select-String -Path (Join-Path $importBase "target\agents\codex.toml") -Pattern "Imported Codex" -Quiet)) { throw "Agent import failed" }
+          if (-not (Select-String -Path (Join-Path $importBase "target\config.toml") -Pattern "stale_days = 90" -Quiet)) { throw "Config import failed" }
+          if (-not (Select-String -Path (Join-Path $importBase "target\global\AGENTS.md") -Pattern "Imported global instructions" -Quiet)) { throw "Global instructions import failed" }
+          $executionBase = "$importBase-execution"
+          python tests/workspace_import_smoke.py "$executionBase" --prepare-only --execution-case
+          if ($LASTEXITCODE -ne 0) { throw "Execution fixture preparation failed" }
+          $env:AIKITO_DIR = Join-Path $executionBase "target"
+          python -m aikito import workspace (Join-Path $executionBase "source")
+          if ($LASTEXITCODE -ne 0) { throw "Resource execution import failed" }
+          foreach ($resource in @("target\notes\inbox\deep\import-smoke.md", "target\config.toml")) {
+            if (-not (Test-Path (Join-Path $executionBase $resource))) { throw "Resource execution did not create $resource" }
+          }
+          if (-not (Select-String -Path (Join-Path $executionBase "target\config.toml") -Pattern "stale_days = 90" -Quiet)) { throw "Shared config field import failed" }
+          if (-not (Select-String -Path (Join-Path $executionBase "target\config.toml") -Pattern "check = false" -Quiet)) { throw "Shared config composition failed" }
+          python -m aikito import workspace (Join-Path $executionBase "source")
+          if ($LASTEXITCODE -ne 0) { throw "Repeated resource execution failed" }
+          if (Test-Path (Join-Path $executionBase "target\.local\state\aikito\workspace-transactions\pending.json")) { throw "Import left a transaction journal" }
+          $blockedBase = "$importBase-blocked-inbox"
+          python tests/workspace_import_smoke.py "$blockedBase" --prepare-only --blocked-inbox-case
+          if ($LASTEXITCODE -ne 0) { throw "Blocked inbox fixture preparation failed" }
+          $env:AIKITO_DIR = Join-Path $blockedBase "target"
+          $blockedPreview = python -m aikito import workspace (Join-Path $blockedBase "source") --dry-run 2>&1
+          if ($LASTEXITCODE -ne 1) { throw "Inbox relocation preview was not blocked" }
+          if (-not ($blockedPreview | Select-String -SimpleMatch "[BLOCKED] config.toml (config:inbox.path)")) { throw "Inbox relocation did not block the configuration field" }
+          if (-not ($blockedPreview | Select-String -SimpleMatch "1 note under inbox/")) { throw "Inbox relocation did not report existing notes" }
+          python -m aikito import workspace (Join-Path $blockedBase "source")
+          if ($LASTEXITCODE -ne 1) { throw "Inbox relocation application was not blocked" }
+          foreach ($resource in @("target\inbox\existing.md", "target\config.toml")) {
+            if (-not (Test-Path (Join-Path $blockedBase $resource))) { throw "Blocked import removed $resource" }
+          }
+          foreach ($resource in @("target\notes\inbox\deep\import-smoke.md", "target\skills\import-smoke\SKILL.md", "target\.local\state\aikito\workspace-transactions\pending.json")) {
+            if (Test-Path (Join-Path $blockedBase $resource)) { throw "Blocked import wrote $resource" }
+          }
+          if (-not (Select-String -Path (Join-Path $blockedBase "target\config.toml") -SimpleMatch 'path = "inbox"' -Quiet)) { throw "Blocked import changed the inbox path" }
+          $partialBase = "$importBase-partial"
+          python tests/workspace_import_smoke.py "$partialBase" --prepare-only --conflict-case
+          if ($LASTEXITCODE -ne 0) { throw "Partial import fixture preparation failed" }
+          $env:AIKITO_DIR = Join-Path $partialBase "target"
+          python -m aikito import workspace (Join-Path $partialBase "source") --dry-run
+          if ($LASTEXITCODE -ne 2) { throw "Partial preview did not report conflicts" }
+          if (Test-Path (Join-Path $partialBase "target\memory\notes\independent.md")) { throw "Partial preview wrote resources" }
+          python -m aikito import workspace (Join-Path $partialBase "source") --keep-target global-memory:notes/independent.md
+          if ($LASTEXITCODE -ne 2) { throw "Skip import did not report unresolved conflicts" }
+          if (Test-Path (Join-Path $partialBase "target\memory\notes\independent.md")) { throw "Skip import created a skipped resource" }
+          $partialOutput = python -m aikito import workspace (Join-Path $partialBase "source")
+          if ($LASTEXITCODE -ne 2) { throw "Partial import did not report unresolved conflicts" }
+          if (-not ($partialOutput | Select-String -SimpleMatch "[PARTIAL]")) { throw "Partial import did not report applied resources" }
+          foreach ($resource in @("target\memory\notes\independent.md", "target\memory\notes\keep.md")) {
+            if (-not (Test-Path (Join-Path $partialBase $resource))) { throw "Partial import did not preserve or create $resource" }
+          }
+          $choices = @("--keep-target", "global-memory:notes/keep.md", "--keep-target", "global-memory:notes/keep-again.md", "--take-source", "global-memory:notes/take.md", "--take-source", "global-memory:notes/take-again.md")
+          python -m aikito import workspace (Join-Path $partialBase "source") --dry-run @choices
+          if ($LASTEXITCODE -ne 0) { throw "Conflict resolution preview failed" }
+          if (-not (Select-String -Path (Join-Path $partialBase "target\memory\notes\take.md") -SimpleMatch "Target take" -Quiet)) { throw "Resolution preview wrote resources" }
+          python -m aikito import workspace (Join-Path $partialBase "source") @choices
+          if ($LASTEXITCODE -ne 0) { throw "Conflict resolution failed" }
+          foreach ($name in @("keep", "keep-again", "take", "take-again")) {
+            $side = if ($name.StartsWith("keep")) { "Target" } else { "Source" }
+            if (-not (Select-String -Path (Join-Path $partialBase "target\memory\notes\$name.md") -SimpleMatch "$side $name" -Quiet)) { throw "Incorrect conflict resolution for $name" }
+          }
+          $repeatOutput = python -m aikito import workspace (Join-Path $partialBase "source") @choices
+          if ($LASTEXITCODE -ne 0) { throw "Repeated conflict resolution failed" }
+          if (-not ($repeatOutput | Select-String -SimpleMatch "[SUMMARY] CREATE 0, UPDATE 0, CONFLICT 0, BLOCKED 0")) { throw "Repeated conflict resolution was not a no-op" }
+          if (Test-Path (Join-Path $partialBase "target\.local\state\aikito\workspace-transactions\pending.json")) { throw "Partial import left a transaction journal" }
 
       # group=auxiliary: workspace_memory_remote_smoke + local_state_doctor_smoke + workspace_reconcile_boundary_smoke + workspace_payload_smoke
       - name: Auxiliary smoke
@@ -1497,122 +1595,3 @@ jobs:
             }
             if (Test-Path "$crashRoot/local/.local/state/aikito/workspace-reconcile/pending.json") { throw "Unresolved local crash pending: $checkpoint" }
           }
-
-  windows-import-smoke:
-    runs-on: windows-latest
-    env:
-      PYTHONPATH: ${{ github.workspace }}/src
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Optimize Windows Defender for CI
-        shell: pwsh
-        run: |
-          try {
-            Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
-          } catch {}
-          try {
-            Add-MpPreference -ExclusionPath $env:RUNNER_TEMP, $env:GITHUB_WORKSPACE, $env:TEMP, $env:TMP, $HOME, "C:\hostedtoolcache" -ErrorAction SilentlyContinue
-            Add-MpPreference -ExclusionProcess @("python.exe", "git.exe") -ErrorAction SilentlyContinue
-          } catch {}
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Workspace Import Smoke on Windows
-        shell: pwsh
-        run: |
-          $PSNativeCommandUseErrorActionPreference = $false
-          $importBase = Join-Path $env:RUNNER_TEMP "import-smoke"
-          python tests/workspace_import_smoke.py "$importBase" --prepare-only
-          $env:AIKITO_DIR = Join-Path $importBase "target"
-          python -m aikito import workspace (Join-Path $importBase "source") --dry-run
-          if ($LASTEXITCODE -ne 0) { throw "Workspace import dry run failed" }
-          $importVerbose = python -m aikito import workspace (Join-Path $importBase "source") --dry-run --verbose
-          if ($LASTEXITCODE -ne 0) { throw "Verbose workspace import dry run failed" }
-          $importVerbose | Select-String "\[SUMMARY\]"
-          if (-not ($importVerbose | Select-String -SimpleMatch "[UPDATE] skills.toml (skill-selection:import-smoke)")) { throw "Import did not group skills.toml" }
-          if ($importVerbose | Select-String -SimpleMatch "[MERGE]") { throw "Import still reports MERGE" }
-          if (Test-Path (Join-Path $importBase "target\inbox\deep\import-smoke.md")) { throw "Dry run wrote inbox note" }
-          python -m aikito import workspace (Join-Path $importBase "source")
-          if ($LASTEXITCODE -ne 0) { throw "Workspace import failed" }
-          $env:AIKITO_DIR = $wsDir
-          foreach ($resource in @(
-            "target\inbox\deep\import-smoke.md",
-            "target\skills\import-smoke\SKILL.md",
-            "target\subagents\import-smoke.md",
-            "target\mcps\import-smoke.toml",
-            "target\memory\index.md",
-            "target\projects\new-project\agent.toml",
-            "target\projects\new-project\memory\index.md"
-          )) {
-            if (-not (Test-Path (Join-Path $importBase $resource))) {
-              throw "Workspace import did not create $resource"
-            }
-          }
-          if (-not (Select-String -Path (Join-Path $importBase "target\agents\codex.toml") -Pattern "Imported Codex" -Quiet)) { throw "Agent import failed" }
-          if (-not (Select-String -Path (Join-Path $importBase "target\config.toml") -Pattern "stale_days = 90" -Quiet)) { throw "Config import failed" }
-          if (-not (Select-String -Path (Join-Path $importBase "target\global\AGENTS.md") -Pattern "Imported global instructions" -Quiet)) { throw "Global instructions import failed" }
-          $executionBase = "$importBase-execution"
-          python tests/workspace_import_smoke.py "$executionBase" --prepare-only --execution-case
-          if ($LASTEXITCODE -ne 0) { throw "Execution fixture preparation failed" }
-          $env:AIKITO_DIR = Join-Path $executionBase "target"
-          python -m aikito import workspace (Join-Path $executionBase "source")
-          if ($LASTEXITCODE -ne 0) { throw "Resource execution import failed" }
-          foreach ($resource in @("target\notes\inbox\deep\import-smoke.md", "target\config.toml")) {
-            if (-not (Test-Path (Join-Path $executionBase $resource))) { throw "Resource execution did not create $resource" }
-          }
-          if (-not (Select-String -Path (Join-Path $executionBase "target\config.toml") -Pattern "stale_days = 90" -Quiet)) { throw "Shared config field import failed" }
-          if (-not (Select-String -Path (Join-Path $executionBase "target\config.toml") -Pattern "check = false" -Quiet)) { throw "Shared config composition failed" }
-          python -m aikito import workspace (Join-Path $executionBase "source")
-          if ($LASTEXITCODE -ne 0) { throw "Repeated resource execution failed" }
-          if (Test-Path (Join-Path $executionBase "target\.local\state\aikito\workspace-transactions\pending.json")) { throw "Import left a transaction journal" }
-          $blockedBase = "$importBase-blocked-inbox"
-          python tests/workspace_import_smoke.py "$blockedBase" --prepare-only --blocked-inbox-case
-          if ($LASTEXITCODE -ne 0) { throw "Blocked inbox fixture preparation failed" }
-          $env:AIKITO_DIR = Join-Path $blockedBase "target"
-          $blockedPreview = python -m aikito import workspace (Join-Path $blockedBase "source") --dry-run 2>&1
-          if ($LASTEXITCODE -ne 1) { throw "Inbox relocation preview was not blocked" }
-          if (-not ($blockedPreview | Select-String -SimpleMatch "[BLOCKED] config.toml (config:inbox.path)")) { throw "Inbox relocation did not block the configuration field" }
-          if (-not ($blockedPreview | Select-String -SimpleMatch "1 note under inbox/")) { throw "Inbox relocation did not report existing notes" }
-          python -m aikito import workspace (Join-Path $blockedBase "source")
-          if ($LASTEXITCODE -ne 1) { throw "Inbox relocation application was not blocked" }
-          foreach ($resource in @("target\inbox\existing.md", "target\config.toml")) {
-            if (-not (Test-Path (Join-Path $blockedBase $resource))) { throw "Blocked import removed $resource" }
-          }
-          foreach ($resource in @("target\notes\inbox\deep\import-smoke.md", "target\skills\import-smoke\SKILL.md", "target\.local\state\aikito\workspace-transactions\pending.json")) {
-            if (Test-Path (Join-Path $blockedBase $resource)) { throw "Blocked import wrote $resource" }
-          }
-          if (-not (Select-String -Path (Join-Path $blockedBase "target\config.toml") -SimpleMatch 'path = "inbox"' -Quiet)) { throw "Blocked import changed the inbox path" }
-          $partialBase = "$importBase-partial"
-          python tests/workspace_import_smoke.py "$partialBase" --prepare-only --conflict-case
-          if ($LASTEXITCODE -ne 0) { throw "Partial import fixture preparation failed" }
-          $env:AIKITO_DIR = Join-Path $partialBase "target"
-          python -m aikito import workspace (Join-Path $partialBase "source") --dry-run
-          if ($LASTEXITCODE -ne 2) { throw "Partial preview did not report conflicts" }
-          if (Test-Path (Join-Path $partialBase "target\memory\notes\independent.md")) { throw "Partial preview wrote resources" }
-          python -m aikito import workspace (Join-Path $partialBase "source") --keep-target global-memory:notes/independent.md
-          if ($LASTEXITCODE -ne 2) { throw "Skip import did not report unresolved conflicts" }
-          if (Test-Path (Join-Path $partialBase "target\memory\notes\independent.md")) { throw "Skip import created a skipped resource" }
-          $partialOutput = python -m aikito import workspace (Join-Path $partialBase "source")
-          if ($LASTEXITCODE -ne 2) { throw "Partial import did not report unresolved conflicts" }
-          if (-not ($partialOutput | Select-String -SimpleMatch "[PARTIAL]")) { throw "Partial import did not report applied resources" }
-          foreach ($resource in @("target\memory\notes\independent.md", "target\memory\notes\keep.md")) {
-            if (-not (Test-Path (Join-Path $partialBase $resource))) { throw "Partial import did not preserve or create $resource" }
-          }
-          $choices = @("--keep-target", "global-memory:notes/keep.md", "--keep-target", "global-memory:notes/keep-again.md", "--take-source", "global-memory:notes/take.md", "--take-source", "global-memory:notes/take-again.md")
-          python -m aikito import workspace (Join-Path $partialBase "source") --dry-run @choices
-          if ($LASTEXITCODE -ne 0) { throw "Conflict resolution preview failed" }
-          if (-not (Select-String -Path (Join-Path $partialBase "target\memory\notes\take.md") -SimpleMatch "Target take" -Quiet)) { throw "Resolution preview wrote resources" }
-          python -m aikito import workspace (Join-Path $partialBase "source") @choices
-          if ($LASTEXITCODE -ne 0) { throw "Conflict resolution failed" }
-          foreach ($name in @("keep", "keep-again", "take", "take-again")) {
-            $side = if ($name.StartsWith("keep")) { "Target" } else { "Source" }
-            if (-not (Select-String -Path (Join-Path $partialBase "target\memory\notes\$name.md") -SimpleMatch "$side $name" -Quiet)) { throw "Incorrect conflict resolution for $name" }
-          }
-          $repeatOutput = python -m aikito import workspace (Join-Path $partialBase "source") @choices
-          if ($LASTEXITCODE -ne 0) { throw "Repeated conflict resolution failed" }
-          if (-not ($repeatOutput | Select-String -SimpleMatch "[SUMMARY] CREATE 0, UPDATE 0, CONFLICT 0, BLOCKED 0")) { throw "Repeated conflict resolution was not a no-op" }
-          if (Test-Path (Join-Path $partialBase "target\.local\state\aikito\workspace-transactions\pending.json")) { throw "Partial import left a transaction journal" }

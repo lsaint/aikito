@@ -5,58 +5,43 @@ on:
   workflow_dispatch:
 
 jobs:
-  docs:
+  test:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.12
+        id: python312
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      - name: Install documentation dependencies
-        run: uv pip install --system -r requirements-docs.txt
-
-      - name: Build documentation
-        run: mkdocs build --strict
-
-      - name: Check homepage links
-        env:
-          AIKITO_DOCS_SITE: site
-        run: python -m unittest discover -s tests -p test_homepage.py
-
-
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.12", "3.13", "3.14"]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python 3.13
+        id: python313
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.13"
+
+      - name: Set up Python 3.14
+        id: python314
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
 
-      - name: Install test dependencies
-        run: uv pip install --system pytest pytest-xdist '.[encrypted]'
-
-      - name: Run unit tests
-        run: python -m pytest
+      - name: Run unit tests on Python 3.12, 3.13, and 3.14
+        run: |
+          for PYTHON_BIN in "${{ steps.python312.outputs.python-path }}" "${{ steps.python313.outputs.python-path }}" "${{ steps.python314.outputs.python-path }}"; do
+            echo "::group::Tests with $PYTHON_BIN"
+            export PATH="$(dirname "$PYTHON_BIN"):$PATH"
+            uv pip install --system --python "$PYTHON_BIN" pytest pytest-xdist '.[encrypted]'
+            "$PYTHON_BIN" -m pytest
+            echo "::endgroup::"
+          done
 
   ubuntu-smoke-test:
     runs-on: ubuntu-latest

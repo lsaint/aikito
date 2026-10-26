@@ -5,8 +5,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  macos-smoke-test:
     runs-on: macos-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
     steps:
       - uses: actions/checkout@v4
 
@@ -26,31 +28,10 @@ jobs:
       - name: Run macOS unit tests
         run: python -m pytest
 
-  macos-smoke-test:
-    runs-on: macos-latest
-    env:
-      PYTHONPATH: ${{ github.workspace }}/src
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set isolated HOME
+      - name: Set isolated HOME for smoke tests
         run: |
           mkdir -p "${{ runner.temp }}/macos-home"
           echo "HOME=${{ runner.temp }}/macos-home" >> "$GITHUB_ENV"
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      - name: Install smoke test dependencies
-        run: uv pip install --system '.[encrypted]'
 
       - name: Maintenance automatic approval CLI smoke
         run: |
