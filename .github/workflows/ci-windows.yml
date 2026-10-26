@@ -104,6 +104,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install smoke test dependencies
+        run: uv pip install --system '.[encrypted]'
+
       - name: Maintenance automatic approval CLI smoke
         shell: pwsh
         run: |
