@@ -62,7 +62,7 @@ class FaultRemote:
 
 
 @pytest.fixture
-def clients(tmp_path, monkeypatch):
+def clients(tmp_path, monkeypatch, isolated_windows_key_permissions):
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     monkeypatch.delenv("APPDATA", raising=False)
     remote = FaultRemote(InMemoryRemote(SYNC))

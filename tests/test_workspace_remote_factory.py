@@ -194,7 +194,9 @@ def test_pending_store_replacement_stops_before_receipt_lookup(bound):
     )
 
 
-def test_bind_remote_with_recovery_code(tmp_path, monkeypatch):
+def test_bind_remote_with_recovery_code(
+    tmp_path, monkeypatch, isolated_windows_key_permissions
+):
     from aikito.workspace.device_keys import DeviceKeyStore
     from aikito.workspace.encrypted_sync import initialize_encrypted_workspace
     from aikito.workspace.remote_store import RecoveryRequired

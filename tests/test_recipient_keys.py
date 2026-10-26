@@ -9,7 +9,7 @@ from aikito.workspace.remote_wire import _canonical
 
 
 @pytest.fixture
-def recipient(tmp_path, monkeypatch):
+def recipient(tmp_path, monkeypatch, isolated_windows_key_permissions):
     home = tmp_path / "home"
     home.mkdir()
     workspace = tmp_path / "workspace"

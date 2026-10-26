@@ -26,10 +26,6 @@ jobs:
       - name: Run macOS unit tests
         run: python -m pytest
 
-      - name: Verify encrypted optional dependency
-        run: |
-          python -m pytest -n auto tests/test_workspace_encrypted_remote_core.py tests/test_workspace_device_keys.py tests/test_recovery_codes.py tests/test_workspace_native_keys.py tests/test_workspace_encrypted_remote.py tests/test_remote_key_cli.py tests/test_workspace_encrypted_discovery.py tests/test_workspace_encrypted_sync.py tests/test_workspace_scoped_export.py tests/test_workspace_context_export.py tests/test_recipient_keys.py tests/test_remote_export.py
-
   macos-smoke-test:
     runs-on: macos-latest
     env:
@@ -271,6 +267,14 @@ jobs:
           python3 tests/workspace_reconcile_acceptance.py "$ACCEPTANCE"
           test -f "$ACCEPTANCE/moved-left/memory/notes/accepted-base.md"
           test -f "$ACCEPTANCE/right/capture-b/accepted-before-local.md"
+          SERIALIZED_ACCEPTANCE=${{ runner.temp }}/serialized-acceptance
+          python3 tests/workspace_serialized_remote_acceptance.py "$SERIALIZED_ACCEPTANCE"
+          test -f "$SERIALIZED_ACCEPTANCE/checked.txt"
+          for BACKEND in memory filesystem; do
+            test -f "$SERIALIZED_ACCEPTANCE/$BACKEND/moved-left/projects/demo/memory/notes/acceptance.md"
+            test -f "$SERIALIZED_ACCEPTANCE/$BACKEND/right/capture-b/relocated.md"
+          done
+          test ! -e "$SERIALIZED_ACCEPTANCE/memory/center"
           MEMORY_STORE=${{ runner.temp }}/memory-remote-store
           python3 tests/workspace_memory_remote_smoke.py "$MEMORY_STORE"
           test -f "$MEMORY_STORE/moved-left/memory/notes/accepted-base.md"

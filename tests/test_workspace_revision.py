@@ -14,11 +14,6 @@ from aikito.workspace.reconcile import (
 from aikito.workspace.remote import FilesystemRemote
 from aikito.workspace.resource_state import REMOTE_STATE, REPLICA_STATE
 from workspace_reconcile_smoke import _workspace
-from workspace_revision_smoke import exercise
-
-
-def test_revision_state_round_trip(tmp_path):
-    exercise(tmp_path)
 
 
 @pytest.mark.parametrize("target", ["center", "replica"])

@@ -14,20 +14,7 @@ KEY = bytes(range(32))
 
 
 @pytest.fixture
-def store(tmp_path, monkeypatch):
-    # Unit tests isolate OS ACL tooling; the platform smoke exercises real ACLs.
-    if os.name == "nt":
-        monkeypatch.setattr(
-            "aikito.workspace.device_keys.check_credential_permissions",
-            lambda path: (True, "private"),
-        )
-        monkeypatch.setattr(
-            "aikito.workspace.device_keys.secure_file_permissions", lambda path: True
-        )
-        monkeypatch.setattr(
-            "aikito.workspace.device_keys.secure_directory_permissions",
-            lambda path: True,
-        )
+def store(tmp_path, isolated_windows_key_permissions):
     return DeviceKeyStore(tmp_path / "keys", workspace=tmp_path / "workspace")
 
 

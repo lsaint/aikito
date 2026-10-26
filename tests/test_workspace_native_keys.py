@@ -36,7 +36,7 @@ class MemoryNative:
 
 
 @pytest.fixture
-def store(tmp_path):
+def store(tmp_path, isolated_windows_key_permissions):
     home = tmp_path / "home"
     home.mkdir()
     return DeviceKeyStore(tmp_path / "keys", home=home, native=MemoryNative())

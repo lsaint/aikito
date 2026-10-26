@@ -45,11 +45,7 @@ from aikito.workspace.resources import (
 )
 from aikito.workspace.toml_render import TomlValue
 from aikito.workspace.transactions import _copy_resource
-from workspace_payload_smoke import exercise, source_workspace
-
-
-def test_all_resource_kinds_use_portable_payloads_and_shared_files_once(tmp_path):
-    exercise(tmp_path)
+from workspace_payload_smoke import source_workspace
 
 
 @pytest.mark.parametrize(

@@ -12,7 +12,7 @@ from aikito.workspace.encrypted_remote import encode_recovery_code
 
 
 @pytest.fixture
-def location(tmp_path, monkeypatch):
+def location(tmp_path, monkeypatch, isolated_windows_key_permissions):
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     monkeypatch.delenv("APPDATA", raising=False)
     home = tmp_path / "home"

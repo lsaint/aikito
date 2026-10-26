@@ -32,7 +32,7 @@ from aikito.workspace.resource_state import PENDING_COMMIT_STATE
 from workspace_memory_remote import InMemoryRemote
 from workspace_reconcile_backend import files
 from workspace_reconcile_smoke import _workspace
-from workspace_remote_store_smoke import StoreFacade, exercise
+from workspace_remote_store_smoke import StoreFacade
 from workspace_store_setup import publish_batch
 
 
@@ -60,10 +60,6 @@ def mutation(name="one", data=b"one", before=None):
     return ResourceMutation(
         f"global-memory:notes/{name}.md", before, descriptor, payload
     )
-
-
-def test_engine_uses_only_portable_interface(tmp_path):
-    exercise(tmp_path)
 
 
 def test_snapshot_and_fetch_are_immutable_and_readonly(tmp_path):

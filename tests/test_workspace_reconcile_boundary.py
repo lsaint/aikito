@@ -16,12 +16,7 @@ from aikito.workspace.remote import (
 from aikito.workspace.resources import SKILL_FINGERPRINT_SCHEME
 from aikito.workspace.transactions import WorkspaceCoreError
 from workspace_reconcile_backend import FilesystemBackend, files
-from workspace_reconcile_boundary_smoke import exercise
 from workspace_reconcile_smoke import _workspace
-
-
-def test_cross_platform_skill_round_trip_and_legacy_refusal(tmp_path: Path):
-    exercise(tmp_path)
 
 
 @pytest.mark.parametrize("target", ["center", "replica"])
