@@ -455,7 +455,9 @@ def test_multiple_copy_projects_scan_baseline(project, record_property):
         checkout = p.ws.parent / f"checkout-{number}"
         checkout.mkdir()
         (definition / "agent.toml").write_text(
-            p.config.read_text().replace(str(p.checkout), str(checkout)),
+            p.config.read_text().replace(
+                json.dumps(str(p.checkout)), json.dumps(str(checkout))
+            ),
             encoding="utf-8",
         )
         assert sync_project(p.ws, p.home, definition.name)
@@ -647,7 +649,8 @@ def test_doctor_cleans_proven_obsolete_approval(project, tmp_path, obsolete):
         p.checkout.rename(tmp_path / "moved-checkout")
         p.config.write_text(
             p.config.read_text().replace(
-                str(p.checkout), str(tmp_path / "moved-checkout")
+                json.dumps(str(p.checkout)),
+                json.dumps(str(tmp_path / "moved-checkout")),
             ),
             encoding="utf-8",
         )
