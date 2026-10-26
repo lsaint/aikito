@@ -6,6 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.61.0] - 2026-10-26
+
+### Added
+
+- Added automatic project checkout reconciliation for approved local checkouts in background sync and `aikito remote sync --apply`.
+- Added host-local project checkout approval mechanism (`aikito sync` or `aikito sync project <name>` automatically grants approval).
+- Added `sync_trigger = "auto"` (default) / `"manual"` project configuration in `agent.toml` to control checkout auto-apply.
+- Added project approval and auto-apply status reporting in `aikito status`, `aikito show project`, and `aikito doctor`.
+- Added automatic tool approval configuration (`auto_approve_args`) for maintenance agent runners (`agy`, `claude-code`, `codex`, `dsh`, `github-copilot`, `grok`, `opencode`).
+- Added guided agent prompts and workflows for Aikito Cloud synchronization setup, connecting secondary machines, and ChatGPT MCP integration.
+
+### Changed
+
+- Refined memory maintenance instructions to perform read-only inspection without repeated permission prompts and require explicit user confirmation before applying proposed changes.
+
 ## [1.60.1] - 2026-10-22
 
 ### Fixed
@@ -1194,7 +1209,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.60.1...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.61.0...HEAD
+[1.61.0]: https://github.com/lsaint/aikito/compare/v1.60.1...v1.61.0
 [1.60.1]: https://github.com/lsaint/aikito/compare/v1.60.0...v1.60.1
 [1.60.0]: https://github.com/lsaint/aikito/compare/v1.59.0...v1.60.0
 [1.59.0]: https://github.com/lsaint/aikito/compare/v1.58.2...v1.59.0
