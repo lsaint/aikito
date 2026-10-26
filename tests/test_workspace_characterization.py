@@ -406,6 +406,10 @@ def test_unmodified_older_template_adopts_source(tmp_path: Path) -> None:
     target = _workspace(tmp_path / "target")
     older = (
         load_template("agents/codex.toml")
+        .replace(
+            'auto_approve_args = ["--approve-for-me", "--add-dir", "{workspace}"]\n',
+            "",
+        )
         .replace('builtin_mcps = ["openaiDeveloperDocs"]\n', "")
         .replace(
             '[agents.codex.detect]\ncommands = ["codex"]\npaths = [".codex"]\n\n', ""

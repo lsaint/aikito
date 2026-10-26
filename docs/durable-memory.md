@@ -232,7 +232,14 @@ aikito maintain memory example --agent codex
 `.` selects the project containing the current directory. The Agent first
 proposes updates, merges, moves, or retirements and waits for confirmation
 before changing files. This semantic review complements `aikito doctor`, which
-checks structure and freshness signals.
+checks structure and freshness signals. Built-in runners automatically approve tool
+use during maintenance by default, so routine inspection does not repeatedly ask
+for permission. The Agent reports review coverage and unresolved questions in one proposal.
+Confirmation is required once before applying the plan; changes outside the selected
+scope require explicit approval. If interactive follow-up is unavailable, the Agent
+returns the proposal and stops. See the
+[runner configuration](cli-reference.md#python-api) for per-Agent behavior and how
+to disable automatic approval.
 
 Complete-scope review consumes model usage in proportion to the number and size
 of notes. Run it selectively and prefer a capable reasoning model. Runner

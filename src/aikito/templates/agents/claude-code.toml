@@ -13,6 +13,8 @@ paths = [".claude"]
 
 [agents.claude-code.runner]
 command = ["claude", "{prompt}"]
+# End with a scalar option so variadic --add-dir cannot consume the prompt.
+auto_approve_args = ["--add-dir", "{workspace}", "--permission-mode", "auto"]
 
 [agents.claude-code.subagents]
 config_path = ".claude/agents"

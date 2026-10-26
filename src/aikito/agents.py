@@ -329,6 +329,7 @@ class RunnerCapability:
 
     command: tuple[str, ...]
     env: dict[str, str]
+    auto_approve_args: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -444,7 +445,23 @@ def _load_runner_capability(
         raise AgentRegistryError(
             f"Agent '{name}' has invalid runner.env in {config_path}"
         )
-    return RunnerCapability(tuple(command), configured_env)
+    # Existing workspaces inherit defaults only for the bundled executable.
+    # A custom launcher must declare its own supported approval arguments.
+    bundled_runner = bundled_agent_spec(name).get("runner", {})
+    bundled_command = bundled_runner.get("command", [])
+    default_args = (
+        bundled_runner.get("auto_approve_args", [])
+        if bundled_command and command[0] == bundled_command[0]
+        else []
+    )
+    auto_approve_args = runner.get("auto_approve_args", default_args)
+    if not isinstance(auto_approve_args, list) or not all(
+        isinstance(arg, str) and arg for arg in auto_approve_args
+    ):
+        raise AgentRegistryError(
+            f"Agent '{name}' has invalid runner.auto_approve_args in {config_path}"
+        )
+    return RunnerCapability(tuple(command), configured_env, tuple(auto_approve_args))
 
 
 def _build_agent_definition(

@@ -13,6 +13,7 @@ paths = [".gemini/config"]
 
 [agents.agy.runner]
 command = ["agy", "--prompt-interactive", "{prompt}"]
+auto_approve_args = ["--mode", "auto", "--add-dir", "{workspace}"]
 
 [agents.agy.subagents]
 config_path = ".gemini/config/agents"

@@ -104,6 +104,16 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Maintenance automatic approval CLI smoke
+        shell: pwsh
+        run: |
+          $maintenanceBase = Join-Path $env:RUNNER_TEMP "maintenance-approval"
+          python tests/maintenance_cli_smoke.py "$maintenanceBase"
+          if ($LASTEXITCODE -ne 0) { throw "Maintenance approval smoke failed" }
+          if (!(Test-Path "$maintenanceBase/auto-approved.json")) { throw "Missing approval evidence" }
+          if (!(Test-Path "$maintenanceBase/checked.txt")) { throw "Missing maintenance check" }
+          if (!(Test-Path "$maintenanceBase/workspace with spaces/agents/pi.toml")) { throw "Missing Pi runner" }
+
       - name: HTTPS recipient trust CLI smoke without optional dependencies
         shell: pwsh
         run: |

@@ -357,14 +357,42 @@ of them. Use `global` or a registered project name to select another scope, and
 `--agent` to choose `codex`, `claude-code`, `agy`, `opencode`, or
 `github-copilot`.
 Custom Agents can define `[agents.<name>.runner]` with a `command` array.
-Supported placeholders are `{prompt}`, `{workdir}`, `{scope}`, and
-`{memory_dir}`. Optional `[agents.<name>.runner.env]` string values override
-the inherited process environment and support the same placeholders:
+Supported placeholders are `{prompt}`, `{workdir}`, `{scope}`, `{memory_dir}`,
+and `{workspace}` (the canonical workspace directory).
+Optional `[agents.<name>.runner.env]` string values override the inherited process
+environment and support the same placeholders:
 
 ```toml
 [agents.codex.runner.env]
 HTTPS_PROXY = "http://127.0.0.1:1234"
 ```
+
+Maintenance launches built-in runners with automatic tool approval by default.
+Codex uses automatic approval review, Claude Code and Grok use their `auto`
+permission modes, AGY uses `--mode auto`, and OpenCode uses `--auto` (explicit
+permission denials still apply). Copilot uses `--allow-all`; DSH headless uses
+`danger-full-access` with approval policy `never`, which disables its file sandbox.
+Pi's core already executes tools without approval prompts. Its bundled runner
+uses interactive mode so you can confirm the maintenance proposal; remove `-p`
+from older Pi runner configurations to enable follow-up. Use an Agent version
+that supports these options; Aikito does not retry with weaker permissions if an
+option is rejected. Initial sign-in or workspace trust may still require interaction.
+The maintenance proposal still requires your confirmation before any file changes.
+
+`runner.auto_approve_args` is an array of arguments inserted immediately after the
+executable and supports the placeholders above. Existing built-in runner
+configurations inherit the bundled defaults when they use the original executable.
+Custom launchers declare their own arguments. To keep an Agent's normal permission
+behavior, set an empty array in its workspace definition:
+
+```toml
+[agents.codex.runner]
+command = ["codex", "-C", "{workdir}", "{prompt}"]
+auto_approve_args = []
+```
+
+These settings apply to the launched maintenance process and do not change the
+Agent's global configuration.
 
 Runner environment values belong to the user workspace and must not be added to
 the source repository. Keep only safe commented examples in source-controlled

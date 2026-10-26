@@ -13,6 +13,7 @@ paths = [".config/opencode"]
 
 [agents.opencode.runner]
 command = ["opencode", "{workdir}", "--prompt", "{prompt}"]
+auto_approve_args = ["--auto"]
 
 [agents.opencode.subagents]
 config_path = ".config/opencode/agents"

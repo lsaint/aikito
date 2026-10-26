@@ -13,6 +13,7 @@ paths = [".copilot"]
 
 [agents.github-copilot.runner]
 command = ["copilot", "-C", "{workdir}", "-i", "{prompt}"]
+auto_approve_args = ["--allow-all"]
 
 [agents.github-copilot.subagents]
 config_path = ".copilot/agents"

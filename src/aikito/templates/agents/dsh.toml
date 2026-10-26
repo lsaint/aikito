@@ -13,6 +13,7 @@ paths = [".dsh"]
 
 [agents.dsh.runner]
 command = ["dsh", "--profile", "headless", "{prompt}"]
+auto_approve_args = ["--permission-mode", "danger-full-access", "--approval-policy", "never"]
 
 [agents.dsh.subagents]
 config_path = ".dsh/cordis.patch.yml"

@@ -1434,6 +1434,13 @@ jobs:
           curl --fail --silent http://127.0.0.1:8765/api/overview | \
             python3 -c 'import json, sys; data = json.load(sys.stdin); assert data["version"]'
 
+      - name: Maintenance automatic approval CLI smoke
+        run: |
+          python3 tests/maintenance_cli_smoke.py "${{ runner.temp }}/maintenance-approval"
+          test -f "${{ runner.temp }}/maintenance-approval/auto-approved.json"
+          test -f "${{ runner.temp }}/maintenance-approval/checked.txt"
+          test -f "${{ runner.temp }}/maintenance-approval/workspace with spaces/agents/pi.toml"
+
       - name: aikito memory maintenance validation
         run: |
           if AIKITO_DIR=${{ runner.temp }}/aikito-ws \

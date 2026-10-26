@@ -13,6 +13,7 @@ paths = [".grok"]
 
 [agents.grok.runner]
 command = ["grok", "--cwd", "{workdir}", "-p", "{prompt}"]
+auto_approve_args = ["--permission-mode", "auto"]
 
 [agents.grok.subagents]
 config_path = ".grok/agents"

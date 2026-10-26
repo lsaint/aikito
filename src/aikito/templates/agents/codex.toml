@@ -13,6 +13,7 @@ paths = [".codex"]
 
 [agents.codex.runner]
 command = ["codex", "-C", "{workdir}", "{prompt}"]
+auto_approve_args = ["--approve-for-me", "--add-dir", "{workspace}"]
 
 # Local runner environment overrides are omitted from open-source exports.
 # [agents.codex.runner.env]

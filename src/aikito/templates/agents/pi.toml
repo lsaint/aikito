@@ -18,7 +18,8 @@ commands = ["pi"]
 paths = [".pi"]
 
 [agents.pi.runner]
-command = ["pi", "-p", "{prompt}"]
+command = ["pi", "{prompt}"]
+auto_approve_args = []
 
 [agents.pi.subagents]
 config_path = ".pi/agent/agents"

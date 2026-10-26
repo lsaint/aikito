@@ -1,8 +1,9 @@
-from layout_helpers import write_agents
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+from layout_helpers import write_agents
 
 from aikito.maintain import (
     MemoryMaintenanceError,
@@ -192,6 +193,113 @@ command = ["copilot", "-C", "{workdir}", "-i", "{prompt}"]
             },
         )
 
+    @patch("aikito.maintain.subprocess.run")
+    def test_existing_builtin_runners_auto_approve_by_default(self, run_mock) -> None:
+        run_mock.return_value.returncode = 0
+        cases = {
+            "codex": (
+                "codex",
+                ["--approve-for-me", "--add-dir", str(self.aikito_dir.resolve())],
+            ),
+            "claude-code": (
+                "claude",
+                [
+                    "--add-dir",
+                    str(self.aikito_dir.resolve()),
+                    "--permission-mode",
+                    "auto",
+                ],
+            ),
+            "agy": (
+                "agy",
+                ["--mode", "auto", "--add-dir", str(self.aikito_dir.resolve())],
+            ),
+            "opencode": ("opencode", ["--auto"]),
+            "github-copilot": ("copilot", ["--allow-all"]),
+            "grok": ("grok", ["--permission-mode", "auto"]),
+            "dsh": (
+                "dsh",
+                [
+                    "--permission-mode",
+                    "danger-full-access",
+                    "--approval-policy",
+                    "never",
+                ],
+            ),
+            "pi": ("pi", []),
+        }
+        for name, (binary, flags) in cases.items():
+            with self.subTest(agent=name):
+                write_agents(
+                    self.aikito_dir,
+                    f'[agents.{name}.runner]\ncommand = ["{binary}", "{{prompt}}"]\n',
+                )
+                with patch("aikito.maintain.resolve_executable", side_effect=list):
+                    run_memory_maintenance(self.aikito_dir, "example", name, self.root)
+                command = run_mock.call_args.args[0]
+                self.assertEqual(command[:-1], [binary, *flags])
+                self.assertIn("until the user confirms the proposal", command[-1])
+                self.assertIn("Do not push", command[-1])
+
+    @patch("aikito.maintain.subprocess.run")
+    def test_runner_can_override_or_disable_auto_approval(self, run_mock) -> None:
+        run_mock.return_value.returncode = 0
+        for args, expected in (
+            ("[]", []),
+            (
+                '["--custom-auto", "{workspace}"]',
+                ["--custom-auto", str(self.aikito_dir.resolve())],
+            ),
+        ):
+            with self.subTest(args=args):
+                write_agents(
+                    self.aikito_dir,
+                    f"""[agents.codex.runner]
+command = ["codex", "{{prompt}}"]
+auto_approve_args = {args}
+""",
+                )
+                with patch("aikito.maintain.resolve_executable", side_effect=list):
+                    run_memory_maintenance(
+                        self.aikito_dir, "global", "codex", self.root
+                    )
+                self.assertEqual(run_mock.call_args.args[0][:-1], ["codex", *expected])
+
+    def test_custom_launcher_does_not_inherit_builtin_arguments(self) -> None:
+        self.assertEqual(
+            load_agent_runner(self.aikito_dir, "codex").auto_approve_args, ()
+        )
+
+    def test_rejects_invalid_auto_approval_arguments(self) -> None:
+        for args in ('"--auto"', "[1]", '[""]'):
+            with self.subTest(args=args):
+                write_agents(
+                    self.aikito_dir,
+                    f"""[agents.custom.runner]
+command = ["custom"]
+auto_approve_args = {args}
+""",
+                )
+                with self.assertRaisesRegex(
+                    MemoryMaintenanceError, "invalid runner.auto_approve_args"
+                ):
+                    load_agent_runner(self.aikito_dir, "custom")
+
+    @patch("aikito.maintain.subprocess.run")
+    def test_rejects_unknown_approval_placeholder_before_launch(self, run_mock) -> None:
+        write_agents(
+            self.aikito_dir,
+            """[agents.custom.runner]
+command = ["custom"]
+auto_approve_args = ["{unknown}"]
+""",
+        )
+        with self.assertRaisesRegex(
+            MemoryMaintenanceError, "Invalid runner placeholder"
+        ):
+            run_memory_maintenance(self.aikito_dir, "global", "custom", self.root)
+        run_mock.assert_not_called()
+
     def test_rejects_unconfigured_agent(self) -> None:
         with self.assertRaisesRegex(MemoryMaintenanceError, "not found"):
             load_agent_runner(self.aikito_dir, "unknown")
@@ -262,8 +370,19 @@ INVALID = 1
         scope = resolve_memory_maintenance_scope(self.aikito_dir, "example", self.root)
         prompt = build_memory_maintenance_prompt(scope)
 
-        self.assertIn("repair affected indices and wikilinks", prompt)
+        self.assertIn("Repair affected wikilinks", prompt)
         self.assertIn("Do not push", prompt)
         self.assertIn("relevant canonical skills and instructions", prompt)
-        self.assertIn("ask the user to decide", prompt)
+        self.assertIn("Collect unresolved questions", prompt)
         self.assertIn("Do not modify skills or instructions", prompt)
+        self.assertIn("without repeated permission requests", prompt)
+        self.assertIn("number of notes reviewed", prompt)
+        self.assertIn("unread or unverified notes", prompt)
+        self.assertIn("obtain explicit approval for those files", prompt)
+        self.assertIn(
+            "Tool auto-approval does not count as proposal confirmation", prompt
+        )
+        self.assertIn("interactive follow-up is unavailable", prompt)
+        self.assertIn("without asking for each operation", prompt)
+        self.assertIn("ask before proceeding", prompt)
+        self.assertIn("Do not create or maintain a separate memory index", prompt)

@@ -8,6 +8,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from layout_helpers import write_agents
+
 from aikito.agents import (
     Agent,
     AgentDefinition,
@@ -23,7 +25,6 @@ from aikito.agents import (
 )
 from aikito.subagent import SubagentConfigError, load_all_agents
 from aikito.templating import load_agents_template
-from layout_helpers import write_agents
 
 
 class AgentsModelTests(unittest.TestCase):
@@ -469,6 +470,25 @@ def _definition(
         "subagents": subagents,
         "runner": runner,
     }
+    if runner is not None:
+        approval_args = {
+            "codex": ("--approve-for-me", "--add-dir", "{workspace}"),
+            "claude-code": ("--add-dir", "{workspace}", "--permission-mode", "auto"),
+            "agy": ("--mode", "auto", "--add-dir", "{workspace}"),
+            "opencode": ("--auto",),
+            "github-copilot": ("--allow-all",),
+            "grok": ("--permission-mode", "auto"),
+            "dsh": (
+                "--permission-mode",
+                "danger-full-access",
+                "--approval-policy",
+                "never",
+            ),
+        }
+        expected["runner"] = {
+            **runner,
+            "auto_approve_args": approval_args.get(name, ()),
+        }
     expected.update(fields)
     if mcp is not None:
         expected["mcp"] = {
@@ -670,7 +690,7 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
                     "requires_path": resolved_home
                     / ".pi/agent/extensions/subagent/index.ts",
                 },
-                runner={"command": ("pi", "-p", "{prompt}"), "env": {}},
+                runner={"command": ("pi", "{prompt}"), "env": {}},
             ),
         }
         self.assertEqual(self._load(), expected)

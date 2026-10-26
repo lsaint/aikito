@@ -154,19 +154,17 @@ def build_memory_maintenance_prompt(scope: MemoryMaintenanceScope) -> str:
 Selected scope: {scope.name}
 Canonical memory directory: {scope.memory_dir}
 
-For this task, review the complete selected scope rather than maintaining memory only opportunistically.
+For this task, review the complete selected scope. Inspect every note under notes/ and relevant inbound wikilinks for accuracy, durability, duplication, ownership, naming, and continued value. Use current code, configuration, documentation, and Git history to verify claims; age alone does not justify retirement.
 
-Inspect every memory note in the scope and relevant inbound wikilinks. Evaluate each note for accuracy, durability, duplication, scope ownership, naming, and continued decision value.
+Compare notes with relevant canonical skills and instructions. Keep procedures in skills, rules in instructions, and durable decisions and rationale in memory. Do not modify skills or instructions. Preserve unrelated user changes.
 
-Use current code, configuration, documentation, and Git history when needed to verify claims. Do not treat age alone as evidence that a note is obsolete. Preserve unrelated user changes.
+Perform read-only inspection without repeated permission requests. Present one concise proposal with affected files and reasons, grouping updates, merges, moves, retirements, and wikilink repairs as needed. Report the number of notes reviewed, any unread or unverified notes, and whether meaningful maintenance is needed. Collect unresolved questions for the user in this proposal.
 
-Also compare notes with relevant canonical skills and instructions. Treat duplicated or conflicting operational guidance as a maintenance issue. Keep reusable procedures in skills, binding rules in instructions, and retain in memory only durable decisions, rationale, or constraints not readily available from those sources. Resolve conflicts using current code, configuration, documentation, tests, or Git history when they provide sufficient evidence. When a conflict cannot be verified objectively, present the alternatives and ask the user to decide. Do not modify skills or instructions as part of this workflow; report any required upstream correction separately.
+Limit changes to the selected scope. Separately identify moves or wikilink repairs that require changes outside it, and obtain explicit approval for those files.
 
-Propose the smallest set of meaningful changes. Group the proposal into update, merge, move, retire, and wikilink repair. For every proposed change, explain the reason and identify the affected files. Explicitly report when no meaningful maintenance is needed.
+Do not modify files, stage changes, or create commits until the user confirms the proposal. Tool auto-approval does not count as proposal confirmation. If interactive follow-up is unavailable, return the proposal and stop.
 
-Do not modify files, stage changes, or create commits until the user confirms the proposal.
-
-After confirmation, apply only the approved changes, repair affected indices and wikilinks, verify memory integrity, and follow the durable-memory skill's Git commit rules. Do not push.
+After confirmation, apply the approved changes without asking for each operation. If new findings require expanding the approved plan, ask before proceeding. Repair affected wikilinks, verify memory integrity, and follow the durable-memory skill's Git commit rules. Do not create or maintain a separate memory index. Do not push.
 """
 
 
@@ -181,9 +179,11 @@ def run_memory_maintenance(
         "scope": scope.name,
         "workdir": str(scope.workdir),
         "memory_dir": str(scope.memory_dir),
+        "workspace": str(aikito_dir.resolve()),
     }
     try:
         command = [part.format_map(values) for part in runner.command]
+        command[1:1] = [arg.format_map(values) for arg in runner.auto_approve_args]
         configured_env = {
             key: value.format_map(values) for key, value in runner.env.items()
         }

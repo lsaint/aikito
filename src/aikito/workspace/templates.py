@@ -11,6 +11,7 @@ from __future__ import annotations
 TEMPLATE_HISTORY: dict[str, frozenset[str]] = {
     "agent:agy": frozenset(
         {
+            "27fcdf8eae7672f481f21542ba716f17d7578ffed28a8348e53f9f89b29a3d2c",
             "ec9a2d0c0c1139cc3d5e9229327f77134c18cc77ec876d7ee09c30e3c5c1048a",
             "0dde0f81a02e2106757b30b25fdc6ac83fd8401f5835391937105d37c4eb5dc4",
             "2336508d79dcfc01e78936381ba2e816ccb1fcaa71061ee9aca517a06bc2d654",
@@ -20,6 +21,7 @@ TEMPLATE_HISTORY: dict[str, frozenset[str]] = {
     ),
     "agent:claude-code": frozenset(
         {
+            "c8bc8fd22b58992d56c667cc523d9e7a41a8a5adff184afb0336b408ac44aaf8",
             "1f1a74e382c547bc5d6eb40cf8acc534465eccef262082c4d20a07f18adcf69a",
             "25eee038667d050e648efd53a4996f887d97c7fbb0ce88913d041ff13063fe39",
             "73eecae61454a3c7287b20dc5f50678a73f65d80fe138852b11f02f68225247e",
@@ -28,6 +30,7 @@ TEMPLATE_HISTORY: dict[str, frozenset[str]] = {
     ),
     "agent:codex": frozenset(
         {
+            "aed8b1fa17adda6adcdf7d702e1c1b97cf924ab0b67619e31196a34fb6babeb1",
             "13848ef232de0f320a4295f73cfd5ce1704ef1a0e6c9ede76466047dd3d086a9",
             "1cc5ca571a702bde460d7f3c3a377e18d0a5d2b03c47380c12ebe25b426dd342",
             "8ccb59ad2fa0f430f80fb79e3b3d182a9e8deced0acd0c4e74e5e1ac0dda5801",
@@ -38,6 +41,7 @@ TEMPLATE_HISTORY: dict[str, frozenset[str]] = {
     ),
     "agent:dsh": frozenset(
         {
+            "c1050f9a2738b79360becf9fb0d156bca6dbce0a33c1a767aee88c099da297f1",
             "6f5dd68f62e6272d7a4ff2f3e3e3ce7e193e13eb8e934c3b01fe8ea31f9a003b",
             "18f60ad83a516cf6e77000716be182bcf6c97f1e6176ad3b652ccb6af0cbb64b",
             "da4352d6f08c5aa97e5e41215d9122e4388d8945156653a2f564a0e483d46f7f",
@@ -45,6 +49,7 @@ TEMPLATE_HISTORY: dict[str, frozenset[str]] = {
     ),
     "agent:github-copilot": frozenset(
         {
+            "aceea11e07e70b3d32adc3c1f9767673d3ebc1e1ae96116c9d60b4c613bd07ad",
             "14be82de732f553e567659d91832b6153cacb8ee1a927f4da3f4894ee3c601b7",
             "4b5edc25501b559f05f311b5a442d113c3cbebd80535c1b63ecc9e6863611114",
             "ebaa55297b4ecb5d6bed610af1f193340c528021a3aadee5d7d6057b74f88605",
@@ -53,6 +58,7 @@ TEMPLATE_HISTORY: dict[str, frozenset[str]] = {
     ),
     "agent:grok": frozenset(
         {
+            "277aa04c7ba21e2938d0aa80ac0bf9d27a1b2630954b066fda97366b1542f40f",
             "bac2eab68f77e239497bf15b3b60dbcbfd0161355e1383f2c1a7af09544d5942",
             "60d82e16609a3700e0db069534cf6465e606dec6ef297887b0b234c6c09de035",
             "3507642b8e5648502fb315cf6f75c152b6047672daccb251b0acfd5f8cc7268b",
@@ -60,6 +66,7 @@ TEMPLATE_HISTORY: dict[str, frozenset[str]] = {
     ),
     "agent:opencode": frozenset(
         {
+            "799ec4f37c7b1c9165c1ad628a660d6ec28f4d7132db5cd0122bce232110a286",
             "3b4e0dd8b5803d383e99a8f67a38deb67346f6bd81f77751637ac2c65f0fef98",
             "1a1244ef498b633ddd0b5b120832a79affa4a5b99264f9b61e6d2073b71ae1b7",
             "3a7a6e69763080d88a30d7e334da797cb237dab1502fb8685e30621f4a7601fa",
@@ -70,6 +77,8 @@ TEMPLATE_HISTORY: dict[str, frozenset[str]] = {
     ),
     "agent:pi": frozenset(
         {
+            "28f6f0c69b3c63dabea02939c9a1bf87b82c9e90193bf9e6b1d860a35a7834f6",
+            "0a50c4ef05ee7219d991eff4f0abb9e184875ffba5f5d1ea993caf2a4b49f812",
             "89f07ad98ed831fc86f6ff59364d696995412d9e5b927aae917009f7f4a50435",
             "04048d1ffc19fc0fae4bf67be91bba49d5a6774329aa4d228fe7766fc3e9d419",
             "fdaf25e66dd2cee4e637962334d11860dbcd5b7634a56295c0d7def0018ac422",

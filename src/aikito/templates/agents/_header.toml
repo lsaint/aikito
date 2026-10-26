@@ -5,3 +5,5 @@
 # skills_path, MCP, subagents, and runner configuration.
 #
 # mcps/*.toml's `agents = [...]` values must reference these file names.
+# Maintenance automatically adds runner.auto_approve_args after the executable.
+# Built-in executables inherit bundled defaults; set [] to use normal permissions.
