@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: ["core", "workspace", "workspace-remote", "workspace-reconcile", "reconcile-resources", "reconcile-resolution"]
+        group: ["core-cli", "core-misc", "workspace", "workspace-remote", "workspace-reconcile", "reconcile-resources", "reconcile-resolution"]
 
     steps:
       - uses: actions/checkout@v4
@@ -40,10 +40,15 @@ jobs:
       - name: Install test dependencies
         run: uv pip install --system pytest pytest-xdist '.[encrypted]'
 
-      - name: Run core unit tests
-        if: matrix.group == 'core'
+      - name: Run core CLI unit tests
+        if: matrix.group == 'core-cli'
         shell: pwsh
-        run: python -m pytest -n auto --basetemp="$env:RUNNER_TEMP\pytest" '--ignore-glob=tests/test_workspace*.py' '--ignore=tests/test_remote_service.py'
+        run: python -m pytest -n auto --basetemp="$env:RUNNER_TEMP\pytest" tests/test_cli.py tests/test_add.py tests/test_doctor.py tests/test_status.py tests/test_adopt.py tests/test_remove.py
+
+      - name: Run core misc unit tests
+        if: matrix.group == 'core-misc'
+        shell: pwsh
+        run: python -m pytest -n auto --basetemp="$env:RUNNER_TEMP\pytest" '--ignore-glob=tests/test_workspace*.py' '--ignore=tests/test_remote_service.py' '--ignore=tests/test_cli.py' '--ignore=tests/test_add.py' '--ignore=tests/test_doctor.py' '--ignore=tests/test_status.py' '--ignore=tests/test_adopt.py' '--ignore=tests/test_remove.py'
 
       - name: Run workspace unit tests
         if: matrix.group == 'workspace'
@@ -59,7 +64,7 @@ jobs:
         if: matrix.group == 'workspace-remote'
         run: |
           uv pip install --system '.[encrypted]'
-          python -m pytest tests/test_workspace_encrypted_remote_core.py tests/test_workspace_device_keys.py tests/test_recovery_codes.py tests/test_workspace_native_keys.py tests/test_workspace_encrypted_remote.py tests/test_remote_key_cli.py tests/test_workspace_encrypted_discovery.py tests/test_workspace_encrypted_sync.py tests/test_workspace_scoped_export.py tests/test_workspace_context_export.py tests/test_recipient_keys.py tests/test_remote_export.py
+          python -m pytest -n auto --basetemp="$env:RUNNER_TEMP\pytest" tests/test_workspace_encrypted_remote_core.py tests/test_workspace_device_keys.py tests/test_recovery_codes.py tests/test_workspace_native_keys.py tests/test_workspace_encrypted_remote.py tests/test_remote_key_cli.py tests/test_workspace_encrypted_discovery.py tests/test_workspace_encrypted_sync.py tests/test_workspace_scoped_export.py tests/test_workspace_context_export.py tests/test_recipient_keys.py tests/test_remote_export.py
 
       - name: Run workspace remote and protocol unit tests
         if: matrix.group == 'workspace-remote'
@@ -1083,7 +1088,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: ["core", "acceptance", "auxiliary", "network-safety"]
+        group: ["core", "acceptance", "auxiliary", "remote-services", "network-safety"]
     env:
       PYTHONPATH: ${{ github.workspace }}/src
     steps:
@@ -1322,6 +1327,34 @@ jobs:
           }
           if (Test-Path (Join-Path $remoteCliBase "ws_b/skills/smoke-skill/empty")) { throw "Empty skill directory was synced" }
           if (Select-String -Path (Join-Path $remoteCliBase "ws_a/.local/state/aikito/workspace-reconcile/binding.json") -SimpleMatch "remote-cli-smoke-secret" -Quiet) { throw "Binding contains credential value" }
+          $localStateBase = Join-Path $env:RUNNER_TEMP "local-state-doctor"
+          python tests/local_state_doctor_smoke.py "$localStateBase"
+          if ($LASTEXITCODE -ne 0) { throw "Local state doctor smoke failed" }
+          if (!(Test-Path "$localStateBase/checked.json" -PathType Leaf)) { throw "Missing local state doctor report" }
+          if (!(Get-ChildItem "$localStateBase/home/.local/state/aikito/project-skills" -Filter "*.json" -File)) { throw "Missing preserved local skill state" }
+          $boundaryBase = Join-Path $env:RUNNER_TEMP "reconcile-boundary"
+          python tests/workspace_reconcile_boundary_smoke.py "$boundaryBase"
+          if ($LASTEXITCODE -ne 0) { throw "Remote Store Boundary mode smoke failed" }
+          $payloadBase = Join-Path $env:RUNNER_TEMP "workspace-payload"
+          python tests/workspace_payload_smoke.py "$payloadBase"
+          if ($LASTEXITCODE -ne 0) { throw "Portable resource payload smoke failed" }
+          foreach ($relative in @("target/skills/portable/SKILL.md", "target/skills/portable/run.sh", "target/capture/payload.md", "target/config.toml", "target/projects/demo/agent.toml")) {
+            if (!(Test-Path (Join-Path $payloadBase $relative) -PathType Leaf)) { throw "Missing payload resource: $relative" }
+          }
+          if (Test-Path "$payloadBase/target/skills/portable/empty") { throw "Payload synced an empty directory" }
+          foreach ($relative in @("left/skills/portable/SKILL.md", "right/skills/portable/SKILL.md", "center/.local/state/aikito/workspace-reconcile/remote.json", "left/.local/state/aikito/workspace-reconcile/replica.json")) {
+            if (!(Test-Path (Join-Path $boundaryBase $relative) -PathType Leaf)) { throw "Missing boundary resource: $relative" }
+          }
+          if (Test-Path "$boundaryBase/left/skills/portable/run.sh" -PathType Leaf) { throw "Deleted executable returned after sync" }
+          if (Test-Path "$boundaryBase/right/skills/portable/run.sh" -PathType Leaf) { throw "Deleted executable remained in source replica" }
+          if (Test-Path "$boundaryBase/right/skills/portable/empty") { throw "Portable sync created an empty directory" }
+          if (!(Test-Path "$boundaryBase/right/skills/portable/.aikito-executable.json" -PathType Leaf)) { throw "Missing executable metadata" }
+
+      - name: Remote services smoke
+        if: matrix.group == 'remote-services'
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
           $remoteWatchBase = Join-Path $env:RUNNER_TEMP "remote-watch-smoke"
           python tests/workspace_remote_watch_smoke.py "$remoteWatchBase"
           if ($LASTEXITCODE -ne 0) { throw "Remote watch smoke failed" }
@@ -1360,28 +1393,6 @@ jobs:
             if (!(Test-Path (Join-Path $serializedBase $relative) -PathType Leaf)) { throw "Missing serialized resource: $relative" }
           }
           if (Test-Path "$serializedBase/left/.local/state/aikito/workspace-reconcile/pending.json") { throw "Serialized recovery left a pending commit" }
-          $localStateBase = Join-Path $env:RUNNER_TEMP "local-state-doctor"
-          python tests/local_state_doctor_smoke.py "$localStateBase"
-          if ($LASTEXITCODE -ne 0) { throw "Local state doctor smoke failed" }
-          if (!(Test-Path "$localStateBase/checked.json" -PathType Leaf)) { throw "Missing local state doctor report" }
-          if (!(Get-ChildItem "$localStateBase/home/.local/state/aikito/project-skills" -Filter "*.json" -File)) { throw "Missing preserved local skill state" }
-          $boundaryBase = Join-Path $env:RUNNER_TEMP "reconcile-boundary"
-          python tests/workspace_reconcile_boundary_smoke.py "$boundaryBase"
-          if ($LASTEXITCODE -ne 0) { throw "Remote Store Boundary mode smoke failed" }
-          $payloadBase = Join-Path $env:RUNNER_TEMP "workspace-payload"
-          python tests/workspace_payload_smoke.py "$payloadBase"
-          if ($LASTEXITCODE -ne 0) { throw "Portable resource payload smoke failed" }
-          foreach ($relative in @("target/skills/portable/SKILL.md", "target/skills/portable/run.sh", "target/capture/payload.md", "target/config.toml", "target/projects/demo/agent.toml")) {
-            if (!(Test-Path (Join-Path $payloadBase $relative) -PathType Leaf)) { throw "Missing payload resource: $relative" }
-          }
-          if (Test-Path "$payloadBase/target/skills/portable/empty") { throw "Payload synced an empty directory" }
-          foreach ($relative in @("left/skills/portable/SKILL.md", "right/skills/portable/SKILL.md", "center/.local/state/aikito/workspace-reconcile/remote.json", "left/.local/state/aikito/workspace-reconcile/replica.json")) {
-            if (!(Test-Path (Join-Path $boundaryBase $relative) -PathType Leaf)) { throw "Missing boundary resource: $relative" }
-          }
-          if (Test-Path "$boundaryBase/left/skills/portable/run.sh" -PathType Leaf) { throw "Deleted executable returned after sync" }
-          if (Test-Path "$boundaryBase/right/skills/portable/run.sh" -PathType Leaf) { throw "Deleted executable remained in source replica" }
-          if (Test-Path "$boundaryBase/right/skills/portable/empty") { throw "Portable sync created an empty directory" }
-          if (!(Test-Path "$boundaryBase/right/skills/portable/.aikito-executable.json" -PathType Leaf)) { throw "Missing executable metadata" }
 
       - name: Network-safe Commit Recovery Smoke on Windows
         if: matrix.group == 'network-safety'

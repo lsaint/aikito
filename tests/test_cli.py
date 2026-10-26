@@ -1190,6 +1190,7 @@ class InitSubcommandParserTest(unittest.TestCase):
             with (
                 patch.object(AIKITO_CLI, "get_aikito_dir", return_value=workspace),
                 patch.object(AIKITO_CLI.Path, "cwd", return_value=project),
+                patch("pathlib.Path.home", return_value=root),
             ):
                 args.func(args)
                 args.func(args)
@@ -1210,7 +1211,10 @@ class InitSubcommandParserTest(unittest.TestCase):
             sync_args = AIKITO_CLI.build_parser().parse_args(
                 ["sync", "project", "example"]
             )
-            with patch.object(AIKITO_CLI, "get_aikito_dir", return_value=workspace):
+            with (
+                patch.object(AIKITO_CLI, "get_aikito_dir", return_value=workspace),
+                patch("pathlib.Path.home", return_value=root),
+            ):
                 sync_args.func(sync_args)
             self.assertFalse((project / "AGENTS.md").exists())
             self.assertFalse((project / ".claude" / "CLAUDE.md").exists())
@@ -1231,6 +1235,7 @@ class InitSubcommandParserTest(unittest.TestCase):
             with (
                 patch.object(AIKITO_CLI, "get_aikito_dir", return_value=workspace),
                 patch.object(AIKITO_CLI.Path, "cwd", return_value=project),
+                patch("pathlib.Path.home", return_value=root),
             ):
                 args.func(args)
 

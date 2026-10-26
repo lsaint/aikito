@@ -61,7 +61,7 @@ jobs:
       - name: Verify encrypted optional dependency
         run: |
           uv pip install --system '.[encrypted]'
-          python -m pytest tests/test_workspace_encrypted_remote_core.py tests/test_workspace_device_keys.py tests/test_recovery_codes.py tests/test_workspace_native_keys.py tests/test_workspace_encrypted_remote.py tests/test_remote_key_cli.py tests/test_workspace_encrypted_discovery.py tests/test_workspace_encrypted_sync.py tests/test_workspace_scoped_export.py tests/test_workspace_context_export.py tests/test_recipient_keys.py tests/test_remote_export.py
+          python -m pytest -n auto tests/test_workspace_encrypted_remote_core.py tests/test_workspace_device_keys.py tests/test_recovery_codes.py tests/test_workspace_native_keys.py tests/test_workspace_encrypted_remote.py tests/test_remote_key_cli.py tests/test_workspace_encrypted_discovery.py tests/test_workspace_encrypted_sync.py tests/test_workspace_scoped_export.py tests/test_workspace_context_export.py tests/test_recipient_keys.py tests/test_remote_export.py
 
   ubuntu-smoke-test:
     runs-on: ubuntu-latest
@@ -374,330 +374,6 @@ jobs:
           test ! -f "$LEGACY/agents.toml"
           test ! -f "$LEGACY/subagents.toml"
           AIKITO_DIR="$LEGACY" python3 -m aikito migrate workspace-resources
-
-      - name: Bounded multi-round reconciliation
-        run: |
-          BOUNDED=${{ runner.temp }}/bounded-reconcile
-          python3 tests/workspace_bounded_reconcile_smoke.py "$BOUNDED"
-          test -f "$BOUNDED/right/projects/demo/memory/notes/11.md"
-          test -f "$BOUNDED/checked.txt"
-          test -f "$BOUNDED/archive-budget-checked.txt"
-
-      - name: Workspace reconcile smoke
-        run: |
-          BASE=${{ runner.temp }}/reconcile-smoke
-          python3 tests/workspace_reconcile_smoke.py "$BASE"
-          EXPANDED=${{ runner.temp }}/expanded-reconcile-smoke
-          python3 tests/workspace_reconcile_resources_smoke.py "$EXPANDED"
-          ACCEPTANCE=${{ runner.temp }}/reconcile-acceptance
-          python3 tests/workspace_reconcile_acceptance.py "$ACCEPTANCE"
-          test -f "$ACCEPTANCE/moved-left/memory/notes/accepted-base.md"
-          test -f "$ACCEPTANCE/right/capture-b/accepted-before-local.md"
-          MEMORY_STORE=${{ runner.temp }}/memory-remote-store
-          python3 tests/workspace_memory_remote_smoke.py "$MEMORY_STORE"
-          test -f "$MEMORY_STORE/moved-left/memory/notes/accepted-base.md"
-          test -f "$MEMORY_STORE/right/capture-b/accepted-before-local.md"
-          test -f "$MEMORY_STORE/right/capture-b/relocated.md"
-          test -f "$MEMORY_STORE/moved-left/projects/demo/memory/notes/acceptance.md"
-          test -f "$MEMORY_STORE/right/.local/state/aikito/workspace-reconcile/replica.json"
-          test ! -e "$MEMORY_STORE/center"
-          HTTP_REMOTE=${{ runner.temp }}/http-remote
-          python3 tests/workspace_http_remote_smoke.py "$HTTP_REMOTE"
-          test -f "$HTTP_REMOTE/moved-left/memory/notes/accepted-base.md"
-          test -f "$HTTP_REMOTE/right/capture-b/accepted-before-local.md"
-          test -f "$HTTP_REMOTE/right/memory/notes/http-recovery.md"
-          test -f "$HTTP_REMOTE/right/skills/example/run.sh"
-          test -f "$HTTP_REMOTE/checked.txt"
-          test ! -e "$HTTP_REMOTE/moved-left/.local/state/aikito/workspace-reconcile/pending.json"
-          BINDING=${{ runner.temp }}/remote-binding
-          python3 tests/workspace_remote_binding_smoke.py "$BINDING"
-          test -f "$BINDING/local/.local/state/aikito/workspace-reconcile/binding.json"
-          test -f "$BINDING/local/.local/state/aikito/workspace-reconcile/replica.json"
-          test -f "$BINDING/encrypted-manifest.json"
-          test -f "$BINDING/auth-checked.txt"
-          test -f "$BINDING/checked.txt"
-          test ! -e "$BINDING/local/.local/state/aikito/workspace-reconcile/pending.json"
-          ! grep -Fq 'binding-smoke-secret' "$BINDING/local/.local/state/aikito/workspace-reconcile/binding.json"
-          REMOTE_FORMAT_SMOKE=${{ runner.temp }}/remote-format-smoke
-          python3 tests/workspace_remote_format_smoke.py "$REMOTE_FORMAT_SMOKE"
-          test -f "$REMOTE_FORMAT_SMOKE/checked.txt"
-          test -f "$REMOTE_FORMAT_SMOKE/plaintext/local/memory/notes/retained.md"
-          test ! -e "$REMOTE_FORMAT_SMOKE/plaintext/fresh/.local/state/aikito/workspace-reconcile/binding.json"
-          test ! -e "$REMOTE_FORMAT_SMOKE/future/fresh/.local/state/aikito/workspace-reconcile/binding.json"
-          REMOTE_CLI_SMOKE=${{ runner.temp }}/remote-cli-smoke
-          python3 tests/workspace_remote_cli_smoke.py "$REMOTE_CLI_SMOKE"
-          test -f "$REMOTE_CLI_SMOKE/home/.config/aikito/encrypted-remote/recovery.txt"
-          test -f "$REMOTE_CLI_SMOKE/recovery-saved-checked.txt"
-          ! python3 -m aikito remote bind http://invalid.example --workspace "$REMOTE_CLI_SMOKE/ws_a" --rebind > "$REMOTE_CLI_SMOKE/invalid-service.log" 2>&1
-          grep -Fq 'A service HTTPS origin is required' "$REMOTE_CLI_SMOKE/invalid-service.log"
-          test -f "$REMOTE_CLI_SMOKE/archive-fields-checked.txt"
-          test -f "$REMOTE_CLI_SMOKE/ws_a/.local/state/aikito/workspace-reconcile/binding.json"
-          test -f "$REMOTE_CLI_SMOKE/ws_b/.local/state/aikito/workspace-reconcile/binding.json"
-          test -f "$REMOTE_CLI_SMOKE/ws_b/memory/notes/smoke-idea.md"
-          test -f "$REMOTE_CLI_SMOKE/encrypted-manifest.json"
-          test -f "$REMOTE_CLI_SMOKE/ws_b/skills/smoke-skill/SKILL.md"
-          test ! -e "$REMOTE_CLI_SMOKE/ws_b/skills/smoke-skill/empty"
-          ! grep -Fq 'remote-cli-smoke-secret' "$REMOTE_CLI_SMOKE/ws_a/.local/state/aikito/workspace-reconcile/binding.json"
-          REMOTE_WATCH_SMOKE=${{ runner.temp }}/remote-watch-smoke
-          python3 tests/workspace_remote_watch_smoke.py "$REMOTE_WATCH_SMOKE"
-          test -f "$REMOTE_WATCH_SMOKE/ws_b/memory/notes/watch-smoke.md"
-          test -f "$REMOTE_WATCH_SMOKE/ws_a/memory/notes/from-b.md"
-          REMOTE_SERVICE_SMOKE=${{ runner.temp }}/remote-service-smoke
-          python3 tests/workspace_remote_service_smoke.py "$REMOTE_SERVICE_SMOKE"
-          test -f "$REMOTE_SERVICE_SMOKE/ws_a/.local/state/aikito/workspace-reconcile/binding.json"
-          test -f "$REMOTE_SERVICE_SMOKE/ws_a/.local/state/aikito/workspace-reconcile/status.json"
-          test -f "$REMOTE_SERVICE_SMOKE/ws_a/memory/notes/smoke-idea.md"
-          test -f "$REMOTE_SERVICE_SMOKE/encrypted-manifest.json"
-          ! grep -Fq 'remote-service-smoke-secret' "$REMOTE_SERVICE_SMOKE/ws_a/.local/state/aikito/workspace-reconcile/binding.json"
-          python3 tests/generate_remote_protocol_vectors.py --check
-          AIKITO_REMOTE_TEST_SERVER_CMD="python3 tests/http_remote_server.py --root {root}" python3 -m pytest tests/test_workspace_remote_store_contract.py tests/test_workspace_remote_receipts.py
-          AIKITO_REMOTE_TEST_SERVER_CMD="python3 tests/http_remote_server.py --root {root} --token {token}" python3 -m pytest tests/test_workspace_http_external.py -k external_auth_contract
-          EXTERNAL_SERVICE=${{ runner.temp }}/external-service
-          python3 tests/workspace_external_server_smoke.py "$EXTERNAL_SERVICE"
-          test -f "$EXTERNAL_SERVICE/center-test-server.json"
-          test -d "$EXTERNAL_SERVICE/center/stores/alpha"
-          test -d "$EXTERNAL_SERVICE/center/stores/beta"
-          test -f "$EXTERNAL_SERVICE/local/.local/state/aikito/workspace-reconcile/binding.json"
-          test -f "$EXTERNAL_SERVICE/local/.local/state/aikito/workspace-reconcile/replica.json"
-          test -f "$EXTERNAL_SERVICE/lost-response-checked.txt"
-          test -f "$EXTERNAL_SERVICE/checked.txt"
-          test ! -e "$EXTERNAL_SERVICE/local/.local/state/aikito/workspace-reconcile/pending.json"
-          CAPACITY=${{ runner.temp }}/commit-capacity
-          python3 tests/workspace_commit_capacity_smoke.py "$CAPACITY"
-          test -f "$CAPACITY/local/memory/notes/capacity.md"
-          test -f "$CAPACITY/center/memory/notes/capacity.md"
-          test -f "$CAPACITY/center/memory/notes/neighbor.md"
-          test ! -e "$CAPACITY/center/memory/notes/oversized.md"
-          test -f "$CAPACITY/checked.txt"
-          test ! -e "$CAPACITY/local/.local/state/aikito/workspace-reconcile/pending.json"
-          SERIALIZED=${{ runner.temp }}/serialized-remote
-          python3 tests/workspace_serialized_remote_smoke.py "$SERIALIZED"
-          test -f "$SERIALIZED/right/memory/notes/serialized-smoke.md"
-          test -f "$SERIALIZED/right/projects/demo/memory/notes/serialized-smoke.md"
-          test -f "$SERIALIZED/right/memory/notes/serialized-recovery.md"
-          test -f "$SERIALIZED/right/.local/state/aikito/workspace-reconcile/replica.json"
-          test -f "$SERIALIZED/center/.local/state/aikito/workspace-reconcile/remote.json"
-          test ! -e "$SERIALIZED/left/.local/state/aikito/workspace-reconcile/pending.json"
-          STORE=${{ runner.temp }}/remote-store
-          python3 tests/workspace_remote_store_smoke.py "$STORE"
-          test -f "$STORE/right/memory/notes/portable-store.md"
-          test -f "$STORE/right/.local/state/aikito/workspace-reconcile/replica.json"
-          test -f "$STORE/center/.local/state/aikito/workspace-reconcile/remote.json"
-          COMMIT_CODEC=${{ runner.temp }}/remote-commit-codec
-          python3 tests/workspace_remote_commit_smoke.py "$COMMIT_CODEC"
-          python3 tests/workspace_remote_commit_smoke.py "$COMMIT_CODEC" --verify-only
-          test -f "$COMMIT_CODEC/request.json"
-          test -f "$COMMIT_CODEC/result-digest.txt"
-          test -f "$COMMIT_CODEC/pending.json"
-          test -f "$COMMIT_CODEC/receipt.json"
-          test -f "$COMMIT_CODEC/rejected.json"
-          test -f "$COMMIT_CODEC/checked.json"
-          RECEIPTS=${{ runner.temp }}/remote-receipts
-          python3 tests/workspace_remote_receipts_smoke.py "$RECEIPTS"
-          for CHECKPOINT in journal resource manifest committed cleanup; do
-            test -f "$RECEIPTS/$CHECKPOINT/center/memory/notes/receipt.md"
-            test -f "$RECEIPTS/$CHECKPOINT/center/.local/state/aikito/workspace-reconcile/remote.json"
-            test -f "$RECEIPTS/$CHECKPOINT/checked.json"
-          done
-          PENDING=${{ runner.temp }}/pending-commit
-          python3 tests/workspace_pending_commit_smoke.py "$PENDING" --stage prepare
-          test -f "$PENDING/local/.local/state/aikito/workspace-reconcile/pending.json"
-          python3 tests/workspace_pending_commit_smoke.py "$PENDING" --stage complete
-          test -f "$PENDING/local/.local/state/aikito/workspace-reconcile/pending.json"
-          test -f "$PENDING/local/.local/state/aikito/workspace-reconcile/replica.json"
-          python3 tests/workspace_pending_commit_smoke.py "$PENDING" --stage clear
-          test ! -e "$PENDING/local/.local/state/aikito/workspace-reconcile/pending.json"
-          test -f "$PENDING/local/memory/notes/pending.md"
-          test -f "$PENDING/clear-checked.json"
-          COMMIT_RECOVERY=${{ runner.temp }}/commit-recovery
-          python3 tests/workspace_commit_recovery_smoke.py "$COMMIT_RECOVERY" --stage send
-          test -f "$COMMIT_RECOVERY/local/.local/state/aikito/workspace-reconcile/pending.json"
-          python3 tests/workspace_commit_recovery_smoke.py "$COMMIT_RECOVERY" --stage resume
-          test ! -e "$COMMIT_RECOVERY/local/.local/state/aikito/workspace-reconcile/pending.json"
-          test -f "$COMMIT_RECOVERY/center/memory/notes/upload.md"
-          test -f "$COMMIT_RECOVERY/local/memory/notes/download.md"
-          test -f "$COMMIT_RECOVERY/checked.json"
-          FAULTS=${{ runner.temp }}/unreliable-remote
-          for BACKEND in filesystem memory; do
-            python3 tests/workspace_unreliable_remote_smoke.py "$FAULTS/$BACKEND" --backend "$BACKEND"
-            test -f "$FAULTS/$BACKEND/checked.json"
-            for SCENARIO in before-send response-loss duplicate resolve-failure delayed-accepted delayed-cas historical; do
-              test -f "$FAULTS/$BACKEND/$SCENARIO/checked.json"
-              test -f "$FAULTS/$BACKEND/$SCENARIO/local/memory/notes/upload.md"
-              test ! -e "$FAULTS/$BACKEND/$SCENARIO/local/.local/state/aikito/workspace-reconcile/pending.json"
-            done
-          done
-          for CHECKPOINT in replica committed cleanup before-clear after-clear; do
-            test -f "$FAULTS/filesystem/local-crashes/$CHECKPOINT/checked.json"
-            test -f "$FAULTS/filesystem/local-crashes/$CHECKPOINT/center/memory/notes/upload.md"
-            test -f "$FAULTS/filesystem/local-crashes/$CHECKPOINT/local/.local/state/aikito/workspace-reconcile/replica.json"
-            test ! -e "$FAULTS/filesystem/local-crashes/$CHECKPOINT/local/.local/state/aikito/workspace-reconcile/pending.json"
-          done
-          REVISION=${{ runner.temp }}/revision-state
-          python3 tests/workspace_revision_smoke.py "$REVISION"
-          test -f "$REVISION/contract-cleanup.json"
-          test -f "$REVISION/right/memory/notes/revision.md"
-          test -f "$REVISION/right/.local/state/aikito/workspace-reconcile/replica.json"
-          test -f "$REVISION/center/.local/state/aikito/workspace-reconcile/remote.json"
-          test -f "$REVISION/home/.local/state/aikito/project-skills/"*.json
-          LOCAL_STATE=${{ runner.temp }}/local-state-doctor
-          python3 tests/local_state_doctor_smoke.py "$LOCAL_STATE"
-          test -f "$LOCAL_STATE/checked.json"
-          for STATE_FILE in "$LOCAL_STATE/home/.local/state/aikito/project-skills/"*.json; do
-            test -f "$STATE_FILE"
-          done
-          BOUNDARY=${{ runner.temp }}/reconcile-boundary
-          python3 tests/workspace_reconcile_boundary_smoke.py "$BOUNDARY"
-          PAYLOAD=${{ runner.temp }}/workspace-payload
-          python3 tests/workspace_payload_smoke.py "$PAYLOAD"
-          test -f "$PAYLOAD/target/skills/portable/SKILL.md"
-          test -f "$PAYLOAD/target/skills/portable/run.sh"
-          test ! -e "$PAYLOAD/target/skills/portable/empty"
-          test -f "$PAYLOAD/target/capture/payload.md"
-          test -f "$PAYLOAD/target/config.toml"
-          test -f "$PAYLOAD/target/projects/demo/agent.toml"
-          test -f "$BOUNDARY/left/skills/portable/run.sh"
-          test -f "$BOUNDARY/right/skills/portable/run.sh"
-          test -x "$BOUNDARY/right/skills/portable/run.sh"
-          test ! -e "$BOUNDARY/right/skills/portable/empty"
-          test -f "$BOUNDARY/center/.local/state/aikito/workspace-reconcile/remote.json"
-          test -f "$BOUNDARY/left/.local/state/aikito/workspace-reconcile/replica.json"
-          RESOLUTIONS=${{ runner.temp }}/reconcile-resolutions
-          python3 tests/workspace_reconcile_resolution_smoke.py "$RESOLUTIONS"
-          for CASE in skill-local project-skill-local; do
-            test -f "$RESOLUTIONS/$CASE/left/skills/x/SKILL.md"
-            test -f "$RESOLUTIONS/$CASE/right/skills/x/SKILL.md"
-            test -f "$RESOLUTIONS/$CASE/center/skills/x/SKILL.md"
-          done
-          for CASE in skill-remote project-skill-remote; do
-            test ! -d "$RESOLUTIONS/$CASE/left/skills/x"
-            test ! -d "$RESOLUTIONS/$CASE/right/skills/x"
-            test ! -d "$RESOLUTIONS/$CASE/center/skills/x"
-          done
-          for CASE in skill-local project-skill-local skill-remote project-skill-remote; do
-            test -f "$RESOLUTIONS/$CASE/right/projects/newcomer/agent.toml"
-            test -f "$RESOLUTIONS/$CASE/right/memory/notes/rejected.md"
-            test ! -f "$RESOLUTIONS/$CASE/center/memory/notes/rejected.md"
-          done
-          test -f "$ACCEPTANCE/right/capture-b/relocated.md"
-          test -f "$ACCEPTANCE/moved-left/capture-a/relocated.md"
-          test -f "$ACCEPTANCE/right/projects/demo/memory/notes/acceptance.md"
-          test -f "$ACCEPTANCE/moved-left/config.toml"
-          test -f "$ACCEPTANCE/right/config.toml"
-          test -f "$ACCEPTANCE/moved-center/.local/state/aikito/workspace-reconcile/remote.json"
-          test ! -f "$ACCEPTANCE/right/capture-b/safe.md"
-          test ! -f "$ACCEPTANCE/moved-left/capture-a/safe.md"
-          test ! -f "$ACCEPTANCE/moved-left/.local/state/aikito/workspace-transactions/pending.json"
-          test ! -f "$ACCEPTANCE/moved-center/.local/state/aikito/workspace-transactions/pending.json"
-          test -f "$EXPANDED/right/capture-b/deep/note.md"
-          test -f "$EXPANDED/right/global/AGENTS.md"
-          test -f "$EXPANDED/right/projects/demo/AGENTS.md"
-          test -f "$EXPANDED/right/agents/custom.toml"
-          test -f "$EXPANDED/right/mcps/docs.toml"
-          test -f "$EXPANDED/right/subagents/review.md"
-          test -f "$EXPANDED/right/config.toml"
-          test -f "$EXPANDED/right/skills.toml"
-          test -f "$EXPANDED/right/projects/demo/agent.toml"
-          test ! -f "$EXPANDED/right/capture-b/deleted.md"
-          test ! -f "$EXPANDED/right/agents/deleted.toml"
-          test ! -f "$EXPANDED/right/mcps/deleted.toml"
-          test ! -f "$EXPANDED/right/subagents/deleted.md"
-          test ! -f "$EXPANDED/right/projects/retired/agent.toml"
-          test ! -f "$EXPANDED/right/projects/retired/AGENTS.md"
-          test ! -f "$EXPANDED/center/config.toml"
-          test ! -f "$EXPANDED/center/projects/demo/agent.toml"
-          test ! -f "$EXPANDED/left/.local/state/aikito/workspace-transactions/pending.json"
-          test -f "$BASE/right/memory/notes/reconcile-smoke.md"
-          test -f "$BASE/right/projects/demo/memory/notes/reconcile-smoke.md"
-          test -f "$BASE/right/skills/reconcile-smoke/SKILL.md"
-          grep -F '# Updated project' "$BASE/right/projects/demo/memory/notes/reconcile-smoke.md"
-          grep -F '# Updated skill' "$BASE/right/skills/reconcile-smoke/SKILL.md"
-          test ! -e "$BASE/right/skills/reconcile-smoke/empty"
-          test -f "$BASE/right/memory/notes/recovered.md"
-          test -f "$BASE/right/memory/notes/relocated.md"
-          test -f "$BASE/right/.local/state/aikito/workspace-reconcile/replica.json"
-          test -f "$BASE/moved-left/.local/state/aikito/workspace-reconcile/replica.json"
-          test -f "$BASE/moved-center/.local/state/aikito/workspace-reconcile/remote.json"
-          test ! -f "$BASE/right/memory/notes/deleted.md"
-          test ! -f "$BASE/right/projects/demo/memory/notes/deleted.md"
-          test ! -d "$BASE/right/skills/deleted"
-          test ! -f "$BASE/moved-center/layout.toml"
-          test ! -f "$BASE/right/.local/state/aikito/workspace-transactions/pending.json"
-          test ! -f "$BASE/moved-center/.local/state/aikito/workspace-transactions/pending.json"
-
-      - name: Workspace import smoke
-        run: |
-          BASE=${{ runner.temp }}/import-smoke
-          python3 tests/workspace_import_smoke.py "$BASE" --prepare-only
-          AIKITO_DIR="$BASE/target" python3 -m aikito import workspace "$BASE/source" --dry-run
-          AIKITO_DIR="$BASE/target" python3 -m aikito import workspace "$BASE/source" --dry-run --verbose > "$BASE/import-verbose.out"
-          grep -F "[SUMMARY]" "$BASE/import-verbose.out"
-          grep -F "[UPDATE] skills.toml (skill-selection:import-smoke)" "$BASE/import-verbose.out"
-          ! grep -F "[MERGE]" "$BASE/import-verbose.out"
-          test ! -f "$BASE/target/inbox/deep/import-smoke.md"
-          AIKITO_DIR="$BASE/target" python3 -m aikito import workspace "$BASE/source"
-          test -f "$BASE/target/inbox/deep/import-smoke.md"
-          test -f "$BASE/target/skills/import-smoke/SKILL.md"
-          test -f "$BASE/target/subagents/import-smoke.md"
-          test -f "$BASE/target/mcps/import-smoke.toml"
-          test -f "$BASE/target/memory/index.md"
-          test -f "$BASE/target/projects/new-project/agent.toml"
-          test -f "$BASE/target/projects/new-project/memory/index.md"
-          test -f "$BASE/target/agents/codex.toml"
-          test -f "$BASE/target/config.toml"
-          test -f "$BASE/target/global/AGENTS.md"
-          grep -F 'Imported Codex' "$BASE/target/agents/codex.toml"
-          grep -F 'stale_days = 90' "$BASE/target/config.toml"
-          grep -F 'Imported global instructions' "$BASE/target/global/AGENTS.md"
-          EXECUTION_BASE="$BASE-execution"
-          python3 tests/workspace_import_smoke.py "$EXECUTION_BASE" --prepare-only --execution-case
-          AIKITO_DIR="$EXECUTION_BASE/target" python3 -m aikito import workspace "$EXECUTION_BASE/source"
-          test -f "$EXECUTION_BASE/target/notes/inbox/deep/import-smoke.md"
-          test -f "$EXECUTION_BASE/target/config.toml"
-          grep -F 'stale_days = 90' "$EXECUTION_BASE/target/config.toml"
-          grep -F 'check = false' "$EXECUTION_BASE/target/config.toml"
-          AIKITO_DIR="$EXECUTION_BASE/target" python3 -m aikito import workspace "$EXECUTION_BASE/source"
-          test ! -f "$EXECUTION_BASE/target/.local/state/aikito/workspace-transactions/pending.json"
-          BLOCKED_BASE="$BASE-blocked-inbox"
-          python3 tests/workspace_import_smoke.py "$BLOCKED_BASE" --prepare-only --blocked-inbox-case
-          if AIKITO_DIR="$BLOCKED_BASE/target" python3 -m aikito import workspace "$BLOCKED_BASE/source" --dry-run > "$BLOCKED_BASE/preview.out" 2>&1; then exit 1; else test "$?" -eq 1; fi
-          grep -F '[BLOCKED] config.toml (config:inbox.path)' "$BLOCKED_BASE/preview.out"
-          grep -F '1 note under inbox/' "$BLOCKED_BASE/preview.out"
-          grep -F 'would leave them unmanaged' "$BLOCKED_BASE/preview.out"
-          if AIKITO_DIR="$BLOCKED_BASE/target" python3 -m aikito import workspace "$BLOCKED_BASE/source" > "$BLOCKED_BASE/apply.out" 2>&1; then exit 1; else test "$?" -eq 1; fi
-          test -f "$BLOCKED_BASE/target/inbox/existing.md"
-          test -f "$BLOCKED_BASE/target/config.toml"
-          grep -F 'path = "inbox"' "$BLOCKED_BASE/target/config.toml"
-          test ! -f "$BLOCKED_BASE/target/notes/inbox/deep/import-smoke.md"
-          test ! -f "$BLOCKED_BASE/target/skills/import-smoke/SKILL.md"
-          test ! -f "$BLOCKED_BASE/target/.local/state/aikito/workspace-transactions/pending.json"
-          PARTIAL_BASE="$BASE-partial"
-          python3 tests/workspace_import_smoke.py "$PARTIAL_BASE" --prepare-only --conflict-case
-          if AIKITO_DIR="$PARTIAL_BASE/target" python3 -m aikito import workspace "$PARTIAL_BASE/source" --dry-run > "$PARTIAL_BASE/preview.out" 2>&1; then exit 1; else test "$?" -eq 2; fi
-          test ! -f "$PARTIAL_BASE/target/memory/notes/independent.md"
-          if AIKITO_DIR="$PARTIAL_BASE/target" python3 -m aikito import workspace "$PARTIAL_BASE/source" --keep-target global-memory:notes/independent.md > "$PARTIAL_BASE/skip.out" 2>&1; then exit 1; else test "$?" -eq 2; fi
-          test ! -f "$PARTIAL_BASE/target/memory/notes/independent.md"
-          if AIKITO_DIR="$PARTIAL_BASE/target" python3 -m aikito import workspace "$PARTIAL_BASE/source" > "$PARTIAL_BASE/partial.out" 2>&1; then exit 1; else test "$?" -eq 2; fi
-          grep -F '[PARTIAL]' "$PARTIAL_BASE/partial.out"
-          test -f "$PARTIAL_BASE/target/memory/notes/independent.md"
-          test -f "$PARTIAL_BASE/target/memory/notes/keep.md"
-          grep -F 'Target keep' "$PARTIAL_BASE/target/memory/notes/keep.md"
-          AIKITO_DIR="$PARTIAL_BASE/target" python3 -m aikito import workspace "$PARTIAL_BASE/source" --dry-run \
-            --keep-target global-memory:notes/keep.md --keep-target global-memory:notes/keep-again.md \
-            --take-source global-memory:notes/take.md --take-source global-memory:notes/take-again.md
-          grep -F 'Target take' "$PARTIAL_BASE/target/memory/notes/take.md"
-          AIKITO_DIR="$PARTIAL_BASE/target" python3 -m aikito import workspace "$PARTIAL_BASE/source" \
-            --keep-target global-memory:notes/keep.md --keep-target global-memory:notes/keep-again.md \
-            --take-source global-memory:notes/take.md --take-source global-memory:notes/take-again.md
-          grep -F 'Target keep' "$PARTIAL_BASE/target/memory/notes/keep.md"
-          grep -F 'Target keep-again' "$PARTIAL_BASE/target/memory/notes/keep-again.md"
-          grep -F 'Source take' "$PARTIAL_BASE/target/memory/notes/take.md"
-          grep -F 'Source take-again' "$PARTIAL_BASE/target/memory/notes/take-again.md"
-          AIKITO_DIR="$PARTIAL_BASE/target" python3 -m aikito import workspace "$PARTIAL_BASE/source" \
-            --keep-target global-memory:notes/keep.md --keep-target global-memory:notes/keep-again.md \
-            --take-source global-memory:notes/take.md --take-source global-memory:notes/take-again.md > "$PARTIAL_BASE/repeat.out"
-          grep -F '[SUMMARY] CREATE 0, UPDATE 0, CONFLICT 0, BLOCKED 0' "$PARTIAL_BASE/repeat.out"
-          test ! -f "$PARTIAL_BASE/target/.local/state/aikito/workspace-transactions/pending.json"
 
       - name: Pip install source and verify workspace init
         env:
@@ -1997,3 +1673,348 @@ jobs:
           AIKITO_DIR="$DIFF_FIXTURE" python3 -m aikito diff > "$DIFF_FIXTURE/global.out"
           grep -F "Checkout: $DIFF_FIXTURE/first" "$DIFF_FIXTURE/global.out"
           grep -F "Checkout: $DIFF_FIXTURE/second" "$DIFF_FIXTURE/global.out"
+
+  ubuntu-reconcile-smoke:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv pip install --system '.[encrypted]' pytest pytest-xdist
+
+      - name: Bounded multi-round reconciliation
+        run: |
+          BOUNDED=${{ runner.temp }}/bounded-reconcile
+          python3 tests/workspace_bounded_reconcile_smoke.py "$BOUNDED"
+          test -f "$BOUNDED/right/projects/demo/memory/notes/11.md"
+          test -f "$BOUNDED/checked.txt"
+          test -f "$BOUNDED/archive-budget-checked.txt"
+
+      - name: Workspace reconcile smoke
+        run: |
+          BASE=${{ runner.temp }}/reconcile-smoke
+          python3 tests/workspace_reconcile_smoke.py "$BASE"
+          EXPANDED=${{ runner.temp }}/expanded-reconcile-smoke
+          python3 tests/workspace_reconcile_resources_smoke.py "$EXPANDED"
+          ACCEPTANCE=${{ runner.temp }}/reconcile-acceptance
+          python3 tests/workspace_reconcile_acceptance.py "$ACCEPTANCE"
+          test -f "$ACCEPTANCE/moved-left/memory/notes/accepted-base.md"
+          test -f "$ACCEPTANCE/right/capture-b/accepted-before-local.md"
+          MEMORY_STORE=${{ runner.temp }}/memory-remote-store
+          python3 tests/workspace_memory_remote_smoke.py "$MEMORY_STORE"
+          test -f "$MEMORY_STORE/moved-left/memory/notes/accepted-base.md"
+          test -f "$MEMORY_STORE/right/capture-b/accepted-before-local.md"
+          test -f "$MEMORY_STORE/right/capture-b/relocated.md"
+          test -f "$MEMORY_STORE/moved-left/projects/demo/memory/notes/acceptance.md"
+          test -f "$MEMORY_STORE/right/.local/state/aikito/workspace-reconcile/replica.json"
+          test ! -e "$MEMORY_STORE/center"
+          HTTP_REMOTE=${{ runner.temp }}/http-remote
+          python3 tests/workspace_http_remote_smoke.py "$HTTP_REMOTE"
+          test -f "$HTTP_REMOTE/moved-left/memory/notes/accepted-base.md"
+          test -f "$HTTP_REMOTE/right/capture-b/accepted-before-local.md"
+          test -f "$HTTP_REMOTE/right/memory/notes/http-recovery.md"
+          test -f "$HTTP_REMOTE/right/skills/example/run.sh"
+          test -f "$HTTP_REMOTE/checked.txt"
+          test ! -e "$HTTP_REMOTE/moved-left/.local/state/aikito/workspace-reconcile/pending.json"
+          BINDING=${{ runner.temp }}/remote-binding
+          python3 tests/workspace_remote_binding_smoke.py "$BINDING"
+          test -f "$BINDING/local/.local/state/aikito/workspace-reconcile/binding.json"
+          test -f "$BINDING/local/.local/state/aikito/workspace-reconcile/replica.json"
+          test -f "$BINDING/encrypted-manifest.json"
+          test -f "$BINDING/auth-checked.txt"
+          test -f "$BINDING/checked.txt"
+          test ! -e "$BINDING/local/.local/state/aikito/workspace-reconcile/pending.json"
+          ! grep -Fq 'binding-smoke-secret' "$BINDING/local/.local/state/aikito/workspace-reconcile/binding.json"
+          REMOTE_FORMAT_SMOKE=${{ runner.temp }}/remote-format-smoke
+          python3 tests/workspace_remote_format_smoke.py "$REMOTE_FORMAT_SMOKE"
+          test -f "$REMOTE_FORMAT_SMOKE/checked.txt"
+          test -f "$REMOTE_FORMAT_SMOKE/plaintext/local/memory/notes/retained.md"
+          test ! -e "$REMOTE_FORMAT_SMOKE/plaintext/fresh/.local/state/aikito/workspace-reconcile/binding.json"
+          test ! -e "$REMOTE_FORMAT_SMOKE/future/fresh/.local/state/aikito/workspace-reconcile/binding.json"
+          REMOTE_CLI_SMOKE=${{ runner.temp }}/remote-cli-smoke
+          python3 tests/workspace_remote_cli_smoke.py "$REMOTE_CLI_SMOKE"
+          test -f "$REMOTE_CLI_SMOKE/home/.config/aikito/encrypted-remote/recovery.txt"
+          test -f "$REMOTE_CLI_SMOKE/recovery-saved-checked.txt"
+          ! python3 -m aikito remote bind http://invalid.example --workspace "$REMOTE_CLI_SMOKE/ws_a" --rebind > "$REMOTE_CLI_SMOKE/invalid-service.log" 2>&1
+          grep -Fq 'A service HTTPS origin is required' "$REMOTE_CLI_SMOKE/invalid-service.log"
+          test -f "$REMOTE_CLI_SMOKE/archive-fields-checked.txt"
+          test -f "$REMOTE_CLI_SMOKE/ws_a/.local/state/aikito/workspace-reconcile/binding.json"
+          test -f "$REMOTE_CLI_SMOKE/ws_b/.local/state/aikito/workspace-reconcile/binding.json"
+          test -f "$REMOTE_CLI_SMOKE/ws_b/memory/notes/smoke-idea.md"
+          test -f "$REMOTE_CLI_SMOKE/encrypted-manifest.json"
+          test -f "$REMOTE_CLI_SMOKE/ws_b/skills/smoke-skill/SKILL.md"
+          test ! -e "$REMOTE_CLI_SMOKE/ws_b/skills/smoke-skill/empty"
+          ! grep -Fq 'remote-cli-smoke-secret' "$REMOTE_CLI_SMOKE/ws_a/.local/state/aikito/workspace-reconcile/binding.json"
+          REMOTE_WATCH_SMOKE=${{ runner.temp }}/remote-watch-smoke
+          python3 tests/workspace_remote_watch_smoke.py "$REMOTE_WATCH_SMOKE"
+          test -f "$REMOTE_WATCH_SMOKE/ws_b/memory/notes/watch-smoke.md"
+          test -f "$REMOTE_WATCH_SMOKE/ws_a/memory/notes/from-b.md"
+          REMOTE_SERVICE_SMOKE=${{ runner.temp }}/remote-service-smoke
+          python3 tests/workspace_remote_service_smoke.py "$REMOTE_SERVICE_SMOKE"
+          test -f "$REMOTE_SERVICE_SMOKE/ws_a/.local/state/aikito/workspace-reconcile/binding.json"
+          test -f "$REMOTE_SERVICE_SMOKE/ws_a/.local/state/aikito/workspace-reconcile/status.json"
+          test -f "$REMOTE_SERVICE_SMOKE/ws_a/memory/notes/smoke-idea.md"
+          test -f "$REMOTE_SERVICE_SMOKE/encrypted-manifest.json"
+          ! grep -Fq 'remote-service-smoke-secret' "$REMOTE_SERVICE_SMOKE/ws_a/.local/state/aikito/workspace-reconcile/binding.json"
+          python3 tests/generate_remote_protocol_vectors.py --check
+          AIKITO_REMOTE_TEST_SERVER_CMD="python3 tests/http_remote_server.py --root {root}" python3 -m pytest tests/test_workspace_remote_store_contract.py tests/test_workspace_remote_receipts.py
+          AIKITO_REMOTE_TEST_SERVER_CMD="python3 tests/http_remote_server.py --root {root} --token {token}" python3 -m pytest tests/test_workspace_http_external.py -k external_auth_contract
+          EXTERNAL_SERVICE=${{ runner.temp }}/external-service
+          python3 tests/workspace_external_server_smoke.py "$EXTERNAL_SERVICE"
+          test -f "$EXTERNAL_SERVICE/center-test-server.json"
+          test -d "$EXTERNAL_SERVICE/center/stores/alpha"
+          test -d "$EXTERNAL_SERVICE/center/stores/beta"
+          test -f "$EXTERNAL_SERVICE/local/.local/state/aikito/workspace-reconcile/binding.json"
+          test -f "$EXTERNAL_SERVICE/local/.local/state/aikito/workspace-reconcile/replica.json"
+          test -f "$EXTERNAL_SERVICE/lost-response-checked.txt"
+          test -f "$EXTERNAL_SERVICE/checked.txt"
+          test ! -e "$EXTERNAL_SERVICE/local/.local/state/aikito/workspace-reconcile/pending.json"
+          CAPACITY=${{ runner.temp }}/commit-capacity
+          python3 tests/workspace_commit_capacity_smoke.py "$CAPACITY"
+          test -f "$CAPACITY/local/memory/notes/capacity.md"
+          test -f "$CAPACITY/center/memory/notes/capacity.md"
+          test -f "$CAPACITY/center/memory/notes/neighbor.md"
+          test ! -e "$CAPACITY/center/memory/notes/oversized.md"
+          test -f "$CAPACITY/checked.txt"
+          test ! -e "$CAPACITY/local/.local/state/aikito/workspace-reconcile/pending.json"
+          SERIALIZED=${{ runner.temp }}/serialized-remote
+          python3 tests/workspace_serialized_remote_smoke.py "$SERIALIZED"
+          test -f "$SERIALIZED/right/memory/notes/serialized-smoke.md"
+          test -f "$SERIALIZED/right/projects/demo/memory/notes/serialized-smoke.md"
+          test -f "$SERIALIZED/right/memory/notes/serialized-recovery.md"
+          test -f "$SERIALIZED/right/.local/state/aikito/workspace-reconcile/replica.json"
+          test -f "$SERIALIZED/center/.local/state/aikito/workspace-reconcile/remote.json"
+          test ! -e "$SERIALIZED/left/.local/state/aikito/workspace-reconcile/pending.json"
+          STORE=${{ runner.temp }}/remote-store
+          python3 tests/workspace_remote_store_smoke.py "$STORE"
+          test -f "$STORE/right/memory/notes/portable-store.md"
+          test -f "$STORE/right/.local/state/aikito/workspace-reconcile/replica.json"
+          test -f "$STORE/center/.local/state/aikito/workspace-reconcile/remote.json"
+          COMMIT_CODEC=${{ runner.temp }}/remote-commit-codec
+          python3 tests/workspace_remote_commit_smoke.py "$COMMIT_CODEC"
+          python3 tests/workspace_remote_commit_smoke.py "$COMMIT_CODEC" --verify-only
+          test -f "$COMMIT_CODEC/request.json"
+          test -f "$COMMIT_CODEC/result-digest.txt"
+          test -f "$COMMIT_CODEC/pending.json"
+          test -f "$COMMIT_CODEC/receipt.json"
+          test -f "$COMMIT_CODEC/rejected.json"
+          test -f "$COMMIT_CODEC/checked.json"
+          RECEIPTS=${{ runner.temp }}/remote-receipts
+          python3 tests/workspace_remote_receipts_smoke.py "$RECEIPTS"
+          for CHECKPOINT in journal resource manifest committed cleanup; do
+            test -f "$RECEIPTS/$CHECKPOINT/center/memory/notes/receipt.md"
+            test -f "$RECEIPTS/$CHECKPOINT/center/.local/state/aikito/workspace-reconcile/remote.json"
+            test -f "$RECEIPTS/$CHECKPOINT/checked.json"
+          done
+          PENDING=${{ runner.temp }}/pending-commit
+          python3 tests/workspace_pending_commit_smoke.py "$PENDING" --stage prepare
+          test -f "$PENDING/local/.local/state/aikito/workspace-reconcile/pending.json"
+          python3 tests/workspace_pending_commit_smoke.py "$PENDING" --stage complete
+          test -f "$PENDING/local/.local/state/aikito/workspace-reconcile/pending.json"
+          test -f "$PENDING/local/.local/state/aikito/workspace-reconcile/replica.json"
+          python3 tests/workspace_pending_commit_smoke.py "$PENDING" --stage clear
+          test ! -e "$PENDING/local/.local/state/aikito/workspace-reconcile/pending.json"
+          test -f "$PENDING/local/memory/notes/pending.md"
+          test -f "$PENDING/clear-checked.json"
+          COMMIT_RECOVERY=${{ runner.temp }}/commit-recovery
+          python3 tests/workspace_commit_recovery_smoke.py "$COMMIT_RECOVERY" --stage send
+          test -f "$COMMIT_RECOVERY/local/.local/state/aikito/workspace-reconcile/pending.json"
+          python3 tests/workspace_commit_recovery_smoke.py "$COMMIT_RECOVERY" --stage resume
+          test ! -e "$COMMIT_RECOVERY/local/.local/state/aikito/workspace-reconcile/pending.json"
+          test -f "$COMMIT_RECOVERY/center/memory/notes/upload.md"
+          test -f "$COMMIT_RECOVERY/local/memory/notes/download.md"
+          test -f "$COMMIT_RECOVERY/checked.json"
+          FAULTS=${{ runner.temp }}/unreliable-remote
+          for BACKEND in filesystem memory; do
+            python3 tests/workspace_unreliable_remote_smoke.py "$FAULTS/$BACKEND" --backend "$BACKEND"
+            test -f "$FAULTS/$BACKEND/checked.json"
+            for SCENARIO in before-send response-loss duplicate resolve-failure delayed-accepted delayed-cas historical; do
+              test -f "$FAULTS/$BACKEND/$SCENARIO/checked.json"
+              test -f "$FAULTS/$BACKEND/$SCENARIO/local/memory/notes/upload.md"
+              test ! -e "$FAULTS/$BACKEND/$SCENARIO/local/.local/state/aikito/workspace-reconcile/pending.json"
+            done
+          done
+          for CHECKPOINT in replica committed cleanup before-clear after-clear; do
+            test -f "$FAULTS/filesystem/local-crashes/$CHECKPOINT/checked.json"
+            test -f "$FAULTS/filesystem/local-crashes/$CHECKPOINT/center/memory/notes/upload.md"
+            test -f "$FAULTS/filesystem/local-crashes/$CHECKPOINT/local/.local/state/aikito/workspace-reconcile/replica.json"
+            test ! -e "$FAULTS/filesystem/local-crashes/$CHECKPOINT/local/.local/state/aikito/workspace-reconcile/pending.json"
+          done
+          REVISION=${{ runner.temp }}/revision-state
+          python3 tests/workspace_revision_smoke.py "$REVISION"
+          test -f "$REVISION/contract-cleanup.json"
+          test -f "$REVISION/right/memory/notes/revision.md"
+          test -f "$REVISION/right/.local/state/aikito/workspace-reconcile/replica.json"
+          test -f "$REVISION/center/.local/state/aikito/workspace-reconcile/remote.json"
+          test -f "$REVISION/home/.local/state/aikito/project-skills/"*.json
+          LOCAL_STATE=${{ runner.temp }}/local-state-doctor
+          python3 tests/local_state_doctor_smoke.py "$LOCAL_STATE"
+          test -f "$LOCAL_STATE/checked.json"
+          for STATE_FILE in "$LOCAL_STATE/home/.local/state/aikito/project-skills/"*.json; do
+            test -f "$STATE_FILE"
+          done
+          BOUNDARY=${{ runner.temp }}/reconcile-boundary
+          python3 tests/workspace_reconcile_boundary_smoke.py "$BOUNDARY"
+          PAYLOAD=${{ runner.temp }}/workspace-payload
+          python3 tests/workspace_payload_smoke.py "$PAYLOAD"
+          test -f "$PAYLOAD/target/skills/portable/SKILL.md"
+          test -f "$PAYLOAD/target/skills/portable/run.sh"
+          test ! -e "$PAYLOAD/target/skills/portable/empty"
+          test -f "$PAYLOAD/target/capture/payload.md"
+          test -f "$PAYLOAD/target/config.toml"
+          test -f "$PAYLOAD/target/projects/demo/agent.toml"
+          test -f "$BOUNDARY/left/skills/portable/run.sh"
+          test -f "$BOUNDARY/right/skills/portable/run.sh"
+          test -x "$BOUNDARY/right/skills/portable/run.sh"
+          test ! -e "$BOUNDARY/right/skills/portable/empty"
+          test -f "$BOUNDARY/center/.local/state/aikito/workspace-reconcile/remote.json"
+          test -f "$BOUNDARY/left/.local/state/aikito/workspace-reconcile/replica.json"
+          RESOLUTIONS=${{ runner.temp }}/reconcile-resolutions
+          python3 tests/workspace_reconcile_resolution_smoke.py "$RESOLUTIONS"
+          for CASE in skill-local project-skill-local; do
+            test -f "$RESOLUTIONS/$CASE/left/skills/x/SKILL.md"
+            test -f "$RESOLUTIONS/$CASE/right/skills/x/SKILL.md"
+            test -f "$RESOLUTIONS/$CASE/center/skills/x/SKILL.md"
+          done
+          for CASE in skill-remote project-skill-remote; do
+            test ! -d "$RESOLUTIONS/$CASE/left/skills/x"
+            test ! -d "$RESOLUTIONS/$CASE/right/skills/x"
+            test ! -d "$RESOLUTIONS/$CASE/center/skills/x"
+          done
+          for CASE in skill-local project-skill-local skill-remote project-skill-remote; do
+            test -f "$RESOLUTIONS/$CASE/right/projects/newcomer/agent.toml"
+            test -f "$RESOLUTIONS/$CASE/right/memory/notes/rejected.md"
+            test ! -f "$RESOLUTIONS/$CASE/center/memory/notes/rejected.md"
+          done
+          test -f "$ACCEPTANCE/right/capture-b/relocated.md"
+          test -f "$ACCEPTANCE/moved-left/capture-a/relocated.md"
+          test -f "$ACCEPTANCE/right/projects/demo/memory/notes/acceptance.md"
+          test -f "$ACCEPTANCE/moved-left/config.toml"
+          test -f "$ACCEPTANCE/right/config.toml"
+          test -f "$ACCEPTANCE/moved-center/.local/state/aikito/workspace-reconcile/remote.json"
+          test ! -f "$ACCEPTANCE/right/capture-b/safe.md"
+          test ! -f "$ACCEPTANCE/moved-left/capture-a/safe.md"
+          test ! -f "$ACCEPTANCE/moved-left/.local/state/aikito/workspace-transactions/pending.json"
+          test ! -f "$ACCEPTANCE/moved-center/.local/state/aikito/workspace-transactions/pending.json"
+          test -f "$EXPANDED/right/capture-b/deep/note.md"
+          test -f "$EXPANDED/right/global/AGENTS.md"
+          test -f "$EXPANDED/right/projects/demo/AGENTS.md"
+          test -f "$EXPANDED/right/agents/custom.toml"
+          test -f "$EXPANDED/right/mcps/docs.toml"
+          test -f "$EXPANDED/right/subagents/review.md"
+          test -f "$EXPANDED/right/config.toml"
+          test -f "$EXPANDED/right/skills.toml"
+          test -f "$EXPANDED/right/projects/demo/agent.toml"
+          test ! -f "$EXPANDED/right/capture-b/deleted.md"
+          test ! -f "$EXPANDED/right/agents/deleted.toml"
+          test ! -f "$EXPANDED/right/mcps/deleted.toml"
+          test ! -f "$EXPANDED/right/subagents/deleted.md"
+          test ! -f "$EXPANDED/right/projects/retired/agent.toml"
+          test ! -f "$EXPANDED/right/projects/retired/AGENTS.md"
+          test ! -f "$EXPANDED/center/config.toml"
+          test ! -f "$EXPANDED/center/projects/demo/agent.toml"
+          test ! -f "$EXPANDED/left/.local/state/aikito/workspace-transactions/pending.json"
+          test -f "$BASE/right/memory/notes/reconcile-smoke.md"
+          test -f "$BASE/right/projects/demo/memory/notes/reconcile-smoke.md"
+          test -f "$BASE/right/skills/reconcile-smoke/SKILL.md"
+          grep -F '# Updated project' "$BASE/right/projects/demo/memory/notes/reconcile-smoke.md"
+          grep -F '# Updated skill' "$BASE/right/skills/reconcile-smoke/SKILL.md"
+          test ! -e "$BASE/right/skills/reconcile-smoke/empty"
+          test -f "$BASE/right/memory/notes/recovered.md"
+          test -f "$BASE/right/memory/notes/relocated.md"
+          test -f "$BASE/right/.local/state/aikito/workspace-reconcile/replica.json"
+          test -f "$BASE/moved-left/.local/state/aikito/workspace-reconcile/replica.json"
+          test -f "$BASE/moved-center/.local/state/aikito/workspace-reconcile/remote.json"
+          test ! -f "$BASE/right/memory/notes/deleted.md"
+          test ! -f "$BASE/right/projects/demo/memory/notes/deleted.md"
+          test ! -d "$BASE/right/skills/deleted"
+          test ! -f "$BASE/moved-center/layout.toml"
+          test ! -f "$BASE/right/.local/state/aikito/workspace-transactions/pending.json"
+          test ! -f "$BASE/moved-center/.local/state/aikito/workspace-transactions/pending.json"
+
+      - name: Workspace import smoke
+        run: |
+          BASE=${{ runner.temp }}/import-smoke
+          python3 tests/workspace_import_smoke.py "$BASE" --prepare-only
+          AIKITO_DIR="$BASE/target" python3 -m aikito import workspace "$BASE/source" --dry-run
+          AIKITO_DIR="$BASE/target" python3 -m aikito import workspace "$BASE/source" --dry-run --verbose > "$BASE/import-verbose.out"
+          grep -F "[SUMMARY]" "$BASE/import-verbose.out"
+          grep -F "[UPDATE] skills.toml (skill-selection:import-smoke)" "$BASE/import-verbose.out"
+          ! grep -F "[MERGE]" "$BASE/import-verbose.out"
+          test ! -f "$BASE/target/inbox/deep/import-smoke.md"
+          AIKITO_DIR="$BASE/target" python3 -m aikito import workspace "$BASE/source"
+          test -f "$BASE/target/inbox/deep/import-smoke.md"
+          test -f "$BASE/target/skills/import-smoke/SKILL.md"
+          test -f "$BASE/target/subagents/import-smoke.md"
+          test -f "$BASE/target/mcps/import-smoke.toml"
+          test -f "$BASE/target/memory/index.md"
+          test -f "$BASE/target/projects/new-project/agent.toml"
+          test -f "$BASE/target/projects/new-project/memory/index.md"
+          test -f "$BASE/target/agents/codex.toml"
+          test -f "$BASE/target/config.toml"
+          test -f "$BASE/target/global/AGENTS.md"
+          grep -F 'Imported Codex' "$BASE/target/agents/codex.toml"
+          grep -F 'stale_days = 90' "$BASE/target/config.toml"
+          grep -F 'Imported global instructions' "$BASE/target/global/AGENTS.md"
+          EXECUTION_BASE="$BASE-execution"
+          python3 tests/workspace_import_smoke.py "$EXECUTION_BASE" --prepare-only --execution-case
+          AIKITO_DIR="$EXECUTION_BASE/target" python3 -m aikito import workspace "$EXECUTION_BASE/source"
+          test -f "$EXECUTION_BASE/target/notes/inbox/deep/import-smoke.md"
+          test -f "$EXECUTION_BASE/target/config.toml"
+          grep -F 'stale_days = 90' "$EXECUTION_BASE/target/config.toml"
+          grep -F 'check = false' "$EXECUTION_BASE/target/config.toml"
+          AIKITO_DIR="$EXECUTION_BASE/target" python3 -m aikito import workspace "$EXECUTION_BASE/source"
+          test ! -f "$EXECUTION_BASE/target/.local/state/aikito/workspace-transactions/pending.json"
+          BLOCKED_BASE="$BASE-blocked-inbox"
+          python3 tests/workspace_import_smoke.py "$BLOCKED_BASE" --prepare-only --blocked-inbox-case
+          if AIKITO_DIR="$BLOCKED_BASE/target" python3 -m aikito import workspace "$BLOCKED_BASE/source" --dry-run > "$BLOCKED_BASE/preview.out" 2>&1; then exit 1; else test "$?" -eq 1; fi
+          grep -F '[BLOCKED] config.toml (config:inbox.path)' "$BLOCKED_BASE/preview.out"
+          grep -F '1 note under inbox/' "$BLOCKED_BASE/preview.out"
+          grep -F 'would leave them unmanaged' "$BLOCKED_BASE/preview.out"
+          if AIKITO_DIR="$BLOCKED_BASE/target" python3 -m aikito import workspace "$BLOCKED_BASE/source" > "$BLOCKED_BASE/apply.out" 2>&1; then exit 1; else test "$?" -eq 1; fi
+          test -f "$BLOCKED_BASE/target/inbox/existing.md"
+          test -f "$BLOCKED_BASE/target/config.toml"
+          grep -F 'path = "inbox"' "$BLOCKED_BASE/target/config.toml"
+          test ! -f "$BLOCKED_BASE/target/notes/inbox/deep/import-smoke.md"
+          test ! -f "$BLOCKED_BASE/target/skills/import-smoke/SKILL.md"
+          test ! -f "$BLOCKED_BASE/target/.local/state/aikito/workspace-transactions/pending.json"
+          PARTIAL_BASE="$BASE-partial"
+          python3 tests/workspace_import_smoke.py "$PARTIAL_BASE" --prepare-only --conflict-case
+          if AIKITO_DIR="$PARTIAL_BASE/target" python3 -m aikito import workspace "$PARTIAL_BASE/source" --dry-run > "$PARTIAL_BASE/preview.out" 2>&1; then exit 1; else test "$?" -eq 2; fi
+          test ! -f "$PARTIAL_BASE/target/memory/notes/independent.md"
+          if AIKITO_DIR="$PARTIAL_BASE/target" python3 -m aikito import workspace "$PARTIAL_BASE/source" --keep-target global-memory:notes/independent.md > "$PARTIAL_BASE/skip.out" 2>&1; then exit 1; else test "$?" -eq 2; fi
+          test ! -f "$PARTIAL_BASE/target/memory/notes/independent.md"
+          if AIKITO_DIR="$PARTIAL_BASE/target" python3 -m aikito import workspace "$PARTIAL_BASE/source" > "$PARTIAL_BASE/partial.out" 2>&1; then exit 1; else test "$?" -eq 2; fi
+          grep -F '[PARTIAL]' "$PARTIAL_BASE/partial.out"
+          test -f "$PARTIAL_BASE/target/memory/notes/independent.md"
+          test -f "$PARTIAL_BASE/target/memory/notes/keep.md"
+          grep -F 'Target keep' "$PARTIAL_BASE/target/memory/notes/keep.md"
+          AIKITO_DIR="$PARTIAL_BASE/target" python3 -m aikito import workspace "$PARTIAL_BASE/source" --dry-run \
+            --keep-target global-memory:notes/keep.md --keep-target global-memory:notes/keep-again.md \
+            --take-source global-memory:notes/take.md --take-source global-memory:notes/take-again.md
+          grep -F 'Target take' "$PARTIAL_BASE/target/memory/notes/take.md"
+          AIKITO_DIR="$PARTIAL_BASE/target" python3 -m aikito import workspace "$PARTIAL_BASE/source" \
+            --keep-target global-memory:notes/keep.md --keep-target global-memory:notes/keep-again.md \
+            --take-source global-memory:notes/take.md --take-source global-memory:notes/take-again.md
+          grep -F 'Target keep' "$PARTIAL_BASE/target/memory/notes/keep.md"
+          grep -F 'Target keep-again' "$PARTIAL_BASE/target/memory/notes/keep-again.md"
+          grep -F 'Source take' "$PARTIAL_BASE/target/memory/notes/take.md"
+          grep -F 'Source take-again' "$PARTIAL_BASE/target/memory/notes/take-again.md"
+          AIKITO_DIR="$PARTIAL_BASE/target" python3 -m aikito import workspace "$PARTIAL_BASE/source" \
+            --keep-target global-memory:notes/keep.md --keep-target global-memory:notes/keep-again.md \
+            --take-source global-memory:notes/take.md --take-source global-memory:notes/take-again.md > "$PARTIAL_BASE/repeat.out"
+          grep -F '[SUMMARY] CREATE 0, UPDATE 0, CONFLICT 0, BLOCKED 0' "$PARTIAL_BASE/repeat.out"
+          test ! -f "$PARTIAL_BASE/target/.local/state/aikito/workspace-transactions/pending.json"
