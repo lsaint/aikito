@@ -504,7 +504,9 @@ class ProjectSyncSafetyTest(unittest.TestCase):
         self.project.mkdir()
         AIKITO_CLI.init_workspace(self.workspace, self.root)
         self.assertEqual(
-            AIKITO_CLI.init_project(self.workspace, self.project, "example"),
+            AIKITO_CLI.init_project(
+                self.workspace, self.project, "example", home=self.root
+            ),
             "example",
         )
 
@@ -515,7 +517,10 @@ class ProjectSyncSafetyTest(unittest.TestCase):
         args = AIKITO_CLI.build_parser().parse_args(
             ["sync", "project", "example", str(self.project), *extra_args]
         )
-        with patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.workspace):
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.workspace),
+            patch("pathlib.Path.home", return_value=self.root),
+        ):
             args.func(args)
 
     def test_preserves_project_owned_unselected_skills(self) -> None:
@@ -797,6 +802,7 @@ class GlobalSyncSafetyTest(unittest.TestCase):
                 AIKITO_CLI, "get_agents_dir", return_value=self.root / ".agents"
             ),
             patch.object(AIKITO_CLI, "load_agent_definitions", return_value={}),
+            patch("pathlib.Path.home", return_value=self.root),
         ):
             args.func(args)
 
@@ -1065,6 +1071,7 @@ class GlobalSyncSafetyTest(unittest.TestCase):
                 AIKITO_CLI, "get_agents_dir", return_value=self.root / ".agents"
             ),
             patch.object(AIKITO_CLI, "load_agent_definitions", return_value={}),
+            patch("pathlib.Path.home", return_value=self.root),
             patch("sys.stderr", new_callable=io.StringIO) as stderr,
             self.assertRaises(SystemExit) as cm,
         ):
@@ -1114,6 +1121,7 @@ class GlobalSyncSafetyTest(unittest.TestCase):
             patch.object(
                 AIKITO_CLI, "get_agents_dir", return_value=self.root / ".agents"
             ),
+            patch("pathlib.Path.home", return_value=self.root),
             patch("sys.stderr", new_callable=io.StringIO) as stderr,
             self.assertRaises(SystemExit) as cm,
         ):
