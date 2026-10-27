@@ -43,7 +43,7 @@ A managed skill entry (`~/.agents/skills/<name>`) is owned if and only if it is 
 
 ### INV-GLB-03: Stale Entry Cleanup Invariant `[current]` {: #inv-glb-03 }
 
-A deselected entry in `~/.agents/skills/` is unlinked if and only if it is a symbolic link pointing specifically to `<active_workspace>/skills/<same-name>` (or a broken symlink whose raw link target points to that canonical path). Unmanaged symlinks, external links, cross-skill links, and ordinary directories are strictly preserved and reported as conflicts. Content-matching copy cleanup (`allow_matching_copies=True`) is eliminated for global skills.
+A deselected entry in `~/.agents/skills/` is unlinked if and only if it is a symbolic link pointing specifically to `<active_workspace>/skills/<same-name>` (or a broken symlink whose raw link target points to that canonical path). Unregistered external links, cross-skill links, ordinary directories, and other entries are preserved and ignored. A registered entry occupied by external content remains a conflict. Content-matching copy cleanup (`allow_matching_copies=True`) is eliminated for global skills.
 
 ### INV-GLB-04: Managed Container Preservation and Migration `[current]` {: #inv-glb-04 }
 

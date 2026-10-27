@@ -1,6 +1,6 @@
 # 3. Synchronize and Verify
 
-Adoption made your existing resources canonical inside the Aikito workspace.
+Adoption made your supported existing instructions, MCP servers, and subagents canonical inside the Aikito workspace. Skills are imported explicitly.
 Synchronization now connects those sources back to every supported Agent in the
 format and location it expects.
 
@@ -10,7 +10,7 @@ format and location it expects.
 > `aikito status`. Synchronization preflights every active scope before writing.
 > If it stops, explain the affected source and target, and ask before forcing,
 > pruning, or manually resolving anything. Confirm which Agents now consume the
-> adopted instructions, skills, MCP servers, and subagents.
+> adopted instructions, MCP servers, and subagents, plus any explicitly imported skills.
 
 ## Synchronize manually
 

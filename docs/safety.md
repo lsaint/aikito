@@ -130,7 +130,7 @@ not prove that Aikito owns it.
 | --- | --- | --- |
 | Copied project skill changed locally | Block project sync and preserve the copy | Use `aikito diff project <name>`; keep the local edit in the canonical skill or explicitly run `aikito sync project <name> --force` to replace the copy. |
 | Unmanaged project skill directory matches the canonical skill | Leave files unchanged and report that ownership is unproven | `aikito sync project <name> --force` can explicitly claim the matching copy. |
-| Unmanaged global skill directory or foreign skill symlink | Report a conflict and preserve the target | Inspect and resolve the target manually; global sync has no `--force` option. |
+| Unregistered global skill directory or foreign skill symlink | Preserve and ignore the entry | External tools continue to manage it. A same-name registered skill remains a conflict requiring manual resolution. |
 | Existing instruction or memory target is unmanaged | Report a conflict and preserve the target | Inspect both sources and resolve manually; `--force` cannot overwrite instructions or memory. |
 | Unmanaged subagent definition occupies a selected target | Report a conflict and preserve the definition | Review it; `aikito sync subagents --force <agent>/<subagent>` authorizes only that target. |
 | Managed MCP server was edited outside Aikito | Block MCP sync and preserve the configuration | Review the server; `aikito sync mcp --force` can replace the conflicting managed server node. |

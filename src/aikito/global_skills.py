@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,7 +51,7 @@ class GlobalSkillBatch:
 
     - container: Managed container target (~/.agents/skills)
     - selected_entries: Targets for currently configured skills in skills.toml
-    - stale_entries: Targets for unmanaged or deselected entries found inside container
+    - stale_entries: Deselected links owned by this workspace
     - consumers: Deduplicated physical consumer targets (~/.claude/skills, etc.)
     """
 
@@ -345,7 +346,19 @@ def build_global_skill_batch(
     if container_path.is_dir() and not container_path.is_symlink():
         try:
             for entry in sorted(container_path.iterdir(), key=lambda p: p.name):
-                if entry.name not in selected_set:
+                if entry.name in selected_set or not entry.is_symlink():
+                    continue
+                try:
+                    raw_target = os.readlink(entry)
+                    target = os.path.normcase(
+                        os.path.abspath(os.path.join(entry.parent, raw_target))
+                    )
+                    canonical = os.path.normcase(
+                        os.path.abspath(canonical_skills_root / entry.name)
+                    )
+                except OSError:
+                    continue
+                if target == canonical:
                     stale_entries.append(
                         Target(
                             kind="managed_entry",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -130,7 +131,7 @@ class GlobalSkillBatchTest(TestCase):
         batch = build_global_skill_batch(
             self.workspace, self.home, registry=self.registry
         )
-        self.assertEqual(len(batch.stale_entries), 2)
+        self.assertEqual(len(batch.stale_entries), 1)
 
         plan = plan_global_skills(batch, self.home)
         stale_ops = {
@@ -143,9 +144,37 @@ class GlobalSkillBatchTest(TestCase):
         self.assertEqual(stale_ops["stale-skill"].action, "UNLINK")
         self.assertEqual(stale_ops["stale-skill"].rule_id, "INV-TR-14")
 
-        # Stale normal directory should be PRESERVED as CONFLICT under INV-GLB-03
-        self.assertEqual(stale_ops["matching-dir"].action, "CONFLICT")
-        self.assertEqual(stale_ops["matching-dir"].rule_id, "INV-GLB-03")
+        self.assertNotIn("matching-dir", stale_ops)
+        self.assertTrue(stale_dir.is_dir())
+
+    def test_discovery_preserves_foreign_entries_and_finds_broken_owned_links(
+        self,
+    ) -> None:
+        self.agents_skills.mkdir(parents=True)
+        owned = self.agents_skills / "owned"
+        owned.symlink_to(
+            os.path.relpath(self.skills_dir / "owned", owned.parent),
+            target_is_directory=True,
+        )
+        foreign = self.agents_skills / "foreign"
+        foreign.symlink_to(self.root / "missing" / "foreign", target_is_directory=True)
+        cross_skill = self.agents_skills / "cross"
+        cross_skill.symlink_to(self.skills_dir / "skill-a")
+        (self.agents_skills / "external-file").write_text("keep", encoding="utf-8")
+        (self.agents_skills / "external-dir").mkdir()
+
+        batch = build_global_skill_batch(
+            self.workspace, self.home, registry=self.registry
+        )
+        self.assertEqual([entry.path.name for entry in batch.stale_entries], ["owned"])
+        plan = plan_global_skills(batch, self.home)
+        self.assertEqual(
+            next(op.action for op in plan.entry_ops if op.target_path == owned),
+            "UNLINK",
+        )
+        self.assertEqual(batch.resource_count, 2)
+        self.assertTrue(foreign.is_symlink())
+        self.assertTrue(cross_skill.is_symlink())
 
     def test_plan_wrong_consumer_symlink_reports_conflict(self) -> None:
         self.agents_skills.mkdir(parents=True)

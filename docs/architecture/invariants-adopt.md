@@ -2,13 +2,14 @@
 
 ### INV-ADOPT-01: Adoption and Runtime Sync Separation `[current]` {: #inv-adopt-01 }
 
-- The Adoption Engine discovers unmanaged agent configurations, skills, and MCP definitions in the host environment and imports them into the canonical Aikito workspace.
+- The Adoption Engine discovers unmanaged instructions, MCP definitions, and subagents in the host environment and imports them into the canonical Aikito workspace.
 - Adoption is not "reverse sync"; it has distinct semantic rules:
   - Multi-agent source discovery and merging
-  - Canonical registration under `skills/`, `subagents/`, `mcps/`, `global/AGENTS.md`
+  - Canonical registration under `subagents/`, `mcps/`, and `global/AGENTS.md`
   - Canonical format conversion and deduplication
   - Sensitive credential preservation in private payloads with redacted public plans
   - Native agent source configuration backups
+- Skills are not automatically adopted; `aikito add skill --from` imports a skill explicitly.
 - Adoption decisions do not use or alter runtime synchronization state files (`.local/state/aikito/`).
 
 ### INV-ADOPT-02: Multi-Source Instruction Conflict Resolution `[current]` {: #inv-adopt-02 }

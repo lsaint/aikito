@@ -225,6 +225,20 @@ jobs:
         shell: pwsh
         run: python tests/agent_adapters_smoke.py
 
+      - name: External global skills coexistence CLI smoke
+        shell: pwsh
+        run: |
+          $base = Join-Path $env:RUNNER_TEMP "external-skills-smoke"
+          python tests/global_external_skills_smoke.py "$base"
+          if ($LASTEXITCODE -ne 0) { throw "External skills smoke failed" }
+          foreach ($order in @("external-first", "aikito-first")) {
+            $runtime = Join-Path $base "$order/home/.agents/skills"
+            if (-not (Test-Path (Join-Path $runtime "vendor-skill/SKILL.md"))) { throw "External skill missing" }
+            if (-not (Get-Item (Join-Path $runtime "vendor-skill")).LinkType) { throw "External link missing" }
+            if (-not (Get-Item (Join-Path $runtime "aikito")).LinkType) { throw "Managed link missing" }
+            if (Test-Path (Join-Path $base "$order/workspace/skills/vendor-skill")) { throw "External skill adopted" }
+          }
+
       - name: Definition-driven adoption and Agent registration CLI smoke
         shell: pwsh
         run: python tests/adopt_definitions_smoke.py

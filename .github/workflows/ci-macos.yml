@@ -164,6 +164,17 @@ jobs:
       - name: Agent detection and adapter reuse CLI smoke
         run: python tests/agent_adapters_smoke.py
 
+      - name: External global skills coexistence CLI smoke
+        run: |
+          BASE="${{ runner.temp }}/external-skills-smoke"
+          python3 tests/global_external_skills_smoke.py "$BASE"
+          for ORDER in external-first aikito-first; do
+            test -L "$BASE/$ORDER/home/.agents/skills/vendor-skill"
+            test -f "$BASE/$ORDER/home/.agents/skills/vendor-skill/SKILL.md"
+            test -L "$BASE/$ORDER/home/.agents/skills/aikito"
+            test ! -e "$BASE/$ORDER/workspace/skills/vendor-skill"
+          done
+
       - name: Definition-driven adoption and Agent registration CLI smoke
         run: python tests/adopt_definitions_smoke.py
 

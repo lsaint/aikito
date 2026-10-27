@@ -11,6 +11,10 @@ global synchronization back up and refresh them. Do not customize these two
 directories in place. Put custom workflows in separately named skills and
 custom policy in global or project instructions.
 
+Unregistered skills installed by other tools can coexist in `~/.agents/skills/`.
+Global sync leaves them untouched. If an Aikito-registered skill has the same
+name as an external entry, sync reports a conflict and preserves the entry.
+
 ## Create or import a skill
 
 Ask your agent to create a new workflow skill:

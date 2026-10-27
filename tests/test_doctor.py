@@ -598,12 +598,7 @@ skills_path = ".claude/skills"
 
         orphans = check_orphans(self.aikito_dir, self.home)
         orphan_fails = [f for f in orphans.findings if f.status == "FAIL"]
-        self.assertTrue(
-            any(
-                "unmanaged-dir" in f.message and "unmanaged item" in f.message
-                for f in orphan_fails
-            )
-        )
+        self.assertFalse(any("unmanaged-dir" in f.message for f in orphan_fails))
 
         # 2. Plan / dry-run explanation
         from aikito.global_skills import build_global_skill_batch, plan_global_skills
@@ -617,7 +612,7 @@ skills_path = ".claude/skills"
             any("unauthorized destination" in op.reason for op in consumer_conflicts)
         )
         entry_conflicts = [op for op in plan.entry_ops if op.action == "CONFLICT"]
-        self.assertTrue(
+        self.assertFalse(
             any("unmanaged-dir" in str(op.target_path) for op in entry_conflicts)
         )
 

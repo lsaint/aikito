@@ -818,13 +818,28 @@ class GlobalSyncSafetyTest(unittest.TestCase):
         self._run_sync()
         self.assertFalse(stale.exists())
 
-    def test_rejects_unmanaged_stale_global_skill(self) -> None:
+    def test_cleans_broken_owned_link_and_preserves_broken_external_link(self) -> None:
+        owned = self.runtime / "missing-owned"
+        owned.symlink_to(
+            os.path.relpath(self.workspace / "skills" / owned.name, owned.parent),
+            target_is_directory=True,
+        )
+        foreign = self.runtime / "missing-external"
+        foreign.symlink_to(self.root / "other" / foreign.name, target_is_directory=True)
+
+        self._run_sync("--dry-run")
+        self.assertTrue(owned.is_symlink())
+        self._run_sync()
+        self.assertFalse(owned.is_symlink())
+        self.assertTrue(foreign.is_symlink())
+
+    def test_preserves_unmanaged_stale_global_skill(self) -> None:
         unmanaged = self.runtime / "unmanaged"
         unmanaged.mkdir()
         (unmanaged / "data.txt").write_text("keep\n", encoding="utf-8")
 
-        with self.assertRaises(SystemExit):
-            self._run_sync()
+        self._run_sync("--dry-run")
+        self._run_sync()
         self.assertEqual((unmanaged / "data.txt").read_text(encoding="utf-8"), "keep\n")
 
     def test_rejects_selected_global_skill_with_unmanaged_content(self) -> None:
