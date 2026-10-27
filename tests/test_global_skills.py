@@ -6,7 +6,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from unittest import TestCase
+from unittest import TestCase, skipUnless
 from unittest.mock import patch
 
 from aikito.agents import Agent, AgentAvailability, AgentRegistry
@@ -175,6 +175,26 @@ class GlobalSkillBatchTest(TestCase):
         self.assertEqual(batch.resource_count, 2)
         self.assertTrue(foreign.is_symlink())
         self.assertTrue(cross_skill.is_symlink())
+
+    @skipUnless(os.name == "nt", "Windows extended paths")
+    def test_discovery_accepts_extended_windows_symlink_target(self) -> None:
+        self.agents_skills.mkdir(parents=True)
+        owned = self.agents_skills / "stale-skill"
+        owned.symlink_to(self.skills_dir / "stale-skill", target_is_directory=True)
+        readlink = os.readlink
+
+        def extended_readlink(path):
+            if path == owned:
+                return "\\\\?\\" + str(self.skills_dir / "stale-skill")
+            return readlink(path)
+
+        with patch("aikito.global_skills.os.readlink", side_effect=extended_readlink):
+            batch = build_global_skill_batch(
+                self.workspace, self.home, registry=self.registry
+            )
+        self.assertEqual(
+            [entry.path.name for entry in batch.stale_entries], ["stale-skill"]
+        )
 
     def test_plan_wrong_consumer_symlink_reports_conflict(self) -> None:
         self.agents_skills.mkdir(parents=True)

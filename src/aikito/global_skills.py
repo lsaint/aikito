@@ -350,6 +350,11 @@ def build_global_skill_batch(
                     continue
                 try:
                     raw_target = os.readlink(entry)
+                    if os.name == "nt":
+                        if raw_target.startswith("\\\\?\\UNC\\"):
+                            raw_target = "\\\\" + raw_target[8:]
+                        elif raw_target.startswith("\\\\?\\"):
+                            raw_target = raw_target[4:]
                     target = os.path.normcase(
                         os.path.abspath(os.path.join(entry.parent, raw_target))
                     )
