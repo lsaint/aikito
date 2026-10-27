@@ -249,6 +249,34 @@ Codes are saved when first generated or successfully entered during recovery.
 Reconnecting an older device that only has its decryption key cannot reconstruct
 a recovery code that was never backed up.
 
+### Lost recovery code with an unlocked existing device
+
+Normally, use the recovery code to connect another device. If the code is lost but
+an existing device can still decrypt the space, transfer its matching file key
+over SSH. No Cloud reset is needed:
+
+1. On the existing device, run `aikito remote key inspect --workspace ~/aikito`
+   and confirm success. Read `vault_id` from the workspace's
+   `.local/state/aikito/encrypted-discovery.json`, then find the matching
+   `encrypted-remote/keys/<vault_id>.key` in the user configuration directory
+   (default: `~/.config/aikito`). Do not use `sync_id` or a test space's key.
+2. If using native key protection, first run
+   `aikito remote key storage --workspace ~/aikito --backend file`.
+   A `.key` file can instead contain a machine-protected record that cannot be
+   used on another machine. This command requires the original native store to be available.
+3. Install Aikito and initialize a workspace on the new device. Transfer only the
+   matching key over SSH to its corresponding configuration path. On macOS/Linux,
+   use directory mode `0700` and file mode `0600`; Windows requires owner-only
+   ACLs. Do not overwrite an existing key or copy all keys or account credentials.
+4. On the new device, run `aikito remote bind https://aikito.notsonan.com` and
+   authorize the same account, then run `aikito remote sync` and
+   `aikito remote start`. A matching local key removes the need for the recovery code.
+
+Protect the key like the recovery code; keep it out of Git, conversations, and
+logs. If inspection fails or binding still requests a code, check paths, Vault
+identity, and permissions before proceeding. Do not reset the existing space.
+These examples assume the workspace is `~/aikito`.
+
 ### Service public key
 
 The browser connection automatically saves the service's public key and identity

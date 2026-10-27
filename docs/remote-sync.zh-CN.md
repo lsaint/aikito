@@ -210,6 +210,27 @@ Windows 上位于 `%APPDATA%\aikito\encrypted-remote\recovery.txt`；
 恢复码会在首次生成或输入并验证成功时保存。旧设备如果只持有解密密钥，
 重新连接时无法反推出之前未备份的恢复码。
 
+### 恢复码丢失，但旧设备仍能解密
+
+正常连接新设备时使用恢复码。如果恢复码丢失，但旧设备仍能解密，可以通过 SSH
+把对应的文件密钥迁移到新设备，无需重置 Cloud：
+
+1. 在旧设备运行 `aikito remote key inspect --workspace ~/aikito`，确认检查成功。
+   查看工作区下 `.local/state/aikito/encrypted-discovery.json` 的 `vault_id`，
+   找到用户配置目录中对应的 `encrypted-remote/keys/<vault_id>.key`。
+   默认配置目录为 `~/.config/aikito`；不要用 `sync_id` 或复制测试空间的密钥。
+2. 如果旧设备使用系统钥匙串，先运行
+   `aikito remote key storage --workspace ~/aikito --backend file`。
+   `.key` 也可能只是本机保护记录，不能直接跨机器使用；此命令需要原系统密钥库可用。
+3. 在新设备安装 Aikito、初始化工作区，通过 SSH 将该密钥放到新设备对应的配置路径。
+   macOS/Linux 上目录权限设为 `0700`、文件设为 `0600`；Windows 使用用户专属 ACL。
+   不覆盖已有密钥，不复制整个密钥目录或账号凭据。
+4. 在新设备运行 `aikito remote bind https://aikito.notsonan.com`，用同一账号授权，
+   然后运行 `aikito remote sync` 和 `aikito remote start`。已有对应密钥时无需恢复码。
+
+密钥与恢复码一样是秘密，不要放进 Git、聊天或日志。检查失败或仍要求恢复码时，
+先核对路径、Vault 标识及权限，不要重置已有空间。以上假定工作区为 `~/aikito`。
+
 ### 服务公钥
 
 浏览器连接成功后，程序会自动保存服务公钥和身份信任记录。
