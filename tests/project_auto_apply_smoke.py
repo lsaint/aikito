@@ -7,13 +7,14 @@ import sys
 import time
 from pathlib import Path
 
-from aikito.bundled_skills import refresh_bundled_skills
-from aikito.skill_state import get_binding_hash, get_skill_state_dir
 from http_remote_server import HTTPRemoteServer
 from workspace_encrypted_setup import initialize_cli
 from workspace_memory_remote import InMemoryRemote
 from workspace_reconcile_smoke import _workspace
 from workspace_remote_watch_smoke import run_cli
+
+from aikito.bundled_skills import refresh_bundled_skills
+from aikito.skill_state import get_binding_hash, get_skill_state_dir
 
 TOKEN_ENV = "AIKITO_PROJECT_APPLY_SMOKE_TOKEN"
 TOKEN = "project-apply-smoke-secret"
@@ -98,6 +99,14 @@ def run_smoke(base: Path) -> None:
         assert "! unbound" not in status.stdout.lower(), status.stdout
         detail = cli(right, "show", "project", "demo")
         assert "Sync trigger:" in detail and "UNAPPROVED" in detail
+        summary = cli(right, "remote", "status")
+        assert (
+            "Checkouts:" in summary
+            and "2 synced" in summary
+            and "1 unapproved" in summary
+        )
+        assert "last results; service stopped" in summary
+        (base / "checkout-status.txt").write_text(summary, encoding="utf-8")
 
         # Keep later status assertions focused on the approved checkout.
         config_right = right / "projects/demo/agent.toml"
@@ -126,13 +135,33 @@ def run_smoke(base: Path) -> None:
         output = cli(right, "remote", "sync", "--apply", code=2)
         assert "REMOTE_SYNC_OK" in output and "PROJECT_APPLY_BLOCKED" in output
         assert target.read_text(encoding="utf-8") == "local edit"
+        cli(right, "remote", "watch", "--once")
+        summary = cli(right, "remote", "status")
+        assert "1 blocked" in summary and "1 synced" in summary
+        report = cli(right, "doctor", "--json", code=1)
+        findings = [
+            finding
+            for section in json.loads(report)["sections"]
+            for finding in section["findings"]
+        ]
+        assert any(
+            "blocked" in finding.get("reason", "") and str(copy) in finding["reason"]
+            for finding in findings
+        )
+        (base / "blocked-doctor.json").write_text(report, encoding="utf-8")
+        # Repair only the checkout; a local watcher pass must apply the pending update.
         target.write_text("v4", encoding="utf-8")
+        cli(right, "remote", "watch", "--once")
+        assert target.read_text(encoding="utf-8") == "v5"
+        (base / "recovered.txt").write_text(target.read_text(), encoding="utf-8")
+        cli(right, "sync", "project", "demo", str(copy))
+        source.write_text("v6", encoding="utf-8")
         config = right / "projects/demo/agent.toml"
         config.write_text(
             config.read_text() + 'sync_trigger = "manual"\n', encoding="utf-8"
         )
         cli(right, "remote", "sync", "--apply")
-        assert target.read_text(encoding="utf-8") == "v4"
+        assert target.read_text(encoding="utf-8") == "v5"
         config.write_text(
             config.read_text().replace(
                 'sync_trigger = "manual"', 'sync_trigger = "typo"'
@@ -153,7 +182,7 @@ def run_smoke(base: Path) -> None:
         cli(right, "remote", "watch", "--once")
         assert not (copy / ".agents").exists()
         cli(right, "sync", "project", "demo", str(copy))
-        assert target.read_text(encoding="utf-8") == "v5"
+        assert target.read_text(encoding="utf-8") == "v6"
 
         approval = (
             get_skill_state_dir(home)
@@ -165,6 +194,10 @@ def run_smoke(base: Path) -> None:
             args = ["doctor", "--json", *(["--fix"] if fix else [])]
             report = run_cli(args, workspace=right, home=home, env_vars=auth)
             assert report.returncode in (0, 1), report.stderr
+            assert report.stdout.lstrip().startswith("{"), (
+                report.stdout,
+                report.stderr,
+            )
             document = json.loads(report.stdout)
             if not fix:
                 findings = [
@@ -180,7 +213,7 @@ def run_smoke(base: Path) -> None:
                 assert approval.exists()
             else:
                 assert not approval.exists()
-        assert target.read_text(encoding="utf-8") == "v5"
+        assert target.read_text(encoding="utf-8") == "v6"
         (base / "approval-cleanup.json").write_text(
             json.dumps({"removed": str(approval)}), encoding="utf-8"
         )

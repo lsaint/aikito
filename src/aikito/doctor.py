@@ -9,6 +9,7 @@ in link.
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -19,6 +20,15 @@ from dataclasses import replace
 from pathlib import Path
 
 from .adopt import build_adopt_plan, collect_adopt_findings, summarize_adopt_plan
+from .agents import (
+    BUILTIN_AGENTS,
+    AgentRegistry,
+    AgentRegistryError,
+    bundled_agent,
+    check_agent_availability,
+    check_target_availability,
+    load_agent_definitions,
+)
 from .compat import (
     can_symlink,
     check_credential_permissions,
@@ -33,34 +43,29 @@ from .config import (
 )
 from .conflict import (
     CONFLICT_FIX_HINT as _CONFLICT_FIX,
+)
+from .conflict import (
     find_conflict_marker_lines,
+)
+from .conflict import (
     has_any_conflict_markers as _has_conflict_markers,
 )
-from .agents import (
-    BUILTIN_AGENTS,
-    bundled_agent,
-    check_agent_availability,
-    AgentRegistry,
-    AgentRegistryError,
-    check_target_availability,
-    load_agent_definitions,
-)
-from .inspection import InspectionStatus
 from .diagnostics import Finding, FindingAction
+from .inspection import InspectionStatus
 from .link import classify_symlink  # noqa: F401
-from .mcp.adapters import get_mcp_adapter, read_all_entries
-
+from .local_state import clean_local_state, inspect_local_state
 from .mcp import (
     MCPConfigError,
     load_agent_specs,
 )
+from .mcp.adapters import get_mcp_adapter, read_all_entries
 from .memory import validate_memory_name
-from .local_state import clean_local_state, inspect_local_state
 from .project import (
     ProjectSummary,
     collect_project_summaries,
     resolve_project_binding,
 )
+from .project_auto_apply import CheckoutResult, reconcile_local_projects
 from .registry import (
     add_missing_agent_fields,
     missing_agent_fields,
@@ -72,12 +77,12 @@ from .subagent import (
     load_subagent_definitions,
     validate_platform_opts,
 )
-from .workspace.inspection import WorkspaceInspectionContext, create_inspection_context
 from .templating import (
     detect_existing_agents,
     detected_agent_names,
     load_agents_template,
 )
+from .workspace.inspection import WorkspaceInspectionContext, create_inspection_context
 
 
 def _has_user_files(directory: Path) -> bool:
@@ -978,16 +983,60 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
     return DoctorSection(name="Configuration", findings=findings)
 
 
+def _project_apply_context(
+    items: list[CheckoutResult],
+) -> tuple[str, tuple[FindingAction, ...]]:
+    lines = []
+    actions = []
+    for item in items:
+        if item.status not in ("blocked", "failed", "unapproved", "offline"):
+            continue
+        lines.append(f"{item.checkout or item.project}: {item.status}; {item.reason}")
+        if item.status == "offline" or not item.checkout:
+            continue
+        if item.status == "blocked":
+            command = shlex.join(["aikito", "diff", "project", item.project])
+            actions.append(FindingAction("Review conflicts before syncing", command))
+        else:
+            command = shlex.join(
+                ["aikito", "sync", "project", item.project, item.checkout]
+            )
+            label = (
+                "Approve this checkout"
+                if item.status == "unapproved"
+                else "Retry after resolving the error"
+            )
+            actions.append(FindingAction(label, command))
+    return "\n".join(lines), tuple(actions)
+
+
 def check_projects(aikito_dir: Path, home: Path) -> DoctorSection:
     """Report project runtime health using the same model as `show project`."""
     findings: list[Finding] = []
     projects = collect_project_summaries(aikito_dir, home)
+    application: dict[str, list[CheckoutResult]] = {}
+    for item in reconcile_local_projects(aikito_dir, home, dry_run=True).checkouts:
+        application.setdefault(item.project, []).append(item)
     active_ok_count = 0
     failing_projects: list[ProjectSummary] = []
 
     for project in projects:
+        items = application.get(project.name, [])
+        context, actions = _project_apply_context(items)
         if project.runtime_status == "OK":
-            active_ok_count += 1
+            if context:
+                failed = any(item.status in ("blocked", "failed") for item in items)
+                findings.append(
+                    Finding(
+                        status="FAIL" if failed else "OK",
+                        message=f"Project '{project.name}': automatic application",
+                        reason=context,
+                        code="project.apply",
+                        actions=actions,
+                    )
+                )
+            else:
+                active_ok_count += 1
             continue
         if project.runtime_status == "OFFLINE":
             candidates_str = ", ".join(
@@ -1032,7 +1081,23 @@ def check_projects(aikito_dir: Path, home: Path) -> DoctorSection:
         else:
             action = project.fix_action
 
-        findings.append(_fail(message, action))
+        context, actions = _project_apply_context(application.get(project.name, []))
+        resource_details = [
+            f"{detail.runtime_path or detail.canonical_path}: {detail.status}; {detail.detail}"
+            for detail in project.details
+            if detail.status not in ("OK", "UNAPPROVED", "SKIP")
+        ]
+        reason = "\n".join([*resource_details, *([context] if context else [])])
+        findings.append(
+            Finding(
+                status="FAIL",
+                message=message,
+                fix_hint=action,
+                reason=reason,
+                code="project.runtime",
+                actions=actions,
+            )
+        )
 
     if not findings:
         findings.append(_ok(f"Project runtimes OK ({len(projects)} projects)"))

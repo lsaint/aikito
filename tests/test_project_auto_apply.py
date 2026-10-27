@@ -6,17 +6,18 @@ import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
 from layout_helpers import write_agents
 
-from aikito.project import collect_project_summaries, evaluate_project_health
-from aikito.render import render_project_detail, render_projects_table
-from aikito.doctor import check_projects
-from aikito.cli_show import print_project_approval_notice
 from aikito.cli_parser import build_parser
+from aikito.cli_show import print_project_approval_notice
+from aikito.doctor import check_projects
+from aikito.local_state import clean_local_state, inspect_local_state
+from aikito.project import collect_project_summaries, evaluate_project_health
 from aikito.project_approval import checkout_approval_error
 from aikito.project_auto_apply import (
     AutoProjectResult,
@@ -29,8 +30,8 @@ from aikito.project_sync import (
     build_project_sync_batch,
     sync_project,
 )
+from aikito.render import render_project_detail, render_projects_table
 from aikito.skill_state import get_skill_state_dir
-from aikito.local_state import inspect_local_state, clean_local_state
 from aikito.workspace.auto_sync import AutoSyncScheduler, AutoSyncState
 from aikito.workspace.resources import snapshot_workspace
 
@@ -263,9 +264,11 @@ def test_scheduler_offline_start_repairs_local_update(project):
     p.source.write_text("v2", encoding="utf-8")
     worker = ProjectAutoApply(p.ws, p.home, Mock())
     scheduler = AutoSyncScheduler(p.ws, None, p.home, on_local_reconcile=worker.run)
-    with patch.object(scheduler, "_step", side_effect=ConnectionError("offline")):
-        with pytest.raises(ConnectionError):
-            scheduler.run(once=True)
+    with (
+        patch.object(scheduler, "_step", side_effect=ConnectionError("offline")),
+        pytest.raises(ConnectionError),
+    ):
+        scheduler.run(once=True)
     assert p.target.read_text(encoding="utf-8") == "v2"
 
 
@@ -273,9 +276,11 @@ def test_scheduler_local_apply_runs_after_failed_remote_step(project):
     p = project
     local = Mock(return_value={})
     scheduler = AutoSyncScheduler(p.ws, None, p.home, on_local_reconcile=local)
-    with patch.object(scheduler, "_step", side_effect=ConnectionError("offline")):
-        with pytest.raises(ConnectionError):
-            scheduler.step()
+    with (
+        patch.object(scheduler, "_step", side_effect=ConnectionError("offline")),
+        pytest.raises(ConnectionError),
+    ):
+        scheduler.step()
     local.assert_called_once_with(force=False)
 
 
@@ -532,45 +537,174 @@ def test_unapproved_runtime_stays_healthy_and_has_one_migration_notice(project, 
     )
 
 
-@pytest.mark.parametrize(
-    "status", ["manual", "unapproved", "offline", "blocked", "failed", "noop"]
-)
-def test_stable_results_back_off_without_rebuilding_batches(project, status):
+@pytest.mark.parametrize("status", ["noop", "applied", "blocked"])
+def test_checkout_retry_interval_and_log_dedup(project, status):
     p = project
-    result = AutoProjectResult((CheckoutResult("demo", str(p.checkout), status),))
+    result = CheckoutResult("demo", str(p.checkout), status)
+    logger = Mock()
+    worker = ProjectAutoApply(p.ws, p.home, logger)
+    with patch(
+        "aikito.project_auto_apply._reconcile_checkout",
+        side_effect=lambda *a, **kw: replace(result),
+    ) as reconcile:
+        for tick in (0, 30, 60):
+            with patch("aikito.project_auto_apply.time.monotonic", return_value=tick):
+                worker.run()
+        assert reconcile.call_count == (3 if status == "blocked" else 2)
+        assert logger.call_count == 1
+        with patch("aikito.project_auto_apply.time.monotonic", return_value=330):
+            worker.run()
+        assert reconcile.call_count == (4 if status == "blocked" else 3)
+
+
+def test_failed_checkout_backoff_caps_and_resets_after_success(project):
+    p = project
+    result = CheckoutResult("demo", str(p.checkout), "failed", "Temporary error")
     worker = ProjectAutoApply(p.ws, p.home, Mock())
-    with (
-        patch(
-            "aikito.project_auto_apply.reconcile_local_projects", return_value=result
-        ) as reconcile,
-        patch("aikito.project_auto_apply.time.monotonic", return_value=0),
-    ):
+    with patch(
+        "aikito.project_auto_apply._reconcile_checkout",
+        side_effect=lambda *a, **kw: replace(result),
+    ) as reconcile:
+        for tick, deadline in (
+            (0, 30),
+            (30, 90),
+            (90, 210),
+            (210, 450),
+            (450, 750),
+            (750, 1050),
+        ):
+            with patch("aikito.project_auto_apply.time.monotonic", return_value=tick):
+                worker.run()
+            assert worker._retries[("demo", str(p.checkout))].next_scan == deadline
+        assert reconcile.call_count == 6
+        result = replace(result, status="noop", reason="")
+        with patch("aikito.project_auto_apply.time.monotonic", return_value=1050):
+            worker.run()
+        assert worker._retries[("demo", str(p.checkout))].failures == 0
+        result = replace(result, status="failed")
+        with patch("aikito.project_auto_apply.time.monotonic", return_value=1080):
+            worker.run()
+        assert worker._retries[("demo", str(p.checkout))].next_scan == 1110
+
+
+def test_blocked_checkout_does_not_replan_healthy_checkout(project):
+    p = project
+    other = p.ws.parent / "other"
+    other.mkdir()
+    p.config.write_text(
+        p.config.read_text().replace(
+            f"path = {json.dumps(str(p.checkout))}",
+            f"paths = [{json.dumps(str(p.checkout))}, {json.dumps(str(other))}]",
+        )
+    )
+    worker = ProjectAutoApply(p.ws, p.home, Mock())
+
+    def reconcile(ws, home, project, checkout, **kwargs):
+        return CheckoutResult(
+            project, str(checkout), "blocked" if checkout == other else "noop"
+        )
+
+    with patch(
+        "aikito.project_auto_apply._reconcile_checkout", side_effect=reconcile
+    ) as apply:
+        for tick in (0, 30, 60, 90):
+            with patch("aikito.project_auto_apply.time.monotonic", return_value=tick):
+                worker.run()
+        assert sum(call.args[3] == other for call in apply.call_args_list) == 4
+        assert sum(call.args[3] == p.checkout for call in apply.call_args_list) == 2
+
+
+def test_blocked_checkout_recovers_without_workspace_event(project):
+    p = project
+    approve(p)
+    p.source.write_text("v2")
+    p.target.write_text("local edit")
+    logger = Mock()
+    worker = ProjectAutoApply(p.ws, p.home, logger)
+    for tick in (0, 30, 60):
+        with patch("aikito.project_auto_apply.time.monotonic", return_value=tick):
+            worker.run()
+    assert logger.call_count == 1
+    assert worker.status["checkouts"][0]["status"] == "blocked"
+    p.target.write_text("v1")
+    with patch("aikito.project_auto_apply.time.monotonic", return_value=90):
         worker.run()
-    with (
-        patch(
-            "aikito.project_auto_apply.reconcile_local_projects", return_value=result
-        ) as reconcile,
-        patch("aikito.project_auto_apply.time.monotonic", return_value=30),
-    ):
+    assert p.target.read_text() == "v2"
+    assert worker.status["checkouts"][0]["status"] == "applied"
+
+
+@pytest.mark.parametrize("recreate", [False, True])
+def test_offline_checkout_recovery_rechecks_identity(project, recreate):
+    p = project
+    approve(p)
+    p.source.write_text("v2")
+    moved = p.checkout.with_name("moved")
+    p.checkout.rename(moved)
+    worker = ProjectAutoApply(p.ws, p.home, Mock())
+    with patch("aikito.project_auto_apply.time.monotonic", return_value=0):
         worker.run()
-        reconcile.assert_called_once()
-    assert worker._next_scan == 330
-    with (
-        patch(
-            "aikito.project_auto_apply.reconcile_local_projects", return_value=result
-        ) as reconcile,
-        patch("aikito.project_auto_apply.time.monotonic", return_value=60),
-    ):
+    assert worker.status["checkouts"][0]["status"] == "offline"
+    if recreate:
+        p.checkout.mkdir()
+    else:
+        moved.rename(p.checkout)
+    with patch("aikito.project_auto_apply.time.monotonic", return_value=30):
         worker.run()
-        reconcile.assert_not_called()
-    with (
-        patch(
-            "aikito.project_auto_apply.reconcile_local_projects", return_value=result
-        ) as reconcile,
-        patch("aikito.project_auto_apply.time.monotonic", return_value=330),
-    ):
+    assert worker.status["checkouts"][0]["status"] == (
+        "unapproved" if recreate else "applied"
+    )
+    if recreate:
+        assert not (p.checkout / ".agents").exists()
+    else:
+        assert p.target.read_text() == "v2"
+
+
+def test_unapproved_checkout_detects_manual_approval_without_event(project):
+    p = project
+    worker = ProjectAutoApply(p.ws, p.home, Mock())
+    with patch("aikito.project_auto_apply.time.monotonic", return_value=0):
         worker.run()
-        reconcile.assert_called_once()
+    assert worker.status["checkouts"][0]["status"] == "unapproved"
+    with patch("aikito.project_auto_apply._reconcile_checkout") as apply:
+        with patch("aikito.project_auto_apply.time.monotonic", return_value=30):
+            worker.run()
+        apply.assert_not_called()
+    assert not (p.checkout / ".agents").exists()
+    approve(p)
+    with patch("aikito.project_auto_apply.time.monotonic", return_value=60):
+        worker.run()
+    assert worker.status["checkouts"][0]["status"] == "noop"
+
+
+def test_manual_checkout_is_not_planned_and_can_return_to_auto(project):
+    p = project
+    approve(p)
+    p.source.write_text("v2")
+    p.config.write_text(p.config.read_text() + 'sync_trigger = "manual"\n')
+    worker = ProjectAutoApply(p.ws, p.home, Mock())
+    with patch("aikito.project_auto_apply._reconcile_checkout") as apply:
+        for tick in (0, 30, 60):
+            with patch("aikito.project_auto_apply.time.monotonic", return_value=tick):
+                worker.run()
+        apply.assert_not_called()
+    assert p.target.read_text() == "v1"
+    p.config.write_text(p.config.read_text().replace('"manual"', '"auto"'))
+    with patch("aikito.project_auto_apply.time.monotonic", return_value=90):
+        worker.run()
+    assert p.target.read_text() == "v2"
+
+
+def test_force_bypasses_unchanged_workspace_and_retry_deadline(project):
+    p = project
+    approve(p)
+    worker = ProjectAutoApply(p.ws, p.home, Mock())
+    for tick in (0, 30):
+        with patch("aikito.project_auto_apply.time.monotonic", return_value=tick):
+            worker.run()
+    p.target.write_text("conflict")
+    with patch("aikito.project_auto_apply.time.monotonic", return_value=31):
+        worker.run(force=True)
+    assert worker.status["checkouts"][0]["status"] == "blocked"
 
 
 def test_periodic_wakeups_do_not_scan_metadata_every_five_seconds(project):
@@ -617,7 +751,7 @@ def test_global_memory_edit_bypasses_stable_result_backoff(project):
         worker.run()
     with patch("aikito.project_auto_apply.time.monotonic", return_value=30):
         worker.run()
-    assert worker._next_scan == 330
+    assert worker._retries[("demo", str(p.checkout))].next_scan == 330
     shared.write_text("v2 changed", encoding="utf-8")
     with (
         patch("aikito.project_auto_apply.time.monotonic", return_value=31),
@@ -751,3 +885,86 @@ def test_approval_notice_shares_bundled_notice_area(
     assert notices[0].startswith("[NOTICE] Bundled skill snapshot")
     assert notices[1].startswith("[NOTICE] Automatic application")
     assert output.err.count("Run 'aikito sync' once") == 1
+
+
+def test_doctor_reports_checkout_conflict_and_review_action(project):
+    p = project
+    approve(p)
+    p.source.write_text("v2")
+    p.target.write_text("local edit")
+    findings = check_projects(p.ws, p.home).findings
+    failure = next(f for f in findings if f.status == "FAIL")
+    assert str(p.checkout) in failure.reason
+    assert "blocked" in failure.reason
+    assert any(
+        action.command == "aikito diff project demo" for action in failure.actions
+    )
+    assert all("--force" not in action.command for action in failure.actions)
+    assert p.target.read_text() == "local edit"
+
+
+def test_doctor_unapproved_checkout_has_explicit_approval_command(project):
+    p = project
+    batch = build_project_sync_batch(
+        p.ws,
+        p.home,
+        "demo",
+        {"path": str(p.checkout), "skills": ["example"], "sync_mode": "copy"},
+    )
+    assert apply_project_sync_batch(
+        batch,
+        {"path": str(p.checkout), "skills": ["example"], "sync_mode": "copy"},
+        p.home,
+    ).is_success
+    finding = next(
+        f for f in check_projects(p.ws, p.home).findings if "unapproved" in f.reason
+    )
+    assert finding.status == "OK"
+    assert str(p.checkout) in finding.reason
+    assert any(str(p.checkout) in action.command for action in finding.actions)
+    assert checkout_approval_error(p.ws, p.home, "demo", p.checkout) is not None
+
+
+def test_unchanged_conflict_is_not_logged_when_another_checkout_changes(project):
+    p = project
+    other = p.ws.parent / "other"
+    other.mkdir()
+    p.config.write_text(
+        p.config.read_text().replace(
+            f"path = {json.dumps(str(p.checkout))}",
+            f"paths = [{json.dumps(str(p.checkout))}, {json.dumps(str(other))}]",
+        )
+    )
+    logger = Mock()
+    worker = ProjectAutoApply(p.ws, p.home, logger)
+    healthy_status = "applied"
+
+    def reconcile(ws, home, project, checkout, **kwargs):
+        return CheckoutResult(
+            project, str(checkout), "blocked" if checkout == other else healthy_status
+        )
+
+    with patch("aikito.project_auto_apply._reconcile_checkout", side_effect=reconcile):
+        with patch("aikito.project_auto_apply.time.monotonic", return_value=0):
+            worker.run()
+        logger.reset_mock()
+        healthy_status = "noop"
+        with patch("aikito.project_auto_apply.time.monotonic", return_value=30):
+            worker.run()
+    logger.assert_called_once()
+    assert "blocked" not in logger.call_args.args[0]
+    assert "noop" in logger.call_args.args[0]
+
+
+def test_project_preview_does_not_execute_resource_phases_or_print(project, capsys):
+    p = project
+    approve(p)
+    p.source.write_text("v2")
+    capsys.readouterr()
+    with patch("aikito.project_auto_apply.apply_project_sync_batch") as execute:
+        result = reconcile_local_projects(p.ws, p.home, dry_run=True)
+    execute.assert_not_called()
+    assert result.checkouts[0].status == "applied"
+    assert result.checkouts[0].changes > 0
+    assert p.target.read_text() == "v1"
+    assert capsys.readouterr().out == ""

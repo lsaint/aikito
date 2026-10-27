@@ -12,12 +12,12 @@ import ssl
 import sys
 import time
 import warnings
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .project_auto_apply import reconcile_local_projects, render_auto_project_result
 from .init import is_recognized_workspace
+from .project_auto_apply import reconcile_local_projects, render_auto_project_result
 from .remote_service import (
     bind_workspace_remote,
     get_workspace_remote_binding,
@@ -32,11 +32,13 @@ from .remote_service import (
 )
 from .render import render_remote_sync_plan
 from .workspace.auto_sync import AutoSyncWorkerRunning
+from .workspace.encrypted_sync import initialize_encrypted_workspace
 from .workspace.paths import resolve_workspace
 from .workspace.reconcile import (
     InterruptedRoundRecovered,
     WorkspaceReconcileError,
 )
+from .workspace.recovery_codes import recovery_file_path
 from .workspace.remote_access import (
     RemoteAccessDenied,
     RemoteBindingError,
@@ -51,9 +53,7 @@ from .workspace.remote_credentials import (
     read_credentials_file,
     save_keychain,
 )
-from .workspace.recovery_codes import recovery_file_path
 from .workspace.remote_pairing import pair_device
-from .workspace.encrypted_sync import initialize_encrypted_workspace
 from .workspace.remote_store import (
     RecoveryRequired,
     StoreIdentityMismatch,
@@ -138,6 +138,34 @@ def _explain_remote_error(
     return f"Failed: {target}"
 
 
+def _checkout_status_summary(project_apply: dict[str, Any], running: bool) -> str:
+    if "checkouts" not in project_apply:
+        return "Unknown (not checked)"
+    counts: dict[str, int] = {}
+    projects: dict[str, int] = {}
+    for item in project_apply["checkouts"]:
+        label = item["status"]
+        if label in ("noop", "applied"):
+            label = "synced"
+        bucket = counts if item.get("checkout") else projects
+        bucket[label] = bucket.get(label, 0) + 1
+    parts = [f"{count} {label}" for label, count in sorted(counts.items())]
+    parts.extend(
+        f"{count} {label} project(s)" for label, count in sorted(projects.items())
+    )
+    summary = " · ".join(parts) or "None configured"
+    checked = project_apply.get("last_checked")
+    try:
+        age = (datetime.now(UTC) - datetime.fromisoformat(checked)).total_seconds()
+    except (TypeError, ValueError):
+        age = float("inf")
+    if not running:
+        summary += " (last results; service stopped)"
+    elif age > 330:
+        summary += " (stale; awaiting check)"
+    return summary
+
+
 def render_remote_status(
     status: dict[str, Any],
     *,
@@ -201,6 +229,9 @@ def render_remote_status(
     ]
 
     project_apply = status.get("project_apply") or {}
+    lines.append(
+        f"  Checkouts:       {_checkout_status_summary(project_apply, running)}"
+    )
     if project_apply:
         lines.append(
             f"  Project checked: {project_apply.get('last_checked') or 'Never'}"
@@ -688,9 +719,7 @@ def _follow_log(log_path: Path) -> None:
                             if (
                                 current_inode is not None
                                 and new_stat.st_ino != current_inode
-                            ):
-                                reopened = True
-                            elif new_stat.st_size < f.tell():
+                            ) or new_stat.st_size < f.tell():
                                 reopened = True
                             elif (
                                 new_stat.st_size == f.tell()

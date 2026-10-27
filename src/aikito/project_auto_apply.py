@@ -9,11 +9,11 @@ from __future__ import annotations
 import os
 import time
 import tomllib
+from collections.abc import Callable
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
 
 from .project_approval import candidate_checkout, checkout_approval_error
 from .project_config import get_project_candidate_paths, project_sync_trigger
@@ -115,15 +115,16 @@ def _reconcile_checkout(
                     op.action not in ("NOOP", "SKIP", "OFFLINE", "SHARED_PATH")
                     for op in plan.operations
                 )
-        result = apply_project_sync_batch(batch, data, home, dry_run=dry_run)
-        if not result.is_success:
-            return CheckoutResult(
-                project,
-                str(checkout),
-                "failed",
-                result.error_message or "Project application failed",
-                changes,
-            )
+        if not dry_run:
+            result = apply_project_sync_batch(batch, data, home)
+            if not result.is_success:
+                return CheckoutResult(
+                    project,
+                    str(checkout),
+                    "failed",
+                    result.error_message or "Project application failed",
+                    changes,
+                )
         return CheckoutResult(
             project,
             str(checkout),
@@ -134,7 +135,11 @@ def _reconcile_checkout(
 
 
 def reconcile_local_projects(
-    workspace: Path, home: Path, *, dry_run: bool = False
+    workspace: Path,
+    home: Path,
+    *,
+    dry_run: bool = False,
+    reuse_checkout: Callable[[str, Path], CheckoutResult | None] | None = None,
 ) -> AutoProjectResult:
     """Apply only approved checkouts; isolate invalid configs and individual failures."""
     projects = workspace / "projects"
@@ -165,8 +170,11 @@ def reconcile_local_projects(
             )
         for checkout in candidates:
             try:
+                cached = reuse_checkout(project, checkout) if reuse_checkout else None
                 results.append(
-                    _reconcile_checkout(
+                    cached
+                    if cached is not None
+                    else _reconcile_checkout(
                         workspace, home, project, checkout, dry_run=dry_run
                     )
                 )
@@ -194,11 +202,18 @@ def render_auto_project_result(result: AutoProjectResult) -> str:
     return "\n".join(lines)
 
 
+@dataclass
+class _CheckoutRetry:
+    result: CheckoutResult
+    next_scan: float
+    failures: int = 0
+
+
 class ProjectAutoApply:
     """Worker-local throttling and deduplicated reporting, independent of remote I/O.
 
-    Workspace events bypass the idle interval. Checkout-only edits are discovered
-    within five minutes after stable results, or thirty seconds after changed results.
+    Workspace events invalidate cached plans. Each checkout retries independently;
+    blocked resources retry every thirty seconds without repeating unchanged logs.
     """
 
     def __init__(
@@ -207,7 +222,7 @@ class ProjectAutoApply:
         self.workspace = workspace
         self.home = home
         self.logger = logger
-        self._next_scan = 0.0
+        self._retries: dict[tuple[str, str], _CheckoutRetry] = {}
         self._next_probe = 0.0
         self._signature: tuple | None = None
         self._last_result: AutoProjectResult | None = None
@@ -236,23 +251,79 @@ class ProjectAutoApply:
                     entries.append((str(path), info.st_mtime_ns, info.st_size))
         return tuple(sorted(entries))
 
+    def _reuse_checkout(
+        self, project: str, checkout: Path, now: float
+    ) -> CheckoutResult | None:
+        retry = self._retries.get((project, str(checkout)))
+        if retry is None:
+            return None
+        if retry.result.status == "offline":
+            return retry.result if not checkout.is_dir() else None
+        if retry.result.status == "unapproved":
+            # Approval changes are host-local and do not emit workspace events.
+            error = checkout_approval_error(
+                self.workspace, self.home, project, checkout
+            )
+            return retry.result if error == retry.result.reason else None
+        return retry.result if now < retry.next_scan else None
+
     def run(self, *, force: bool = False) -> dict:
         now = time.monotonic()
-        # Polling remote revisions every few seconds must not rescan the workspace.
-        # Debounced workspace events and applied remote items bypass this probe gate.
         if not force and now < self._next_probe:
             return self.status
         signature = self._workspace_signature()
         self._next_probe = now + 30
-        if signature == self._signature and now < self._next_scan:
-            return self.status
-        result = reconcile_local_projects(self.workspace, self.home)
+        invalidate = force or signature != self._signature
+        reused = set()
+
+        def reuse(project: str, checkout: Path) -> CheckoutResult | None:
+            cached = self._reuse_checkout(project, checkout, now)
+            if cached is not None:
+                reused.add((project, str(checkout)))
+            return cached
+
+        result = reconcile_local_projects(
+            self.workspace,
+            self.home,
+            reuse_checkout=None if invalidate else reuse,
+        )
+        retries = {}
+        for item in result.checkouts:
+            key = (item.project, item.checkout)
+            previous = self._retries.get(key)
+            # Reused results retain their deadline and failure count.
+            if key in reused and previous is not None:
+                retries[key] = previous
+                continue
+            failures = 0
+            if item.status == "failed":
+                failures = (previous.failures if previous else 0) + 1
+                delay = min(300, 30 * 2 ** min(failures - 1, 4))
+            elif item.status == "blocked":
+                delay = 30
+            else:
+                delay = 300 if previous and item == previous.result else 30
+            retries[key] = _CheckoutRetry(item, now + delay, failures)
+        self._retries = retries
         self._signature = signature
-        self._next_scan = now + (300 if result == self._last_result else 30)
-        if result != self._last_result:
-            rendered = render_auto_project_result(result)
-            if rendered:
-                self.logger(rendered)
+        previous_results = (
+            {
+                (item.project, item.checkout): item
+                for item in self._last_result.checkouts
+            }
+            if self._last_result is not None
+            else {}
+        )
+        changed = AutoProjectResult(
+            tuple(
+                item
+                for item in result.checkouts
+                if item != previous_results.get((item.project, item.checkout))
+            )
+        )
+        rendered = render_auto_project_result(changed)
+        if rendered:
+            self.logger(rendered)
         self._last_result = result
         self.status = {
             "last_checked": datetime.now(UTC).isoformat(),

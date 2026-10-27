@@ -89,11 +89,18 @@ directories are preserved with inactive state rather than automatically deleted.
 
 Startup performs local reconciliation even when remote access fails. Workspace
 changes trigger application independently of catalog publication, including global
-memory referenced by projects. Unchanged result sets back off to five minutes,
-including manual, unapproved, offline and blocked results; changed results retry
-after thirty seconds. Checkout-only edits are detected within the backoff interval.
+memory referenced by projects. Checkouts retry independently: blocked results retry
+in thirty seconds; failures back off exponentially from thirty seconds to five
+minutes, resetting after success. Healthy results back off to five minutes.
+Offline directories and local approval changes are checked every thirty seconds;
+restored directories must still pass identity and approval checks. Manual projects
+are not applied until their trigger changes back to auto. Checkout-only edits in
+healthy projects are detected within five minutes.
 Metadata probes share the thirty-second fallback cadence rather than every remote
 poll; workspace events and downloaded remote resources bypass that probe gate.
-Logs change only when results do.
+Logs change only when results do. `aikito remote status` summarizes all checkouts
+separately from remote synchronization and marks stopped or stale snapshots.
+`aikito doctor` reports checkout paths, reasons and review or approval commands;
+unapproved checkouts remain informational and are never automatically authorized.
 macOS background services may need permission for protected directories; use
 manual sync or grant filesystem access when worker status reports permission errors.

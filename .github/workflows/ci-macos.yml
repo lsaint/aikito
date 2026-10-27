@@ -111,6 +111,9 @@ jobs:
           test -L "$PROJECT_APPLY_SMOKE/link-checkout/.agents/skills/example"
           test ! -e "$PROJECT_APPLY_SMOKE/unapproved-checkout/.agents"
           test -f "$PROJECT_APPLY_SMOKE/approval-cleanup.json"
+          test -f "$PROJECT_APPLY_SMOKE/checkout-status.txt"
+          test -f "$PROJECT_APPLY_SMOKE/blocked-doctor.json"
+          test -f "$PROJECT_APPLY_SMOKE/recovered.txt"
 
       - name: HTTPS recipient trust CLI smoke without optional dependencies
         run: |

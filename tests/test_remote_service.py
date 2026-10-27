@@ -1069,3 +1069,37 @@ def test_watch_catalog_failure_is_throttled_and_does_not_interrupt_sync(
     monkeypatch.setattr(remote_service, "AutoSyncScheduler", Scheduler)
     remote_service.watch_workspace_remote(fake_workspace, home=fake_home, once=True)
     assert published == [100.0, 160.0]
+
+
+@pytest.mark.parametrize("running", [False, True])
+def test_remote_status_summarizes_checkout_results_and_freshness(running):
+    from datetime import UTC, datetime
+
+    from aikito.remote_cli import render_remote_status
+
+    status = {
+        "workspace": "/workspace",
+        "service": {"running": running},
+        "project_apply": {
+            "last_checked": datetime.now(UTC).isoformat(),
+            "last_error": "Local conflict",
+            "checkouts": [
+                {"project": "demo", "checkout": "/a", "status": "noop"},
+                {"project": "demo", "checkout": "/b", "status": "applied"},
+                {"project": "other", "checkout": "/c", "status": "blocked"},
+                {"project": "other", "checkout": "/d", "status": "unapproved"},
+                {"project": "manual", "checkout": "", "status": "manual"},
+            ],
+        },
+    }
+    rendered = render_remote_status(status)
+    assert (
+        "Checkouts:       1 blocked · 2 synced · 1 unapproved · 1 manual project(s)"
+        in rendered
+    )
+    assert ("last results; service stopped" in rendered) == (not running)
+    assert "Project error:   Local conflict" in rendered
+    status["project_apply"]["last_checked"] = "2020-01-01T00:00:00+00:00"
+    assert ("stale; awaiting check" in render_remote_status(status)) == running
+    status["project_apply"] = {}
+    assert "Checkouts:       Unknown (not checked)" in render_remote_status(status)

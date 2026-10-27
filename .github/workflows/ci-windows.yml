@@ -136,6 +136,9 @@ jobs:
           if ((Get-Item "$projectApplyBase/link-checkout/.agents/skills/example").LinkType -ne "SymbolicLink") { throw "Skill link missing" }
           if (Test-Path "$projectApplyBase/unapproved-checkout/.agents") { throw "Unapproved checkout was modified" }
           if (-not (Test-Path "$projectApplyBase/approval-cleanup.json")) { throw "Approval cleanup proof missing" }
+          foreach ($proof in @("checkout-status.txt", "blocked-doctor.json", "recovered.txt")) {
+            if (-not (Test-Path "$projectApplyBase/$proof")) { throw "Project recovery proof missing: $proof" }
+          }
 
       - name: HTTPS recipient trust CLI smoke without optional dependencies
         shell: pwsh
