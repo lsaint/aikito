@@ -1492,6 +1492,7 @@ jobs:
           python tests/local_state_doctor_smoke.py "$localStateBase"
           if ($LASTEXITCODE -ne 0) { throw "Local state doctor smoke failed" }
           if (!(Test-Path "$localStateBase/checked.json" -PathType Leaf)) { throw "Missing local state doctor report" }
+          if (!(Test-Path "$localStateBase/acl-batch-checked.txt" -PathType Leaf)) { throw "Missing ACL batch check" }
           if (!(Get-ChildItem "$localStateBase/home/.local/state/aikito/project-skills" -Filter "*.json" -File)) { throw "Missing preserved local skill state" }
           $boundaryBase = Join-Path $env:RUNNER_TEMP "reconcile-boundary"
           python tests/workspace_reconcile_boundary_smoke.py "$boundaryBase"

@@ -23,6 +23,7 @@ from aikito.skill_state import (
     load_project_skill_state,
     run_recovery_pass,
     save_project_skill_state,
+    validate_state_store_root,
     write_transaction_journal,
 )
 from aikito.skill_artifacts import SKILL_EXECUTABLE_METADATA
@@ -100,6 +101,30 @@ class SkillStateFingerprintTests(TestCase):
 
 
 class StateStorePermissionTests(TestCase):
+    def test_windows_batch_repairs_and_rechecks_each_insecure_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td).resolve()
+            state_dir = home / "state" / "project-skills"
+            state_dir.mkdir(parents=True)
+            with (
+                patch("aikito.skill_state.get_skill_state_dir", return_value=state_dir),
+                patch("aikito.skill_state.is_windows", return_value=True),
+                patch(
+                    "aikito.skill_state.check_directory_permissions_batch",
+                    return_value=[(False, "unsafe"), (True, "secure")],
+                ) as batch,
+                patch("aikito.skill_state.secure_directory_permissions") as repair,
+                patch(
+                    "aikito.skill_state.check_directory_permissions",
+                    return_value=(True, "rechecked"),
+                ) as check,
+            ):
+                _, error = validate_state_store_root(home, create_if_missing=True)
+            self.assertIsNone(error)
+            batch.assert_called_once_with([state_dir, state_dir.parent])
+            repair.assert_called_once_with(state_dir)
+            check.assert_called_once_with(state_dir)
+
     def test_insecure_ancestor_prevents_writer_lock_creation(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             home = Path(td).resolve()
@@ -107,6 +132,7 @@ class StateStorePermissionTests(TestCase):
             state_dir.mkdir(parents=True)
             with (
                 patch("aikito.skill_state.get_skill_state_dir", return_value=state_dir),
+                patch("aikito.skill_state.is_windows", return_value=False),
                 patch(
                     "aikito.skill_state.check_directory_permissions",
                     side_effect=lambda path: (path != state_dir.parent, "unsafe ACL"),
@@ -127,6 +153,7 @@ class StateStorePermissionTests(TestCase):
             state_dir.mkdir()
             with (
                 patch("aikito.skill_state.get_skill_state_dir", return_value=state_dir),
+                patch("aikito.skill_state.is_windows", return_value=False),
                 patch(
                     "aikito.skill_state.check_directory_permissions",
                     return_value=(False, "ACL unavailable"),

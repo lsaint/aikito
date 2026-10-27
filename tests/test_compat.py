@@ -1,4 +1,5 @@
 import ctypes
+import json
 import os
 import sys
 import tempfile
@@ -9,6 +10,7 @@ from unittest.mock import MagicMock, patch
 from aikito.compat import (
     can_symlink,
     check_credential_permissions,
+    check_directory_permissions_batch,
     get_default_editor,
     get_permission_fix_cmd,
     get_workspace_config_dir,
@@ -180,6 +182,53 @@ class AikitoPlatformTest(unittest.TestCase):
                     is_secure, desc = check_credential_permissions(f)
                     self.assertFalse(is_secure)
                     self.assertIn("ACL unchecked", desc)
+
+    def test_windows_directory_acl_batch_checks_each_path_and_fails_closed(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = [root / "o'brien", root / "other"]
+            for path in paths:
+                path.mkdir()
+            owner = "S-1-5-21-1001"
+            responses = [
+                MagicMock(returncode=0, stdout=f'"DOMAIN\\user","{owner}"'),
+                MagicMock(
+                    returncode=0,
+                    stdout="\n".join(
+                        [json.dumps([owner, "S-1-5-18"]), json.dumps(["S-1-1-0"])]
+                    ),
+                ),
+            ]
+            with (
+                patch("aikito.compat.is_windows", return_value=True),
+                patch("subprocess.run", side_effect=responses) as run,
+            ):
+                checks = check_directory_permissions_batch(paths)
+            self.assertTrue(checks[0][0])
+            self.assertFalse(checks[1][0])
+            self.assertIn("S-1-1-0", checks[1][1])
+            self.assertEqual(run.call_count, 2)
+            self.assertIn("o''brien", run.call_args.args[0][-1])
+
+            for output in ("[]", "invalid", "[]\n[1]"):
+                with (
+                    patch("aikito.compat.is_windows", return_value=True),
+                    patch(
+                        "subprocess.run",
+                        side_effect=[
+                            MagicMock(returncode=0, stdout=f'"user","{owner}"'),
+                            MagicMock(returncode=0, stdout=output),
+                        ],
+                    ),
+                ):
+                    self.assertTrue(
+                        all(
+                            not secure
+                            for secure, _ in check_directory_permissions_batch(paths)
+                        )
+                    )
 
     def test_get_permission_fix_cmd(self) -> None:
         # POSIX: quoted path for spaces

@@ -33,6 +33,7 @@ else:
 
 from .compat import (
     check_directory_permissions,
+    check_directory_permissions_batch,
     get_physical_path,
     is_reparse_point,
     is_windows,
@@ -243,6 +244,7 @@ def validate_state_store_root(
         except OSError as exc:
             return state_dir, f"Failed to create state directory {state_dir}: {exc}"
 
+    components = []
     curr = state_dir
     while curr != home and curr != curr.parent:
         if is_reparse_point(curr):
@@ -250,7 +252,20 @@ def validate_state_store_root(
                 state_dir,
                 f"State directory component is a symbolic link or reparse point: {curr}",
             )
-        is_sec, desc = check_directory_permissions(curr)
+        components.append(curr)
+        curr = curr.parent
+
+    checks = (
+        check_directory_permissions_batch(components)
+        if is_windows()
+        else [check_directory_permissions(path) for path in components]
+    )
+    for curr, (is_sec, desc) in zip(components, checks, strict=True):
+        if is_reparse_point(curr):
+            return (
+                state_dir,
+                f"State directory component is a symbolic link or reparse point: {curr}",
+            )
         if not is_sec and create_if_missing:
             secure_directory_permissions(curr)
             is_sec, desc = check_directory_permissions(curr)
@@ -259,8 +274,6 @@ def validate_state_store_root(
                 state_dir,
                 f"Insecure permissions on state directory {curr}: {desc}",
             )
-        curr = curr.parent
-
     return state_dir, None
 
 

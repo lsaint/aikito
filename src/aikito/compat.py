@@ -13,6 +13,7 @@ from __future__ import annotations
 import ctypes
 import functools
 import importlib.resources
+import json
 import os
 import shlex
 import shutil
@@ -193,8 +194,40 @@ def check_credential_permissions(path: Path) -> tuple[bool, str]:
             return True, oct(mode)
         return False, oct(mode)
 
-    # --- Windows: SID-based ACL check via PowerShell (locale-independent) ---
-    # Step 1: get current user's SID
+    safe_sids = _windows_safe_sids()
+
+    # Escape single quotes in path for PowerShell string literal ('' = escaped ')
+    ps_path = str(path).replace("'", "''")
+    ps_script = (
+        f"$item = Get-Item -LiteralPath '{ps_path}';"
+        "$acl = $item.GetAccessControl();"
+        "$acl.Access | ForEach-Object {"
+        "$sid = $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value;"
+        "Write-Output $sid"
+        "}"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps_script],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return False, f"ACL unchecked (PowerShell exit {result.returncode})"
+
+        granted_sids = {
+            line.strip() for line in result.stdout.splitlines() if line.strip()
+        }
+        return _assess_windows_sids(granted_sids, safe_sids)
+    except Exception as exc:
+        return False, f"ACL unchecked ({exc})"
+
+
+def _windows_safe_sids() -> set[str]:
     try:
         sid_result = subprocess.run(
             ["whoami", "/user", "/fo", "csv", "/nh"],
@@ -222,43 +255,19 @@ def check_credential_permissions(path: Path) -> tuple[bool, str]:
     }
     if owner_sid:
         safe_sids.add(owner_sid)
+    return safe_sids
 
-    # Step 2: query ACL via PowerShell Get-Acl or Get-Item.GetAccessControl
-    # Escape single quotes in path for PowerShell string literal ('' = escaped ')
-    ps_path = str(path).replace("'", "''")
-    ps_script = (
-        f"$item = Get-Item -LiteralPath '{ps_path}';"
-        "$acl = $item.GetAccessControl();"
-        "$acl.Access | ForEach-Object {"
-        "$sid = $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value;"
-        "Write-Output $sid"
-        "}"
-    )
-    try:
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps_script],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=10,
+
+def _assess_windows_sids(
+    granted_sids: set[str], safe_sids: set[str]
+) -> tuple[bool, str]:
+    unknown = granted_sids - safe_sids
+    if unknown:
+        return (
+            False,
+            f"ACL allows access to unexpected SIDs: {', '.join(sorted(unknown))}",
         )
-        if result.returncode != 0:
-            return False, f"ACL unchecked (PowerShell exit {result.returncode})"
-
-        granted_sids = {
-            line.strip() for line in result.stdout.splitlines() if line.strip()
-        }
-        unknown = granted_sids - safe_sids
-        if unknown:
-            return (
-                False,
-                f"ACL allows access to unexpected SIDs: {', '.join(sorted(unknown))}",
-            )
-        return True, "ACL restricted"
-    except Exception as exc:
-        return False, f"ACL unchecked ({exc})"
+    return True, "ACL restricted"
 
 
 def get_permission_fix_cmd(path: Path) -> str:
@@ -386,6 +395,50 @@ def check_directory_permissions(path: Path) -> tuple[bool, str]:
         return True, oct(mode)
 
     return check_credential_permissions(path)
+
+
+def check_directory_permissions_batch(paths: Sequence[Path]) -> list[tuple[bool, str]]:
+    """Inspect each directory without caching ACL results across operations."""
+    if not is_windows():
+        return [check_directory_permissions(path) for path in paths]
+    present = [path for path in paths if path.exists()]
+    if not present:
+        return [(True, "missing") for _ in paths]
+    safe_sids = _windows_safe_sids()
+    literals = ",".join("'" + str(path).replace("'", "''") + "'" for path in present)
+    script = (
+        "$ErrorActionPreference='Stop';"
+        f"foreach ($path in @({literals})) {{"
+        "$acl=(Get-Item -LiteralPath $path).GetAccessControl();"
+        "$sids=@($acl.Access | ForEach-Object {"
+        "$_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value"
+        "});ConvertTo-Json -InputObject $sids -Compress}"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", script],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            raise ValueError(f"PowerShell exit {result.returncode}")
+        entries = [json.loads(line) for line in result.stdout.splitlines()]
+        if len(entries) != len(present) or any(
+            not isinstance(entry, list)
+            or any(not isinstance(sid, str) for sid in entry)
+            for entry in entries
+        ):
+            raise ValueError("invalid ACL results")
+        checks = iter(_assess_windows_sids(set(entry), safe_sids) for entry in entries)
+        return [
+            next(checks) if path in present else (True, "missing") for path in paths
+        ]
+    except Exception as exc:
+        return [(False, f"ACL unchecked ({exc})") for _ in paths]
 
 
 def is_reparse_point(path: Path) -> bool:

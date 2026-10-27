@@ -28,6 +28,11 @@ def isolated_windows_state_permissions(monkeypatch, request):
     monkeypatch.setattr(
         skill_state, "check_directory_permissions", lambda path: (True, "private")
     )
+    monkeypatch.setattr(
+        skill_state,
+        "check_directory_permissions_batch",
+        lambda paths: [skill_state.check_directory_permissions(path) for path in paths],
+    )
     monkeypatch.setattr(skill_state, "secure_directory_permissions", lambda path: True)
     for module in (skill_state, project_approval):
         monkeypatch.setattr(module, "secure_file_permissions", lambda path: True)

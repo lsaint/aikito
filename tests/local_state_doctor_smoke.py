@@ -9,6 +9,11 @@ import sys
 import tempfile
 from pathlib import Path
 
+from aikito.compat import (
+    check_directory_permissions_batch,
+    is_windows,
+    secure_directory_permissions,
+)
 from aikito.skill_state import get_binding_hash, validate_state_store_root
 from workspace_reconcile_smoke import _workspace
 
@@ -83,6 +88,22 @@ def exercise(base: Path) -> None:
     assert live.read_bytes() == before[live]
     assert unavailable.read_bytes() == before[unavailable]
     (base / "checked.json").write_text(json.dumps(report), encoding="utf-8")
+    if is_windows():
+        private = base / "acl 'private"
+        unsafe = base / "acl unsafe"
+        for path in (private, unsafe):
+            path.mkdir()
+            assert secure_directory_permissions(path)
+        result = subprocess.run(
+            ["icacls", str(unsafe), "/grant", "*S-1-1-0:(OI)(CI)(RX)"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        checks = check_directory_permissions_batch([private, unsafe])
+        assert checks[0][0] and not checks[1][0], checks
+        assert "S-1-1-0" in checks[1][1], checks
+        (base / "acl-batch-checked.txt").write_text("checked", encoding="utf-8")
 
 
 if __name__ == "__main__":
