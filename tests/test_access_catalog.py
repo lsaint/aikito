@@ -66,7 +66,9 @@ def test_catalog_auto_pins_recipient_on_first_use(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(access, "DeviceKeyStore", lambda **kw: object())
     monkeypatch.setattr(
-        access, "unlock_encrypted_snapshot", lambda *a: SimpleNamespace(vault_id="b" * 32)
+        access,
+        "unlock_encrypted_snapshot",
+        lambda *a: SimpleNamespace(vault_id="b" * 32),
     )
     exchanged = []
     monkeypatch.setattr(
