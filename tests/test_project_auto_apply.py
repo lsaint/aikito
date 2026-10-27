@@ -36,7 +36,7 @@ from aikito.workspace.resources import snapshot_workspace
 
 
 @pytest.fixture
-def project(tmp_path):
+def project(tmp_path, isolated_windows_state_permissions):
     root = tmp_path.resolve()
     home, ws, checkout = root / "home", root / "workspace", root / "checkout"
     home.mkdir()
@@ -438,6 +438,29 @@ def test_manual_and_background_sync_serialize(project):
     assert reconcile_local_projects(p.ws, p.home).checkouts[0].status == "noop"
 
 
+def test_multiple_copy_projects_remain_noop(project):
+    p = project
+    second = p.ws / "projects" / "second"
+    second.mkdir()
+    checkout = p.ws.parent / "second-checkout"
+    checkout.mkdir()
+    (second / "agent.toml").write_text(
+        p.config.read_text().replace(
+            json.dumps(str(p.checkout)), json.dumps(str(checkout))
+        ),
+        encoding="utf-8",
+    )
+    assert sync_project(p.ws, p.home, "second")
+    approve(p)
+    targets = (p.target, checkout / ".agents/skills/example/SKILL.md")
+    before = [(path.read_bytes(), path.stat().st_mtime_ns) for path in targets]
+    result = reconcile_local_projects(p.ws, p.home)
+    assert {item.project for item in result.checkouts} == {"demo", "second"}
+    assert all(item.status == "noop" for item in result.checkouts)
+    assert [(path.read_bytes(), path.stat().st_mtime_ns) for path in targets] == before
+
+
+@pytest.mark.benchmark
 def test_multiple_copy_projects_scan_baseline(project, record_property):
     p = project
     names = ["example"]

@@ -12,6 +12,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
+import pytest
+
 from http_remote_server import HTTPRemoteServer
 from workspace_reconcile_smoke import _workspace
 
@@ -284,6 +286,9 @@ class LocalWatcherTest(unittest.TestCase):
                 watcher.stop()
 
 
+@pytest.mark.usefixtures(
+    "isolated_windows_state_permissions", "isolated_windows_key_permissions"
+)
 class AutoSyncEndToEndTest(unittest.TestCase):
     def setUp(self):
         self.parser = build_parser()

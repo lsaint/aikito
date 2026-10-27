@@ -9,6 +9,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from http_remote_server import HTTPRemoteServer
 from workspace_reconcile_smoke import _workspace
 
@@ -100,6 +102,9 @@ class RemoteCLIParserTest(unittest.TestCase):
             self.assertNotEqual(ctx.exception.code, 0)
 
 
+@pytest.mark.usefixtures(
+    "isolated_windows_state_permissions", "isolated_windows_key_permissions"
+)
 class RemoteCLIOperationsTest(unittest.TestCase):
     def setUp(self):
         self.parser = build_parser()

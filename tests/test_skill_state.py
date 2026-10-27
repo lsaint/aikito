@@ -8,6 +8,7 @@ import shutil
 import tempfile
 from pathlib import Path
 from unittest import TestCase
+from unittest.mock import patch
 
 from aikito.skill_state import (
     ProjectSkillStateDocument,
@@ -96,6 +97,51 @@ class SkillStateFingerprintTests(TestCase):
             fp, err = calculate_directory_fingerprint(link_skill)
             self.assertIsNone(fp)
             self.assertIn("Directory root cannot be a symbolic link", err or "")
+
+
+class StateStorePermissionTests(TestCase):
+    def test_insecure_ancestor_prevents_writer_lock_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td).resolve()
+            state_dir = home / "state" / "project-skills"
+            state_dir.mkdir(parents=True)
+            with (
+                patch("aikito.skill_state.get_skill_state_dir", return_value=state_dir),
+                patch(
+                    "aikito.skill_state.check_directory_permissions",
+                    side_effect=lambda path: (path != state_dir.parent, "unsafe ACL"),
+                ),
+                patch(
+                    "aikito.skill_state.secure_directory_permissions", return_value=True
+                ),
+                self.assertRaisesRegex(RuntimeError, "Insecure permissions"),
+            ):
+                with WorkspaceWriterLock(home):
+                    self.fail("An insecure ancestor must block workspace writes")
+            self.assertFalse((state_dir / "writer.lock").exists())
+
+    def test_failed_permission_repair_prevents_writer_lock_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td).resolve()
+            state_dir = home / "project-skills"
+            state_dir.mkdir()
+            with (
+                patch("aikito.skill_state.get_skill_state_dir", return_value=state_dir),
+                patch(
+                    "aikito.skill_state.check_directory_permissions",
+                    return_value=(False, "ACL unavailable"),
+                ),
+                patch(
+                    "aikito.skill_state.secure_directory_permissions",
+                    return_value=False,
+                ),
+                self.assertRaisesRegex(RuntimeError, "ACL unavailable"),
+            ):
+                with WorkspaceWriterLock(home):
+                    self.fail(
+                        "Unavailable ACL verification must block workspace writes"
+                    )
+            self.assertFalse((state_dir / "writer.lock").exists())
 
 
 class SkillStateStoreTests(TestCase):
