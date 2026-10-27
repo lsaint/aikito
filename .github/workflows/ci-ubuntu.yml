@@ -560,13 +560,11 @@ jobs:
           rm -f "$LEGACY_HOME/.claude/skills"
           ln -s "$LEGACY_HOME/.agents/skills" "$LEGACY_HOME/.claude/skills"
 
-          # 4. Stale matching directory preservation (§8.2 / INV-GLB-02)
+          # 4. External directory preservation (§8.2 / INV-GLB-02)
           mkdir -p "$LEGACY_HOME/.agents/skills/matching-dir"
           echo "preserve" > "$LEGACY_HOME/.agents/skills/matching-dir/keep.txt"
-          ! HOME="$LEGACY_HOME" AIKITO_DIR=${{ runner.temp }}/aikito-ws \
-            python3 -m aikito sync global 2> ${{ runner.temp }}/matching-dir.err
-          grep -F "[CONFLICT]" ${{ runner.temp }}/matching-dir.err
-          grep -F "Target preserved:" ${{ runner.temp }}/matching-dir.err
+          HOME="$LEGACY_HOME" AIKITO_DIR=${{ runner.temp }}/aikito-ws \
+            python3 -m aikito sync global
           test -f "$LEGACY_HOME/.agents/skills/matching-dir/keep.txt"
           rm -rf "$LEGACY_HOME/.agents/skills/matching-dir"
 
