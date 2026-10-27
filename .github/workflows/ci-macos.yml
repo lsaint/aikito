@@ -115,51 +115,77 @@ jobs:
           test -f "$PROJECT_APPLY_SMOKE/blocked-doctor.json"
           test -f "$PROJECT_APPLY_SMOKE/recovered.txt"
 
-      - name: HTTPS recipient trust CLI smoke without optional dependencies
+      - name: HTTPS and browser connection CLI smoke
         run: |
-          RECIPIENT_SMOKE=${{ runner.temp }}/recipient-keys
           python3 -m venv "${{ runner.temp }}/recipient-core-env"
-          "${{ runner.temp }}/recipient-core-env/bin/python" tests/workspace_recipient_key_smoke.py "$RECIPIENT_SMOKE"
-          test -f "$RECIPIENT_SMOKE/checked.txt"
-          test -f "$RECIPIENT_SMOKE/recipient.json"
-          test -f "$RECIPIENT_SMOKE/accepted.json"
-          test -f "$RECIPIENT_SMOKE/workspace/layout.toml"
-          test ! -e "$RECIPIENT_SMOKE/changed.json"
-          test ! -e "$RECIPIENT_SMOKE/untrusted.json"
+          (
+            set -e
+            RECIPIENT_SMOKE=${{ runner.temp }}/recipient-keys
+            "${{ runner.temp }}/recipient-core-env/bin/python" tests/workspace_recipient_key_smoke.py "$RECIPIENT_SMOKE"
+            test -f "$RECIPIENT_SMOKE/checked.txt"
+            test -f "$RECIPIENT_SMOKE/recipient.json"
+            test -f "$RECIPIENT_SMOKE/accepted.json"
+            test -f "$RECIPIENT_SMOKE/workspace/layout.toml"
+            test ! -e "$RECIPIENT_SMOKE/changed.json"
+            test ! -e "$RECIPIENT_SMOKE/untrusted.json"
 
-      - name: Scoped package submission and activation CLI smoke without optional dependencies
-        run: |
-          SUBMIT_SMOKE=${{ runner.temp }}/scoped-submit
-          "${{ runner.temp }}/recipient-core-env/bin/python" tests/workspace_scoped_submit_smoke.py "$SUBMIT_SMOKE"
-          test -f "$SUBMIT_SMOKE/checked.txt"
-          test -f "$SUBMIT_SMOKE/write-checked.txt"
-          test -f "$SUBMIT_SMOKE/write-request.json"
-          test -f "$SUBMIT_SMOKE/write-sealed.json"
-          test -f "$SUBMIT_SMOKE/request.json"
-          test -f "$SUBMIT_SMOKE/sealed.json"
-          test -f "$SUBMIT_SMOKE/workspace/layout.toml"
+          ) > "${{ runner.temp }}/https-recipient.log" 2>&1 &
+          recipient_pid=$!
+          (
+            set -e
+            SUBMIT_SMOKE=${{ runner.temp }}/scoped-submit
+            "${{ runner.temp }}/recipient-core-env/bin/python" tests/workspace_scoped_submit_smoke.py "$SUBMIT_SMOKE"
+            test -f "$SUBMIT_SMOKE/checked.txt"
+            test -f "$SUBMIT_SMOKE/write-checked.txt"
+            test -f "$SUBMIT_SMOKE/write-request.json"
+            test -f "$SUBMIT_SMOKE/write-sealed.json"
+            test -f "$SUBMIT_SMOKE/request.json"
+            test -f "$SUBMIT_SMOKE/sealed.json"
+            test -f "$SUBMIT_SMOKE/workspace/layout.toml"
 
-      - name: Browser device connection CLI smoke
-        run: |
-          PAIR_SMOKE=${{ runner.temp }}/remote-pairing
-          python tests/workspace_remote_pairing_smoke.py "$PAIR_SMOKE"
-          test -f "$PAIR_SMOKE/checked.txt"
-          test -f "$PAIR_SMOKE/bind.out"
-          test -f "$PAIR_SMOKE/pin-checked.txt"
-          test -f "$PAIR_SMOKE/changed-key-checked.txt"
-          test -d "$PAIR_SMOKE/config/aikito/remote-recipients"
-          test -f "$PAIR_SMOKE/workspace/layout.toml"
-          test -f "$PAIR_SMOKE/workspace/.local/state/aikito/workspace-reconcile/binding.json"
+          ) > "${{ runner.temp }}/https-submission.log" 2>&1 &
+          submission_pid=$!
+          (
+            set -e
+            PAIR_SMOKE=${{ runner.temp }}/remote-pairing
+            python tests/workspace_remote_pairing_smoke.py "$PAIR_SMOKE"
+            test -f "$PAIR_SMOKE/checked.txt"
+            test -f "$PAIR_SMOKE/bind.out"
+            test -f "$PAIR_SMOKE/pin-checked.txt"
+            test -f "$PAIR_SMOKE/changed-key-checked.txt"
+            test -d "$PAIR_SMOKE/config/aikito/remote-recipients"
+            test -f "$PAIR_SMOKE/workspace/layout.toml"
+            test -f "$PAIR_SMOKE/workspace/.local/state/aikito/workspace-reconcile/binding.json"
 
-      - name: HTTPS Store ownership proof CLI smoke
-        run: |
-          CLAIM_SMOKE=${{ runner.temp }}/remote-claim
-          python3 tests/workspace_remote_claim_smoke.py "$CLAIM_SMOKE"
-          test -f "$CLAIM_SMOKE/checked.txt"
-          test -f "$CLAIM_SMOKE/claim.out"
-          test -f "$CLAIM_SMOKE/challenge.json"
-          test -f "$CLAIM_SMOKE/workspace/layout.toml"
-          test ! -e "$CLAIM_SMOKE/workspace/.local/state/aikito/workspace-reconcile/pending.json"
+          ) > "${{ runner.temp }}/https-pairing.log" 2>&1 &
+          pairing_pid=$!
+          (
+            set -e
+            CLAIM_SMOKE=${{ runner.temp }}/remote-claim
+            python3 tests/workspace_remote_claim_smoke.py "$CLAIM_SMOKE"
+            test -f "$CLAIM_SMOKE/checked.txt"
+            test -f "$CLAIM_SMOKE/claim.out"
+            test -f "$CLAIM_SMOKE/challenge.json"
+            test -f "$CLAIM_SMOKE/workspace/layout.toml"
+            test ! -e "$CLAIM_SMOKE/workspace/.local/state/aikito/workspace-reconcile/pending.json"
+
+          ) > "${{ runner.temp }}/https-claim.log" 2>&1 &
+          claim_pid=$!
+          failed=0
+          for entry in "recipient:$recipient_pid" "submission:$submission_pid" "pairing:$pairing_pid" "claim:$claim_pid"; do
+            name=${entry%%:*}
+            pid=${entry#*:}
+            echo "::group::HTTPS smoke: $name"
+            if wait "$pid"; then
+              cat "${{ runner.temp }}/https-$name.log"
+            else
+              cat "${{ runner.temp }}/https-$name.log"
+              echo "::error::HTTPS smoke failed: $name"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$failed"
 
       - name: Agent detection and adapter reuse CLI smoke
         run: python tests/agent_adapters_smoke.py

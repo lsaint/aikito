@@ -36,13 +36,19 @@ def run_cli(
     if env_vars:
         env.update(env_vars)
 
-    return subprocess.run(
+    started = time.monotonic()
+    result = subprocess.run(
         [sys.executable, "-m", "aikito", *args],
         capture_output=True,
         text=True,
         env=env,
         cwd=str(workspace),
     )
+    if os.environ.get("AIKITO_SMOKE_TIMING") == "1":
+        print(
+            f"CLI {' '.join(args[:2])}: {time.monotonic() - started:.2f}s", flush=True
+        )
+    return result
 
 
 def spawn_cli(

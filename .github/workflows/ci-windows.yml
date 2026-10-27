@@ -128,6 +128,8 @@ jobs:
 
       - name: Approved project auto application CLI smoke
         shell: pwsh
+        env:
+          AIKITO_SMOKE_TIMING: "1"
         run: |
           $projectApplyBase = Join-Path $env:RUNNER_TEMP "project-auto-apply-smoke"
           python tests/project_auto_apply_smoke.py "$projectApplyBase"
