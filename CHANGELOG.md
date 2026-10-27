@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.61.1] - 2026-10-27
+
+### Fixed
+
+- Preserved external global skills during synchronization while cleaning up only stale links owned by the active workspace.
+
 ## [1.61.0] - 2026-10-26
 
 ### Added
@@ -1209,7 +1215,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.61.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.61.1...HEAD
+[1.61.1]: https://github.com/lsaint/aikito/compare/v1.61.0...v1.61.1
 [1.61.0]: https://github.com/lsaint/aikito/compare/v1.60.1...v1.61.0
 [1.60.1]: https://github.com/lsaint/aikito/compare/v1.60.0...v1.60.1
 [1.60.0]: https://github.com/lsaint/aikito/compare/v1.59.0...v1.60.0
