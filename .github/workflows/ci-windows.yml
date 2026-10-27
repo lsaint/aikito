@@ -130,9 +130,16 @@ jobs:
         shell: pwsh
         env:
           AIKITO_SMOKE_TIMING: "1"
+          AIKITO_CI_ACL_PROFILE: ${{ runner.temp }}/acl-profile.jsonl
         run: |
           $projectApplyBase = Join-Path $env:RUNNER_TEMP "project-auto-apply-smoke"
           python tests/project_auto_apply_smoke.py "$projectApplyBase"
+          if (Test-Path $env:AIKITO_CI_ACL_PROFILE) {
+            Get-Content $env:AIKITO_CI_ACL_PROFILE | ConvertFrom-Json | Group-Object tool | ForEach-Object {
+              $seconds = ($_.Group | Measure-Object seconds -Sum).Sum
+              Write-Host ("ACL profiling: {0}: {1} calls, {2:N2}s" -f $_.Name, $_.Count, $seconds)
+            }
+          }
           if ($LASTEXITCODE -ne 0) { throw "Project auto apply smoke failed" }
           if (-not (Test-Path "$projectApplyBase/copy-checkout/.agents/skills/example/SKILL.md")) { throw "Copy runtime missing" }
           if ((Get-Item "$projectApplyBase/link-checkout/.agents/skills/example").LinkType -ne "SymbolicLink") { throw "Skill link missing" }

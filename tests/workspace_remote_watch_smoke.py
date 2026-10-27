@@ -30,6 +30,10 @@ def run_cli(
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+    if env.get("AIKITO_CI_ACL_PROFILE"):
+        env["PYTHONPATH"] = os.pathsep.join(
+            (str(Path(__file__).parent / "ci_acl_profile"), env["PYTHONPATH"])
+        )
     env["AIKITO_DIR"] = str(workspace)
     env["HOME"] = str(home)
     env["USERPROFILE"] = str(home)
