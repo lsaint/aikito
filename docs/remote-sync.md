@@ -15,6 +15,8 @@ Connect your Aikito workspace to Aikito Cloud to keep your resources up to date
 across machines. You need an Aikito Cloud account and the connection command
 shown on your account page.
 
+![Aikito Cloud Multi-Agent Sync Flow](assets/aikito-cloud-sync-flow.png)
+
 ## Ask your agent
 
 Give these requests to a local coding Agent with terminal access, such as Codex

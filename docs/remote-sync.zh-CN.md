@@ -12,6 +12,8 @@
 将 Aikito 工作区连接到 Aikito Cloud，让多台机器上的资源保持更新。
 你需要一个 Aikito Cloud 账号，以及账号页面提供的连接命令。
 
+![Aikito Cloud 多 Agent 同步流程](assets/aikito-cloud-sync-flow.png)
+
 ## 让 Agent 来做
 
 将下面的请求交给可以使用本机终端的编程 Agent，例如 Codex 或 Claude Code。
