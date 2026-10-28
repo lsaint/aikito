@@ -119,22 +119,26 @@ class HTTPRemoteServer:
                 except (BrokenPipeError, ConnectionResetError):
                     self.close_connection = True
 
-            def _reject_access(self, status):
+            def _reject_access(self, status, *, body_read=False):
                 self.send_response(status)
                 self.send_header("Content-Length", "0")
                 self.send_header("Connection", "close")
                 self.end_headers()
                 self.close_connection = True
-                try:
-                    self.connection.setblocking(False)
-                    while self.connection.recv(65536):
-                        pass
-                except Exception:
-                    pass
-                finally:
+                if not body_read:
                     try:
-                        self.connection.setblocking(True)
-                    except Exception:
+                        lengths = self.headers.get_all("Content-Length", [])
+                        if len(lengths) == 1 and not self.headers.get(
+                            "Transfer-Encoding"
+                        ):
+                            size = int(lengths[0])
+                            if 0 <= size <= remote_limits.MAX_REMOTE_REQUEST_BYTES:
+                                while size:
+                                    chunk = self.rfile.read(min(size, 65536))
+                                    if not chunk:
+                                        break
+                                    size -= len(chunk)
+                    except (OSError, ValueError):
                         pass
 
             def _post(self):
@@ -192,7 +196,9 @@ class HTTPRemoteServer:
                     self.connection.shutdown(socket.SHUT_RDWR)
                     return
                 if fault in {"reject_401", "reject_403"}:
-                    self._reject_access(401 if fault == "reject_401" else 403)
+                    self._reject_access(
+                        401 if fault == "reject_401" else 403, body_read=True
+                    )
                     return
                 with owner._lock:
                     owner.dispatch_count += 1
