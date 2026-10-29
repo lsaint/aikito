@@ -990,6 +990,35 @@ def test_cmd_remote_watch_logger_emits_info_without_verbose(
     assert "unrecognized debug message" not in captured.out
 
 
+def test_follow_log_does_not_replay_after_append(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import time
+
+    from aikito.remote_cli import _follow_log
+
+    log_path = tmp_path / "worker.log"
+    log_path.write_text("old line\n", encoding="utf-8")
+    cycle = 0
+
+    def fake_sleep(duration: float) -> None:
+        nonlocal cycle
+        cycle += 1
+        if cycle == 1:
+            with log_path.open("a", encoding="utf-8") as log:
+                log.write("new line\n")
+            current_mtime = log_path.stat().st_mtime_ns
+            os.utime(log_path, ns=(current_mtime + 1_000_000_000,) * 2)
+        elif cycle == 4:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(time, "sleep", fake_sleep)
+    _follow_log(log_path)
+    output = capsys.readouterr().out
+    assert "old line" not in output
+    assert output.count("new line") == 1
+
+
 def test_follow_log_handles_rotation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

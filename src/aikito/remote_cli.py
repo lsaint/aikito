@@ -729,6 +729,7 @@ def _follow_log(log_path: Path) -> None:
             while True:
                 line = f.readline()
                 if line:
+                    current_mtime = getattr(os.fstat(f.fileno()), "st_mtime_ns", 0)
                     sys.stdout.write(f"  {line}")
                     sys.stdout.flush()
                 else:
