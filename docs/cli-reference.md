@@ -75,6 +75,7 @@ version.
 | `aikito show mcp [server] [--agent agent] [--live]` | Inspect MCP configuration or compare a server's live tool discovery across Agents |
 | `aikito show subagents [target] [--agent agent]` | Inspect the subagent matrix, drill into platform options per agent, or print the canonical Markdown file |
 | `aikito show project [name|.]` | List registered projects, or inspect one project (detected from cwd if omitted or `.`) |
+| `aikito show global` | Inspect global skill selection, local authorization, and runtime link status |
 | `aikito show instructions [global|project|.]` | List or print global and project instructions |
 | `aikito show inbox [target]` | Print raw markdown content of an inbox note, or list all inbox notes if target is omitted |
 | `aikito edit inbox <target>` | Open an inbox note in `$VISUAL` or `$EDITOR` |

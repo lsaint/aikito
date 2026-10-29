@@ -37,7 +37,9 @@ from .cli_parser import (
 )
 from .cli_show import (
     print_project_approval_notice,
+    print_global_approval_notice,
     cmd_show_project as cmd_show_project,
+    cmd_show_global as cmd_show_global,
     cmd_show_skill as cmd_show_skill,
     cmd_show_instructions as cmd_show_instructions,
     cmd_show_mcp as cmd_show_mcp,
@@ -631,6 +633,7 @@ def cmd_status(args: argparse.Namespace) -> None:
     print(rendered)
     print_bundled_skill_notice(aikito_dir)
     print_project_approval_notice(report_data.projects)
+    print_global_approval_notice(aikito_dir, home)
 
 
 def cmd_web(args: argparse.Namespace) -> None:

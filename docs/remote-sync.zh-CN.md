@@ -89,6 +89,19 @@ aikito remote status
 确认状态显示后台服务正在运行。服务运行且机器可以访问同步服务时，变更会自动同步。
 离线时仍可使用本地资源，网络恢复后继续同步。
 
+在每台机器上运行一次 `aikito sync global`，授权本机 Global Skill 容器。
+之后后台服务和 `aikito remote sync` 会自动增删容器内已选择的 Skill 链接。
+授权只保存在本机，容器被替换后需要重新授权；升级前已安装的用户也需要
+执行一次手动同步。
+在同一台机器上授权另一个 Workspace 时，容器授权会转移，原 Workspace
+不能继续自动写入该容器。
+
+外部 Skill 会保留。后台只检查消费者和 Instruction 链接，不自动修复；
+如需修复，请运行 `aikito sync global`。内容更新通过现有链接生效，
+但正在运行的 Agent 可能需要重新加载上下文。`aikito remote status`
+会分别显示本机应用和远端同步结果。
+运行 `aikito show global` 可只读查看本机授权、运行时链接和待处理的 Skill 链接。
+
 暂停后台同步：
 
 ```bash

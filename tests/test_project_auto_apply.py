@@ -358,6 +358,38 @@ def test_remote_sync_project_exit_codes(project, status, code):
             cmd_remote_sync(args)
 
 
+def test_remote_global_exception_does_not_stop_project_apply(project, capsys):
+    from aikito.remote_cli import cmd_remote_sync
+
+    plan = SimpleNamespace(
+        blocked=False, conflicts=(), blocked_items=(), stop_reason=None, deferred=()
+    )
+    project_apply = Mock(return_value=AutoProjectResult())
+    with (
+        patch("aikito.remote_cli._resolve_cli_workspace", return_value=project.ws),
+        patch("aikito.remote_cli.is_recognized_workspace", return_value=True),
+        patch(
+            "aikito.remote_cli.get_workspace_remote_binding",
+            return_value=SimpleNamespace(
+                endpoint="local", auth=SimpleNamespace(env="TOKEN")
+            ),
+        ),
+        patch("aikito.remote_cli.sync_workspace_remote", return_value=plan),
+        patch("aikito.remote_cli.render_remote_sync_plan", return_value="ok"),
+        patch(
+            "aikito.remote_cli.reconcile_local_global",
+            side_effect=RuntimeError("global error"),
+        ),
+        patch("aikito.remote_cli.reconcile_local_projects", project_apply),
+        pytest.raises(SystemExit) as exc,
+    ):
+        cmd_remote_sync(build_parser().parse_args(["remote", "sync", "--apply"]))
+    assert exc.value.code == 2
+    project_apply.assert_called_once()
+    output = capsys.readouterr().out
+    assert "[REMOTE_SYNC_OK]" in output and "[GLOBAL_APPLY_FAILED]" in output
+
+
 def test_legacy_copy_state_cannot_authorize_directory_identity(project):
     p = project
     data = {"path": str(p.checkout), "skills": ["example"], "sync_mode": "copy"}
@@ -901,9 +933,11 @@ def test_approval_notice_shares_bundled_notice_area(
     output = capsys.readouterr()
     assert "Automatic application" not in output.out
     notices = [line for line in output.err.splitlines() if line.startswith("[NOTICE]")]
-    assert len(notices) == 2
+    assert len(notices) == (3 if command == ["status"] else 2)
     assert notices[0].startswith("[NOTICE] Bundled skill snapshot")
     assert notices[1].startswith("[NOTICE] Automatic application")
+    if command == ["status"]:
+        assert notices[2].startswith("[NOTICE] Global automatic application")
     assert output.err.count("Run 'aikito sync' once") == 1
 
 

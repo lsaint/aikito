@@ -129,6 +129,7 @@ def _get_handlers(handlers: dict[str, Any] | None = None) -> dict[str, Any]:
             "cmd_rm_skill",
             "cmd_rm_subagent",
             "cmd_show_inbox",
+            "cmd_show_global",
             "cmd_show_instructions",
             "cmd_show_mcp",
             "cmd_show_memory",
@@ -200,6 +201,7 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     cmd_rm_skill = h["cmd_rm_skill"]
     cmd_rm_subagent = h["cmd_rm_subagent"]
     cmd_show_inbox = h["cmd_show_inbox"]
+    cmd_show_global = h["cmd_show_global"]
     cmd_show_instructions = h["cmd_show_instructions"]
     cmd_show_mcp = h["cmd_show_mcp"]
     cmd_show_memory = h["cmd_show_memory"]
@@ -1235,6 +1237,11 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
         help="Display managed resources, matrices, and note/skill content",
     )
     show_subparsers = p_show.add_subparsers(dest="show_target", required=True)
+
+    p_show_global = show_subparsers.add_parser(
+        "global", help="Inspect global runtime and automatic application"
+    )
+    p_show_global.set_defaults(func=cmd_show_global)
 
     # show mcp
     p_show_mcp = show_subparsers.add_parser(

@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Added automatic global skill link reconciliation for a locally approved workspace, with runtime diagnostics and `aikito show global`.
+
+### Fixed
+
+- Transfer global container approval between workspaces and report dry-run previews and unapproved containers clearly.
+
 ## [1.61.1] - 2026-10-27
 
 ### Fixed

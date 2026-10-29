@@ -32,6 +32,17 @@ The following transition table governs synchronization planning for project skil
 The table above governs synchronization planning for project skills.
 
 ## Global Skills
+
+### Global automatic application
+
+Automatic application may change only entries in the host's explicitly approved
+global skill container. A successful manual global sync records the workspace
+and physical container identity locally; remote data cannot grant approval.
+Under the workspace writer lock, each application verifies this identity and
+blocks while workspace recovery is pending. It never migrates the container,
+refreshes bundled skills, or writes consumer or instruction links. Consumer and
+instruction drift is diagnostic and does not block safe skill entry changes.
+Only links provably owned by the current workspace can be removed.
 ### Rules
 ### INV-GLB-01: Global Skill Link-Only Contract `[current]` {: #inv-glb-01 }
 

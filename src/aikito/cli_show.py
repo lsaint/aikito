@@ -6,6 +6,9 @@ from pathlib import Path
 
 from .workspace.auto_sync import load_worker_status
 from .bundled_skills import print_bundled_skill_notice
+from .global_approval import global_approval_error
+from .global_auto_apply import reconcile_local_global
+from .global_skills import load_global_skills_list
 from .cli_parser import resolve_color_flags
 from .resolve import (
     ProjectContextConflictError,
@@ -61,6 +64,37 @@ def print_project_approval_notice(projects: list[ProjectSummary]) -> None:
             "Run 'aikito sync' once to approve all configured local checkouts.",
             file=sys.stderr,
         )
+
+
+def print_global_approval_notice(workspace: Path, home: Path) -> None:
+    if global_approval_error(workspace, home, home / ".agents" / "skills"):
+        print(
+            "[NOTICE] Global automatic application is UNAPPROVED. "
+            "Run 'aikito sync global' once to approve the local skill container.",
+            file=sys.stderr,
+        )
+
+
+def cmd_show_global(args: argparse.Namespace) -> None:
+    home = Path.home()
+    workspace = resolve_workspace(home)
+    result = reconcile_local_global(workspace, home, dry_run=True)
+    skills = load_global_skills_list(workspace)
+    print(f"Global skills: {', '.join(skills) if skills else 'None'}")
+    approval = (
+        "UNAPPROVED"
+        if global_approval_error(workspace, home, home / ".agents" / "skills")
+        else "APPROVED"
+    )
+    print(f"Automatic application: {approval}")
+    print(f"Application result: {result.status.upper()}")
+    print(f"Runtime links: {result.runtime.upper()}")
+    if result.changes:
+        print(f"Pending skill links: {result.changes}")
+    if result.reason:
+        print(result.reason)
+    if result.runtime != "ok":
+        print("Run 'aikito sync global' to repair runtime links.")
 
 
 def cmd_show_project(args: argparse.Namespace) -> None:
@@ -195,6 +229,8 @@ def cmd_show_instructions(args: argparse.Namespace) -> None:
         )
         sys.exit(1)
     print(instructions_path.read_text(encoding="utf-8"), end="")
+    if name == "global":
+        print_global_approval_notice(aikito_dir, Path.home())
     if target == "." and name != "global":
         print("\nAlso active: global instructions", file=sys.stderr)
         print("View with: aikito show instructions global", file=sys.stderr)

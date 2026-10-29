@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import tomllib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -11,6 +12,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ..agents import AgentRegistry, AgentRegistryError, load_agent_definitions
+from ..global_approval import approve_global_container
+from ..directory_identity import directory_identity
 from ..bundled_skills import (
     BundledSkillRefreshError,
     _backup_target,
@@ -521,6 +524,7 @@ def execute_global_sync_plan(
 
     refreshed: tuple[str, ...] = ()
     skill_res: Optional[GlobalSkillExecutionResult] = None
+    approved_identity = None
     exec_skills = execute_global_skills_fn or execute_global_skills
 
     if not dry_run:
@@ -555,6 +559,20 @@ def execute_global_sync_plan(
                 dry_run=False,
                 refreshed_bundled=refreshed,
             )
+            if skill_res.success:
+                try:
+                    approved_identity = directory_identity(
+                        plan.skill_plan.batch.container.path
+                    )
+                except (OSError, ValueError) as exc:
+                    if (
+                        plan.skill_plan.batch.container.path
+                        == home / ".agents" / "skills"
+                    ):
+                        print(
+                            f"[NOTICE] Global automatic application cannot be approved: {exc}",
+                            file=sys.stderr,
+                        )
     else:
         try:
             refreshed = execute_bundled_refresh_plan(
@@ -642,6 +660,26 @@ def execute_global_sync_plan(
                 replan_required=False,
                 error_message="Instruction targets have conflicts.",
             )
+
+    if (
+        approved_identity is not None
+        and plan.skill_plan.batch.container.path == home / ".agents" / "skills"
+    ):
+        with WorkspaceWriterLock(home):
+            try:
+                container = plan.skill_plan.batch.container.path
+                if directory_identity(container) == approved_identity:
+                    approve_global_container(aikito_dir, home, container)
+                else:
+                    print(
+                        "[NOTICE] Global automatic application cannot be approved: container identity changed during sync",
+                        file=sys.stderr,
+                    )
+            except (OSError, ValueError) as exc:
+                print(
+                    f"[NOTICE] Global automatic application cannot be approved: {exc}",
+                    file=sys.stderr,
+                )
 
     return GlobalSyncExecutionResult(
         success=True,

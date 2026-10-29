@@ -141,6 +141,11 @@ jobs:
             }
           }
           if ($LASTEXITCODE -ne 0) { throw "Project auto apply smoke failed" }
+          if (-not (Test-Path "$projectApplyBase/global-auto-apply-ok")) { throw "Global auto apply proof missing" }
+          if ((Get-Item "$projectApplyBase/add-home/.agents/skills/approved-skill").LinkType -ne "SymbolicLink") { throw "Added global skill link missing" }
+          if ((Get-Item "$projectApplyBase/home/.agents/skills/global-next").LinkType -ne "SymbolicLink") { throw "Global skill link missing" }
+          if ((Get-Item "$projectApplyBase/home/.agents/skills/twg-x").LinkType -ne "SymbolicLink") { throw "External skill link missing" }
+          if (Test-Path "$projectApplyBase/home/.agents/skills/global-example") { throw "Deselected global skill still present" }
           if (-not (Test-Path "$projectApplyBase/copy-checkout/.agents/skills/example/SKILL.md")) { throw "Copy runtime missing" }
           if ((Get-Item "$projectApplyBase/link-checkout/.agents/skills/example").LinkType -ne "SymbolicLink") { throw "Skill link missing" }
           if (Test-Path "$projectApplyBase/unapproved-checkout/.agents") { throw "Unapproved checkout was modified" }

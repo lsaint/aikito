@@ -18,6 +18,11 @@ from typing import Any
 
 from .init import is_recognized_workspace
 from .project_auto_apply import reconcile_local_projects, render_auto_project_result
+from .global_auto_apply import (
+    AutoGlobalResult,
+    reconcile_local_global,
+    render_auto_global_result,
+)
 from .remote_service import (
     bind_workspace_remote,
     get_workspace_remote_binding,
@@ -228,6 +233,12 @@ def render_remote_status(
         f"  Last error:      {last_err}",
     ]
 
+    global_apply = status.get("global_apply") or {}
+    lines.append(f"  Global runtime:  {global_apply.get('status') or 'Not checked'}")
+    if global_apply.get("runtime") not in (None, "ok"):
+        lines.append(
+            f"  Global links:    {global_apply['runtime']} (run aikito sync global)"
+        )
     project_apply = status.get("project_apply") or {}
     lines.append(
         f"  Checkouts:       {_checkout_status_summary(project_apply, running)}"
@@ -487,6 +498,13 @@ def cmd_remote_sync(args: argparse.Namespace) -> None:
     if not dry_run:
         print("[REMOTE_SYNC_OK] Workspace synchronized")
     try:
+        global_result = reconcile_local_global(workspace, home, dry_run=dry_run)
+    except Exception as exc:  # noqa: BLE001 - Project apply must still run.
+        global_result = AutoGlobalResult("failed", reason=str(exc))
+    rendered_global = render_auto_global_result(global_result, dry_run=dry_run)
+    if rendered_global:
+        print(rendered_global)
+    try:
         project_result = reconcile_local_projects(workspace, home, dry_run=dry_run)
     except Exception as exc:  # noqa: BLE001 - Keep remote success distinct.
         print(f"[PROJECT_APPLY_FAILED] {exc}", file=sys.stderr)
@@ -494,7 +512,7 @@ def cmd_remote_sync(args: argparse.Namespace) -> None:
     rendered_projects = render_auto_project_result(project_result)
     if rendered_projects:
         print(rendered_projects)
-    if project_result.failed:
+    if project_result.failed or global_result.failed:
         sys.exit(2)
 
 
@@ -535,6 +553,8 @@ def cmd_remote_watch(args: argparse.Namespace) -> None:
             or msg.startswith("[WARN]")
             or msg.startswith("[INFO]")
             or msg.startswith("[PROJECT_APPLY_")
+            or msg.startswith("[GLOBAL_APPLY_")
+            or msg.startswith("[GLOBAL_RUNTIME_DRIFT]")
         ):
             if msg.startswith("["):
                 ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

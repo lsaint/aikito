@@ -109,6 +109,22 @@ Check that status reports the background service as running. Changes synchronize
 while the service is running and the machine can reach your service. Local work
 remains available when offline; synchronization resumes when connectivity returns.
 
+Run `aikito sync global` once on each machine to approve its local global skill
+container. After that, the service and `aikito remote sync` automatically add
+or remove selected skill links in that container. This approval stays on the
+machine and is invalidated if the container is replaced. Existing installations
+also need this one-time manual sync after upgrading.
+Approving another workspace on the same machine transfers the container's
+approval to that workspace, so an older workspace cannot keep applying changes.
+
+External skills are preserved. Consumer and instruction links are checked but
+not repaired in the background; run `aikito sync global` if they need repair.
+Content changes take effect through existing links, although a running agent may
+need to reload its context. `aikito remote status` reports the last local
+application result independently of remote synchronization.
+Use `aikito show global` to inspect local approval, runtime links, and pending
+skill link changes without applying them.
+
 To pause background synchronization:
 
 ```bash

@@ -683,6 +683,7 @@ class AutoSyncScheduler:
         on_status_change: Callable[[AutoSyncState, str | None], None] | None = None,
         on_reconciled: Callable[[ReconcilePlan], None] | None = None,
         on_local_reconcile: Callable[..., dict] | None = None,
+        on_global_reconcile: Callable[..., dict] | None = None,
         logger: Callable[[str], None] | None = None,
     ) -> None:
         self.workspace = workspace.expanduser().resolve()
@@ -698,6 +699,7 @@ class AutoSyncScheduler:
         self.on_status_change = on_status_change
         self._on_reconciled = on_reconciled
         self._on_local_reconcile = on_local_reconcile
+        self._on_global_reconcile = on_global_reconcile
         self.logger = logger or (lambda msg: None)
 
         self.state = AutoSyncState.IDLE
@@ -797,6 +799,16 @@ class AutoSyncScheduler:
         self._wake_event.set()
 
     def _apply_local_projects(self, *, force: bool = False) -> None:
+        if self._on_global_reconcile is not None:
+            try:
+                self._status["global_apply"] = self._on_global_reconcile(force=force)
+            except Exception as exc:  # noqa: BLE001 - Local apply is independent.
+                if self._status.get("global_apply", {}).get("last_error") != str(exc):
+                    self.logger(f"[GLOBAL_APPLY_FAILED] {exc}")
+                self._status["global_apply"] = {
+                    "status": "failed",
+                    "last_error": str(exc),
+                }
         if self._on_local_reconcile is None:
             return
         try:

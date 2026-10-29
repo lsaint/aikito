@@ -7,11 +7,12 @@ Callers hold WorkspaceWriterLock while checking or recording approval.
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 
-from .compat import _atomic_write_text, is_reparse_point, secure_file_permissions
+from .approval_io import read_approval, write_approval
+from .compat import is_reparse_point
+from .directory_identity import directory_identity
 from .project_config import get_project_candidate_paths
 from .skill_state import get_binding_hash, validate_state_store_root
 
@@ -27,21 +28,11 @@ def candidate_checkout(raw: str, home: Path) -> Path:
 
 
 def _identity(checkout: Path) -> dict:
-    current = checkout
-    # System aliases above home (e.g. /var on macOS) are resolved in identity.
-    while current.parent != current.parent.parent:
-        if is_reparse_point(current):
-            raise ValueError(
-                f"Checkout path contains a symbolic link or reparse point: {current}"
-            )
-        current = current.parent
-    info = checkout.stat()
-    if not checkout.is_dir() or not info.st_ino:
-        raise ValueError(f"Cannot establish checkout directory identity: {checkout}")
+    identity = directory_identity(checkout)
     return {
-        "checkout": str(checkout.resolve()),
-        "device": info.st_dev,
-        "inode": info.st_ino,
+        "checkout": identity["path"],
+        "device": identity["device"],
+        "inode": identity["inode"],
     }
 
 
@@ -61,11 +52,9 @@ def checkout_approval_error(
     try:
         identity = _identity(checkout)
         path = _approval_path(workspace, home, project, checkout)
-        if is_reparse_point(path):
-            return f"Unsafe checkout approval file: {path}"
-        if not path.exists():
+        data = read_approval(path)
+        if data is None:
             return f"Run 'aikito sync project {project}' once to approve this checkout"
-        data = json.loads(path.read_text(encoding="utf-8"))
         expected = {
             "version": 1,
             "workspace": str(workspace.resolve()),
@@ -100,8 +89,6 @@ def approve_checkouts(
         except ValueError:
             continue
         path = _approval_path(workspace, home, project, checkout, create=True)
-        if is_reparse_point(path):
-            raise ValueError(f"Unsafe checkout approval file: {path}")
         payload = {
             "version": 1,
             "workspace": str(workspace.resolve()),
@@ -109,13 +96,9 @@ def approve_checkouts(
             **identity,
         }
         try:
-            if (
-                path.exists()
-                and json.loads(path.read_text(encoding="utf-8")) == payload
-            ):
+            if read_approval(path) == payload:
                 continue
         except ValueError:
             # Explicit successful manual sync may replace malformed local approval.
             pass
-        _atomic_write_text(path, json.dumps(payload, sort_keys=True) + "\n")
-        secure_file_permissions(path)
+        write_approval(path, payload)

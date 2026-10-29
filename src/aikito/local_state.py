@@ -18,8 +18,11 @@ from pathlib import Path
 
 from .compat import get_physical_path, is_reparse_point, is_windows
 from .diagnostics import Finding, FindingAction
+from .directory_identity import directory_identity
+from .global_approval import global_approval_error
 from .init import is_recognized_workspace
 from .project_approval import candidate_checkout, checkout_approval_error
+from .project_auto_apply import _pending_workspace
 from .project_config import get_project_candidate_paths
 from .skill_state import (
     WorkspaceWriterLock,
@@ -226,6 +229,8 @@ def _inspect_approval(path: Path, home: Path, cleanup_allowed: bool) -> Finding 
     try:
         if is_reparse_point(path) or not path.is_file():
             raise ValueError("not a regular approval file")
+        if path.name.startswith("global-"):
+            return _inspect_global_approval(path, home, cleanup_allowed)
         if not re.fullmatch(r"[0-9a-f]{64}\.approval", path.name):
             raise ValueError("unrecognized approval filename")
         raw = json.loads(path.read_text(encoding="utf-8"))
@@ -314,8 +319,65 @@ def _inspect_approval(path: Path, home: Path, cleanup_allowed: bool) -> Finding 
         if error:
             raise ValueError(error)
         return None
-    except (OSError, ValueError, RuntimeError) as exc:
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError) as exc:
         return _warning(path, "invalid", f"cannot verify approval: {exc}")
+
+
+def _inspect_global_approval(
+    path: Path, home: Path, cleanup_allowed: bool
+) -> Finding | None:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if (
+        not isinstance(raw, dict)
+        or type(raw.get("version")) is not int
+        or raw["version"] != 1
+        or not isinstance(raw.get("workspace"), str)
+        or not isinstance(raw.get("path"), str)
+        or type(raw.get("device")) is not int
+        or type(raw.get("inode")) is not int
+        or raw["device"] < 0
+        or raw["inode"] < 1
+    ):
+        raise ValueError("invalid global approval")
+    workspace = Path(raw["workspace"])
+    container = home / ".agents" / "skills"
+    expected = f"global-{get_binding_hash(workspace, 'global', container)}.approval"
+    if (
+        not workspace.is_absolute()
+        or not Path(raw["path"]).is_absolute()
+        or path.name != expected
+    ):
+        raise ValueError("invalid global approval binding")
+    if _missing(workspace) and _temporary(workspace):
+        return _stale_approval(
+            path, "temporary workspace no longer exists", cleanup_allowed
+        )
+    if not workspace.exists() or not is_recognized_workspace(workspace):
+        return _warning(
+            path, "unavailable", "workspace cannot be verified; approval retained"
+        )
+    if not container.exists():
+        return _warning(
+            path, "unavailable", "skill container is unavailable; approval retained"
+        )
+    if _pending_workspace(workspace):
+        cleanup_allowed = False
+    try:
+        identity = directory_identity(container)
+    except (OSError, ValueError):
+        return _warning(
+            path,
+            "unavailable",
+            "container identity cannot be verified; approval retained",
+        )
+    if any(raw.get(key) != identity[key] for key in ("path", "device", "inode")):
+        return _stale_approval(
+            path, "global skill container identity changed", cleanup_allowed
+        )
+    error = global_approval_error(workspace, home, container)
+    if error:
+        raise ValueError(error)
+    return None
 
 
 def inspect_local_state(home: Path) -> list[Finding]:
@@ -385,7 +447,11 @@ def clean_local_state(home: Path) -> list[str]:
                 path = Path(finding.source)
                 path.unlink()
                 kind = (
-                    "checkout approval" if path.suffix == ".approval" else "skill state"
+                    "global approval"
+                    if path.name.startswith("global-")
+                    else "checkout approval"
+                    if path.suffix == ".approval"
+                    else "skill state"
                 )
                 removed.append(f"Removed stale local {kind}: {path}")
     return removed

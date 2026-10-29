@@ -109,6 +109,7 @@ jobs:
           python3 -m aikito remote stop --help
           python3 -m aikito remote status --help
           python3 -m aikito show --help
+          python3 -m aikito show global --help
           python3 -m aikito show inbox --help
           python3 -m aikito doctor --help
           python3 -m aikito web --help
@@ -234,6 +235,11 @@ jobs:
         run: |
           PROJECT_APPLY_SMOKE=${{ runner.temp }}/project-auto-apply-smoke
           python3 tests/project_auto_apply_smoke.py "$PROJECT_APPLY_SMOKE"
+          test -f "$PROJECT_APPLY_SMOKE/global-auto-apply-ok"
+          test -L "$PROJECT_APPLY_SMOKE/add-home/.agents/skills/approved-skill"
+          test -L "$PROJECT_APPLY_SMOKE/home/.agents/skills/global-next"
+          test -L "$PROJECT_APPLY_SMOKE/home/.agents/skills/twg-x"
+          test ! -e "$PROJECT_APPLY_SMOKE/home/.agents/skills/global-example"
           test -f "$PROJECT_APPLY_SMOKE/copy-checkout/.agents/skills/example/SKILL.md"
           test -L "$PROJECT_APPLY_SMOKE/link-checkout/.agents/skills/example"
           test ! -e "$PROJECT_APPLY_SMOKE/unapproved-checkout/.agents"

@@ -46,6 +46,28 @@ def run_smoke(base: Path) -> None:
         (skill / "SKILL.md").write_text("v1", encoding="utf-8")
         refresh_bundled_skills(ws, home)
     auth = {TOKEN_ENV: TOKEN}
+    add_home = base / "add-home"
+    add_home.mkdir()
+    add_workspace = _workspace(base / "add-workspace")
+    (add_workspace / "global/AGENTS.md").write_text("# Global\n", encoding="utf-8")
+    added = run_cli(
+        ["add", "skill", "approved-skill", "--global", "--sync"],
+        workspace=add_workspace,
+        home=add_home,
+    )
+    assert added.returncode == 0, added.stderr
+    assert (add_home / ".agents/skills/approved-skill").is_symlink()
+    status = run_cli(["show", "global"], workspace=add_workspace, home=add_home)
+    assert "Automatic application: APPROVED" in status.stdout
+    global_skill = left / "skills" / "global-example"
+    global_skill.mkdir()
+    (global_skill / "SKILL.md").write_text("global skill", encoding="utf-8")
+    (left / "skills.toml").write_text('skills = ["global-example"]\n', encoding="utf-8")
+    global_container = home / ".agents" / "skills"
+    global_container.mkdir(parents=True)
+    external = base / "external-skill"
+    external.mkdir()
+    (global_container / "twg-x").symlink_to(external, target_is_directory=True)
 
     def cli(ws: Path, *args: str, code: int = 0) -> str:
         result = run_cli(list(args), workspace=ws, home=home, env_vars=auth)
@@ -64,6 +86,7 @@ def run_smoke(base: Path) -> None:
         initialize_cli(run_cli, left, home, auth)
         cli(left, "remote", "sync", "--apply")
         cli(right, "remote", "sync", "--apply")
+        assert not (global_container / "global-example").exists()
         assert not (copy / ".agents").exists()
         initial_status = run_cli(["status"], workspace=right, home=home, env_vars=auth)
         assert initial_status.returncode == 0, initial_status.stderr
@@ -72,6 +95,28 @@ def run_smoke(base: Path) -> None:
         assert "Automatic application" not in initial_status.stdout
         assert "! unbound" not in initial_status.stdout.lower()
         cli(right, "sync")
+        assert "Automatic application:" in cli(right, "show", "global")
+        assert (global_container / "global-example").is_symlink()
+        next_skill = left / "skills" / "global-next"
+        next_skill.mkdir()
+        (next_skill / "SKILL.md").write_text("next skill", encoding="utf-8")
+        (home / ".new-agent").mkdir()
+        (left / "agents" / "new-agent.toml").write_text(
+            '[agents.new-agent]\nskills_path = ".new-agent/skills"\ninstruction_path = ".new-agent/AGENTS.md"\n',
+            encoding="utf-8",
+        )
+        (left / "skills.toml").write_text(
+            'skills = ["global-next"]\n', encoding="utf-8"
+        )
+        cli(left, "remote", "sync", "--apply")
+        cli(right, "remote", "sync", "--apply")
+        assert (global_container / "global-next").is_symlink()
+        assert not (global_container / "global-example").is_symlink()
+        assert (global_container / "twg-x").resolve() == external
+        assert (right / "agents" / "new-agent.toml").is_file()
+        assert not (home / ".new-agent" / "skills").exists()
+        assert not (home / ".new-agent" / "AGENTS.md").exists()
+        (base / "global-auto-apply-ok").write_text("ok", encoding="utf-8")
         target = copy / ".agents/skills/example/SKILL.md"
         link_target = link / ".agents/skills/example"
         assert target.read_text(encoding="utf-8") == "v1"

@@ -9,6 +9,8 @@ from typing import Any
 
 from .workspace.access_catalog import publish_catalog
 from .project_auto_apply import ProjectAutoApply
+from .global_auto_apply import GlobalAutoApply
+from .bundled_skills import outdated_bundled_skills
 from .workspace.auto_sync import (
     AutoSyncScheduler,
     is_worker_running,
@@ -143,6 +145,15 @@ def watch_workspace_remote(
                 )
 
     project_apply = ProjectAutoApply(workspace, home, logger or (lambda message: None))
+    global_apply = GlobalAutoApply(workspace, home, logger or (lambda message: None))
+    try:
+        outdated = outdated_bundled_skills(workspace)
+        if outdated and logger:
+            logger(
+                f"[INFO] Bundled skills differ: {', '.join(outdated)}; run 'aikito sync global'"
+            )
+    except OSError:
+        pass
     scheduler = AutoSyncScheduler(
         workspace,
         remote,
@@ -150,6 +161,7 @@ def watch_workspace_remote(
         remote_opener=remote_opener,
         on_reconciled=publish_directory,
         on_local_reconcile=project_apply.run,
+        on_global_reconcile=global_apply.run,
         poll_interval=poll_interval,
         debounce_delay=debounce_delay,
         version_check_interval=version_check_interval,
@@ -304,6 +316,7 @@ def get_workspace_remote_status(
         "last_revision": raw_status.get("last_revision"),
         "last_error": raw_status.get("last_error") or cred_error,
         "project_apply": raw_status.get("project_apply", {}),
+        "global_apply": raw_status.get("global_apply", {}),
         "conflicts": raw_status.get("conflicts", 0),
         "pending": pending_count,
         "credential_source": cred_source,

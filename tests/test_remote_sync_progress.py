@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from aikito.remote_cli import cmd_remote_sync
+from aikito.global_auto_apply import AutoGlobalResult
 
 
 class Terminal(io.StringIO):
@@ -44,6 +45,10 @@ def test_sync_progress_output(tmp_path, interactive, failure):
         patch("aikito.remote_cli.is_recognized_workspace", return_value=True),
         patch("aikito.remote_cli.get_workspace_remote_binding", return_value=binding),
         patch("aikito.remote_cli.sync_workspace_remote", side_effect=synchronize),
+        patch(
+            "aikito.remote_cli.reconcile_local_global",
+            return_value=AutoGlobalResult("noop"),
+        ),
         patch(
             "aikito.remote_cli.render_remote_sync_plan", return_value="Remote sync plan"
         ),
