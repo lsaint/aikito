@@ -6,9 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.62.0] - 2026-10-29
+
 ### Added
 
-- Added automatic global skill link reconciliation for a locally approved workspace, with runtime diagnostics and `aikito show global`.
+- Added automatic global skill link reconciliation, runtime diagnostics, and `aikito show global`. Run `aikito sync global` once on each machine to approve the local container; approval transfers when another workspace is synced.
 
 ### Fixed
 
@@ -1223,7 +1225,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.61.1...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.62.0...HEAD
+[1.62.0]: https://github.com/lsaint/aikito/compare/v1.61.1...v1.62.0
 [1.61.1]: https://github.com/lsaint/aikito/compare/v1.61.0...v1.61.1
 [1.61.0]: https://github.com/lsaint/aikito/compare/v1.60.1...v1.61.0
 [1.60.1]: https://github.com/lsaint/aikito/compare/v1.60.0...v1.60.1
