@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from aikito import project_approval, skill_state
+from aikito import approval_io, skill_state
 from aikito.workspace import device_keys, recipient_keys, recovery_codes
 
 
@@ -34,5 +34,5 @@ def isolated_windows_state_permissions(monkeypatch, request):
         lambda paths: [skill_state.check_directory_permissions(path) for path in paths],
     )
     monkeypatch.setattr(skill_state, "secure_directory_permissions", lambda path: True)
-    for module in (skill_state, project_approval):
+    for module in (skill_state, approval_io):
         monkeypatch.setattr(module, "secure_file_permissions", lambda path: True)
