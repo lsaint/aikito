@@ -244,6 +244,26 @@ def test_worker_throttle_workspace_edits_retry_and_log_dedup(project):
         assert logger.call_count == calls
 
 
+def test_worker_unchanged_project_checks_do_not_print_link_details(project, capsys):
+    p = project
+    approve(p)
+    p.config.write_text(
+        p.config.read_text().replace(
+            f"path = {json.dumps(str(p.checkout))}",
+            f"paths = [{json.dumps(str(p.checkout))}, {json.dumps(str(p.home / 'offline'))}]",
+        ),
+        encoding="utf-8",
+    )
+    capsys.readouterr()
+    logger = Mock()
+    worker = ProjectAutoApply(p.ws, p.home, logger)
+    worker.run(force=True)
+    worker.run(force=True)
+    assert capsys.readouterr().out == ""
+    assert logger.call_count == 1
+    assert "offline" in logger.call_args.args[0]
+
+
 def test_scheduler_local_error_cannot_change_remote_state(project):
     p = project
     scheduler = AutoSyncScheduler(

@@ -700,6 +700,7 @@ def apply_link_operation(
     *,
     dry_run: bool = False,
     verbose: bool = False,
+    quiet_unchanged: bool = False,
 ) -> LinkExecutionResult:
     """Apply a planned LinkOperation with strict preflight verification."""
     target = op.target_path
@@ -739,6 +740,8 @@ def apply_link_operation(
                 applied=False,
                 error_message=f"Preflight failed: shared path {target} no longer matches canonical {canonical} (stale plan)",
             )
+        if quiet_unchanged:
+            return LinkExecutionResult(operation=op, success=True, applied=False)
         if op.target_kind == "consumer_link":
             print(f"[OK] {op.resource_name} skills: shared path {target}")
         elif op.target_kind == "instruction_link":
@@ -825,6 +828,8 @@ def apply_link_operation(
                     error_message=f"Preflight failed: expected {target} to be a symlink (stale plan)",
                 )
 
+        if quiet_unchanged:
+            return LinkExecutionResult(operation=op, success=True, applied=False)
         if op.target_kind == "consumer_link":
             print(f"[OK] {op.resource_name} skills: {target} -> {canonical}")
         elif op.target_kind == "instruction_link":
@@ -833,7 +838,7 @@ def apply_link_operation(
         return LinkExecutionResult(operation=op, success=True, applied=False)
 
     if op.action == "SKIP":
-        if op.reason:
+        if op.reason and not quiet_unchanged:
             print(f"[SKIP] {op.reason}")
         return LinkExecutionResult(operation=op, success=True, applied=False)
 

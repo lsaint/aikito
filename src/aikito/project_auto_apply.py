@@ -116,7 +116,7 @@ def _reconcile_checkout(
                     for op in plan.operations
                 )
         if not dry_run:
-            result = apply_project_sync_batch(batch, data, home)
+            result = apply_project_sync_batch(batch, data, home, quiet_unchanged=True)
             if not result.is_success:
                 return CheckoutResult(
                     project,

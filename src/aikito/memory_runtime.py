@@ -1044,6 +1044,7 @@ def execute_memory_plan(
     *,
     dry_run: bool = False,
     verbose: bool = False,
+    quiet_unchanged: bool = False,
 ) -> MemoryExecutionResult:
     """Execute a validated MemoryPlan through the shared link execution primitive."""
     if plan.has_conflicts:
@@ -1375,7 +1376,9 @@ def execute_memory_plan(
                 print(f"[LINK] {create_op.target_path} -> {create_op.canonical_path}")
             continue
 
-        res = apply_link_operation(op, dry_run=dry_run, verbose=verbose)
+        res = apply_link_operation(
+            op, dry_run=dry_run, verbose=verbose, quiet_unchanged=quiet_unchanged
+        )
         if not res.success:
             return MemoryExecutionResult(
                 operations=plan.operations,

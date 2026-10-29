@@ -404,12 +404,17 @@ def apply_project_sync_batch(
     home: Path,
     *,
     dry_run: bool = False,
+    quiet_unchanged: bool = False,
 ) -> ProjectSyncExecutionResult:
     """Serialize all resource phases; each phase retains its own rollback boundary."""
     if dry_run:
-        return _apply_project_sync_batch(batch, data, home, dry_run=True)
+        return _apply_project_sync_batch(
+            batch, data, home, dry_run=True, quiet_unchanged=quiet_unchanged
+        )
     with WorkspaceWriterLock(home):
-        return _apply_project_sync_batch(batch, data, home)
+        return _apply_project_sync_batch(
+            batch, data, home, quiet_unchanged=quiet_unchanged
+        )
 
 
 def _apply_project_sync_batch(
@@ -418,6 +423,7 @@ def _apply_project_sync_batch(
     home: Path,
     *,
     dry_run: bool = False,
+    quiet_unchanged: bool = False,
 ) -> ProjectSyncExecutionResult:
     """Execute skill plan and compatible instruction/memory synchronizations."""
     if not batch.can_apply and not dry_run:
@@ -484,7 +490,10 @@ def _apply_project_sync_batch(
     instruction_result: InstructionExecutionResult | None = None
     if batch.instruction_plan is not None:
         instruction_result = execute_instruction_plan(
-            batch.instruction_plan, home, dry_run=dry_run
+            batch.instruction_plan,
+            home,
+            dry_run=dry_run,
+            quiet_unchanged=quiet_unchanged,
         )
         if not instruction_result.success:
             return ProjectSyncExecutionResult(
@@ -498,7 +507,9 @@ def _apply_project_sync_batch(
     # 3. Apply MemoryPlan
     memory_result: MemoryExecutionResult | None = None
     if batch.memory_plan is not None:
-        memory_result = execute_memory_plan(batch.memory_plan, dry_run=dry_run)
+        memory_result = execute_memory_plan(
+            batch.memory_plan, dry_run=dry_run, quiet_unchanged=quiet_unchanged
+        )
         if not memory_result.success:
             return ProjectSyncExecutionResult(
                 skill_result=skill_result,

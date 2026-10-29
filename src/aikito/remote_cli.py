@@ -534,6 +534,7 @@ def cmd_remote_watch(args: argparse.Namespace) -> None:
             or msg.startswith("[BLOCKED]")
             or msg.startswith("[WARN]")
             or msg.startswith("[INFO]")
+            or msg.startswith("[PROJECT_APPLY_")
         ):
             if msg.startswith("["):
                 ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

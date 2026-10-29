@@ -701,6 +701,7 @@ def execute_instruction_plan(
     *,
     dry_run: bool = False,
     verbose: bool = False,
+    quiet_unchanged: bool = False,
 ) -> InstructionExecutionResult:
     """Execute an InstructionPlan with precondition re-checking and idempotent link operations."""
     if not plan.can_apply and not dry_run:
@@ -764,7 +765,9 @@ def execute_instruction_plan(
     executed_ops: list[LinkOperation] = []
 
     for op in plan.operations:
-        res = apply_link_operation(op, dry_run=dry_run, verbose=verbose)
+        res = apply_link_operation(
+            op, dry_run=dry_run, verbose=verbose, quiet_unchanged=quiet_unchanged
+        )
         executed_ops.append(res.operation)
         if not res.success:
             conflict_count += 1

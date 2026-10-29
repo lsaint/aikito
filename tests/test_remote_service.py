@@ -973,6 +973,7 @@ def test_cmd_remote_watch_logger_emits_info_without_verbose(
             logger("[SYNC] (rev 1) pull note.md")
             logger("[WARN] Connection unavailable, retrying in 5s: error")
             logger("[INFO] All previously blocked resources have been cleared")
+            logger("[PROJECT_APPLY_BLOCKED] demo: blocked; conflict")
             logger("unrecognized debug message")
 
     monkeypatch.setattr("aikito.remote_cli.watch_workspace_remote", mock_watch)
@@ -985,6 +986,7 @@ def test_cmd_remote_watch_logger_emits_info_without_verbose(
     assert "[SYNC] (rev 1) pull note.md" in captured.out
     assert "[WARN] Connection unavailable, retrying in 5s: error" in captured.out
     assert "[INFO] All previously blocked resources have been cleared" in captured.out
+    assert "[PROJECT_APPLY_BLOCKED] demo: blocked; conflict" in captured.out
     assert "unrecognized debug message" not in captured.out
 
 
