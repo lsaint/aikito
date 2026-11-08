@@ -31,7 +31,7 @@ from .diagnostics import Finding, FindingAction
 from .frontmatter import _parse_markdown_frontmatter
 from .mcp.adapters import MCP_ADAPTERS, MCPAdapter
 from .mcp.model import MCPConfigError
-from .mcp.redact import is_credential_header
+from .mcp.redact import _environment_reference, is_credential_header
 from .render import render_finding_lines
 from .subagent_adapters import SUBAGENT_ADAPTERS
 from .templating import (
@@ -653,6 +653,28 @@ def _sanitize_mcp_headers(headers: Dict[str, Any], server_name: str) -> Dict[str
     return sanitized
 
 
+def _sanitize_mcp_oauth(
+    oauth_dict: Dict[str, Any], server_name: str
+) -> Tuple[Dict[str, Any], List[str]]:
+    sanitized = dict(oauth_dict)
+    warnings = []
+    safe_server_name = "".join(
+        char if char.isalnum() else "_" for char in server_name.upper()
+    )
+    for key in ("clientSecret", "client_secret"):
+        if key in sanitized:
+            val = str(sanitized[key])
+            is_reference = _environment_reference(val) is not None
+            if not is_reference and val.strip():
+                var_name = f"AIKITO_{safe_server_name}_OAUTH_CLIENT_SECRET"
+                sanitized[key] = f"${{{var_name}}}"
+                warnings.append(
+                    f"[SECURITY] Converted plaintext OAuth client secret for MCP server '{server_name}' "
+                    f"to environment variable reference '${{{var_name}}}'. Please set {var_name} in your environment."
+                )
+    return sanitized, warnings
+
+
 def scan_mcp_servers(
     aikito_dir: Path,
     home: Path,
@@ -741,6 +763,16 @@ def scan_mcp_servers(
                 return
             if agent not in server.agents:
                 server.agents.append(agent)
+            new_overrides = canonical_config.get("overrides")
+            if isinstance(new_overrides, dict):
+                existing_overrides = server.config_data.setdefault("overrides", {})
+                for ag_name, ag_override in new_overrides.items():
+                    if ag_name not in existing_overrides:
+                        existing_overrides[ag_name] = dict(ag_override)
+                    elif isinstance(existing_overrides[ag_name], dict) and isinstance(
+                        ag_override, dict
+                    ):
+                        existing_overrides[ag_name].update(ag_override)
         else:
             adopted_servers[canon_name] = MCPServerAdoption(
                 server_name=canon_name,
@@ -756,6 +788,23 @@ def scan_mcp_servers(
             config["env"], _ = _sanitize_mcp_env(config["env"])
         if isinstance(config.get("headers"), dict):
             config["headers"] = _sanitize_mcp_headers(config["headers"], name)
+        if isinstance(config.get("oauth"), dict):
+            sanitized_oauth, oauth_warnings = _sanitize_mcp_oauth(config["oauth"], name)
+            config["oauth"] = sanitized_oauth
+            for w in oauth_warnings:
+                print(w, file=sys.stderr)
+        if isinstance(config.get("overrides"), dict):
+            overrides = {}
+            for ag, ag_cfg in config["overrides"].items():
+                if isinstance(ag_cfg, dict) and isinstance(ag_cfg.get("oauth"), dict):
+                    ag_copy = dict(ag_cfg)
+                    ag_copy["oauth"], ow = _sanitize_mcp_oauth(ag_cfg["oauth"], name)
+                    for w in ow:
+                        print(w, file=sys.stderr)
+                    overrides[ag] = ag_copy
+                else:
+                    overrides[ag] = ag_cfg
+            config["overrides"] = overrides
         return config
 
     def _read_source(

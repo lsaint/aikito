@@ -218,3 +218,31 @@ def test_pi_json_import_semantics():
             }
         },
     }
+
+    # plaintext clientSecret is converted to env var reference
+    plain_secret_entry = {
+        "url": "https://mcp.sentry.dev/mcp",
+        "oauth": {
+            "clientId": "sentry-client-id",
+            "clientSecret": "raw_plaintext_secret_123",
+        },
+    }
+    imported_secret = adapter.import_entry(plain_secret_entry)
+    assert (
+        imported_secret["overrides"]["pi"]["oauth"]["clientSecret"]
+        == "${AIKITO_PI_OAUTH_CLIENT_SECRET}"
+    )
+
+
+@pytest.mark.parametrize("key", ["clientSecret", "client_secret"])
+@pytest.mark.parametrize(
+    "secret",
+    ["$dummy-plain-secret", "prefix${MISSING_TOKEN}suffix", "${UNTERMINATED"],
+)
+def test_pi_import_sanitizes_literal_oauth_secrets(key, secret):
+    imported = get_mcp_adapter("pi_json").import_entry(
+        {"url": "https://example.com/mcp", "oauth": {key: secret}}
+    )
+    assert imported["overrides"]["pi"]["oauth"][key] == (
+        "${AIKITO_PI_OAUTH_CLIENT_SECRET}"
+    )

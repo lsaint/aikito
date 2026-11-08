@@ -7,6 +7,7 @@ import base64
 import hashlib
 import json
 import os
+import sys
 from typing import Any
 
 from ..model import AgentSpec, BasicTokenAuth, LEGACY_PLACEHOLDER_TOKEN, MCPConfigError
@@ -330,7 +331,20 @@ def _import_pi_json(entry: dict[str, Any]) -> dict[str, Any] | None:
         imported["headers"] = dict(entry["headers"])
     overrides_pi: dict[str, Any] = {}
     if "oauth" in entry and isinstance(entry["oauth"], dict):
-        overrides_pi["oauth"] = dict(entry["oauth"])
+        oauth_copy = dict(entry["oauth"])
+        for sec_key in ("clientSecret", "client_secret"):
+            if sec_key in oauth_copy:
+                sec_val = str(oauth_copy[sec_key])
+                is_ref = _environment_reference(sec_val) is not None
+                if not is_ref and sec_val.strip():
+                    var_name = "AIKITO_PI_OAUTH_CLIENT_SECRET"
+                    oauth_copy[sec_key] = f"${{{var_name}}}"
+                    print(
+                        f"[SECURITY] Converted plaintext OAuth client secret in Pi configuration "
+                        f"to environment variable reference '${{{var_name}}}'. Please set {var_name} in your environment.",
+                        file=sys.stderr,
+                    )
+        overrides_pi["oauth"] = oauth_copy
     if "exposure" in entry:
         overrides_pi["exposure"] = entry["exposure"]
     if "timeout" in entry:

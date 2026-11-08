@@ -805,12 +805,17 @@ config_format = "claude_json"
                     "mcpServers": {
                         "local-fs": {
                             "command": "npx",
-                            "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+                            "args": [
+                                "-y",
+                                "@modelcontextprotocol/server-filesystem",
+                                ".",
+                            ],
                         },
                         "remote-sentry": {
                             "url": "https://mcp.sentry.dev/mcp",
                             "oauth": {
                                 "clientId": "sentry-123",
+                                "clientSecret": "plain_secret_value",
                                 "callbackPort": 8080,
                             },
                         },
@@ -833,6 +838,10 @@ config_format = "claude_json"
         self.assertIn("[overrides.pi.oauth]", content)
         self.assertIn('clientId = "sentry-123"', content)
         self.assertIn("callbackPort = 8080", content)
+        # Plaintext secret was sanitized to env var reference
+        self.assertIn(
+            'clientSecret = "${AIKITO_REMOTE_SENTRY_OAUTH_CLIENT_SECRET}"', content
+        )
 
         # Ensure specs load cleanly and don't fail with 'must use remote transport'
         specs = load_agent_specs(self.target_path, self.fake_home)
@@ -840,8 +849,114 @@ config_format = "claude_json"
         self.assertEqual(len(pi_specs), 1)
         self.assertEqual(
             pi_specs[0].desired["oauth"],
-            {"clientId": "sentry-123", "callbackPort": 8080},
+            {
+                "clientId": "sentry-123",
+                "clientSecret": "${AIKITO_REMOTE_SENTRY_OAUTH_CLIENT_SECRET}",
+                "callbackPort": 8080,
+            },
         )
+
+    def test_adopt_pi_oauth_secret_references_round_trip(self) -> None:
+        write_agents(self.target_path, load_agents_template())
+        cases = [
+            ("dollar", "$dummy-plain-secret", None),
+            ("embedded", "prefix${MISSING_TOKEN}suffix", None),
+            ("incomplete", "${UNTERMINATED", None),
+            ("valid", "${EXISTING_SECRET}", "${EXISTING_SECRET}"),
+            ("opencode", "{env:EXISTING_SECRET}", "${EXISTING_SECRET}"),
+        ]
+        entries = {}
+        expected = {}
+        for key in ("clientSecret", "client_secret"):
+            for label, secret, reference in cases:
+                name = f"{label}-{key.lower()}"
+                entries[name] = {
+                    "url": f"https://example.com/{name}",
+                    "oauth": {key: secret},
+                }
+                expected[name] = {
+                    key: reference
+                    or f"${{AIKITO_{name.upper().replace('-', '_')}_OAUTH_CLIENT_SECRET}}"
+                }
+        pi_dir = self.fake_home / ".pi" / "agent"
+        pi_dir.mkdir(parents=True)
+        (pi_dir / "mcp.json").write_text(
+            json.dumps({"mcpServers": entries}), encoding="utf-8"
+        )
+
+        warnings = io.StringIO()
+        with redirect_stderr(warnings):
+            plan = build_adopt_plan(self.target_path, self.fake_home)
+            result = execute_adoption(plan, dry_run=False)
+        self.assertTrue(result)
+        specs = load_agent_specs(self.target_path, self.fake_home)
+        self.assertEqual(len(specs), len(expected))
+        for spec in specs:
+            with self.subTest(server=spec.server):
+                self.assertEqual(spec.desired["oauth"], expected[spec.server])
+                content = (
+                    self.target_path / "mcps" / f"{spec.server}.toml"
+                ).read_text()
+                for _, literal, reference in cases:
+                    if reference is None:
+                        self.assertNotIn(literal, content)
+                        self.assertNotIn(literal, warnings.getvalue())
+
+    def test_adopt_multi_agent_merges_overrides(self) -> None:
+        from aikito.mcp.loader import load_agent_specs
+        from aikito.templating import load_agents_template
+
+        write_agents(self.target_path, load_agents_template())
+
+        # Codex config (scanned first)
+        codex_dir = self.fake_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        (codex_dir / "config.toml").write_text(
+            """
+[mcp_servers.sentry]
+url = "https://example.com/shared"
+""",
+            encoding="utf-8",
+        )
+
+        # Pi config (scanned second, same name & url, but with oauth override)
+        pi_dir = self.fake_home / ".pi" / "agent"
+        pi_dir.mkdir(parents=True)
+        (pi_dir / "mcp.json").write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "sentry": {
+                            "url": "https://example.com/shared",
+                            "oauth": {
+                                "clientId": "pi-client-xyz",
+                            },
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        self.assertEqual(len(plan.mcp_servers), 1)
+        adopted_srv = plan.mcp_servers[0]
+        self.assertIn("codex", adopted_srv.agents)
+        self.assertIn("pi", adopted_srv.agents)
+
+        execute_adoption(plan, dry_run=False)
+        toml_file = self.target_path / "mcps" / "sentry.toml"
+        self.assertTrue(toml_file.is_file())
+        content = toml_file.read_text(encoding="utf-8")
+        self.assertIn("[overrides.pi.oauth]", content)
+        self.assertIn('clientId = "pi-client-xyz"', content)
+
+        # Specs load cleanly and Pi has oauth while Codex does not
+        specs = load_agent_specs(self.target_path, self.fake_home)
+        pi_spec = next(s for s in specs if s.agent == "pi")
+        codex_spec = next(s for s in specs if s.agent == "codex")
+        self.assertEqual(pi_spec.desired["oauth"], {"clientId": "pi-client-xyz"})
+        self.assertNotIn("oauth", codex_spec.desired)
 
     def test_adopt_handles_exceptions_with_friendly_error(self) -> None:
         from unittest.mock import patch
