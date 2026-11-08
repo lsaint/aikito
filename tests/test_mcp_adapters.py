@@ -163,6 +163,11 @@ def test_pi_json_adapter_semantics():
         "transport": "streamable-http",
         "exposure": "codemode",
         "timeout": 60,
+        "oauth": {
+            "clientId": "client-123",
+            "clientSecret": "${PI_SECRET}",
+            "callbackPort": 8080,
+        },
     }
     desired, _, _ = adapter.build_desired(
         "https://example.com/mcp", override, None, headers, "docs"
@@ -173,4 +178,43 @@ def test_pi_json_adapter_semantics():
         "exposure": "codemode",
         "timeout": 60,
         "headers": {"Authorization": "${TOKEN}", "X-Custom": "custom-value"},
+        "oauth": {
+            "clientId": "client-123",
+            "clientSecret": "${PI_SECRET}",
+            "callbackPort": 8080,
+        },
+    }
+
+
+def test_pi_json_import_semantics():
+    adapter = get_mcp_adapter("pi_json")
+    # stdio server has no url and must be skipped
+    stdio_entry = {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem"],
+    }
+    assert adapter.import_entry(stdio_entry) is None
+
+    # remote server with oauth
+    remote_entry = {
+        "url": "https://mcp.sentry.dev/mcp",
+        "oauth": {
+            "clientId": "sentry-client-id",
+            "callbackPort": 8080,
+        },
+        "exposure": "codemode",
+    }
+    imported = adapter.import_entry(remote_entry)
+    assert imported == {
+        "transport": "remote",
+        "url": "https://mcp.sentry.dev/mcp",
+        "overrides": {
+            "pi": {
+                "oauth": {
+                    "clientId": "sentry-client-id",
+                    "callbackPort": 8080,
+                },
+                "exposure": "codemode",
+            }
+        },
     }

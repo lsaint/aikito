@@ -226,6 +226,24 @@ def render_mcp_server_file(
         if key in cfg and cfg[key] is not None:
             lines.append(f"{key} = {_format_toml_value(cfg[key])}")
 
+    if "overrides" in cfg and isinstance(cfg["overrides"], dict):
+        for ag, ag_override in sorted(cfg["overrides"].items()):
+            if isinstance(ag_override, dict):
+                scalar_fields = {
+                    k: v for k, v in ag_override.items() if not isinstance(v, dict)
+                }
+                nested_tables = {
+                    k: v for k, v in ag_override.items() if isinstance(v, dict)
+                }
+                if scalar_fields:
+                    lines.append(f"\n[overrides.{ag}]")
+                    for ok, ov in sorted(scalar_fields.items()):
+                        lines.append(f"{ok} = {_format_toml_value(ov)}")
+                for nk, nv in sorted(nested_tables.items()):
+                    lines.append(f"\n[overrides.{ag}.{nk}]")
+                    for nok, nov in sorted(nv.items()):
+                        lines.append(f"{nok} = {_format_toml_value(nov)}")
+
     srv_block = "\n".join(lines) + "\n"
 
     try:
@@ -693,7 +711,15 @@ def scan_mcp_servers(
     def _canonical_config(config: Dict[str, Any]) -> Dict[str, Any]:
         canonical = {
             key: config[key]
-            for key in ("command", "url", "args", "env", "transport", "headers")
+            for key in (
+                "command",
+                "url",
+                "args",
+                "env",
+                "transport",
+                "headers",
+                "overrides",
+            )
             if key in config and config[key] is not None
         }
         if "url" in canonical and "transport" not in canonical:

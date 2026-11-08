@@ -790,6 +790,59 @@ config_format = "claude_json"
         data = tomllib.loads(content)
         self.assertEqual(data["command"], "npx")
 
+    def test_adopt_pi_mcp_skips_stdio_and_retains_oauth(self) -> None:
+        from aikito.mcp.loader import load_agent_specs
+        from aikito.templating import load_agents_template
+
+        write_agents(self.target_path, load_agents_template())
+
+        pi_agent_dir = self.fake_home / ".pi" / "agent"
+        pi_agent_dir.mkdir(parents=True)
+        mcp_json = pi_agent_dir / "mcp.json"
+        mcp_json.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "local-fs": {
+                            "command": "npx",
+                            "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+                        },
+                        "remote-sentry": {
+                            "url": "https://mcp.sentry.dev/mcp",
+                            "oauth": {
+                                "clientId": "sentry-123",
+                                "callbackPort": 8080,
+                            },
+                        },
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        # local-fs is skipped, only remote-sentry is adopted
+        self.assertEqual(len(plan.mcp_servers), 1)
+        self.assertEqual(plan.mcp_servers[0].server_name, "remote-sentry")
+
+        execute_adoption(plan, dry_run=False)
+        mcps_toml = self.target_path / "mcps" / "remote-sentry.toml"
+        self.assertTrue(mcps_toml.is_file())
+        content = mcps_toml.read_text(encoding="utf-8")
+        self.assertIn('url = "https://mcp.sentry.dev/mcp"', content)
+        self.assertIn("[overrides.pi.oauth]", content)
+        self.assertIn('clientId = "sentry-123"', content)
+        self.assertIn("callbackPort = 8080", content)
+
+        # Ensure specs load cleanly and don't fail with 'must use remote transport'
+        specs = load_agent_specs(self.target_path, self.fake_home)
+        pi_specs = [s for s in specs if s.agent == "pi"]
+        self.assertEqual(len(pi_specs), 1)
+        self.assertEqual(
+            pi_specs[0].desired["oauth"],
+            {"clientId": "sentry-123", "callbackPort": 8080},
+        )
+
     def test_adopt_handles_exceptions_with_friendly_error(self) -> None:
         from unittest.mock import patch
 

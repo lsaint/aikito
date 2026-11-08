@@ -258,6 +258,16 @@ def _build_pi_json(url, override, authentication, headers, server_name):
         desired["exposure"] = override["exposure"]
     if "timeout" in override:
         desired["timeout"] = override["timeout"]
+    if "oauth" in override and isinstance(override["oauth"], dict):
+        desired_oauth: dict[str, Any] = {}
+        for k, v in override["oauth"].items():
+            if isinstance(v, str):
+                env_ref = _environment_reference(v)
+                desired_oauth[k] = f"${{{env_ref}}}" if env_ref else v
+            else:
+                desired_oauth[k] = v
+        if desired_oauth:
+            desired["oauth"] = desired_oauth
     if authentication:
         desired["headers"] = {
             "Authorization": f"${{{authentication.authorization_env}}}"
@@ -308,6 +318,26 @@ def _import_copilot_json(entry: dict[str, Any]) -> dict[str, Any] | None:
     if entry.get("type", "http") != "http" or not isinstance(entry.get("url"), str):
         return None
     return {**entry, "transport": "remote"}
+
+
+def _import_pi_json(entry: dict[str, Any]) -> dict[str, Any] | None:
+    # Pi local stdio servers have no canonical remote equivalent in Aikito.
+    url = entry.get("url")
+    if not isinstance(url, str) or not url.strip():
+        return None
+    imported: dict[str, Any] = {"transport": "remote", "url": url}
+    if "headers" in entry and isinstance(entry["headers"], dict):
+        imported["headers"] = dict(entry["headers"])
+    overrides_pi: dict[str, Any] = {}
+    if "oauth" in entry and isinstance(entry["oauth"], dict):
+        overrides_pi["oauth"] = dict(entry["oauth"])
+    if "exposure" in entry:
+        overrides_pi["exposure"] = entry["exposure"]
+    if "timeout" in entry:
+        overrides_pi["timeout"] = entry["timeout"]
+    if overrides_pi:
+        imported["overrides"] = {"pi": overrides_pi}
+    return imported
 
 
 @dataclass(frozen=True)
@@ -412,7 +442,7 @@ MCP_ADAPTERS: dict[str, MCPAdapter] = {
         "mcpServers",
         "JSON",
         True,
-        import_entry=_import_verbatim,
+        import_entry=_import_pi_json,
     ),
 }
 
