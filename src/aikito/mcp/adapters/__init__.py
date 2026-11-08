@@ -33,17 +33,20 @@ from .jsonc import (
     get_copilot_json_server,
     get_jsonc_server,
     get_mcp_json_server,
+    get_pi_json_server,
     parse_jsonc,
     remove_agy_json_server,
     remove_claude_json_server,
     remove_copilot_json_server,
     remove_jsonc_server,
     remove_mcp_json_server,
+    remove_pi_json_server,
     update_agy_json_server,
     update_claude_json_server,
     update_copilot_json_server,
     update_jsonc_server,
     update_mcp_json_server,
+    update_pi_json_server,
 )
 from .toml import (
     _toml_value,
@@ -66,17 +69,20 @@ __all__ = [
     "get_copilot_json_server",
     "get_jsonc_server",
     "get_mcp_json_server",
+    "get_pi_json_server",
     "parse_jsonc",
     "remove_agy_json_server",
     "remove_claude_json_server",
     "remove_copilot_json_server",
     "remove_jsonc_server",
     "remove_mcp_json_server",
+    "remove_pi_json_server",
     "update_agy_json_server",
     "update_claude_json_server",
     "update_copilot_json_server",
     "update_jsonc_server",
     "update_mcp_json_server",
+    "update_pi_json_server",
     # toml
     "_toml_value",
     "get_toml_server",
@@ -242,6 +248,32 @@ def _build_copilot_json(url, override, authentication, headers, server_name):
     return desired, False, ""
 
 
+def _build_pi_json(url, override, authentication, headers, server_name):
+    desired: dict[str, Any] = {"url": url}
+    if "type" in override:
+        desired["type"] = override["type"]
+    if "transport" in override:
+        desired["transport"] = override["transport"]
+    if "exposure" in override:
+        desired["exposure"] = override["exposure"]
+    if "timeout" in override:
+        desired["timeout"] = override["timeout"]
+    if authentication:
+        desired["headers"] = {
+            "Authorization": f"${{{authentication.authorization_env}}}"
+        }
+    elif headers:
+        pi_headers: dict[str, str] = {}
+        for k, v in headers.items():
+            env_ref = _environment_reference(v)
+            if env_ref:
+                pi_headers[k] = f"${{{env_ref}}}"
+            else:
+                pi_headers[k] = v
+        desired["headers"] = pi_headers
+    return desired, False, ""
+
+
 def _build_dsh_cordis(url, override, authentication, headers, server_name):
     transport = override.get("transport", "streamable-http")
     desired = {
@@ -370,6 +402,17 @@ MCP_ADAPTERS: dict[str, MCPAdapter] = {
         "dsh_cordis",
         "mcpServers",
         "Cordis patch YAML",
+    ),
+    "pi_json": MCPAdapter(
+        _build_pi_json,
+        get_pi_json_server,
+        update_pi_json_server,
+        remove_pi_json_server,
+        "pi_json",
+        "mcpServers",
+        "JSON",
+        True,
+        import_entry=_import_verbatim,
     ),
 }
 

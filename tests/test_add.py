@@ -1857,7 +1857,7 @@ class TestAikitoAddMCP(unittest.TestCase):
         self.assertEqual(data["url"], "https://example.com/v1/my-api")
         self.assertEqual(
             data["agents"],
-            ["codex", "claude-code", "opencode", "agy", "github-copilot"],
+            ["codex", "claude-code", "opencode", "agy", "github-copilot", "pi"],
         )
 
     def test_add_mcp_from_json_file_sanitizes_secret_header(self) -> None:

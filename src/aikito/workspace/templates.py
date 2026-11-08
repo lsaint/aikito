@@ -77,6 +77,7 @@ TEMPLATE_HISTORY: dict[str, frozenset[str]] = {
     ),
     "agent:pi": frozenset(
         {
+            "6329603a4c54e9aa2057f3306d3f80e8b597c2ae63bee94e9c654196b013268e",
             "28f6f0c69b3c63dabea02939c9a1bf87b82c9e90193bf9e6b1d860a35a7834f6",
             "0a50c4ef05ee7219d991eff4f0abb9e184875ffba5f5d1ea993caf2a4b49f812",
             "89f07ad98ed831fc86f6ff59364d696995412d9e5b927aae917009f7f4a50435",

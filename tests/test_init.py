@@ -140,8 +140,6 @@ class AikitoInitTest(unittest.TestCase):
         )
         self.assertEqual(agents["grok"].mcp.config_format, "toml")
         self.assertEqual(agents["grok"].mcp.adapter, "grok_toml")
-        # Pi participates in instructions and skills only; MCP and sub-agents
-        # live in optional pi extensions, so it has no such sections.
         self.assertEqual(
             agents["pi"].instruction_path,
             self.fake_home / ".pi/agent/AGENTS.md",
@@ -150,6 +148,12 @@ class AikitoInitTest(unittest.TestCase):
             agents["pi"].skills_path,
             self.fake_home / ".agents/skills",
         )
+        self.assertEqual(
+            agents["pi"].mcp.config_path,
+            self.fake_home / ".pi/agent/mcp.json",
+        )
+        self.assertEqual(agents["pi"].mcp.config_format, "pi_json")
+        self.assertEqual(agents["pi"].mcp.adapter, "pi_json")
         self.assertEqual(load_agent_specs(self.target_path, self.fake_home), [])
 
         report = get_status_report_data(self.target_path, self.fake_home)
@@ -182,7 +186,16 @@ class AikitoInitTest(unittest.TestCase):
                 "requires_path": ".pi/agent/extensions/subagent/index.ts",
             },
         )
-        self.assertNotIn("mcp", agent_config["pi"])
+        self.assertEqual(
+            agent_config["pi"]["mcp"],
+            {
+                "config_path": ".pi/agent/mcp.json",
+                "config_format": "pi_json",
+                "name_style": "verbatim",
+                "live_command": ["pi", "mcp", "list"],
+                "auth_command": ["pi", "mcp", "login", "{target}"],
+            },
+        )
         for agent_name in agent_config:
             self.assertTrue(agent_config[agent_name]["runner"]["command"])
 

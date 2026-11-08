@@ -10,6 +10,7 @@ _CONFIG_FORMAT_JSON_NAMES = {
     "agy_json": "agy",
     "claude_json": "Claude Code",
     "copilot_json": "GitHub Copilot CLI",
+    "pi_json": "Pi",
 }
 
 
@@ -221,6 +222,10 @@ def get_copilot_json_server(text: str, server_name: str) -> dict[str, Any] | Non
     return get_mcp_json_server(text, server_name, "copilot_json", "GitHub Copilot CLI")
 
 
+def get_pi_json_server(text: str, server_name: str) -> dict[str, Any] | None:
+    return get_mcp_json_server(text, server_name, "pi_json", "Pi")
+
+
 def get_mcp_json_server(
     text: str, server_name: str, config_format: str, config_name: str
 ) -> dict[str, Any] | None:
@@ -258,6 +263,10 @@ def update_copilot_json_server(
     )
 
 
+def update_pi_json_server(text: str, server_name: str, desired: dict[str, Any]) -> str:
+    return update_mcp_json_server(text, server_name, desired, "pi_json", "Pi")
+
+
 def update_mcp_json_server(
     text: str,
     server_name: str,
@@ -285,6 +294,10 @@ def remove_copilot_json_server(text: str, server_name: str) -> str:
     return remove_mcp_json_server(
         text, server_name, "copilot_json", "GitHub Copilot CLI"
     )
+
+
+def remove_pi_json_server(text: str, server_name: str) -> str:
+    return remove_mcp_json_server(text, server_name, "pi_json", "Pi")
 
 
 def remove_mcp_json_server(

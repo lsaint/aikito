@@ -684,6 +684,12 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
                 instruction_path=h / ".pi/agent/AGENTS.md",
                 project_instruction_path=Path("AGENTS.md"),
                 skills_path=h / ".agents/skills",
+                mcp={
+                    "config_path": h / ".pi/agent/mcp.json",
+                    "config_format": "pi_json",
+                    "live_command": ("pi", "mcp", "list"),
+                    "auth_command": ("pi", "mcp", "login", "{target}"),
+                },
                 subagents={
                     "config_path": resolved_home / ".pi/agent/agents",
                     "config_format": "pi_markdown",

@@ -32,7 +32,14 @@ from .workspace.sync import sync_global_resources
 NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 
 DEFAULT_SUBAGENT_AGENTS = ["codex", "claude-code", "agy", "github-copilot"]
-DEFAULT_MCP_AGENTS = ["codex", "claude-code", "opencode", "agy", "github-copilot"]
+DEFAULT_MCP_AGENTS = [
+    "codex",
+    "claude-code",
+    "opencode",
+    "agy",
+    "github-copilot",
+    "pi",
+]
 
 
 def validate_resource_name(name: str, resource_type: str) -> Optional[str]:

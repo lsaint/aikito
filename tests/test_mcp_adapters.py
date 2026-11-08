@@ -19,6 +19,7 @@ from layout_helpers import write_agents
         "agy_json",
         "copilot_json",
         "dsh_cordis",
+        "pi_json",
     ],
 )
 def test_adapter_round_trip(format):
@@ -144,3 +145,32 @@ config_format = "toml"
 adapter = ""
 """,
         )
+
+
+def test_pi_json_adapter_semantics():
+    auth = BasicTokenAuth("user@example.com", "TOKEN", "AUTH")
+    adapter = get_mcp_adapter("pi_json")
+    desired, _, _ = adapter.build_desired(
+        "https://example.com/mcp", {}, auth, None, "docs"
+    )
+    assert desired == {
+        "url": "https://example.com/mcp",
+        "headers": {"Authorization": "${AUTH}"},
+    }
+
+    headers = {"Authorization": "${TOKEN}", "X-Custom": "custom-value"}
+    override = {
+        "transport": "streamable-http",
+        "exposure": "codemode",
+        "timeout": 60,
+    }
+    desired, _, _ = adapter.build_desired(
+        "https://example.com/mcp", override, None, headers, "docs"
+    )
+    assert desired == {
+        "url": "https://example.com/mcp",
+        "transport": "streamable-http",
+        "exposure": "codemode",
+        "timeout": 60,
+        "headers": {"Authorization": "${TOKEN}", "X-Custom": "custom-value"},
+    }

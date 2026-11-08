@@ -1936,11 +1936,11 @@ reason = "off"
             ),
             spec(
                 "pi",
-                Path(),
-                "unsupported",
-                {},
-                enabled=False,
-                reason="MCP synchronization is not supported for agent 'pi'",
+                home / ".pi/agent/mcp.json",
+                "pi_json",
+                {"url": url},
+                live_command=("pi", "mcp", "list"),
+                auth_command=("pi", "mcp", "login", "docs"),
             ),
         ]
         self.assertEqual(

@@ -79,13 +79,12 @@ Grok Build uses `~/.grok/rules/aikito.md` for global instructions,
 `~/.agents/skills` for shared skills, `~/.grok/config.toml` for MCP servers,
 `~/.grok/agents/` for subagents, and root `AGENTS.md` files for project rules.
 
-Pi participates in instructions, skills, and runners. It uses
+Pi participates in instructions, skills, runners, and MCP. It uses
 `~/.pi/agent/AGENTS.md` for global instructions, `~/.agents/skills` for shared
-skills, and root `AGENTS.md` files for project rules. When Pi's optional
-`subagent` extension entry point exists, Aikito synchronizes global definitions
-to `~/.pi/agent/agents`; without it, the capability is skipped and no target
-files are written. Pi has no MCP section and is omitted from MCP
-synchronization.
+skills, `~/.pi/agent/mcp.json` for MCP servers, and root `AGENTS.md` files for
+project rules. When Pi's optional `subagent` extension entry point exists,
+Aikito synchronizes global definitions to `~/.pi/agent/agents`; without it,
+the capability is skipped and no target files are written.
 
 An Agent's `[agents.<name>.mcp]` table supports optional configuration keys:
 `name_style` (e.g. `"underscore"` for runtimes requiring snake_case identifiers)
