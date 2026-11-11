@@ -349,6 +349,34 @@ when applied. Replica state persists unfinished first-pairing IDs so template
 ancestors and preservation rules survive multiple rounds and restarts. Pairing
 progress commits with Base; pending recovery confirms only uploaded IDs.
 
+Encrypted clients always adopt the current remote side on first pairing with
+an existing Vault. Binding does not authorize any initial local uploads.
+Local-only resources and differing local versions are archived under
+`.local/sync-join/` before local deletion or replacement. Timestamped archives
+retain original paths, deduplicate shared files, and use one `index.json` to map
+logical IDs to paths and TOML fields without duplicating payload content.
+Successful rounds return their actual index and resource paths, accumulated across
+bounded rounds. CLI results and background logs display those absolute paths;
+previews do not invent archive locations, and failed attempts are not reported
+as applied backups.
+Skill executable modes remain on the copied files. Backup failure prevents the round from
+applying. The local `pairing_remote` flag survives bounded rounds alongside
+unfinished IDs, so background sync and restart use the same policy. Converged IDs
+leave that set and resume ordinary bidirectional comparison. A provisional state
+from a rejected initial upload does not establish a baseline: it must reconsider
+the policy if another device populated the Vault. A header-only Vault at revision
+1 can be seeded locally; a previously used, now empty Vault remains protected.
+This policy adds no resource names, fingerprints or fields to the wire contract.
+
+After pairing finishes, users can copy selected files from `.local/sync-join/`
+back into the workspace. Those explicit local creations or edits then use normal
+bidirectional sync. No binding-time upload approval or connection mode is stored.
+
+Background reconciliation runs only for executable changes or a changed
+confirmation baseline. Unchanged blocked or unresolved resources do not trigger
+another round solely because their IDs remain unpaired. Normal polling and
+local-change detection continue so resources can resume when inputs change.
+
 The protocol and commit encoding remain version 1. These internal features are
 unpublished: descriptor byte size changes the encoding and golden vectors in
 place, without a compatibility decoder or migration. Size is a nonnegative

@@ -93,7 +93,7 @@ version.
 | `aikito edit skill <target>` | Open a skill's SKILL.md in `$VISUAL` or `$EDITOR` |
 | `aikito edit subagent <target>` | Open a subagent's instruction markdown in `$VISUAL` or `$EDITOR` |
 | `aikito doctor [--fix]` | Run deep workspace diagnostics and repair supported configuration issues |
-| `aikito remote bind [url] [--rebind] [--recovery-fd <FD>] [--recovery-output-fd <FD>] [--no-initialize] [--workspace <PATH>]` | Connect through browser approval (automatically initializes encryption or recovers the key) |
+| `aikito remote bind [url] [--rebind] [--recovery-fd <FD>] [--recovery-output-fd <FD>] [--no-initialize] [--workspace <PATH>]` | Connect through browser approval; first synchronization adopts existing remote content with local backups |
 | `aikito remote unbind [--force] [--workspace <PATH>]` | Unbind workspace from external remote store and stop background synchronization |
 | `aikito remote sync [--dry-run \| --apply] [--verbose] [--workspace <PATH>]` | Synchronize workspace resources with bound remote store (defaults to apply) |
 | `aikito remote watch [--poll-interval <SEC>] [--debounce-ms <MS>] [--once] [--verbose] [--workspace <PATH>]` | Continuously synchronize local workspace changes and remote updates |

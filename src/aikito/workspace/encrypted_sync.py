@@ -75,6 +75,9 @@ class EncryptedDiscoveryPending(EncryptedRemoteError):
 
 
 class EncryptedRemote:
+    # New devices adopt an existing Vault before ordinary bidirectional sync.
+    protect_initial_pairing = True
+
     def __init__(
         self,
         remote,
@@ -378,7 +381,9 @@ def run_encrypted_reconciliation(
                     workspace, remote, _inspect_payloads=False
                 )
                 resolutions = {
-                    item.id: "local"
+                    item.id: "remote"
+                    if compared.is_pairing_resource(item.id)
+                    else "local"
                     if item.id in compared.local_snapshot.resources
                     else "remote"
                     for item in compared.conflicts

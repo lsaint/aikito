@@ -206,8 +206,11 @@ moved without changing identity. Moving an unfinished transaction is
 not supported because recovery journals bind their original destinations.
 The old internal `baseline.json` is rejected explicitly; it is not migrated.
 
-First pairing compares against bundled template fingerprints, unions missing
-resources, and never propagates deletions. Later rounds use the replica's base
+The plaintext reconciliation engine compares first pairing against bundled
+template fingerprints, unions missing resources, and never propagates deletions.
+Encrypted clients instead adopt an existing Vault after backing up local
+differences, as described in [Remote Store Boundary](remote-store-boundary.md).
+Later rounds use the replica's base
 with `workspace.merge.compare`. Plans use `CREATE`, `UPDATE`, `DELETE`, `NOOP`,
 `CONFLICT`, and `BLOCKED`, with `local` or `remote` as the write target. Conflict
 choices are accepted only for resources currently reported as `CONFLICT`,

@@ -16,13 +16,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .init import is_recognized_workspace
-from .project_auto_apply import reconcile_local_projects, render_auto_project_result
 from .global_auto_apply import (
     AutoGlobalResult,
     reconcile_local_global,
     render_auto_global_result,
 )
+from .init import is_recognized_workspace
+from .project_auto_apply import reconcile_local_projects, render_auto_project_result
 from .remote_service import (
     bind_workspace_remote,
     get_workspace_remote_binding,
@@ -270,7 +270,7 @@ def render_remote_status(
 
 
 def cmd_remote_bind(args: argparse.Namespace) -> None:
-    """Handle 'aikito remote bind [url] [--rebind] [--token-env <VAR>] [--recovery-fd <FD>] [--recovery-output-fd <FD>] [--no-initialize] [--workspace <PATH>]'."""
+    """Connect a workspace with a reviewed first-connection policy."""
     home = Path.home()
     workspace = _resolve_cli_workspace(args, home)
     if not is_recognized_workspace(workspace):
@@ -350,6 +350,10 @@ def cmd_remote_bind(args: argparse.Namespace) -> None:
     if binding.status == "recovered":
         print("[SUCCESS] Synchronization key authorized and saved to device keystore.")
         print("[SUCCESS] Synchronization connected.")
+        print(
+            "[INFO] First synchronization adopts the remote workspace. "
+            "Local differences are backed up in .local/sync-join/ before replacement."
+        )
         print("\nNext: Run 'aikito remote sync' to synchronize your workspace.")
     elif binding.status == "empty":
         auto_init = False

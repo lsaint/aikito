@@ -56,6 +56,7 @@ WORKER_STATUS_STATE = ".local/state/aikito/workspace-reconcile/status.json"
 WORKER_LOG_STATE = ".local/state/aikito/workspace-reconcile/worker.log"
 WORKER_STOP_STATE = ".local/state/aikito/workspace-reconcile/worker.stop"
 SYNC_CONFLICTS_DIR = ".local/sync-conflicts"
+SYNC_JOIN_DIR = ".local/sync-join"
 RECONCILE_POLICY = PathPolicy(
     states=(REMOTE_STATE, REPLICA_STATE, PENDING_COMMIT_STATE),
     create_parents=True,

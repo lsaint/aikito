@@ -18,6 +18,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
+from ..compat import is_windows
 from ..config import get_inbox_path
 from ..init import is_recognized_workspace
 from ..skill_state import WorkspaceWriterLock
@@ -60,6 +61,7 @@ from .resource_state import (
     PENDING_COMMIT_STATE,
     REPLICA_STATE,
     SYNC_CONFLICTS_DIR,
+    SYNC_JOIN_DIR,
     SYNC_KINDS,
     local_resource_for_id,
     state_path,
@@ -75,12 +77,14 @@ from .resource_write import (
     verify_resource_snapshot,
 )
 from .resources import (
+    SKILL_EXECUTABLE_METADATA,
     Resource,
     WorkspaceResourceError,
     WorkspaceSnapshot,
     physical_kind,
     snapshot_workspace,
 )
+from .skill_metadata import write_executable_metadata
 from .templates import template_fingerprints
 from .transactions import (
     StateUpdate,
@@ -110,6 +114,7 @@ class ReconcileItem:
     before: str | None
     after: str | None
     reason: str
+    backup_local: bool = False
 
 
 @dataclass(frozen=True)
@@ -128,6 +133,22 @@ class ReconcilePlan:
     applied_items: tuple[ReconcileItem, ...] = ()
     rounds: int = 0
     stop_reason: str | None = None
+    pairing_remote: bool = False
+    backup_indexes: tuple[Path, ...] = ()
+    backup_paths: tuple[tuple[str, Path], ...] = ()
+
+    def is_pairing_resource(self, identity: str) -> bool:
+        return self.pairing_remote and (
+            self.state is None or identity in self.state.unpaired_ids
+        )
+
+    @property
+    def pairing_backups(self) -> tuple[ReconcileItem, ...]:
+        return tuple(item for item in self.changes if item.backup_local)
+
+    @property
+    def applied_pairing_backups(self) -> tuple[ReconcileItem, ...]:
+        return tuple(item for item in self.applied_items if item.backup_local)
 
     @property
     def revision(self) -> int:
@@ -158,6 +179,42 @@ class ReconcilePlan:
     @property
     def blocked(self) -> bool:
         return bool(self.findings)
+
+    @property
+    def needs_application(self) -> bool:
+        """Apply only executable changes or a changed confirmation baseline."""
+        if self.blocked:
+            return False
+        if self.changes or self.state is None:
+            return True
+        base, unpaired = _confirmed_resources(
+            self, self.local_snapshot.resources, _center_resources(self.remote_snapshot)
+        )
+        return (
+            base != self.state.base
+            or unpaired != self.state.unpaired_ids
+            or self.revision != self.state.revision
+            or self.pairing_remote != self.state.pairing_remote
+        )
+
+
+def _confirmed_resources(plan, local, remote):
+    """Project the confirmation state without advancing unresolved resources."""
+    base = dict(plan.base)
+    unpaired = (
+        set(plan.state.unpaired_ids) if plan.state else {item.id for item in plan.items}
+    )
+    for item in plan.items:
+        if item.action in {"CONFLICT", "BLOCKED", "DEFERRED"}:
+            continue
+        left, right = local.get(item.id), remote.get(item.id)
+        if left is None and right is None:
+            base.pop(item.id, None)
+            unpaired.discard(item.id)
+        elif left and right and _resource_version(left) == _resource_version(right):
+            base[item.id] = right
+            unpaired.discard(item.id)
+    return base, frozenset(unpaired)
 
 
 def _center_resources(center: RemoteSnapshot) -> dict[str, Resource]:
@@ -560,6 +617,19 @@ def build_reconcile_plan(
             and not (resource.kind == "config" and resource.name in LOCAL_CONFIG)
         }
         b = _center_resources(center)
+        # Latch the policy across bounded rounds, even if the Vault becomes empty.
+        # A provisional state from a rejected initial upload has no baseline yet:
+        # reconsider an empty Vault if another device won the initialization race.
+        # Revision 1 with no logical resources is a newly initialized E2EE Vault.
+        provisional = state is None or (
+            state.revision == 0 and not state.base and state.receipt_cursor is None
+        )
+        pairing_remote = (
+            state.pairing_remote
+            if not provisional
+            else getattr(remote, "protect_initial_pairing", False) is True
+            and (bool(b) or center.revision > 1)
+        )
         base = state.base if state else {}
         identities = (
             base.keys()
@@ -592,12 +662,30 @@ def build_reconcile_plan(
                 reference, _resource_version(left), _resource_version(right)
             )
             action, target, reason = outcome.action, outcome.target, outcome.reason
-            if first_pairing and (left is None) != (right is None):
+            if (
+                first_pairing
+                and pairing_remote
+                and _resource_version(left) != _resource_version(right)
+            ):
+                action = (
+                    "DELETE"
+                    if right is None
+                    else "CREATE"
+                    if left is None
+                    else "UPDATE"
+                )
+                target = "local"
+                reason = "First pairing adopts remote; local differences are saved in .local/sync-join"
+            elif first_pairing and (left is None) != (right is None):
                 # Absence during initial pairing carries no deletion history,
                 # including when the existing resource has edited a template.
                 action = "CREATE"
                 target = "local" if left is None else "remote"
                 reason = "First pairing preserves existing resources"
+            if first_pairing and pairing_remote and choices.get(identity) == "local":
+                raise WorkspaceReconcileError(
+                    f"First pairing must adopt the remote resource: {identity}"
+                )
             before = (local_fp if target == "local" else remote_fp) if target else None
             after = (remote_fp if target == "local" else local_fp) if target else None
             items.append(ReconcileItem(identity, action, target, before, after, reason))
@@ -647,6 +735,20 @@ def build_reconcile_plan(
             for item in items
         ]
         proposed = _resolve_items(items, choices, a, b) if choices else compared
+        if pairing_remote:
+            protected = identities if state is None else state.unpaired_ids
+            for index, item in enumerate(proposed):
+                if item.id not in protected or item.action not in CHANGES:
+                    continue
+                if item.target == "remote":
+                    raise WorkspaceReconcileError(
+                        f"First pairing cannot upload local resource: {item.id}"
+                    )
+                proposed[index] = replace(
+                    item,
+                    reason="First pairing adopts remote; local differences are saved in .local/sync-join",
+                    backup_local=item.before is not None,
+                )
         dependencies = operation_dependencies(proposed, a, b)
         proposed, upload_descriptors = _budget_uploads(proposed, local_content, a)
         wire_budget = (
@@ -676,6 +778,7 @@ def build_reconcile_plan(
                     for item in selected
                 ),
                 resolutions=tuple(sorted(choices.items())),
+                pairing_remote=pairing_remote,
             )
         needed = needed_downloads(selected, b)
         captured = {
@@ -729,6 +832,7 @@ def build_reconcile_plan(
                 (key, center.resources[key].content_hash, payload)
                 for key, payload in sorted(remote_payloads.items())
             ),
+            pairing_remote=pairing_remote,
         )
     except (
         WorkspaceCoreError,
@@ -811,6 +915,56 @@ def _archive_overwritten_remote(plan: ReconcilePlan, *, timestamp: str) -> None:
         )
 
 
+def _archive_pairing_local(plan: ReconcilePlan) -> Path | None:
+    """Save initial local differences outside sync before removing or replacing them.
+
+    Archives precede the local transaction; a failed round may leave an extra
+    backup, but can never commit a deletion without a recoverable local copy.
+    One index maps logical resources to original paths and TOML fields. Shared
+    files are copied once, and content is never duplicated inside metadata.
+    """
+    if not plan.pairing_backups:
+        return
+    created_at = datetime.now(UTC)
+    archive = f"{SYNC_JOIN_DIR}/{created_at.strftime('%Y%m%dT%H%M%S.%fZ')}-{uuid.uuid4().hex[:8]}"
+    content = ResourceContent.from_workspace(plan.local_snapshot)
+    index = {}
+    copied = set()
+    for item in plan.pairing_backups:
+        resource = content.resources[item.id]
+        payload = capture_resources(content, [item.id])[item.id]
+        relative = resource.parts[0].path
+        index[item.id] = {"path": relative}
+        if isinstance(payload, TomlPayload):
+            index[item.id]["field"] = list(payload.path)
+        if relative in copied:
+            continue
+        copied.add(relative)
+        dest = state_path(plan.local, f"{archive}/{relative}", create=True)
+        if isinstance(payload, TreePayload):
+            for entry in payload.entries:
+                path = dest / entry.path
+                _write_archive_bytes(path, entry.data)
+                if not is_windows():
+                    path.chmod(0o755 if entry.executable else 0o644)
+            if is_windows():
+                write_executable_metadata(
+                    dest / SKILL_EXECUTABLE_METADATA,
+                    [entry.path for entry in payload.entries if entry.executable],
+                )
+        else:
+            _write_archive_bytes(dest, (plan.local / relative).read_bytes())
+    atomic_text(
+        state_path(plan.local, f"{archive}/index.json", create=True),
+        json.dumps(
+            {"created_at": created_at.isoformat(), "resources": index},
+            indent=2,
+            sort_keys=True,
+        ),
+    )
+    return plan.local / archive / "index.json"
+
+
 def _archive_relative_path(identity: str) -> Path:
     try:
         canonical = local_resource_for_id(identity, "0" * 64)
@@ -838,7 +992,7 @@ def _write_archive_bytes(dest: Path, data: bytes) -> None:
 
 def apply_reconcile_plan(
     plan: ReconcilePlan, home: Path, *, remote: RemoteStore
-) -> None:
+) -> Path | None:
     """Conditionally commit the safe subset, then confirm each converged resource."""
     try:
         with WorkspaceWriterLock(home):
@@ -911,6 +1065,12 @@ def apply_reconcile_plan(
                     uploads,
                     plan.remote_snapshot.resources,
                 )
+                try:
+                    backup_index = _archive_pairing_local(fresh)
+                except OSError as exc:
+                    raise WorkspaceReconcileError(
+                        f"First pairing backup failed: {exc}"
+                    ) from exc
                 if snapshot_workspace(plan.local) != plan.local_snapshot:
                     raise WorkspaceReconcileError(
                         "Local resources changed before sending"
@@ -970,6 +1130,7 @@ def apply_reconcile_plan(
                         if plan.state is None
                         else plan.state.unpaired_ids,
                         vault_id=vault_id,
+                        pairing_remote=plan.pairing_remote,
                     )
                     try:
                         result = remote.commit(request)
@@ -981,27 +1142,7 @@ def apply_reconcile_plan(
                 else:
                     center = plan.remote_snapshot
                 center_resources = _center_resources(center)
-                base = dict(plan.base)
-                unpaired = (
-                    set(plan.state.unpaired_ids)
-                    if plan.state
-                    else {item.id for item in plan.items}
-                )
-                for item in plan.items:
-                    if item.action in {"CONFLICT", "BLOCKED", "DEFERRED"}:
-                        continue
-                    left, right = expected.get(item.id), center_resources.get(item.id)
-                    if left is None and right is None:
-                        base.pop(item.id, None)
-                        unpaired.discard(item.id)
-                    elif (
-                        left
-                        and right
-                        and (left.fingerprint, left.mode_fingerprint)
-                        == (right.fingerprint, right.mode_fingerprint)
-                    ):
-                        base[item.id] = right
-                        unpaired.discard(item.id)
+                base, unpaired = _confirmed_resources(plan, expected, center_resources)
                 state = ReplicaState(
                     center.sync_id,
                     replica_id,
@@ -1009,10 +1150,11 @@ def apply_reconcile_plan(
                     base,
                     plan.state.receipt_cursor if plan.state else None,
                     plan.state.completion_marker if plan.state else None,
-                    frozenset(unpaired),
+                    unpaired,
+                    plan.pairing_remote,
                 )
                 if not local_changes and state == plan.state:
-                    return
+                    return backup_index
                 if pending is not None:
                     pending_store.complete(
                         pending,
@@ -1025,7 +1167,7 @@ def apply_reconcile_plan(
                         ),
                     )
                     pending_store.clear(pending)
-                    return
+                    return backup_index
                 state_path(plan.local, REPLICA_STATE, create=True)
                 apply(
                     (plan.local,),
@@ -1038,6 +1180,7 @@ def apply_reconcile_plan(
                     ),
                     policy=_local_policy(plan.local),
                 )
+                return backup_index
     except (
         WorkspaceCoreError,
         WorkspaceResourceError,
@@ -1069,6 +1212,8 @@ def run_reconciliation(
         return build_reconcile_plan(local, remote, resolutions=resolutions)
     choices = dict(resolutions or {})
     applied = []
+    backup_indexes = []
+    backup_paths = []
     rounds = 0
     with WorkspaceWriterLock(home):
         if recover_reconciliation(local, remote, home):
@@ -1087,12 +1232,14 @@ def run_reconciliation(
                         return replace(
                             plan,
                             applied_items=tuple(applied),
+                            backup_indexes=tuple(backup_indexes),
+                            backup_paths=tuple(backup_paths),
                             rounds=rounds,
                             stop_reason="Blocking findings"
                             if plan.blocked
                             else "Reconciliation round limit reached",
                         )
-                    apply_reconcile_plan(plan, home, remote=remote)
+                    backup_index = apply_reconcile_plan(plan, home, remote=remote)
                     break
                 except WorkspaceReconcileError as exc:
                     if not isinstance(exc.__cause__, SnapshotExpired):
@@ -1118,15 +1265,33 @@ def run_reconciliation(
                                 for item in plan.items
                             ),
                             applied_items=tuple(applied),
+                            backup_indexes=tuple(backup_indexes),
+                            backup_paths=tuple(backup_paths),
                             rounds=rounds,
                             stop_reason="Snapshot retry limit reached",
                         )
             rounds += 1
             applied.extend(plan.changes)
+            if backup_index is not None:
+                backup_indexes.append(backup_index)
+                backup_paths.extend(
+                    (
+                        item.id,
+                        backup_index.parent
+                        / plan.local_snapshot.resources[item.id].parts[0].path,
+                    )
+                    for item in plan.pairing_backups
+                )
             for item in plan.items:
                 if item.action not in {"CONFLICT", "BLOCKED", "DEFERRED"}:
                     choices.pop(item.id, None)
-            result = replace(plan, applied_items=tuple(applied), rounds=rounds)
+            result = replace(
+                plan,
+                applied_items=tuple(applied),
+                backup_indexes=tuple(backup_indexes),
+                backup_paths=tuple(backup_paths),
+                rounds=rounds,
+            )
             if not plan.deferred:
                 return result
             if not plan.changes:

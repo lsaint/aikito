@@ -156,6 +156,23 @@ aikito remote start
 After downloading, [synchronize and verify your local Agent setup](sync-existing-setup.md)
 to connect the resources to the Agents installed on this machine.
 
+The first synchronization with an existing space always adopts its current remote content.
+Local-only resources are not uploaded, and differing local versions are replaced
+only after being backed up under `.local/sync-join/` in the workspace. The sync
+result and background logs list the absolute paths of this run's backup directory,
+index and each saved resource, ready to copy. Use `--dry-run` to preview this without
+changing files or creating backups. Background sync follows the same rule.
+
+Finish the first synchronization before reviewing backups. Each round uses a
+UTC timestamped directory containing files at their original paths and one
+`index.json` mapping resource IDs to file paths and TOML fields. Shared files are
+copied once, content is not duplicated in the index, and skill executable modes
+are preserved with the files. To import reviewed content, copy selected
+files back into the workspace and synchronize again. For shared TOML files,
+restore only the intended fields or members. After joining, new and edited
+content synchronizes in both directions. A new space is still initialized from
+local content; devices with an existing baseline keep their usual sync rules.
+
 Synchronization transfers Aikito-managed resources, not your projects' source
 repositories. Clone project code separately and
 [connect its local path](project-setup.md). You do not need to copy hidden local

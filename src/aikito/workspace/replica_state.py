@@ -23,7 +23,7 @@ from .resource_state import (
     valid_identity,
     validate_skill_fingerprint_scheme,
 )
-from .resources import Resource, SKILL_FINGERPRINT_SCHEME
+from .resources import SKILL_FINGERPRINT_SCHEME, Resource
 from .transactions import WorkspaceCoreError, entry_type
 
 
@@ -73,6 +73,7 @@ class ReplicaState:
     receipt_cursor: ReceiptCursor | None = None
     completion_marker: CompletionMarker | None = None
     unpaired_ids: frozenset[str] = frozenset()
+    pairing_remote: bool = False
 
     def __post_init__(self):
         if (
@@ -91,6 +92,8 @@ class ReplicaState:
             type(key) is not str or not key for key in self.unpaired_ids
         ):
             raise WorkspaceCoreError("Invalid unpaired resource IDs")
+        if type(self.pairing_remote) is not bool:
+            raise WorkspaceCoreError("Invalid first pairing policy")
         marker = self.completion_marker
         if marker is not None and (
             not isinstance(marker, CompletionMarker)
@@ -112,6 +115,7 @@ class ReplicaState:
                 "revision": self.revision,
                 "base": encode_resources(self.base),
                 "unpaired_ids": sorted(self.unpaired_ids),
+                **({"pairing_remote": True} if self.pairing_remote else {}),
                 **(
                     {"receipt_cursor": encode_cursor(self.receipt_cursor)}
                     if self.receipt_cursor is not None
@@ -176,6 +180,7 @@ class ReplicaState:
                 decode_cursor(raw.get("receipt_cursor")),
                 marker,
                 frozenset(unpaired),
+                raw.get("pairing_remote", False),
             )
         except WorkspaceCoreError:
             raise

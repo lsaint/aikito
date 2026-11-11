@@ -504,6 +504,10 @@ def plan_conflict_resolutions(
     remote_resources = plan.remote_snapshot.resources
 
     for item in plan.conflicts:
+        if plan.is_pairing_resource(item.id):
+            # The core saves the local version before adopting the remote one.
+            resolutions[item.id] = "remote"
+            continue
         local_exists = item.id in local_resources
         remote_exists = item.id in remote_resources
 
@@ -879,14 +883,18 @@ class AutoSyncScheduler:
                         f"Failed to archive conflict loser for {cid}: {res.error}"
                     )
 
-            result = run_reconciliation(
-                self.workspace,
-                self.remote,
-                self.home,
-                dry_run=False,
-                resolutions=resolutions,
+            result = (
+                run_reconciliation(
+                    self.workspace,
+                    self.remote,
+                    self.home,
+                    dry_run=False,
+                    resolutions=resolutions,
+                )
+                if not plan.blocked and (resolutions or plan.needs_application)
+                else plan
             )
-        elif plan.changes:
+        elif plan.needs_application:
             result = run_reconciliation(
                 self.workspace,
                 self.remote,
@@ -912,6 +920,17 @@ class AutoSyncScheduler:
                 self.logger(
                     f"[SYNC] (rev {result.revision}) ... and {len(result.applied_items) - max_log_items} more change(s)"
                 )
+
+        if result.applied_pairing_backups:
+            self.logger(
+                "[INFO] First connection kept local differences in .local/sync-join/. "
+                "Review and copy back selected files to import them."
+            )
+            for index in result.backup_indexes:
+                self.logger(f"[BACKUP DIRECTORY]\n{index.parent}")
+                self.logger(f"[BACKUP INDEX]\n{index}")
+            for identity, path in result.backup_paths:
+                self.logger(f"[LOCAL BACKUP] {identity}\n{path}")
 
         # Check for blocked items, findings, stop reasons (Fix Issue 5)
         current_findings = set(result.findings)

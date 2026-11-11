@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -141,8 +142,7 @@ def main(base: Path):
             2,
             [
                 "remote",
-                "key",
-                "recover",
+                "bind",
                 "--endpoint",
                 server.url,
                 "--workspace",
@@ -163,6 +163,9 @@ def main(base: Path):
         note = Path("memory/notes/e2ee.md")
         (a / note).parent.mkdir(parents=True, exist_ok=True)
         (a / note).write_text('password = "test-only-credential-1234567890"\n')
+        skill = Path("skills/join-example")
+        (a / skill).mkdir(parents=True)
+        (a / skill / "SKILL.md").write_text("# Current skill\n")
         preview_before = backend.read()
         preview = key_sync(winner, "--dry-run")
         assert preview.returncode == 0, preview.stderr
@@ -176,8 +179,55 @@ def main(base: Path):
         assert not (a / ".local/state/aikito/encrypted-discovery.json").exists()
         first = key_sync(winner)
         assert first.returncode == 0, first.stderr
+        # A stale Git checkout must not upload old files on its first connection.
+        stale = Path("memory/notes/join-stale.md")
+        (b / stale).write_text("Retired local note\n")
+        (b / note).write_text("Stale local version\n")
+        (b / skill / "agents").mkdir(parents=True)
+        (b / skill / "SKILL.md").write_text("# Current skill\n")
+        (b / skill / "agents/openai.yaml").write_text("Retired skill file\n")
+        before_join = backend.read()
+        join_preview = key_sync(2, "--dry-run")
+        assert join_preview.returncode == 0, join_preview.stderr
+        assert "[LOCAL BACKUP]" in join_preview.stdout
+        assert not (b / ".local/sync-join").exists()
+        assert (b / stale).read_text() == "Retired local note\n"
+        (base / "join-preview.out").write_text(join_preview.stdout)
         second = key_sync(2)
         assert second.returncode == 0, second.stderr
+        assert "Local differences saved" in second.stdout
+        (base / "join-apply.out").write_text(second.stdout)
+        assert backend.read() == before_join
+        assert not (b / stale).exists()
+        assert not (b / skill / "agents/openai.yaml").exists()
+        backups = b / ".local/sync-join"
+        saved = list(backups.rglob("join-stale.md"))
+        assert len(saved) == 1 and saved[0].read_text() == "Retired local note\n"
+        index_path = next(backups.glob("*/index.json"))
+        index = json.loads(index_path.read_text())
+        entry = index["resources"]["global-memory:notes/join-stale.md"]
+        assert index_path.parent / entry["path"] == saved[0]
+        assert str(index_path.parent) in second.stdout
+        assert str(index_path) in second.stdout
+        assert str(saved[0]) in second.stdout
+        (base / "join-paths-checked.txt").write_text(
+            "Sync output includes existing absolute archive, index and resource paths\n"
+        )
+        assert "T" in index_path.parent.name and "Z-" in index_path.parent.name
+        assert not list(backups.rglob("resource.json"))
+        (base / "join-index.json").write_bytes(index_path.read_bytes())
+        assert any(
+            p.read_text() == "Retired skill file\n"
+            for p in backups.rglob("openai.yaml")
+        )
+        (base / "join-backup.md").write_bytes(saved[0].read_bytes())
+        # Copying a reviewed backup back is an ordinary local creation.
+        (b / "memory/notes/after-join.md").write_bytes(saved[0].read_bytes())
+        assert key_sync(2).returncode == 0 and key_sync(winner).returncode == 0
+        assert (a / "memory/notes/after-join.md").read_text() == "Retired local note\n"
+        (base / "join-checked.txt").write_text(
+            "Safe first connection and two-way sync passed\n"
+        )
         assert (
             b / note
         ).read_text() == 'password = "test-only-credential-1234567890"\n'

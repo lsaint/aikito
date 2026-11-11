@@ -1413,6 +1413,33 @@ def render_remote_sync_plan(
     if not dry_run:
         lines.append(f"  Rounds:    {plan.rounds}")
 
+    pairing_backups = (
+        getattr(plan, "pairing_backups", ())
+        if dry_run
+        else getattr(plan, "applied_pairing_backups", ())
+    )
+    if pairing_backups:
+        lines.extend(("", "First connection uses the remote workspace:"))
+        if dry_run:
+            lines.extend(f"  [LOCAL BACKUP] {item.id}" for item in pairing_backups)
+        else:
+            for index in getattr(plan, "backup_indexes", ()):
+                lines.extend(
+                    (
+                        "  Backup directory:",
+                        f"    {index.parent}",
+                        "  Backup index:",
+                        f"    {index}",
+                    )
+                )
+            for identity, path in getattr(plan, "backup_paths", ()):
+                lines.extend((f"  [LOCAL BACKUP] {identity}", f"    {path}"))
+        lines.append(
+            "  These local differences will be saved in .local/sync-join/ instead of uploaded."
+            if dry_run
+            else "  Local differences saved in .local/sync-join/. Review and copy back selected files to import them."
+        )
+
     attention: list[str] = []
     if plan.conflicts:
         attention.extend(

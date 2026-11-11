@@ -12,10 +12,10 @@ import base64
 import hashlib
 import json
 import re
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Callable, Iterator
 
 from ..config import get_inbox_path
 from ..skill_state import WorkspaceWriterLock
@@ -257,6 +257,7 @@ class PendingCommitStore:
         excluded_resource_ids: tuple[str, ...] = (),
         unpaired_ids: frozenset[str] = frozenset(),
         vault_id: str | None = None,
+        pairing_remote: bool = False,
     ) -> PendingCommit:
         with self._locked():
             if self._load() is not None:
@@ -269,6 +270,7 @@ class PendingCommitStore:
                     0,
                     {},
                     unpaired_ids=unpaired_ids,
+                    pairing_remote=pairing_remote,
                 )
             text = before if before is not None else state.encode()
             pending = PendingCommit(

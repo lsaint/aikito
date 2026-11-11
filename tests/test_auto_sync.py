@@ -24,6 +24,7 @@ from aikito.workspace.auto_sync import (
     AutoSyncScheduler,
     AutoSyncState,
     AutoSyncWorkerRunning,
+    ArchiveResult,
     LocalWatcher,
     _is_network_transient_error,
     archive_conflict_loser,
@@ -36,7 +37,7 @@ from aikito.workspace.payload import (
     TreeEntry,
     TreePayload,
 )
-from aikito.workspace.reconcile import WorkspaceReconcileError
+from aikito.workspace.reconcile import WorkspaceReconcileError, run_reconciliation
 from aikito.workspace.remote import FilesystemRemote
 from aikito.workspace.remote_binding import (
     RemoteAuth,
@@ -214,6 +215,7 @@ class AutoSyncConflictResolutionTest(unittest.TestCase):
             mock_remote = MagicMock()
             mock_remote.fetch.side_effect = Exception("Fetch failed")
             mock_plan = MagicMock()
+            mock_plan.is_pairing_resource.return_value = False
             mock_item = MagicMock()
             mock_item.id = "global-memory:notes/conflict.md"
             mock_plan.conflicts = [mock_item]
@@ -702,6 +704,55 @@ class AutoSyncEndToEndTest(unittest.TestCase):
                 large.unlink()
                 scheduler.step()
             self.assertEqual(len([m for m in logged if "cleared" in m]), 1)
+
+    def test_unchanged_blocked_pairing_skips_reconciliation_until_it_can_progress(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            ws = _workspace(base / "ws")
+            backend = FilesystemRemote.create(base / "center")
+            large = ws / "memory/notes/large.md"
+            large.write_text("x" * 5000)
+            scheduler = AutoSyncScheduler(ws, backend, base / "home")
+            with patch(
+                "aikito.workspace.remote_limits.MAX_RESOURCE_PAYLOAD_BYTES", 1024
+            ):
+                scheduler.step()
+                with patch(
+                    "aikito.workspace.auto_sync.run_reconciliation",
+                    wraps=run_reconciliation,
+                ) as apply_round:
+                    blocked = scheduler.step()
+                    self.assertTrue(blocked.state.unpaired_ids)
+                    self.assertTrue(blocked.blocked_items)
+                    scheduler.step()
+                    apply_round.assert_not_called()
+                    large.unlink()
+                    scheduler.step()
+                    apply_round.assert_called_once()
+
+    def test_unchanged_unresolved_conflict_skips_reconciliation(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            source = _workspace(base / "source")
+            ws = _workspace(base / "ws")
+            backend = FilesystemRemote.create(base / "center")
+            (source / "memory/notes/conflict.md").write_text("remote\n")
+            (ws / "memory/notes/conflict.md").write_text("local\n")
+            home = base / "home"
+            run_reconciliation(source, backend, home, dry_run=False)
+            scheduler = AutoSyncScheduler(ws, backend, home)
+            with patch(
+                "aikito.workspace.auto_sync.archive_conflict_loser",
+                return_value=ArchiveResult("failed", error="disk full"),
+            ):
+                scheduler.step()
+                with patch(
+                    "aikito.workspace.auto_sync.run_reconciliation",
+                    wraps=run_reconciliation,
+                ) as apply_round:
+                    self.assertTrue(scheduler.step().conflicts)
+                    scheduler.step()
+                    apply_round.assert_not_called()
 
     def test_get_installed_aikito_version_and_diff(self):
         import subprocess

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from workspace_reconcile_smoke import _workspace
 
 from aikito.workspace.reconcile import (
     WorkspaceReconcileError,
@@ -12,8 +13,17 @@ from aikito.workspace.reconcile import (
     run_reconciliation,
 )
 from aikito.workspace.remote import FilesystemRemote
+from aikito.workspace.replica_state import ReplicaState
 from aikito.workspace.resource_state import REMOTE_STATE, REPLICA_STATE
-from workspace_reconcile_smoke import _workspace
+
+
+@pytest.mark.parametrize("policy", [None, 0, 1, "remote", [], {}])
+def test_invalid_pairing_policy_is_rejected(policy):
+    state = ReplicaState("center", "a" * 32, 0, {})
+    raw = json.loads(state.encode())
+    raw["pairing_remote"] = policy
+    with pytest.raises(ValueError, match="first pairing policy"):
+        ReplicaState.decode(json.dumps(raw))
 
 
 @pytest.mark.parametrize("target", ["center", "replica"])

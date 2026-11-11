@@ -1209,6 +1209,13 @@ jobs:
             if (!(Test-Path "$encryptedBase/console-check/$relative" -PathType Leaf)) { throw "Missing local console artifact: $relative" }
           }
           python tests/workspace_encrypted_sync_smoke.py "$encryptedBase/sync-check"
+          if ($LASTEXITCODE -ne 0) { throw "Encrypted sync smoke failed" }
+          foreach ($relative in @("join-checked.txt", "join-preview.out", "join-apply.out", "join-backup.md", "join-index.json", "join-paths-checked.txt", "workspace-2/skills/join-example/SKILL.md", "workspace-2/memory/notes/after-join.md")) {
+            if (!(Test-Path "$encryptedBase/sync-check/$relative" -PathType Leaf)) { throw "Missing safe first connection artifact: $relative" }
+          }
+          foreach ($relative in @("workspace-2/memory/notes/join-stale.md", "workspace-2/skills/join-example/agents/openai.yaml")) {
+            if (Test-Path "$encryptedBase/sync-check/$relative") { throw "Stale first connection resource survived: $relative" }
+          }
           foreach ($relative in @("references-checked.txt", "progress-checked.txt", "workspace-2/mcps/docs.toml", "workspace-2/subagents/review.md")) {
             if (!(Test-Path "$encryptedBase/sync-check/$relative" -PathType Leaf)) { throw "Missing dynamic reference artifact: $relative" }
           }

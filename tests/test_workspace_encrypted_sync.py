@@ -1,5 +1,6 @@
 """Ciphertext publication, logical Base confirmation and durable retries."""
 
+import json
 import threading
 from contextlib import nullcontext
 from unittest.mock import Mock
@@ -8,7 +9,10 @@ import pytest
 from workspace_memory_remote import InMemoryRemote
 from workspace_reconcile_smoke import _workspace
 
+from aikito.render import render_remote_sync_plan
 from aikito.workspace import encrypted_sync as sync
+from aikito.workspace import reconcile, remote_limits
+from aikito.workspace.auto_sync import AutoSyncScheduler
 from aikito.workspace.commit_recovery import recover_pending
 from aikito.workspace.device_keys import DeviceKeyStore
 from aikito.workspace.encrypted_discovery import DISCOVERY_STATE
@@ -25,16 +29,20 @@ from aikito.workspace.payload import (
     payload_hash,
 )
 from aikito.workspace.pending_commit import PendingCommit, PendingCommitStore
+from aikito.workspace.reconcile_budget import fetch_response_size
 from aikito.workspace.remote_binding import (
     RemoteAuth,
     RemoteBinding,
     save_remote_binding,
+    remove_remote_binding,
 )
+from aikito.workspace.remote_factory import bind_remote
 from aikito.workspace.remote_format import FORMAT_RESOURCE_ID
 from aikito.workspace.remote_protocol import encode_commit_request
 from aikito.workspace.remote_store import CommitOutcomeUnknown, SnapshotExpired
 from aikito.workspace.remote_wire import build_commit_request
 from aikito.workspace.replica_state import load_replica_state
+from aikito.workspace.resources import snapshot_workspace
 
 pytest.importorskip("cryptography")
 SYNC = "11223344556677889900aabbccddeeff"
@@ -126,6 +134,277 @@ def test_two_devices_create_update_delete_and_noop_reuse_ciphertext(clients):
     assert b"initial secret payload" not in b"".join(remote.requests)
     assert b"global-memory:notes/shared.md" not in b"".join(remote.requests)
     assert "global-memory:notes/shared.md" not in load_replica_state(a)[0].base
+
+
+def test_join_preserves_local_differences_without_upload_and_then_syncs(clients):
+    remote, a, ha, b, hb = clients
+    initialize(clients)
+    (a / NOTE).write_text("retired note\n")
+    for workspace in (a, b):
+        skill = workspace / "skills/example"
+        (skill / "agents").mkdir(parents=True)
+        (skill / "SKILL.md").write_text("# Example\n")
+        (skill / "agents/openai.yaml").write_text("retired configuration\n")
+    apply(a, ha)
+    (a / NOTE).unlink()
+    (a / "skills/example/agents/openai.yaml").unlink()
+    (a / "memory/notes/current.md").write_text("remote current\n")
+    (a / "config.toml").write_text('[review]\nlabel = "remote"\n')
+    apply(a, ha)
+    (b / NOTE).write_text("retired note\n")
+    (b / "memory/notes/current.md").write_text("local different\n")
+    (b / "config.toml").write_text('[review]\nlabel = "local"\nextra = true\n')
+    before = remote.read()
+    requests = len(remote.requests)
+    preview = sync.run_encrypted_reconciliation(b, hb, dry_run=True)
+    assert preview.pairing_remote and preview.pairing_backups
+    assert all(item.target == "local" for item in preview.changes)
+    assert "[LOCAL BACKUP]" in render_remote_sync_plan(preview, dry_run=True)
+    assert not (b / ".local/sync-join").exists()
+    assert not preview.backup_indexes and not preview.backup_paths
+    assert load_replica_state(b)[0] is None
+    result = apply(b, hb)
+    assert not result.blocked and not result.conflicts
+    assert remote.read() == before and len(remote.requests) == requests
+    assert not (b / NOTE).exists()
+    assert not (b / "skills/example/agents/openai.yaml").exists()
+    assert (b / "memory/notes/current.md").read_text() == "remote current\n"
+    assert 'label = "remote"' in (b / "config.toml").read_text()
+    assert "extra" not in (b / "config.toml").read_text()
+    backups = b / ".local/sync-join"
+    assert any(p.read_text() == "retired note\n" for p in backups.rglob("shared.md"))
+    assert any(
+        p.read_text() == "retired configuration\n" for p in backups.rglob("openai.yaml")
+    )
+    assert any('label = "local"' in p.read_text() for p in backups.rglob("config.toml"))
+    indexes = list(backups.glob("*/index.json"))
+    assert len(indexes) == 1
+    archive = indexes[0].parent
+    assert "T" in archive.name and "Z-" in archive.name
+    index = json.loads(indexes[0].read_text())
+    assert index["resources"]["skill:example"]["path"] == "skills/example"
+    assert index["resources"]["config:review.label"]["field"] == ["review", "label"]
+    for entry in index["resources"].values():
+        assert (archive / entry["path"]).exists()
+    assert len(list(backups.rglob("config.toml"))) == 1
+    assert not list(backups.rglob("resource.json"))
+    assert "retired note" not in indexes[0].read_text()
+    assert "retired configuration" not in indexes[0].read_text()
+    assert "Local differences saved" in render_remote_sync_plan(result)
+    assert result.backup_indexes == tuple(indexes)
+    rendered = render_remote_sync_plan(result)
+    assert str(archive) in rendered and str(indexes[0]) in rendered
+    for identity, path in result.backup_paths:
+        assert path.is_absolute() and path.exists()
+        assert identity in rendered
+        assert str(path) in rendered
+    state, _ = load_replica_state(b)
+    assert state.pairing_remote and not state.unpaired_ids
+    unchanged = apply(b, hb)
+    assert not unchanged.backup_indexes and not unchanged.backup_paths
+    assert "Backup directory:" not in render_remote_sync_plan(unchanged)
+    assert remote.read() == before
+    # Restoring a reviewed backup after joining is an ordinary new local resource.
+    saved = next(backups.rglob("shared.md"))
+    (b / NOTE).write_bytes(saved.read_bytes())
+    apply(b, hb)
+    apply(a, ha)
+    assert (a / NOTE).read_text() == "retired note\n"
+
+
+@pytest.mark.parametrize("bind_empty", [True, False])
+def test_first_sync_uses_current_vault_after_binding_gap(
+    clients, monkeypatch, bind_empty
+):
+    remote, a, ha, b, hb = clients
+    initialize(clients)
+    remove_remote_binding(b, home=hb)
+    monkeypatch.setattr(
+        "aikito.workspace.remote_factory._open_remote", lambda *args, **kwargs: remote
+    )
+    (a / NOTE).write_text("deleted after binding\n")
+    (b / NOTE).write_text("deleted after binding\n")
+    if not bind_empty:
+        apply(a, ha)
+    bind_remote(
+        b,
+        "http://127.0.0.1:1/v1/remote",
+        RemoteAuth("bearer_env", "TEST_TOKEN"),
+        home=hb,
+    )
+    assert load_replica_state(b)[0] is None
+    if bind_empty:
+        apply(a, ha)
+    (a / NOTE).unlink()
+    apply(a, ha)
+    (b / "memory/notes/late.md").write_text("appeared after binding\n")
+    before = remote.read()
+    result = apply(b, hb)
+    assert not result.blocked and remote.read() == before
+    assert not (b / NOTE).exists()
+    assert not (b / "memory/notes/late.md").exists()
+    backups = b / ".local/sync-join"
+    assert next(backups.rglob("shared.md")).read_text() == "deleted after binding\n"
+    assert next(backups.rglob("late.md")).read_text() == "appeared after binding\n"
+
+
+def test_join_backup_failure_keeps_local_content_and_baseline(clients, monkeypatch):
+    remote, a, ha, b, hb = clients
+    initialize(clients)
+    apply(a, ha)
+    (b / NOTE).write_text("only local\n")
+    before = remote.read()
+    monkeypatch.setattr(
+        reconcile, "_write_archive_bytes", Mock(side_effect=OSError("disk full"))
+    )
+    with pytest.raises(reconcile.WorkspaceReconcileError, match="disk full"):
+        apply(b, hb)
+    assert (b / NOTE).read_text() == "only local\n"
+    assert load_replica_state(b)[0] is None
+    assert remote.read() == before
+
+
+def test_join_protects_a_previously_used_vault_with_no_remaining_resources(clients):
+    remote, a, ha, b, hb = clients
+    initialize(clients)
+    apply(a, ha)
+    snapshot = remote.read()
+    remote.commit(
+        build_commit_request(
+            "f" * 32,
+            "e" * 32,
+            snapshot,
+            tuple(
+                ResourceMutation(identity, descriptor, None, None)
+                for identity, descriptor in snapshot.resources.items()
+                if identity != FORMAT_RESOURCE_ID
+            ),
+        )
+    )
+    before = remote.read()
+    assert set(before.resources) == {FORMAT_RESOURCE_ID} and before.revision > 1
+    (b / NOTE).write_text("stale checkout\n")
+    apply(b, hb)
+    assert not (b / NOTE).exists() and remote.read() == before
+    assert load_replica_state(b)[0].pairing_remote
+
+
+def test_join_replans_before_backing_up_when_remote_changes(clients):
+    remote, a, ha, b, hb = clients
+    initialize(clients)
+    (a / NOTE).write_text("remote first\n")
+    apply(a, ha)
+    (b / NOTE).write_text("local old\n")
+    adapter = sync.EncryptedRemote(remote, SYNC, b, hb)
+    plan = reconcile.build_reconcile_plan(b, adapter)
+    (a / NOTE).write_text("remote newer\n")
+    apply(a, ha)
+    with pytest.raises(reconcile.WorkspaceReconcileError):
+        reconcile.apply_reconcile_plan(plan, hb, remote=adapter)
+    assert (b / NOTE).read_text() == "local old\n"
+    assert not (b / ".local/sync-join").exists()
+    apply(b, hb)
+    assert (b / NOTE).read_text() == "remote newer\n"
+
+
+def test_rejected_initial_upload_adopts_vault_populated_by_another_device(
+    clients, monkeypatch
+):
+    remote, a, ha, b, hb = clients
+    initialize(clients)
+    (a / NOTE).write_text("first device content\n")
+    (b / "memory/notes/old-checkout.md").write_text("old checkout\n")
+    commit = remote.commit
+    adapter = sync.EncryptedRemote(remote, SYNC, a, ha)
+    adapter.read()
+    resource = snapshot_workspace(a).resources["global-memory:notes/shared.md"]
+    identity, descriptor, payload = adapter.vault.encrypt(
+        resource, FilePayload((a / NOTE).read_bytes()), SYNC
+    )
+    competing = build_commit_request(
+        "f" * 32,
+        "e" * 32,
+        remote.read(),
+        (ResourceMutation(identity, None, descriptor, payload),),
+    )
+
+    def race(request):
+        monkeypatch.setattr(remote, "commit", commit)
+        commit(competing)
+        return commit(request)
+
+    monkeypatch.setattr(remote, "commit", race)
+    apply(b, hb)
+    assert (b / NOTE).read_text() == "first device content\n"
+    assert not (b / "memory/notes/old-checkout.md").exists()
+    assert load_replica_state(b)[0].pairing_remote
+    apply(a, ha)
+    assert not (a / "memory/notes/old-checkout.md").exists()
+
+
+def test_join_policy_survives_bounded_rounds_and_process_restart(clients, monkeypatch):
+    remote, a, ha, b, hb = clients
+    initialize(clients)
+    for index in range(3):
+        name = f"memory/notes/{index}.md"
+        (a / name).write_text("remote" * 700)
+        (b / name).write_text("local" * 700)
+    apply(a, ha)
+    before = remote.read()
+    adapter = sync.EncryptedRemote(remote, SYNC, b, hb)
+    adapter.read()
+    one_note = adapter.vault.opaque_id("global-memory:notes/0.md")
+    limit = fetch_response_size(before, (FORMAT_RESOURCE_ID, one_note)) + 128
+    monkeypatch.setattr(remote_limits, "MAX_REMOTE_RESPONSE_BYTES", limit)
+    monkeypatch.setattr(reconcile, "MAX_RECONCILIATION_ROUNDS", 1)
+    result = apply(b, hb)
+    assert result.deferred and result.applied_items
+    assert result.backup_indexes
+    assert all(
+        str(path) in render_remote_sync_plan(result) for path in result.backup_indexes
+    )
+    state, text = load_replica_state(b)
+    assert state.pairing_remote and state.unpaired_ids
+    assert json.loads(text)["pairing_remote"] is True
+    monkeypatch.setattr(reconcile, "MAX_RECONCILIATION_ROUNDS", 1024)
+    apply(b, hb)
+    assert not load_replica_state(b)[0].unpaired_ids
+    assert remote.read() == before
+    for index in range(3):
+        assert (b / f"memory/notes/{index}.md").read_text() == "remote" * 700
+
+
+def test_background_join_establishes_baseline_even_when_all_content_matches(clients):
+    remote, a, ha, b, hb = clients
+    initialize(clients)
+    apply(a, ha)
+    logs = []
+    scheduler = AutoSyncScheduler(
+        b, sync.EncryptedRemote(remote, SYNC, b, hb), home=hb, logger=logs.append
+    )
+    scheduler.step()
+    assert load_replica_state(b)[0] is not None
+    (b / NOTE).write_text("new content after baseline\n")
+    scheduler.step()
+    apply(a, ha)
+    assert (a / NOTE).read_text() == "new content after baseline\n"
+
+
+def test_background_join_keeps_local_only_resources_out_of_vault(clients):
+    remote, a, ha, b, hb = clients
+    initialize(clients)
+    apply(a, ha)
+    (b / NOTE).write_text("old snapshot\n")
+    before = remote.read()
+    logs = []
+    AutoSyncScheduler(
+        b, sync.EncryptedRemote(remote, SYNC, b, hb), home=hb, logger=logs.append
+    ).step()
+    assert remote.read() == before and not (b / NOTE).exists()
+    assert any(".local/sync-join/" in message for message in logs)
+    index_path = next((b / ".local/sync-join").glob("*/index.json"))
+    assert any(str(index_path) in message for message in logs)
+    assert any(str(index_path.parent / NOTE) in message for message in logs)
 
 
 def test_preview_does_not_write_discovery_or_replica_state(clients):
