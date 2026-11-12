@@ -37,6 +37,7 @@ Do **NOT** record:
 - Temporary debugging outputs, transient task progress, or modified file lists.
 - Unverified hypotheses or rapidly shifting guesses.
 - Facts easily readable from current codebase inspection.
+- Content already covered in project documentation, specs, or references consulted during the task. Treat those documents as the authoritative source of truth and record only unwritten decisions, non-obvious trade-offs, or pointers; never sweep or inspect documentation solely to prove uniqueness.
 - Passwords, tokens, API keys, or other sensitive credentials.
 
 Persist at natural work milestones when knowledge stabilizes — neither waiting for explicit user task termination nor writing files on every response.
