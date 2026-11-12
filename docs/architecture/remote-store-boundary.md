@@ -1,611 +1,397 @@
 # Remote Store Boundary
 
-The [HTTP transport](http-transport.md) carries this internal contract through a
-real socket without changing reconciliation or storage semantics. Remote Protocol
-is independent of HTTP; neither HTTP transport nor `RemoteProtocolHandler`
-constitutes a production server.
+`workspace.remote_store.RemoteStore` is the content-blind contract used by the
+internal reconciliation engine. `FilesystemRemote` and the test-only
+`InMemoryRemote` implement it; public Remote commands use an encrypted adapter.
+The acceptance drivers are test orchestration, not a production service.
 
-The internal reconciliation engine uses `workspace.remote_store.RemoteStore`
-and portable payloads. `FilesystemRemote` and the test-only `InMemoryRemote`
-implement the same contract. There is no public reconciliation CLI or service;
-the acceptance driver is test orchestration.
-
-A [local remote binding](remote-binding.md) fixes the center identity and supplies
-credential references through a factory. HTTP access errors remain local
-`StoreError` values; authentication and endpoint details never enter the store
-contract or reconciliation.
-
-## Commit identity contract
-
-`RemoteStore` defines `commit(request: CommitRequest) -> CommitResult` and
-`resolve_commit(sync_id, client_id, request_id, mutation_digest) -> CommitResult | None`,
-alongside read, fetch, attachment and recovery operations. The former
-`commit(expected, mutations)` interface is removed: every accepted batch must
-publish a receipt. A result is a historical confirmation, not a snapshot to use
-for subsequent planning. Clients validate it against the request and read the
-store again when they need its current state.
-
-`CommitRequest` carries an opaque client ID, stable request ID, optional
-`ReceiptCursor`, complete expected snapshot, nonempty mutation tuple and
-mutation digest. Mutations are sorted by opaque ID; duplicate IDs and empty
-batches are rejected. Snapshots and typed payloads remain immutable. IDs and
-fingerprints are not parsed for semantic meaning.
-
-`workspace.remote_wire` supplies `build_commit_request`, canonical request
-encoding/decoding, digest validation, accepted snapshot prediction and receipt
-construction/validation. Its internal version-1 encoding supports durable
-pending persistence; it is not a frozen HTTP wire format. Request digests
-cover the encoding version and domain, client ID, previous receipt, complete
-expected snapshot, before/after descriptors and the exact existing canonical
-payload bytes. Request ID and the claimed digest are excluded. Descriptor
-encoding retains fingerprints, transport hashes, encoded payload byte sizes, ordered references and the
-current optional opaque `mode_fingerprint`. Absence is `null` and
-differs from a present member with an empty fingerprint. Decoding rejects
-unknown fields/versions, duplicate JSON fields/IDs, invalid payload/hash pairs,
-noncanonical bytes and forged digests. Backend boundaries must independently
-recompute digests, including before returning a cached receipt.
-`ResourceMutation` does not interpret client-shaped IDs. The existing skill
-executable-state check belongs to the plaintext filesystem backend; client
-capture and materialization retain their semantic validation.
-
-The durable JSON decoder accepts UTF-8 text/bytes, rejects duplicate fields at
-every level, nonfinite JSON numbers, unpaired Unicode surrogates and more than
-64 container levels. Opaque Unicode identities retain their exact codepoints;
-they are not normalized. Base64 fields require standard alphabet, padding and
-zero unused pad bits, with exactly one representation of each byte sequence.
-Request boundaries reconstruct nested snapshots, descriptors, cursors, payloads
-and tree entries to recheck their invariants even if constructors were bypassed.
-Booleans cannot satisfy numeric revision requirements by comparing equal to
-integers. Receipt validation and encoding also recheck model fields.
-
-Pending envelopes keep independently versioned schemas and checksums. Their
-safe/excluded scopes must be sorted, unique and disjoint, and the embedded
-request must have canonical encoding. Envelope JSON whitespace and field order
-are immaterial; the embedded original replica-state text is retained exactly
-for identity/history checks. Invalid pending or replica/center encoding
-blocks without erasing or rewriting state. Successful encoding bytes and
-encoding versions remain unchanged by this hardening. These are internal
-persistence requirements; HTTP message representation remains a later step.
-
-`test_workspace_commit_encoding.py` covers these boundaries and independently
-checks that result digests bind the version/domain and complete predicted
-snapshot, including unchanged descriptors. The three OS smoke jobs run
-`workspace_remote_commit_smoke.py` in generation and verification processes,
-checking durable request, receipt and pending records plus malformed-input
-rejection reports after restart.
-
-`CommitResult` binds the center, client, request ID, mutation digest, accepted
-revision and result digest. The result digest covers a separate versioned domain,
-these identity fields and the complete accepted descriptor map. A client can
-derive that map from the persisted request without fetching historical payloads.
-The receipt records the first accepted result, not the current remote state;
-newer remote commits cannot invalidate a correctly bound historical receipt.
-
-Each client retains only its latest accepted receipt. The new backend contract
-requires one critical section: validate the center, return a matching latest
-receipt before CAS, otherwise check revision CAS, the previous receipt cursor
-and the batch, then publish resources/revision/receipt atomically. A matching
-request ID with a different digest raises `RequestIdentityMismatch`. Original
-requests whose receipts were replaced fail CAS rather than returning a historical
-result; detection of arbitrary historical request ID reuse is not promised.
-Clients must use fresh IDs for new logical commits.
-
-The cursor identifies the last receipt completed by the client. A new batch may
-replace its receipt only if the cursor matches. A missing receipt permits only
-a `None` cursor. A mismatch raises `ReplicaHistoryMismatch` and blocks automatic
-replanning or pairing. This detects divergent stale replica history; it cannot
-detect a complete clone carrying the same unresolved request. Each client ID
-must have one active owner. Center restoration must use a new sync ID rather
-than rolling back revision or receipts within the same identity.
-
-Resolution serializes with publication: a center mismatch raises
-`StoreIdentityMismatch`; an unavailable or unrecovered store raises a store
-error. Matching request ID with a different digest raises
-`RequestIdentityMismatch`. A matching identity/digest returns its original
-receipt. No receipt or a different latest request returns `None`, which says
-nothing about future delayed delivery and never authorizes discarding pending.
-
-`CommitOutcomeUnknown` means delivery may have committed. A lost or unverifiable
-response requires retention of the exact request and its identity; it is not
-a definite rejection. A backend rejecting a wrong center before publication
-raises `StoreIdentityMismatch`, and pairing remains blocked. Receipt validation
-helpers raise `InvalidContent` for invalid responses; callers must still retain
-pending because validation failure does not prove rejection. This contract alone
-requires durable client identity and pending recovery before new requests.
-
-## Durable receipts and pending state
-
-`ReceiptHistory` holds an immutable latest-receipt map for one center. New
-requests check that history before CAS and validate the previous cursor only
-after CAS succeeds. Lookup of another request returns `None`; it does not
-compare that other request's digest. Receipt records have their own persistence
-version and bind center/client identity and accepted revision. Invalid or future
-receipt state blocks lookup rather than masquerading as a missing request.
-
-The filesystem manifest carries resources, payload hashes, revision and receipts
-in the same journaled state update. Ordinary read/fetch/resolve never recover
-a pending journal. Resolution takes the backend writer lock and raises
-`RecoveryRequired` until explicit recovery. Process interruption before the
-journal is committed rolls back resources and receipts together; interruption
-after the committed marker preserves both. Errors during publication or after
-publication/cleanup are `CommitOutcomeUnknown`, not definite rejection. The
-memory backend publishes its snapshot, payloads and receipt history together
-under its mutex and makes no durability promise across process restart.
-
-`replica_state.ReplicaState` uses version 2 with a receipt cursor and completion
-marker once a commit has been accepted. Before any accepted commit these fields
-can be absent. The marker binds sync ID, request ID and mutation digest and must
-agree with the cursor. Center identity and replica revision validation belong to
-the client.
-
-`pending_commit.PendingCommitStore` provides persist/load/complete/clear. Its
-versioned `pending.json` envelope stores the exact canonical request, original
-replica-state text and safe/excluded resource IDs, protected by an envelope
-checksum. It validates replica/client identity, previous cursor, original
-revision and mutation scope. Current files never reconstruct an old request.
-Downloads are not retained; the request itself contains upload after descriptors
-and payloads needed for exact retry. Corrupt, unsupported or mismatched pending
-state blocks further writes and remains available for repair.
-
-Every store operation holds `WorkspaceWriterLock` and recovers the local journal
-first. Local transactions use the configured inbox path; recovery restores the
-journal's saved path policy even if that configuration changes. First pairing
-writes replica identity and pending through one local
-journal before any caller may send the request. Persist refuses to replace an
-existing pending record. Completion validates the receipt and supplied Base,
-then commits caller-verified local changes, per-resource Base, cursor and marker
-together. It cannot advance excluded Base resources or substitute different
-upload descriptors. A matching completion marker prevents reapplying local
-writes after restart, even without a remote connection.
-
-Cleanup requires either the matching local completion marker or an explicit
-`SnapshotExpired` rejection supplied by the caller. `None` lookup and transport
-errors do not permit cleanup. Removal syncs the containing directory where
-supported. Completion and cleanup are deliberately separate durable steps.
-Preview blocks when pending exists and does not modify it. Applying a round
-recovers the local journal first, then resolves pending before new planning.
-
-## Receipt-aware reconciliation
-
-Reconciliation stages and validates downloads and captures uploads before
-persisting the exact request. First pairing persists replica identity in that
-same step. Only a nonempty upload batch calls `commit`; pure downloads and NOOP
-rounds update local state against their fetched/planned revision without a
-request ID or pending record. Normal successful completion uses the predicted
-accepted snapshot after verifying the receipt, preserving the existing local
-write preconditions and final snapshot validation. Resources, Base, cursor and
-completion marker share one journal, followed by separate pending cleanup.
-
-Restart checks completion evidence before accessing the remote. A matching
-marker permits offline cleanup. Otherwise `commit_recovery.recover_pending`
-queries the stored identity and validates the returned receipt. `None` permits
-one exact resend per invocation. Definite CAS rejection clears pending without
-changing Base; unavailable, unknown or invalid results retain it and stop.
-Backend journal recovery is explicit when lookup raises `RecoveryRequired`.
-
-Accepted recovery updates only uploaded Base entries and the receipt cursor,
-revision and completion marker. It writes no local resources and does not fetch
-old payloads, replay downloads, or advance old NOOP/conflicting/blocked entries.
-Pending is then cleared, and the engine plans against current local resources
-and the latest remote snapshot. User edits made during the failed round remain
-available to that plan. A fresh CAS rejection permits one replan in the same
-invocation; further rejection stops. Standalone journals without pending still
-invalidate the old plan and require a new invocation.
-
-## Deterministic fault acceptance
-
-The test-only `workspace_unreliable_remote.UnreliableRemote` forwards the portable
-store interface and schedules one-shot faults. It retains delayed requests as
-canonical bytes and audits each commit and actual delivery separately. Gates
-control arrival and response release with bounded waits; no sleeps or random
-failure probabilities determine execution order. Concurrent duplicates enter
-the real backend critical section and must return the same receipt.
-
-`test_workspace_unreliable_remote.py` runs shared boundary tests on memory and
-filesystem stores: failure before send, accepted response loss, resolve failure,
-concurrent duplicate delivery, and delayed original/retry delivery after a
-missing receipt. The delayed cases cover both acceptance once and CAS rejection
-of both deliveries after another client advances revision. Further cases pause
-the accepted response while editing a download target or shared TOML file,
-confirm an old receipt after other clients delete historical payloads, and
-verify a stale replica cannot replace an unknown winner's recovery receipt.
-
-All three OS smoke workflows invoke `workspace_unreliable_remote_smoke.py` on
-both stores. Its historical round includes upload, deletion, download, NOOP
-and credential-blocked resources. Restart confirms only uploads, then replans
-against current content while preserving user edits and excluded Base entries.
-The filesystem run also kills real client subprocesses at five local boundaries:
-replica-state publication, journal committed marker, journal cleanup, and before
-and after durable pending removal. Recovery rolls back uncommitted local writes,
-or retains completion and permits pending cleanup with the remote offline.
-Already-cleared pending resumes the normal lifecycle, which may need the remote.
-These tests complement `workspace_remote_receipts_smoke.py`, which separately
-kills the backend at five resource/manifest/receipt journal boundaries.
-
-## Snapshot and payload contract
-
-The implemented data interface is `read() -> RemoteSnapshot`,
-`fetch(expected, ids) -> Mapping[str, ResourcePayload]`,
-`commit(request) -> CommitResult`, and `recover() -> bool`.
-The reference backends retain no historical payload content: a changed center
-identity or revision makes fetch fail with `SnapshotExpired`, including an
-empty fetch. Clients discard staging and replan. Operations either return a
-result from one coherent snapshot or fail; a newer payload cannot be labeled
-as content from an older snapshot.
-
-| Value | Required semantics |
-| --- | --- |
-| Snapshot | Opaque `sync_id`, nonnegative revision, resource descriptors indexed by opaque ID; no physical `ResourcePart` or paths. Descriptors carry a logical fingerprint, transport hash, encoded payload byte size, and an optional opaque content version. |
-| Payload | Versioned, deterministic, portable content with no disk paths, handles, or shared directory requirements. The backend verifies the transport hash without interpreting the content. |
-| Mutation | Opaque resource ID, expected before descriptor or absence, and replacement descriptor plus payload, or an explicit delete with no payload. An empty fingerprint denotes presence and differs from absence. Duplicate IDs are invalid. |
-| Ownership | Snapshots, descriptors, mutations, and returned payloads are immutable or defensively copied at each boundary, including nested typed values. Caller mutation cannot affect stored or previously read state. |
-| Commit | Validate the request, center identity, latest receipt, CAS and previous cursor; check the whole nonempty batch before atomically publishing resources, revision and receipt. Definite rejection leaves all three unchanged. |
-| Revision | A nonempty accepted batch advances revision exactly once; matching retries return the original receipt without advancing. Empty batches are invalid. Clients omit semantic NOOP mutations. |
-| Fetch | All requested IDs must be present and have intact content. No partial success or implicit missing values; duplicates in the requested collection are treated as a set. |
-| Recovery | Read and fetch never recover or create state. Pending transactions raise `RecoveryRequired`; explicit backend recovery owns locking and journals. Successful recovery requires replanning. A backend without recovery work returns false. |
-
-Errors distinguish `SnapshotExpired` (definite conditional rejection),
-`InvalidContent` (bad mutation, missing or corrupt payload), `RecoveryRequired`,
-and `StoreUnavailable`. Commit also distinguishes
-`CommitOutcomeUnknown`: an uncertain response is not proof that the center
-rejected the batch, and clients must resolve the result before retrying.
-Filesystem errors map to these store categories. The reconciliation entrypoints
-wrap store and client validation failures as `WorkspaceReconcileError`, retaining
-the original cause. Local transaction I/O failures retain their existing behavior.
-
-Transport hashes are over the versioned canonical payload encoding. They do
-not replace logical fingerprints. Encodings must distinguish bytes, dates,
-times, datetimes, typed arrays/tables, and literal dotted TOML keys. Tree
-encoding contains only regular files: it sorts normalized relative paths, carries
-executable flags, and leaves directories implicit, so empty directories are not
-transported. Absolute paths, `..`, symlinks, special nodes,
-duplicate paths, and unsafe target-platform collisions are rejected by clients
-before materialization. Existing scanner exclusions remain in force.
-
-Existing non-tree fingerprint rules remain unchanged: memory/inbox/instructions
-use exact bytes (including line endings), Agent/MCP/subagent resources use their
-existing parsed semantics and references, and shared TOML fields use typed
-values independently of source formatting. Set members/project providers use
-presence with an empty fingerprint, not a hash of the shared file. Payload
-encoding must preserve each distinction, retain actual TOML key components,
-and reproduce these fingerprints after decoding on another platform.
+Related contracts: [Remote Protocol](remote-protocol.md) defines serialized
+operations, [HTTP transport](http-transport.md) delivers bytes, and
+[Remote Binding](remote-binding.md) pins identity and supplies credential
+references. Authentication and endpoint details stay outside reconciliation;
+HTTP access failures remain local `StoreError` values.
 
 ## Responsibility boundary
 
-`revision` names the center's batch commit version within one `sync_id`, separate
-from an individual descriptor's `content_version`. Replica revision records the
-confirmed remote progress; its per-resource Base may retain older values for
-conflicts and blocked resources and does not assert complete convergence.
+| Layer | Owns |
+| --- | --- |
+| Store | Identity/revision CAS, atomic batches and receipts, snapshot-bound fetch, transport hashes, immutable boundary values. |
+| Client | Logical IDs, semantic fingerprints, references, resource policy, credential policy, safe paths and post-write verification. |
+| Remote Protocol | Envelopes, operation bodies, versions, error codes, canonical encoding and integrity validation. |
+| Transport | `exchange(bytes) -> bytes`; no resource, revision, path or commit semantics. |
+| Backend lifecycle | Attachment constraints, physical layout, locks, journals and explicit recovery. A plaintext backend may add semantic defenses. |
 
-Center and replica state require a nonnegative integer `revision`. Missing,
-boolean, negative, or noninteger values are rejected. State versions and journal
-recovery rules remain unchanged; there is no legacy field fallback or migration.
-Skill copy state, plans, authorization summaries, and journals also use
-`revision`, independently of the remote counter. Local skill copy state alone
-accepts a legacy `generation` when `revision` is absent; reads leave the file
-unchanged, and successful saves emit only `revision`.
+IDs, `sync_id`, `replica_id`, fingerprints and references are opaque to the store.
+It may enforce consistency with stored identity, but cannot require client naming
+syntax, parse TOML/Markdown, inspect credentials or understand reference meaning.
+Client checks run during planning and again on downloaded content; backend
+checks cannot replace them or become requirements for other backends.
 
-| Store contract | Client / reconciliation engine | Optional plaintext backend defense |
-| --- | --- | --- |
-| Identity/revision compare-and-swap, complete batch publication, transport hashes, snapshot-bound fetch, immutable boundary values | Logical ID decoding, semantic fingerprints, references, selected resource policy, target path safety, post-write verification | Decode logical IDs for physical layout, parse plaintext, recompute fingerprints, reject invalid references |
+`validate_replica(local)` checks local attachment constraints, including
+workspace/center non-overlap for the filesystem backend. The path never enters a
+snapshot, payload or request; unconstrained backends may use a no-op hook. The
+engine uses `local_resource_for_id`, not filesystem `resource_for_id` or
+`verify_contents`, and never holds a center lock.
 
-Resource IDs, `sync_id`, `replica_id`, and logical fingerprints are opaque
-strings to the store; it must not validate their logical meaning or require a
-particular naming syntax. A backend can require consistency with previously
-stored identity but not a client-specific ID format. The contract uses the
-replica ID as an opaque client ID for receipt retention. A filesystem backend keeps
-its own path mapping, writer lock, manifest, and journal. It must also enforce
-workspace/center non-overlap at its attachment boundary. The local lifecycle
-hook `validate_replica(local)` checks this without exposing a center path to the
-engine; its local path is never a snapshot, payload, or transport request. A
-backend with no local attachment constraint may implement this hook as a no-op.
-`workspace.resource_state.local_resource_for_id` decodes client logical IDs for
-local writing. Filesystem-specific `resource_for_id` and `verify_contents` remain
-backend defenses; neither is imported by the engine.
+A center's batch `revision` is distinct from resource-level `content_version`.
+Replica revision records confirmed progress; individual Base entries may lag.
+Center/replica state, plans, skill copy state, authorization summaries and
+journals use independent nonnegative integer revisions. Missing, boolean,
+negative or noninteger revisions are rejected. Only local skill copy state reads
+legacy `generation` when `revision` is absent: reads do not rewrite it; saves
+write `revision`. Remote state has no legacy field fallback or automatic migration.
 
-Client credential, reference, and semantic checks run while planning and again
-on downloaded content before any local write. Backend-specific defenses cannot
-substitute for those client checks or become requirements for other backends.
-The protocol therefore permits opaque encrypted content in a later transport.
+## Snapshot and payload contract
+
+| Operation or value | Contract |
+| --- | --- |
+| `read() -> RemoteSnapshot` | Opaque `sync_id`, revision and descriptor map; no physical `ResourcePart` or paths. |
+| Descriptor | Logical fingerprint, transport hash, canonical encoded payload byte size, ordered references and optional opaque `mode_fingerprint`. |
+| `fetch(expected, ids)` | Return every requested payload from the exact expected snapshot, or fail. IDs are treated as a set; missing/corrupt content never produces partial success. |
+| Mutation | ID, expected before descriptor or absence, and replacement descriptor/payload or explicit deletion. A present empty fingerprint differs from absence. Duplicate IDs are invalid. |
+| `commit(request) -> CommitResult` | Validate the whole nonempty batch, then atomically publish resources, revision and receipt. Definite rejection changes none of them. |
+| `resolve_commit(sync_id, client_id, request_id, mutation_digest)` | Return the matching latest receipt or `None`; serialize with publication and enforce identity/history checks. |
+| `recover() -> bool` | Explicit backend-owned recovery. Read/fetch do not recover or create state. Replan after a repair; return false when no work exists. |
+
+Boundary values, including nested typed values, are immutable or defensively
+copied. A nonempty accepted batch advances revision once; matching retries do
+not. Clients omit semantic NOOP mutations. Reference backends retain no historical
+payloads: identity/revision changes invalidate fetch, even with an empty ID set.
+No newer content may be labeled as belonging to an older snapshot.
+
+Errors distinguish `SnapshotExpired` (definite conditional rejection),
+`InvalidContent`, `RecoveryRequired`, `StoreUnavailable`, and
+`CommitOutcomeUnknown` (delivery may have committed). Reconciliation wraps store
+and client validation failures as `WorkspaceReconcileError` with the original
+cause; local transaction I/O errors retain their existing behavior.
+
+## Commit identity contract
+
+Every logical commit has a fresh request ID scoped to center and client. Retry
+and restart reuse its exact persisted bytes and identity; the old batch-only
+commit API is removed.
+
+`CommitRequest` contains client/request IDs, optional previous `ReceiptCursor`,
+the complete expected snapshot, sorted nonempty mutations and mutation digest.
+`workspace.remote_wire` builds and validates requests, predicts accepted
+snapshots and constructs receipts. The internal commit encoding is version 1,
+independent of the protocol envelope version.
+
+The request digest binds encoding version/domain, client ID, previous cursor,
+expected snapshot, before/after descriptors and exact canonical payload bytes;
+it excludes request ID and the claimed digest. `CommitResult` binds center,
+client, request ID, mutation digest, accepted revision and a result digest over
+these fields and the complete predicted descriptor map, including unchanged
+entries. It is historical confirmation, not a current snapshot. Clients can
+validate it from pending without fetching old payloads; later commits do not
+invalidate it.
+
+Each client retains only its latest receipt. Within one backend critical section:
+
+1. Validate the center, then return a matching latest receipt **before CAS**.
+   A matching request ID with a different digest raises `RequestIdentityMismatch`.
+2. Otherwise check revision CAS, then the previous cursor and full batch.
+   Missing history permits only a `None` cursor; a mismatch raises
+   `ReplicaHistoryMismatch` and blocks automatic replanning/pairing.
+3. Publish resources, revision and the replacement receipt together.
+
+An old request whose receipt was replaced fails CAS; arbitrary historical ID
+reuse is not detected. Each client identity needs one active owner: cursors
+cannot detect a full clone carrying the same unresolved request. Restoring a
+center requires a new `sync_id`, not rolled-back revisions or receipts.
+
+Resolution returns the original receipt only for a matching latest request and
+digest. A different latest request returns `None` without comparing its digest.
+Missing receipts say nothing about delayed delivery and never authorize cleanup.
+Identity mismatch raises `StoreIdentityMismatch`; unrecovered/unavailable stores
+raise store errors. Lost or unverifiable responses retain pending, including
+when receipt validation raises `InvalidContent`.
+
+### Encoding validation
+
+Clients and backends independently recompute canonical digests, including before
+returning cached receipts. Decoders reject unknown fields/versions, duplicate
+JSON keys/IDs, forged hashes, invalid payloads and noncanonical request bytes.
+JSON accepts UTF-8 text/bytes but rejects nonfinite numbers, unpaired surrogates
+and nesting beyond 64 levels. Opaque Unicode identities preserve exact
+codepoints. Base64 requires standard alphabet, padding and zero unused pad bits.
+Booleans are not integer revisions. Boundary validation reconstructs nested
+models even if constructors were bypassed; receipt encoding also revalidates.
+
+Pending envelopes have independent schema versions/checksums. Their safe/excluded
+scopes are sorted, unique and disjoint. Envelope whitespace/key order is
+irrelevant, but embedded canonical requests and original replica-state text are
+preserved exactly. Invalid pending, replica or center state blocks without
+rewriting/erasing it. These checks preserve successful encoding bytes and versions.
+
+## Durable receipts and pending state
+
+`ReceiptHistory` is an immutable latest-receipt map bound to center/client
+identity and accepted revision. Malformed/future receipt state blocks lookup
+instead of returning false NOT FOUND.
+
+`ReplicaState` version 2 keeps per-resource Base and, after acceptance, a receipt
+cursor and completion marker. Before acceptance they may be absent. The marker
+binds sync ID, request ID and digest and must agree with the cursor.
+
+`PendingCommitStore.persist/load/complete/clear` operate under
+`WorkspaceWriterLock`, recovering the local journal first. The checksummed
+`pending.json` contains the exact request, original replica-state text and
+safe/excluded resource IDs; it validates client/center identity, cursor, revision
+and mutation scope. Current files never reconstruct an old request. Upload
+descriptors/payloads support exact retry; downloads are not retained.
+
+First upload pairing persists stable replica identity and pending in one local
+journal before sending. Persist refuses replacement of existing pending.
+Completion validates the receipt and supplied Base, then commits verified local
+changes, Base, cursor and marker together. It cannot advance excluded resources
+or substitute different upload descriptors. Recovery uses the journal's saved
+inbox path policy, even after configuration changes.
+
+Completion and cleanup are separate durable steps. Clear requires matching local
+completion evidence or an explicit `SnapshotExpired` rejection, and syncs the
+containing directory where supported. Transport errors and `None` resolution
+never authorize cleanup. Preview refuses pending without modifying it; corrupt
+or mismatched state remains available for repair.
+
+## Receipt-aware reconciliation
+
+On restart, recover the local journal before pending:
+
+| Evidence | Action |
+| --- | --- |
+| Matching completion marker | Clear pending, even with the remote offline; never reapply local writes. |
+| Matching accepted receipt | Validate it; confirm only uploaded Base entries, cursor, revision and marker; clear pending and replan current files against the latest remote. |
+| `None` resolution | Resend the same complete request at most once per invocation. |
+| Definite CAS rejection | Clear pending without advancing Base. A fresh round allows one replan; further rejection stops. |
+| Unknown/unavailable/invalid result | Retain pending and stop. |
+| `RecoveryRequired` | Explicitly recover the backend before retrying lookup. |
+
+Accepted recovery never replays downloads, fetches historical payloads, advances
+old NOOP/conflicting/blocked entries or overwrites intervening local edits.
+Standalone journal recovery without pending invalidates an old plan and requires
+a new invocation. An accepted remote batch is never rolled back because local
+application later fails.
 
 ## Application sequence
 
-1. Read descriptors, scan the local workspace, and compare against per-resource
-   Base. Select a dependency-safe subset within request and response wire budgets
-   before fetching any payload. New references wait for missing providers;
-   provider deletion waits for reference removal. Only cycles are atomic groups.
-   Remote config fields needed to validate shared TOML merges count toward the
-   same download budget. `DEFERRED` resources neither advance Base nor enter the
-   pending safe scope. Unfit groups are `BLOCKED`, not global findings.
-2. Validate selected downloaded content and retain a bounded `(id, content_hash)`
-   cache. Replanning under the local writer lock checks the current snapshot and
-   reuses verified content without duplicate fetches. Stage selected downloads
-   locally and capture selected uploads; preserve shared TOML field isolation.
-3. For uploads/deletes, check the complete protocol-encoded request against the
-   internal 64 MiB request limit before persisting anything. Oversized commits
-   fail without pending state or a commit call; see
-   [commit capacity preflight](remote-protocol.md#commit-capacity-preflight).
-   Persist stable replica identity and the complete pending request before
-   sending. Commit and verify the receipt. Stale fetch or explicit
-   CAS rejection discards staging; uncertainty retains pending and old Base.
-   Rounds without uploads skip pending and commit entirely.
-4. Commit local resources, Base, cursor and completion marker together under the
-   local writer lock, then durably clear pending. A local rollback after remote
-   acceptance preserves old Base and pending. On restart, recover the local journal,
-   resolve pending conservatively, and replan against current content as described
-   in [Receipt-aware reconciliation](#receipt-aware-reconciliation).
+1. Read descriptors, scan local resources and compare per-resource Base. Select a
+   dependency-safe subset within request/response budgets before fetching.
+   References wait for providers; provider deletion waits for reference removal.
+   Only cycles require atomic grouping. Shared config validation uses the same
+   download budget. `DEFERRED` resources do not advance Base or enter pending's
+   safe scope; unfit groups are `BLOCKED`, not global findings.
+2. Validate selected downloads and retain a bounded `(id, content_hash)` cache.
+   Recheck the plan under the local writer lock, reuse verified cached payloads,
+   stage downloads and capture uploads with shared-field isolation.
+3. Before persisting uploads/deletes, check the complete protocol-encoded request
+   against the internal 64 MiB limit. Oversize requests create neither pending
+   nor commits; see [capacity preflight](remote-protocol.md#commit-capacity-preflight).
+   Persist identity/pending, commit, then verify the receipt. Stale fetch or
+   definite CAS rejection discards staging; uncertainty retains pending and Base.
+4. Commit local resources, Base, cursor and marker together; durably clear pending
+   separately. If local application fails after acceptance, retain old local
+   state and pending for [recovery](#receipt-aware-reconciliation).
 
-These are two separate transactions, not a distributed atomic commit. Center
-address changes do not change identity. Conflict/blocked resources retain Base,
-safe independent resources advance, and local-only fields remain local.
+These are **two independent atomic transactions**, not distributed ACID. Pure
+download/NOOP rounds omit request IDs, pending and commit, using the planned
+revision. Normal upload completion uses the validated predicted snapshot and
+retains local write preconditions and final snapshot verification. Host-local
+fields stay local; safe resources advance while conflicts/blocked entries retain
+Base. Moving a center does not change its identity.
 
-An invocation repeats bounded rounds, returning accumulated applied items,
-remaining deferred/conflicting/blocked items, round count and any stop reason.
-It converges when inputs stabilize, groups fit and storage stays available;
-continuous competition instead stops at bounded retry/round limits. A no-progress
-round stops with completed work intact. Conflicts and blocked resources alone
-are partial success. Explicit resolutions survive deferral and are removed only
-when applied. Replica state persists unfinished first-pairing IDs so template
-ancestors and preservation rules survive multiple rounds and restarts. Pairing
-progress commits with Base; pending recovery confirms only uploaded IDs.
+An invocation accumulates applied work and remaining items across bounded rounds.
+Stable inputs and fitting groups converge; repeated competition or no progress
+stops with completed work intact. Conflicts/blocked resources are partial success.
+Explicit choices survive deferral until applied. Persisted unpaired IDs preserve
+first-pairing rules across rounds/restarts; pending recovery confirms only uploads.
+Background reconciliation applies only executable changes or changed confirmation
+state. Unchanged blocked/unresolved IDs alone do not trigger another round;
+normal remote polling and local-change detection continue.
 
-Encrypted clients always adopt the current remote side on first pairing with
-an existing Vault. Binding does not authorize any initial local uploads.
-Local-only resources and differing local versions are archived under
-`.local/sync-join/` before local deletion or replacement. Timestamped archives
-retain original paths, deduplicate shared files, and use one `index.json` to map
-logical IDs to paths and TOML fields without duplicating payload content.
-Successful rounds return their actual index and resource paths, accumulated across
-bounded rounds. CLI results and background logs display those absolute paths;
-previews do not invent archive locations, and failed attempts are not reported
-as applied backups.
-Skill executable modes remain on the copied files. Backup failure prevents the round from
-applying. The local `pairing_remote` flag survives bounded rounds alongside
-unfinished IDs, so background sync and restart use the same policy. Converged IDs
-leave that set and resume ordinary bidirectional comparison. A provisional state
-from a rejected initial upload does not establish a baseline: it must reconsider
-the policy if another device populated the Vault. A header-only Vault at revision
-1 can be seeded locally; a previously used, now empty Vault remains protected.
-This policy adds no resource names, fingerprints or fields to the wire contract.
+### First pairing and local backups
 
-After pairing finishes, users can copy selected files from `.local/sync-join/`
-back into the workspace. Those explicit local creations or edits then use normal
-bidirectional sync. No binding-time upload approval or connection mode is stored.
+Encrypted clients adopt the **current remote** when joining an existing Vault;
+binding grants no initial upload permission and stores no connection mode.
+Back up local-only/differing content before local deletion/replacement under
+`.local/sync-join/<UTC timestamp>-<suffix>/<original path>`. Copy shared files once;
+one `index.json` maps IDs to paths/TOML fields without duplicating payloads.
+Preserve skill executable modes. Backup failure stops application.
 
-Background reconciliation runs only for executable changes or a changed
-confirmation baseline. Unchanged blocked or unresolved resources do not trigger
-another round solely because their IDs remain unpaired. Normal polling and
-local-change detection continue so resources can resume when inputs change.
+Successful rounds return actual index/resource paths, accumulated across rounds;
+CLI results and background logs show absolute paths. Previews invent no archive
+locations, and failed attempts are not reported as applied backups. After pairing,
+users may copy selected backups back as ordinary local creations/edits for normal
+bidirectional sync.
 
-The protocol and commit encoding remain version 1. These internal features are
-unpublished: descriptor byte size changes the encoding and golden vectors in
-place, without a compatibility decoder or migration. Size is a nonnegative
-integer and must match the encoded payload, independently of its transport hash.
-The descriptor manifest still limits resource counts, even though aggregate
-payload size no longer limits the center; see [capacity](http-transport.md#capacity-and-framing).
+The local `pairing_remote` flag and unfinished IDs survive restart. Converged IDs
+resume normal comparison. Provisional state from a rejected initial upload is not
+a baseline: reconsider if another device populated the Vault. A header-only Vault
+at revision 1 can be seeded locally; a previously used, now empty Vault remains
+protected. None of this changes wire fields or exposes logical names/fingerprints.
+
+<a id="skill-fingerprint-decision-and-compatibility"></a>
 
 ## Skill fingerprint and state validation
 
-Stage zero chooses **content-only** skill fingerprints on all platforms. A tree
-hash is SHA-256 of sorted newline-separated records `f <path> <byte hash>`.
-Empty directories are ignored because Git checkouts cannot preserve them.
-Execute bits stay outside that hash.
-Skill resources carry a separate mode fingerprint over the sorted paths of
-executable files; all other files are implicitly nonexecutable. A mode-only edit
-syncs as a skill update. Portable payloads carry and validate those flags.
+The `content-v1` skill fingerprint is SHA-256 over sorted newline-separated
+`f <path> <byte hash>` records. All platforms ignore empty directories and execute
+bits in that hash. A separate mode fingerprint hashes sorted executable paths;
+other files are nonexecutable. Mode-only edits sync as updates; payloads carry
+and validate executable flags.
 
-Center and replica state require `skill_fingerprint: "content-v1"`.
-Missing or unknown schemes are refused, including states without skills.
-A skill Base must also include its executable mode fingerprint; it is never
-seeded from live files. Unsupported state is left intact for explicit operator
-handling, without resetting Base or rewriting a manifest.
-
-`workspace_reconcile_boundary_smoke.py` exercises
-mode-only upload, cross-platform download, reverse content edits and NOOP,
-and verifies legacy refusal is read-only. It does not merely compare separate
-native CI runs.
+Center/replica state must declare `skill_fingerprint: "content-v1"`, even with no
+skills. Missing/unknown schemes or skill Base entries without mode fingerprints
+are refused intact; never seed Base from live files or automatically reset it.
+Protocol/commit encoding remains v1; internal descriptor/schema changes update
+unpublished vectors in place without a compatibility decoder. Sizes are
+nonnegative integers matching canonical payload bytes. Manifest resource-count
+limits still apply; aggregate payload size is not a center limit. See
+[capacity](http-transport.md#capacity-and-framing).
 
 ## Portable payload implementation
 
 `workspace.payload` defines immutable `FilePayload`, `TomlPayload`,
-`TreePayload` / `TreeEntry`, and `MemberPayload`, plus `ResourceDescriptor`
-and `ResourceMutation`. None contains physical resource parts or paths.
-The client validates semantic fingerprints/references in memory, separately
-from the canonical version-1 JSON transport hash. Encoded bytes use base64;
-typed fields use canonical TOML text plus actual key components. Nested typed
-values are defensively reconstructed rather than shared through mutable objects.
-Deletion carries a before descriptor and no replacement/payload; the empty
-fingerprint of a present member differs from absence.
+`TreePayload`/`TreeEntry`, `MemberPayload`, `ResourceDescriptor` and
+`ResourceMutation`, without physical resource parts. Transport hashes cover
+canonical version-1 encoding, separately from semantic fingerprints. Bytes use
+Base64; typed TOML retains actual key components and distinguishes bytes,
+dates/times/datetimes, arrays/tables and literal dotted keys. Nested values are
+reconstructed defensively.
 
-`workspace.payload_io.capture_resources` accepts only the authorized IDs,
-rejects changed source content and credentials, and returns a read-only mapping.
-`capture_mutations` also checks each planned before/after fingerprint. Shared
-field payloads never contain a copy of their source TOML file or neighboring
-blocked fields. Credential checks for bytes, typed fields, and trees perform no
-temporary writes. Existing Import keeps its path-based adapter and formatting.
+Semantic rules remain: memory/inbox/instructions hash exact bytes, including
+line endings; Agent/MCP/subagent resources use parsed semantics/references;
+shared fields use typed values independent of formatting; set members/project
+providers use presence with an empty fingerprint.
 
-`materialize_resources` validates the full downloaded batch, including client
-credential and semantic checks, before writing to an owned empty staging
-directory. `prepare_payload_writes` then calls the existing shared writer in
-sync mode, composing each shared TOML target once. The caller still checks
-transport hashes at decode, owns the local writer lock, and performs the
-resource/Base transaction and post-write validation. The engine now uses these
-adapters for all uploads and downloads. Apply requires an explicit `RemoteStore`
-and never constructs a backend from a path embedded in the plan.
+`payload_io.capture_resources` captures only authorized IDs and validates source
+content; `capture_mutations` checks planned before/after fingerprints. Shared
+payloads contain only selected fields, not neighboring blocked fields or whole
+TOML files. Client credential checks operate in memory without temporary writes;
+encrypted synchronization explicitly permits credential content.
+`materialize_resources` validates the complete batch before writing to an owned
+empty staging directory. `prepare_payload_writes` composes each shared target
+once through the sync writer. The caller verifies transport hashes, owns the
+local transaction and checks the final snapshot. Apply requires an explicit
+`RemoteStore`, never a backend path from a plan. Import keeps its own path adapter
+and formatting policy.
 
-Tree paths reject traversal, absolute/drive paths, separators unsafe on Windows,
-reserved Windows names, symlinks/special nodes, duplicates, and case/Unicode
-collisions, including directory-prefix aliases. A file path cannot also be a
-directory prefix of another path. Scanner exclusions apply before capture. The additional
-reserved artifact `.aikito-executable.json` stores executable paths on Windows;
-it is excluded from logical fingerprints and portable tree entries. The local
-transaction copies only its validated canonical metadata, rejecting extra
-fields and unsafe nodes. Windows recapture reads these logical flags; when the
-artifact is absent, as in a fresh Git checkout, it falls back to `100755` modes
-in the enclosing Git index (ignoring inherited `GIT_*` variables). POSIX
-materialization applies them as native modes and writes no metadata artifact.
-Missing paths left after a local deletion are ignored during mode scanning and
-recapture, so a stale metadata entry cannot block sync or recreate a deleted
-file. The next local write of that skill regenerates metadata from the actual
-payload. A permission-only edit changes the skill mode fingerprint and triggers
-reconciliation.
+Trees contain sorted regular files, executable flags and implicit directories.
+Clients reject traversal, absolute/drive paths, unsafe separators, Windows
+reserved names, symlinks/special nodes, duplicates, case/Unicode collisions,
+directory-prefix aliases and paths that are both files and parents. Scanner
+exclusions apply before capture.
 
-`workspace_payload_smoke.py` exchanges all admitted resource kinds through
-encoded payloads and writes a distinct local workspace, retaining its inbox
-path and excluding a credential-blocked field. It runs as a real script in all
-three OS workflows. `test_workspace_payload.py` covers typed/time values,
-mutation presence/deletion, corruption, client checks, immutable copies,
-unsafe paths/nodes, and Windows-to-POSIX flag preservation through local copies.
-
-## Acceptance classification
-
-| Suite or scenario | Classification |
-| --- | --- |
-| `exercise_behavior(base, backend)` in `workspace_reconcile_acceptance.py` | Shared engine behavior on both backends: all admitted resources create/update/delete/recreate, credential-safe subsets, convergence, conflict Base, stale local/center plans, host-local inbox paths, local journal recovery, center-accepted/local-failed transactions, replica relocation, repeat NOOP. Shared assertions access no center directory. |
-| `exercise(base)` wrapper and `FilesystemBackend` | Filesystem orchestration and center relocation; storage checkpoints inspect files only within the driver. |
-| `test_workspace_reconcile_boundary.py` | Portable skill behavior and current schema validation. The injected center-change test pins refusal between read and download staging with no local/Base write. |
-| Existing conditional batch / competing-writer / empty-batch tests in `test_workspace_reconcile.py` | Shared portable storage guarantees now run in test_workspace_remote_store_contract.py on filesystem and memory stores; plaintext semantic defenses remain filesystem-specific. |
-| Credential / reference / shared TOML / conflict / local safety tests in `test_workspace_reconcile*.py` | Client behavior: test_workspace_reconcile_resources.py parameterizes standalone/shared TOML, typed values, memberships, references, credentials, local recovery and conflict resolutions across both backends. Hash and read/fetch race cases in test_workspace_remote_store.py also run on both. Direct center plaintext parsing/rejection belongs to filesystem defense. |
-| test_workspace_reconcile_filesystem.py plus existing center manifest parsing, `resource_for_id`, `verify_contents` and root overlap tests | Filesystem-specific defense and lifecycle. Local journal recovery remains shared engine behavior. |
-
-`test_workspace_remote_store.py` checks immutable boundary values, rejected whole
-batches, missing/corrupt fetch content, read/fetch purity, stale empty requests,
-identity mismatch, client hash validation, and local/Base preservation on
-conditional rejection. `workspace_remote_store_smoke.py` exposes only the five
-protocol methods through a facade: the engine can access no root, lock, content
-path, or journal. The script runs on Ubuntu, macOS, and Windows with local file
-assertions and separate filesystem center assertions. The facade still delegates
-to the real filesystem store; it is not the stage-three in-memory backend.
-`test_workspace_reconcile_fetch_scope.py` verifies 60-resource NOOP previews
-and applications issue zero fetch calls on both backends. A single changed
-memory note fetches only that note, config changes fetch only that shared
-file's fields, and conflict resolution fetches only the newly chosen download.
-The real RemoteStore smoke also fails if a final NOOP fetches content.
-
-Filesystem read/fetch optimistically capture manifest and payload content,
-checking the manifest again and refusing pending journals; they create no lock
-or staging files and never recover. Fetch compares the complete expected
-snapshot before returning any content, including for empty requests. Commit
-owns its cross-process lock, validates and stages the whole batch, and publishes
-through the existing recoverable center transaction. Receipt-aware commits
-reject empty batches and all accepted batches publish receipts. Recovery is explicit and requires
-replanning when it repaired a transaction.
-
-Only the current version-2 filesystem center schema is accepted. Manifests
-require the fingerprint scheme, payload hashes, shared values and receipt history.
-Old versions or incomplete manifests are rejected without rewriting them.
-Payload hashes protect executable metadata as well as content.
-Stored hash mismatch is refused without resetting state or Base. The historical
-path-based `content()` and three-argument commit are replaced by fetch and
-portable mutation commit; Import keeps its independent local path adapter.
-
-## Test-only memory backend
-
-`tests/workspace_memory_remote.py` implements `InMemoryRemote`, outside the
-installed product package. It stores only canonical encoded payload bytes and
-immutable descriptors, with an in-process mutex protecting snapshot comparison,
-full-batch validation, and one revision publication. It has no root, Path,
-center manifest, journal, staging directory, or filesystem attachment constraint.
-`recover()` returns false and claims no persistent recovery capability.
-
-The memory store treats IDs, identity, fingerprints, and references as opaque.
-It checks transport hashes and before descriptors but never decodes logical IDs,
-recomputes semantic fingerprints, scans credentials, or validates reference
-meaning. Opaque content and even credentials or invalid logical references may
-be stored with a valid transport hash; client checks must reject unsafe downloads
-before local materialization. This is a content-blind contract test, not an
-implementation of encryption or a hosted service.
-
-`test_workspace_remote_store_contract.py` runs the same storage guarantees on
-filesystem and memory stores: atomic batches, concurrent writers, stale/identity
-rejection, invalid empty commits and stale empty fetches, corruption, deletion versus empty-fingerprint
-presence, independent immutable reads, and typed-value ownership. Additional
-memory tests prohibit filesystem calls and temporary staging during store
-operations and inject corrupted stored bytes or missing payloads. Filesystem
-semantic and manifest defenses remain separate in `test_workspace_remote_store.py`.
-The client hash, credential, reference, and read/fetch race tests run on both.
-
-`workspace_memory_remote_smoke.py` injects `InMemoryBackend` into the existing
-`exercise_behavior` scenario without engine changes or backend branches in its
-assertions. Two independent workspaces exchange all admitted resource kinds,
-converge, preserve host-local inbox paths and conflict Base, reject stale plans,
-recover local transactions, relocate a replica, and repeat NOOP. CI runs the
-script on all three OS workflows and asserts local output files and absence of
-a center directory. Filesystem center relocation remains its own wrapper.
-
-## Completed boundary and validation
-
-The full two-replica behavior scenario runs once per backend in the CI smoke
-jobs. The filesystem smoke also checks center relocation. Pytest covers focused
-client and storage behavior without rerunning the full scenario.
-`test_workspace_reconcile_resources.py` uses the same two-backend fixture for
-client behavior and never accesses center paths. Current manifest validation,
-unmanaged center files, shared-value layout, and center journal interruption
-live in `test_workspace_reconcile_filesystem.py`. Unsupported filesystem state
-is refused without automatic upgrades.
-
-The acceptance script deliberately fails local download and Base writes after
-a simultaneous upload has been accepted by the center. The accepted revision
-and uploaded content remain at the center; the local resources and old Base
-roll back together, and replanning converges without another semantic upload.
-The separate KeyboardInterrupt scenario verifies explicit local journal recovery.
-Memory storage does not imitate a filesystem recovery capability.
-
-Ubuntu, macOS, and Windows workflows call both real acceptance scripts and assert
-local resources, replica state, and the results of failure/recovery scenarios.
-Filesystem center assertions remain separate; the memory script asserts no
-center directory exists. Local verification does not imply those remote CI
-jobs have run. Release and push are independent actions, not part of validation.
-
-The network-safe request, receipt, pending recovery and fault-injection contract
-is implemented for both reference backends. This internal
-boundary introduces no public reconciliation CLI, hosted service, account,
-network transport, or encryption. The memory store remains test-only. A future HTTP implementation must run the shared store and reconciliation
-acceptance suites. Remote Protocol v1 is an unpublished internal compatibility
-contract while the HTTP transport and E2EE remain open; authorized readable
-scopes need their own key and privacy design.
+Windows stores logical execute flags in reserved `.aikito-executable.json`,
+excluded from fingerprints/tree entries. Local transactions copy only validated
+canonical metadata, rejecting extra fields/unsafe nodes. Without the artifact,
+recapture falls back to enclosing Git index `100755` modes, ignoring inherited
+`GIT_*` variables. POSIX applies native modes without the artifact. Missing paths
+in stale metadata cannot block sync or recreate files; the next skill write
+regenerates metadata from its payload.
 
 ## Remote Protocol boundary
 
-The Remote Protocol is the serialized operation contract between a client
-adapter and a backend. It is a distinct layer from the domain contract, from
-byte delivery, and from any particular backend:
+The envelope's `protocol` version and each operation body's `version` are
+independent; commit bodies use `COMMIT_ENCODING_VERSION`. Dispatch selects the
+operation before its body version. The protocol validates structure, canonical
+bytes, digests and transport integrity without interpreting business content or
+sending local attachment paths.
 
-| Layer | Responsibility |
+Response loss, malformed responses, operation mismatches, unknown versions and
+unconfirmable receipts mean unknown commit outcome. Only proven non-delivery or
+a decoded backend `StoreError` selects a specific result. HTTP and
+`RemoteProtocolHandler` are adapters, not production servers; see the
+[operation/error contract](remote-protocol.md).
+
+## Acceptance classification
+
+Storage guarantees and client behavior run against both reference backends;
+plaintext defenses and center filesystem details remain backend-specific.
+
+| Coverage | Owners |
 | --- | --- |
-| `RemoteStore` | Content-blind domain contract: identity/revision CAS, complete batch publication, snapshot-bound fetch, receipts and recovery. |
-| Remote Protocol | Serialized operation contract: canonical envelope, operation bodies, versioning, error codes and strict validation. |
-| Transport | Byte delivery only: `exchange(bytes) -> bytes`, no resource, revision, path or commit semantics. |
-| `FilesystemRemote` | One local backend implementation with its own path mapping, lock and journal. |
+| Atomic batches, concurrent writers, identity/CAS rejection, empty commits/fetches, immutable typed values, corruption and presence/deletion | `test_workspace_remote_store_contract.py`; filesystem semantic defenses in `test_workspace_remote_store.py`. |
+| Resource kinds, fields, memberships, references, credentials, conflicts, local recovery and stale read/fetch plans | `test_workspace_reconcile_resources.py`, `test_workspace_reconcile_boundary.py`, `test_workspace_reconcile_fetch_scope.py`, and shared store/client tests. NOOP fetches no payload; changes/resolutions fetch only required content. |
+| Canonical bytes/digests, typed payloads, unsafe paths, execution flags and schema refusal | `test_workspace_commit_encoding.py`, `test_workspace_payload.py`, boundary tests and portable payload/commit/boundary smokes. |
+| Receipts, pending completion, crashes and uncertain delivery | `test_workspace_remote_receipts.py`, `test_workspace_reconcile_pending.py`, `test_workspace_remote_receipt_crashes.py`, `test_workspace_unreliable_remote.py` and corresponding smokes. |
+| Full two-replica lifecycle | `exercise_behavior(base, backend)` in `workspace_reconcile_acceptance.py`, with separate filesystem/memory wrappers. Shared assertions never access a center directory; filesystem wrapper alone checks center relocation. |
 
-The envelope carries its own `protocol` version and names one operation. Each
-operation body may carry an independent `version`; commit bodies carry
-`COMMIT_ENCODING_VERSION`. The decoder dispatches on `operation` before reading
-any body version, so the two version domains stay independent and a later
-protocol revision can still carry commit encoding v1.
+`workspace_remote_store_smoke.py` exposes only the portable interface through a
+facade: the engine cannot access center roots, locks, content paths or journals.
+It still delegates to the real filesystem backend, not memory storage.
 
-The protocol is content-blind. It validates envelope structure, canonical
-encoding, digests and transport integrity, but it does not interpret resource
-IDs, recompute semantic fingerprints, inspect references, or read plaintext
-TOML, Markdown or credentials. `FilesystemRemote` may add plaintext defenses as
-a backend implementation; those never become a general protocol requirement.
+Filesystem read/fetch optimistically capture state/content and recheck the whole
+manifest, even for empty fetches. They create no locks/staging or recovery state
+and refuse pending journals. Commit owns the cross-process lock, validates/stages
+the batch and publishes through its recoverable transaction. Resources, payload
+hashes, typed shared values, revision and receipts share the manifest update.
+Uncommitted crashes roll back resources/receipts together; a committed marker
+preserves both. Publication/cleanup uncertainty is `CommitOutcomeUnknown`.
 
-The protocol never carries a local workspace path. `validate_replica(local)` is
-a client-side attachment check; a backend with no local constraint implements it
-as a no-op, and the local assembly keeps any same-machine non-overlap check
-without sending the path over the wire.
+Only filesystem center schema v2 is accepted, with fingerprint scheme, payload
+hashes, shared values and receipts. Old/incomplete state or hash mismatches are
+refused without rewriting the manifest or resetting Base. Hashes protect execute
+metadata too. Old path-based `content()`/three-argument commit are replaced by
+fetch/portable mutations; Import retains its independent local adapter.
 
-Committed response loss, a malformed response, an operation mismatch, an
-unknown message version or an unconfirmable commit receipt are all treated as an
-unknown commit outcome by the client adapter, never as a definite rejection.
-Only a transport that proves non-delivery, or a decoded backend `StoreError`,
-selects a specific result. See [Remote Protocol](remote-protocol.md) for the
-current operation and error contract.
+## Test-only memory backend
+
+`tests/workspace_memory_remote.py` implements `InMemoryRemote` outside the product
+package. It stores canonical payload bytes and immutable descriptors under one
+mutex, publishing snapshot, payloads and receipts together. It has no paths,
+manifest, staging, filesystem calls or persistent restart guarantee;
+`recover()` returns false.
+
+It validates transport hashes and before descriptors without logical parsing,
+credential scanning or reference interpretation. Valid transport content may
+contain credentials/invalid logical references; client policy must reject unsafe
+materialization. This proves content blindness, not encryption or hosted service
+behavior. Tests inject missing/corrupt bytes, prohibit filesystem/temp staging,
+and verify independent immutable reads.
+
+## Deterministic fault acceptance
+
+`workspace_unreliable_remote.UnreliableRemote` schedules one-shot faults with
+bounded gates rather than sleeps/randomness. It retains delayed requests as
+canonical bytes and audits attempts separately from delivery. Concurrent
+identical requests enter the real backend critical section and return one receipt.
+
+Shared tests cover pre-send failure, accepted response loss, resolve failure,
+duplicate delivery, delayed original/retry after NOT FOUND (accept once or both
+CAS-reject after another writer), local download/shared-TOML edits during a
+paused response, deleted historical payloads and stale-replica receipt replacement.
+Restart confirms uploads only and preserves intervening edits/excluded Base.
+
+Real subprocess kills cover five client boundaries: replica-state publication,
+committed marker, journal cleanup, and before/after durable pending removal.
+Uncommitted local writes roll back; committed completion permits offline cleanup.
+Already-cleared pending resumes normal operation, which may require the remote.
+Separate receipt smokes kill the backend at five resource/manifest/receipt journal
+boundaries. Memory storage does not imitate filesystem recovery.
+
+## Completed boundary and validation
+
+Ubuntu, macOS and Windows smokes run the full two-replica scenario once per
+backend; pytest keeps focused cases. Coverage includes all admitted kinds,
+create/update/delete/recreate, safe progress during conflicts, host-local inbox
+paths, stale-plan zero writes, shared-file recovery, repeat NOOP and completed
+replica relocation. A simultaneous accepted upload/local failure retains the
+remote batch and rolls back local resources/Base; later planning converges without
+another semantic upload. KeyboardInterrupt separately tests journal recovery.
+
+Filesystem manifest/layout/unmanaged-content tests remain in
+`test_workspace_reconcile_filesystem.py`; memory smokes assert that no center
+directory exists. Cross-process commit smokes reload request/receipt/pending
+encodings. `workspace_revision_smoke.py` checks refused legacy calls/bare snapshots
+and unchanged NOOP revision (`contract-cleanup.json`). Shared backend acceptance
+also applies to external implementations. Local verification does not mean
+remote CI ran, and never implies release or push.
 
 ## Network safety invariants
 
 These permanent Rule IDs are registered in [Engineering Invariants](invariants.md).
-All rules below are `[current]` and apply to the shared reconciliation contract.
+All are `[current]` and apply to the shared reconciliation contract.
 
 | Rule ID | Invariant |
 | --- | --- |
@@ -623,176 +409,138 @@ All rules below are `[current]` and apply to the shared reconciliation contract.
 | `INV-SYNC-12` | Empty commit batches are invalid and cannot publish resources, revision or receipts. Rounds without uploads create no request or pending and call no commit; local progress uses the planned remote revision. First upload pairing persists stable replica identity with pending before send. |
 | `INV-SYNC-13` | Commit and resolution use opaque identities, descriptors and payloads without center paths or client-held center locks. Local attachment checks and filesystem journals belong to backend lifecycle. The contract adds no public cloud, authentication, daemon, database or HTTP surface. |
 
-Verification is shared between filesystem and memory backends in
-`test_workspace_remote_receipts.py`, `test_workspace_remote_store_contract.py`,
-`test_workspace_reconcile_pending.py` and `test_workspace_unreliable_remote.py`.
-`test_workspace_remote_receipt_crashes.py` adds filesystem transaction checkpoints;
-`test_workspace_commit_encoding.py` checks canonical integrity. Independent-process
-smokes exercise remote and local crash recovery, receipt persistence, and encoding
-reload on all three OS workflows. `workspace_revision_smoke.py` also verifies that
-legacy batch calls and bare snapshots are refused and NOOP preserves revision; its
-`contract-cleanup.json` artifact is asserted by each workflow.
-
 ## Encrypted-only Remote synchronization
 
-`remote sync`, `remote watch` and background services share one encrypted adapter.
-Binding accepts an empty Store for initialization or an encrypted-v1 snapshot;
-plaintext and mixed snapshots are refused without saving a binding. Initialization
-publishes the public format header by CAS before any business upload. Other devices
-recover the Vault key using the recovery code before synchronizing.
+`remote sync`, `remote watch` and background services share the encrypted adapter.
+Binding accepts empty Stores or encrypted-v1 snapshots; plaintext/mixed stores
+are refused without saving a binding. Initialization CAS-publishes the public
+format header before business uploads. Other devices recover the Vault key first.
 
-The adapter authenticates the header, completes bounded discovery, and exposes only
-verified logical resources to the planner. Uploads are encrypted before pending
-requests are persisted. Decrypted content may contain credentials; credential
-pattern matching does not block encrypted synchronization. Path, references,
-semantic fingerprints, byte limits and post-write verification remain enforced.
-Local workspace files remain plaintext. The encrypted dependency is required for
-Remote operations, while local-only CLI use can omit it.
+The adapter authenticates the header, completes bounded discovery and exposes
+verified logical resources to the planner. Encrypt uploads before persisting
+pending. Credential content is allowed; paths, references, semantic fingerprints,
+byte limits and post-write verification remain enforced. Workspace files stay
+plaintext. Remote operations require the optional encrypted dependency; local-only
+CLI and format guards retain zero runtime dependencies.
 
-There is no plaintext synchronization, in-place representation migration or rollback.
-Replacing a Store requires explicit administrative deletion and local reconnection;
-a changed sync_id never silently resets Replica Base or pending requests.
+There is no plaintext sync, in-place representation migration or rollback.
+Replacing a Store requires explicit administrative deletion and reconnection;
+identity changes never silently reset Base/pending. The internal store contract
+does not itself introduce public accounts, services or transport.
 
 ## Recoverable remote replacements
 
-Before uploading an UPDATE, the client fetches and validates the replaced remote
-payload within the same bounded batch as its selected downloads. Planning charges
-the full fetch request and response, including shared config fields once. Apply
-reuses the validated payload cache; archive creation performs no additional fetch.
-An old version that cannot fit alone blocks its operation instead of creating an
-unrecoverable pending request. NOOP, CREATE uploads and pure DELETE rounds do not
-fetch old payloads for archives.
+Before an UPDATE upload, fetch/validate the old remote payload within the selected
+download budget, counting full envelopes and shared config once. Apply reuses the
+cache; archiving fetches nothing extra. An old version that cannot fit alone
+blocks the operation before pending. NOOP, CREATE uploads and pure DELETE rounds
+do not fetch old versions for archives.
 
-Each archive round gets a unique directory under `.local/sync-conflicts/`, and
-each logical resource gets its own directory inside it. Alongside the readable
-file or tree, `resource.json` stores its logical ID and original portable payload.
-This retains TOML field paths and tree execution flags even when several resources
-share a physical file. An archive write failure aborts before pending persistence
-and remote commit. Archive directories are checked for unsafe symlinks.
+Each `.local/sync-conflicts/` round and resource has a unique directory. Readable
+files/trees plus `resource.json` retain the original portable payload, TOML field
+paths and execute flags, even for resources sharing a physical file. Unsafe
+symlinks or archive write failures stop before pending/remote commit.
 
 ## Local encrypted foundation
 
-The optional `aikito[encrypted]` extra adds only `cryptography`; ordinary commands
-and the format guard retain zero runtime dependencies. HKDF-SHA256 Collection
-keys, opaque IDs and fingerprints, authenticated AES-256-GCM envelopes, recovery
-headers, and metadata authentication are local primitives. Four portable payload
-containers use the existing semantic and credential validation after decryption.
-Verified unchanged resources reuse their existing ciphertext.
+`aikito[encrypted]` adds only `cryptography`: HKDF-SHA256 Collection keys, opaque
+IDs/keyed fingerprints, AES-256-GCM envelopes, recovery headers and authenticated
+metadata are local primitives. Four portable payload kinds retain client checks
+after decryption; unchanged verified resources reuse ciphertext.
 
-`aikito remote key recover` accepts a public recovery header, its Store `sync_id`,
-and an initialized `--workspace`. Enter the recovery code at the secure terminal
-prompt, or supply an explicit `--recovery-fd`. Secrets are never command arguments
-or environment variables. This command does not contact a Store or enable sync.
+`remote key recover` accepts a public header, Store `sync_id` and initialized
+workspace. Recovery codes use secure terminal input or `--recovery-fd`, never
+arguments/environment variables. Offline header recovery neither contacts a Store
+nor enables sync.
 
-Device keys use owner-only files outside the workspace, under the existing Aikito
-user configuration directory in `encrypted-remote/keys/<vault_id>.key`. POSIX
-files require mode `0600`; Windows uses owner-only ACLs. Unsafe permissions,
-symlinks, hard links, corrupt records, and a different key for an existing vault
-are refused. Saving the same key is idempotent. Explicit `remote key storage
---backend native|file` authenticates the bound Store before changing storage.
-Native protection uses macOS SecurityTool over stdin, current-user Windows DPAPI,
-or Linux Secret Service with `secret-tool` and `gdbus`. Locked/unavailable stores
-fail closed without fallback. The default file format remains Base64 VRK; an
-owner-only canonical v2 record instead contains the Vault, backend, keyed
-commitment and an optional DPAPI blob. No plaintext VRK remains in that record.
-Read-back succeeds before atomic publication; different existing keys are never
-overwritten. A verified recovery with `--file-storage` can replace an unavailable
-native record only when the recovered key matches its commitment. Unreferenced
-native items are not deleted automatically. Homebrew shares its Python runtime
-with the core cryptography Formula; Formula tests require AES-GCM and native HPKE.
-Home backups may contain these keys. All devices and the recovery code lost means
-the Vault cannot be decrypted. Regenerating a code preserves the VRK, so an old
-code plus an old recovery header still works; revocation requires future VRK rotation.
+Device keys live outside the workspace in
+`encrypted-remote/keys/<vault_id>.key` under user configuration: POSIX `0600` or
+owner-only Windows ACLs. Unsafe permissions, symlinks, hard links, corruption or a
+different existing key are refused; saving the same key is idempotent.
+`remote key storage --backend native|file` authenticates the bound Store first.
+Native storage uses macOS SecurityTool over stdin, current-user Windows DPAPI,
+or Linux Secret Service (`secret-tool`/`gdbus`), with no fallback when unavailable.
 
-The frozen `tests/fixtures/remote_protocol_vectors/encrypted-v1.json` fixture is
-shared with an independent external Go consumer; its keys are test values only.
+Default files contain Base64 VRK; owner-only v2 native records instead store
+Vault/backend identity, keyed commitment and optional DPAPI blob, with no plaintext
+VRK. Verify by read-back before atomic publication. Verified `--file-storage`
+recovery can replace an unavailable native record only for the same key;
+unreferenced native items are not deleted automatically. Homebrew uses its Python
+runtime with the core cryptography Formula and tests AES-GCM/native HPKE.
+
+Home backups may contain keys. Losing all devices and the recovery code makes the
+Vault unrecoverable. Regenerating a code preserves VRK, so an old code/header pair
+still works; revocation needs future VRK rotation. The frozen
+`tests/fixtures/remote_protocol_vectors/encrypted-v1.json` is shared with an
+independent external consumer and contains test keys only.
 
 ## Bounded encrypted discovery
 
-`remote key inspect` opens a separate identity-pinned reader with only `read` and
-`fetch` operations. It authenticates the format header using the external device
-key before interpreting any resource as a logical type. A missing key or a
-unsupported header stops before downloading business resources.
+`remote key inspect` uses an identity-pinned read/fetch-only reader and
+authenticates the format header with the device key before interpreting logical
+resources. Missing keys or unsupported headers stop before business downloads.
 
-A round downloads at most 32 business resources. Header and business fetches share
-request/response byte limits, including the full snapshot manifest. Unchanged
-verified descriptors reuse a local authenticated map. An individual resource that
-cannot fit fails explicitly instead of being deferred indefinitely. Discovery
-never expands reference closure by downloading outside the selected scope.
+Each round downloads at most 32 business resources. Header/business requests share
+full-manifest request/response limits; unchanged verified descriptors reuse a
+local authenticated map. An individually unfit resource fails explicitly.
+Discovery does not fetch reference closure outside its selected scope.
 
-Private-tag resources are discovered first; authenticated `project` members
-introduce project Memory tags in subsequent rounds. Unknown tags fail closed after
-private discovery. Descriptor targets must exist in the opaque manifest; decrypted
-references are verified against each descriptor. A complete logical view also
-passes `missing_references`. Unknown resource types are not imported.
+Private-tag resources come first; authenticated project members introduce project
+Memory tags. Unknown tags fail closed afterward. Descriptor reference targets
+must exist in the opaque manifest, decrypted references must match descriptors,
+and the complete logical view must pass `missing_references`. Unknown types are
+not imported. Incomplete views authorize no absence decisions, pairing or writes.
 
-The local `.local/state/aikito/encrypted-discovery.json` checkpoint stores verified
-logical descriptions and opaque descriptors, never payloads or keys. HKDF-SHA256
-with the local-only `aikito.discovery-state` domain and the Vault salt derives its
-HMAC key; canonical JSON and the MAC bind version, `sync_id`, `vault_id` and entries.
-The checkpoint is authenticated before reuse, filtered by current descriptors,
-and atomically saved under the existing workspace lock only after a successful
-round. A failed fetch, tamper or identity mismatch preserves previous progress.
-This map is client-local state, not a remote protocol format or Replica Base.
-Incomplete snapshots cannot authorize writes, pairing or absence/deletion decisions.
-
-Inspection remains a read-only command. The explicit encrypted sync/initialization
-path below provides reconciliation; neither path migrates nonempty real stores.
+The local checkpoint `.local/state/aikito/encrypted-discovery.json` contains
+verified logical descriptions/opaque descriptors, never payloads or keys. Its
+HKDF-SHA256 HMAC key uses the local-only `aikito.discovery-state` domain and Vault
+salt; the MAC binds canonical version, `sync_id`, `vault_id` and entries. Validate
+before reuse, filter against current descriptors and atomically save successful
+rounds under the workspace lock. Failed fetch/tamper/identity checks preserve
+progress. This map is neither Replica Base nor a remote protocol format;
+inspection creates no sync capability or representation migration.
 
 ## Encrypted planner and wire requests
 
-The encrypted codec presents a complete authenticated logical snapshot to the
-existing planner. Discovery checkpoint version 3 also authenticates plaintext
-payload hash/size descriptors; older maps are rejected instead of upgraded. The checkpoint stores no
-payload or key. Unknown discovery and business application occupy separate rounds
-under the same limits, so an incomplete view never authorizes absence or writes.
-An unchanged in-memory authenticated header is reused, with any changed header
-reauthenticated before data or mutation processing.
+Discovery checkpoint v3 also authenticates plaintext payload hash/size descriptors;
+older maps are rejected. The codec gives the planner a complete authenticated
+logical snapshot. Discovery and application are separately bounded; unchanged
+in-memory headers are reused and changed headers reauthenticated.
 
-Dependency/config logic uses logical IDs. Budget cost uses the full opaque
-snapshot including the format resource, opaque references and encrypted container
-sizes; header fetch cost is reserved too. Exact encrypted mutations are prepared
-for sizing, reused during capture, then persisted before transport. Format metadata
-never enters business deletion, merge, pairing or Replica Base.
+Planning uses logical IDs; budgets use the full opaque snapshot, format header,
+opaque references, encrypted sizes and reserved header fetch cost. Prepare exact
+encrypted mutations for sizing, reuse them at capture and persist before sending.
+Format metadata never participates in business deletion, pairing, merge or Base.
 
-Pending envelope version 2 contains the exact wire request and public `vault_id`,
-alongside the existing local logical replica state/scope. No plaintext business
-payloads, recovery code or VRK enter it. The unaccepted retry checks current format
-and Vault, then resends the same request ID, nonce, ciphertext and digest. Accepted
-receipts decrypt and validate captured uploads before confirming logical Base;
-DELETE IDs are derived from the safe logical scope. No historical content is
-fetched during receipt confirmation. Later local edits remain untouched. Completed
-pending records can be cleared using existing local completion evidence.
+Pending envelope v2 contains the exact wire request, public `vault_id` and local
+logical replica state/scope, without plaintext business payloads, recovery code or
+VRK. Before retry, verify current format/Vault, then reuse the same request ID,
+nonce, ciphertext and digest. Accepted receipts decrypt/validate captured uploads
+before confirming logical Base; derive DELETE IDs from the safe logical scope.
+No historical payloads are fetched and later local edits remain untouched.
 
-Explicit empty-Store initialization delivers the recovery code securely, saves the
-external device key and persists the public-header CAS request before sending.
-Only one concurrent initializer wins. A definite losing CAS clears its request
-without replacing the winning header or deleting possibly referenced device keys.
-Response loss reuses the persisted request and never redisplays the recovery code.
-A failed output channel cannot publish a format marker. Initialization does not
-convert a nonempty plaintext Store.
-
-Fresh devices recover using the Store Token and recovery code. Ordinary sync and
-background synchronization use the same encrypted path.
-
+Empty-Store initialization securely delivers/saves recovery material and persists
+the public-header CAS request before sending. Only one initializer wins; definite
+losing CAS clears its request without replacing the winner's header or deleting
+possibly referenced keys. Lost responses reuse the request without redisplaying
+recovery codes. Failed output cannot publish a format marker. Initialization never
+converts nonempty plaintext Stores; ordinary and background sync share this path.
 
 ### Historical object cleanup
 
-Unreferenced server objects can be removed separately under exclusive offline
-administrator ownership. Garbage collection preserves current objects, state and
-receipts. Retained plaintext backups and filesystem snapshots remain outside
-Remote encryption's scope; the encrypted-only HTTP interface refuses legacy Stores.
+Only exclusive offline administrator ownership permits removal of unreferenced
+server objects; retain current objects, state and receipts. Plaintext backups and
+filesystem snapshots remain outside E2EE's scope. Encrypted-only HTTP refuses
+legacy Stores.
 
 ### Scoped resource material
 
-`scoped_export` seals one explicitly selected resource collection using native
-HPKE from the optional cryptography dependency. Only protocol version 2 is
-accepted. Read exports contain the content key; explicit write exports add
-resource-ID and fingerprint keys. VRK, collection master, tag key and private
-collection keys never leave the client.
+`scoped_export` uses native HPKE from `cryptography` and accepts protocol v2 only.
+Explicit read exports receive the content key; write exports additionally
+receive resource-ID/fingerprint keys. VRK, Collection master, tag and private
+Collection keys never leave the client.
 
-Normal scanning, discovery and synchronization use the current collection
-layout. Existing Vault data requires one-time local conversion before resuming sync.
-Maintenance scripts are untracked. The resource policy, export CLI and shared
-vectors are described in [collection exports](collection-export.md).
-The content-blind Remote protocol and encrypted resource Envelope are unchanged.
+Scanning, discovery and sync use the current Collection layout. Existing Vaults
+need one-time local conversion before resuming; maintenance scripts are untracked.
+See [collection exports](collection-export.md) for policy, CLI and vectors. The
+content-blind Remote protocol and encrypted resource Envelope remain unchanged.
