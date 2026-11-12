@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.63.1] - 2026-11-12
+
+### Fixed
+
+- Backed up local differences to `.local/sync-join/` before adopting remote workspaces on initial synchronization.
+
+### Changed
+
+- Condensed and updated architecture documentation for remote store boundaries and workspace layouts.
+- Clarified durable memory documentation source-of-truth precedence over redundant sweeping.
+
 ## [1.63.0] - 2026-11-08
 
 ### Added
@@ -1237,7 +1248,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.63.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.63.1...HEAD
+[1.63.1]: https://github.com/lsaint/aikito/compare/v1.63.0...v1.63.1
 [1.63.0]: https://github.com/lsaint/aikito/compare/v1.62.0...v1.63.0
 [1.62.0]: https://github.com/lsaint/aikito/compare/v1.61.1...v1.62.0
 [1.61.1]: https://github.com/lsaint/aikito/compare/v1.61.0...v1.61.1
