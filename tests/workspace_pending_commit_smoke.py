@@ -6,12 +6,15 @@ import argparse
 import json
 from pathlib import Path
 
+from smoke_assertions import require_absent, require_file
+from workspace_reconcile_smoke import _workspace
+
 from aikito.workspace.layout import content_digest
-from aikito.workspace.payload import encode_payload
 from aikito.workspace.payload import (
     FilePayload,
     ResourceDescriptor,
     ResourceMutation,
+    encode_payload,
     payload_hash,
 )
 from aikito.workspace.pending_commit import PendingCommitStore
@@ -19,7 +22,6 @@ from aikito.workspace.remote import FilesystemRemote
 from aikito.workspace.remote_wire import build_commit_request
 from aikito.workspace.replica_state import ReplicaState, load_replica_state
 from aikito.workspace.resource_state import local_resource_for_id
-from workspace_reconcile_smoke import _workspace
 
 
 def exercise(base: Path, stage: str) -> None:
@@ -83,6 +85,14 @@ def exercise(base: Path, stage: str) -> None:
     assert (
         local / "memory/notes/pending.md"
     ).read_bytes() == b"# Local edit after upload\n"
+    pending_path = local / ".local/state/aikito/workspace-reconcile/pending.json"
+    if stage == "clear":
+        require_absent(pending_path)
+        require_file(local / "memory/notes/pending.md")
+    else:
+        require_file(pending_path)
+    if stage == "complete":
+        require_file(local / ".local/state/aikito/workspace-reconcile/replica.json")
     (base / f"{stage}-checked.json").write_text(
         json.dumps(
             {"stage": stage, "replica_id": load_replica_state(local)[0].replica_id}

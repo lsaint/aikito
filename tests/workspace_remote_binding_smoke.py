@@ -7,12 +7,16 @@ import sys
 from pathlib import Path
 
 from http_remote_server import HTTPRemoteServer
+from smoke_assertions import (
+    require_absent,
+    require_file,
+)
+from workspace_memory_remote import InMemoryRemote
 from workspace_reconcile_smoke import _workspace
 
+from aikito.workspace.encrypted_sync import initialize_encrypted_workspace
 from aikito.workspace.pending_commit import PendingCommitStore
 from aikito.workspace.reconcile import WorkspaceReconcileError, run_reconciliation
-from workspace_memory_remote import InMemoryRemote
-from aikito.workspace.encrypted_sync import initialize_encrypted_workspace
 from aikito.workspace.remote_access import RemoteBindingError
 from aikito.workspace.remote_binding import (
     RemoteAuth,
@@ -22,7 +26,7 @@ from aikito.workspace.remote_binding import (
 from aikito.workspace.remote_factory import bind_remote, open_bound_remote
 from aikito.workspace.remote_protocol import Operation, decode_request
 from aikito.workspace.replica_state import load_replica_state
-from aikito.workspace.resource_state import REMOTE_BINDING_STATE, PENDING_COMMIT_STATE
+from aikito.workspace.resource_state import PENDING_COMMIT_STATE, REMOTE_BINDING_STATE
 from aikito.workspace.transactions import WorkspaceCoreError
 
 TOKEN = "binding-smoke-secret"
@@ -145,8 +149,27 @@ def main(base: Path):
     (base / "encrypted-manifest.json").write_text(
         __import__("json").dumps(sorted(backend.read().resources))
     )
+    verify_artifacts(base)
     (base / "checked.txt").write_text("Binding checks passed\n", encoding="utf-8")
     print("[SUCCESS] Remote binding and recovery checks passed")
+
+
+def verify_artifacts(base: Path) -> None:
+    binding = base / "local/.local/state/aikito/workspace-reconcile/binding.json"
+    actual = binding.read_text(encoding="utf-8")
+    if os.name == "nt":
+        actual = actual.casefold()
+    assert "binding-smoke-secret" not in actual, f"{binding}: credential leaked"
+
+    for relative in (
+        "local/.local/state/aikito/workspace-reconcile/binding.json",
+        "local/.local/state/aikito/workspace-reconcile/replica.json",
+        "encrypted-manifest.json",
+        "auth-checked.txt",
+    ):
+        require_file(base / relative)
+    for relative in ("local/.local/state/aikito/workspace-reconcile/pending.json",):
+        require_absent(base / relative)
 
 
 if __name__ == "__main__":

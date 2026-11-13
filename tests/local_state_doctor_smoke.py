@@ -9,13 +9,17 @@ import sys
 import tempfile
 from pathlib import Path
 
+from smoke_assertions import (
+    require_matching_files,
+)
+from workspace_reconcile_smoke import _workspace
+
 from aikito.compat import (
     check_directory_permissions_batch,
     is_windows,
     secure_directory_permissions,
 )
 from aikito.skill_state import get_binding_hash, validate_state_store_root
-from workspace_reconcile_smoke import _workspace
 
 
 def state_file(home: Path, workspace: Path, checkout: Path) -> Path:
@@ -65,6 +69,7 @@ def exercise(base: Path) -> None:
         result = subprocess.run(
             [sys.executable, "-c", RUNNER, str(home), "doctor", "--json", *args],
             env=env,
+            check=False,
             capture_output=True,
             text=True,
         )
@@ -87,7 +92,6 @@ def exercise(base: Path) -> None:
     assert any(str(stale) in message for message in report["fixes"])
     assert live.read_bytes() == before[live]
     assert unavailable.read_bytes() == before[unavailable]
-    (base / "checked.json").write_text(json.dumps(report), encoding="utf-8")
     if is_windows():
         private = base / "acl 'private"
         unsafe = base / "acl unsafe"
@@ -96,6 +100,7 @@ def exercise(base: Path) -> None:
             assert secure_directory_permissions(path)
         result = subprocess.run(
             ["icacls", str(unsafe), "/grant", "*S-1-1-0:(OI)(CI)(RX)"],
+            check=False,
             capture_output=True,
             text=True,
         )
@@ -104,6 +109,13 @@ def exercise(base: Path) -> None:
         assert checks[0][0] and not checks[1][0], checks
         assert "S-1-1-0" in checks[1][1], checks
         (base / "acl-batch-checked.txt").write_text("checked", encoding="utf-8")
+
+    verify_artifacts(base)
+    (base / "checked.json").write_text(json.dumps(report), encoding="utf-8")
+
+
+def verify_artifacts(base: Path) -> None:
+    require_matching_files(base / "home/.local/state/aikito/project-skills", "*.json")
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from http_remote_server import HTTPRemoteServer
+from smoke_assertions import require_absent, require_file
 from workspace_encrypted_setup import initialize_cli
 from workspace_memory_remote import InMemoryRemote
 from workspace_reconcile_smoke import _workspace
@@ -262,6 +263,17 @@ def run_smoke(base: Path) -> None:
         (base / "approval-cleanup.json").write_text(
             json.dumps({"removed": str(approval)}), encoding="utf-8"
         )
+    for relative in (
+        "global-auto-apply-ok",
+        "copy-checkout/.agents/skills/example/SKILL.md",
+        "approval-cleanup.json",
+        "checkout-status.txt",
+        "blocked-doctor.json",
+        "recovered.txt",
+    ):
+        require_file(base / relative)
+    require_absent(base / "home/.agents/skills/global-example")
+    require_absent(base / "unapproved-checkout/.agents")
     print(f"Project auto apply smoke passed in {time.monotonic() - start:.2f}s")
 
 

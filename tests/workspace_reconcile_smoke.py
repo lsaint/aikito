@@ -9,12 +9,17 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+from smoke_assertions import (
+    require_absent,
+    require_file,
+)
+
 from aikito.workspace.reconcile import (
     WorkspaceReconcileError,
     build_reconcile_plan,
     run_reconciliation,
 )
-from aikito.workspace.remote import FilesystemRemote, REMOTE_STATE, REPLICA_STATE
+from aikito.workspace.remote import REMOTE_STATE, REPLICA_STATE, FilesystemRemote
 
 
 def _workspace(root: Path) -> Path:
@@ -153,7 +158,42 @@ def main() -> None:
     assert old_state["replica_id"] == new_state["replica_id"]
     assert not build_reconcile_plan(right, remote).changes
     assert (remote.root / REMOTE_STATE).is_file()
+    verify_artifacts(base)
     print("[SUCCESS] Resource reconciliation smoke passed")
+
+
+def verify_artifacts(base: Path) -> None:
+    for relative, expected in (
+        ("right/projects/demo/memory/notes/reconcile-smoke.md", "# Updated project"),
+        ("right/skills/reconcile-smoke/SKILL.md", "# Updated skill"),
+    ):
+        actual = (base / relative).read_text(encoding="utf-8")
+        if os.name == "nt":
+            actual, expected = actual.casefold(), expected.casefold()
+        assert expected in actual, (base / relative, expected, actual)
+    for relative in (
+        "right/memory/notes/reconcile-smoke.md",
+        "right/projects/demo/memory/notes/reconcile-smoke.md",
+        "right/skills/reconcile-smoke/SKILL.md",
+        "right/memory/notes/recovered.md",
+        "right/memory/notes/relocated.md",
+        "right/.local/state/aikito/workspace-reconcile/replica.json",
+        "moved-left/.local/state/aikito/workspace-reconcile/replica.json",
+        "moved-center/.local/state/aikito/workspace-reconcile/remote.json",
+    ):
+        require_file(base / relative)
+    for relative in ("right/skills/reconcile-smoke/empty",):
+        require_absent(base / relative)
+    for relative in (
+        "right/memory/notes/deleted.md",
+        "right/projects/demo/memory/notes/deleted.md",
+        "moved-center/layout.toml",
+        "right/.local/state/aikito/workspace-transactions/pending.json",
+        "moved-center/.local/state/aikito/workspace-transactions/pending.json",
+    ):
+        require_absent(base / relative, kind="path" if os.name == "nt" else "file")
+    for relative in ("right/skills/deleted",):
+        require_absent(base / relative, kind="path" if os.name == "nt" else "directory")
 
 
 if __name__ == "__main__":

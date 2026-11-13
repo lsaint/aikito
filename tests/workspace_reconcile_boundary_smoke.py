@@ -7,21 +7,26 @@ import os
 import sys
 from pathlib import Path
 
+from smoke_assertions import (
+    require_absent,
+    require_file,
+)
+from workspace_reconcile_backend import files
+from workspace_reconcile_resources_smoke import write
+from workspace_reconcile_smoke import _workspace
+
 from aikito.workspace.reconcile import (
     WorkspaceReconcileError,
     build_reconcile_plan,
     run_reconciliation,
 )
-from aikito.workspace.remote import FilesystemRemote, REMOTE_STATE, REPLICA_STATE
+from aikito.workspace.remote import REMOTE_STATE, REPLICA_STATE, FilesystemRemote
+from aikito.workspace.remote_store import InvalidContent
 from aikito.workspace.resources import SKILL_FINGERPRINT_SCHEME, snapshot_workspace
 from aikito.workspace.skill_metadata import (
     read_executable_metadata,
     write_executable_metadata,
 )
-from aikito.workspace.remote_store import InvalidContent
-from workspace_reconcile_backend import files
-from workspace_reconcile_resources_smoke import write
-from workspace_reconcile_smoke import _workspace
 
 
 def exercise(base: Path) -> None:
@@ -102,6 +107,20 @@ def exercise(base: Path) -> None:
         assert not read_executable_metadata(
             a / "skills/portable/.aikito-executable.json"
         )
+    verify_artifacts(base)
+
+
+def verify_artifacts(base: Path) -> None:
+    for relative in (
+        "center/.local/state/aikito/workspace-reconcile/remote.json",
+        "left/.local/state/aikito/workspace-reconcile/replica.json",
+    ):
+        require_file(base / relative)
+    if os.name != "nt":
+        require_file(base / "left/skills/portable/run.sh")
+        require_file(base / "right/skills/portable/run.sh")
+    for relative in ("right/skills/portable/empty",):
+        require_absent(base / relative)
 
 
 if __name__ == "__main__":

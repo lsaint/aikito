@@ -5,11 +5,15 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from aikito.workspace.reconcile import build_reconcile_plan, run_reconciliation
-from aikito.workspace.remote import FilesystemRemote, REMOTE_STATE
-from aikito.workspace.remote_store import SnapshotExpired
+from smoke_assertions import (
+    require_file,
+)
 from workspace_reconcile_backend import files
 from workspace_reconcile_smoke import _workspace
+
+from aikito.workspace.reconcile import build_reconcile_plan, run_reconciliation
+from aikito.workspace.remote import REMOTE_STATE, FilesystemRemote
+from aikito.workspace.remote_store import SnapshotExpired
 
 
 class StoreFacade:
@@ -90,6 +94,16 @@ def exercise(base: Path):
     store.reject_fetch = True
     assert not build_reconcile_plan(right, store).changes
     assert not run_reconciliation(right, store, home, dry_run=False).changes
+    verify_artifacts(base)
+
+
+def verify_artifacts(base: Path) -> None:
+    for relative in (
+        "right/memory/notes/portable-store.md",
+        "right/.local/state/aikito/workspace-reconcile/replica.json",
+        "center/.local/state/aikito/workspace-reconcile/remote.json",
+    ):
+        require_file(base / relative)
 
 
 if __name__ == "__main__":

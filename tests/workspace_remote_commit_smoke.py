@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
-import base64
 from dataclasses import replace
 from pathlib import Path
 
-from aikito.workspace.payload import encode_payload
+from smoke_assertions import (
+    require_file,
+)
+
 from aikito.workspace.payload import (
     FilePayload,
     MemberPayload,
@@ -18,8 +21,10 @@ from aikito.workspace.payload import (
     TomlPayload,
     TreeEntry,
     TreePayload,
+    encode_payload,
     payload_hash,
 )
+from aikito.workspace.pending_commit import PendingCommit, PendingCommitError
 from aikito.workspace.remote_store import InvalidContent, ReceiptCursor, RemoteSnapshot
 from aikito.workspace.remote_wire import (
     build_commit_request,
@@ -28,11 +33,10 @@ from aikito.workspace.remote_wire import (
     decode_commit_request,
     decode_receipt,
     decode_state_json,
-    encode_receipt,
     encode_commit_request,
+    encode_receipt,
     validate_commit_result,
 )
-from aikito.workspace.pending_commit import PendingCommit, PendingCommitError
 from aikito.workspace.replica_state import ReplicaState
 
 
@@ -89,7 +93,7 @@ def hardening_checks(base: Path, original, receipt, *, verify_only: bool):
         ("excess-depth", b"[" * 65 + b"0" + b"]" * 65),
         ("unpaired-surrogate", b'{"id":"\\ud800"}'),
     ):
-        rejects(label, lambda: decode_state_json(raw))
+        rejects(label, lambda raw=raw: decode_state_json(raw))
     raw = json.loads(encoded)
     raw["version"] = 2
     rejects("request-version", lambda: decode_commit_request(canonical(raw)))
@@ -213,6 +217,7 @@ def exercise(base: Path, *, verify_only: bool) -> None:
     else:
         raise AssertionError("Tampered persisted request was accepted")
 
+    verify_artifacts(base)
     (base / "checked.json").write_text(
         json.dumps(
             {
@@ -227,6 +232,17 @@ def exercise(base: Path, *, verify_only: bool) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def verify_artifacts(base: Path) -> None:
+    for relative in (
+        "request.json",
+        "result-digest.txt",
+        "pending.json",
+        "receipt.json",
+        "rejected.json",
+    ):
+        require_file(base / relative)
 
 
 if __name__ == "__main__":

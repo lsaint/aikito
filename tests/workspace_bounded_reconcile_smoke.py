@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 from unittest.mock import patch
 
+from smoke_assertions import require_file
 from workspace_loopback_remote import LoopbackTransport
 from workspace_reconcile_smoke import _workspace
 
@@ -73,6 +74,8 @@ def exercise(base: Path) -> None:
     for index in range(12):
         relative = f"projects/demo/memory/notes/{index:02}.md"
         assert (left / relative).read_bytes() == (right / relative).read_bytes()
+    require_file(base / "right/projects/demo/memory/notes/11.md")
+    require_file(base / "archive-budget-checked.txt")
     (base / "checked.txt").write_text(
         "Bounded reconciliation passed\n", encoding="utf-8"
     )

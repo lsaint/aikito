@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-import sys
 import os
+import sys
 from pathlib import Path
 
 from http_remote_server import HTTPRemoteServer
+from smoke_assertions import (
+    require_absent,
+    require_file,
+)
 from workspace_reconcile_acceptance import exercise_behavior
 from workspace_reconcile_backend import StoreBackend
 
@@ -77,8 +81,23 @@ def main(base: Path):
             )
         else:
             assert received.stat().st_mode & 0o111
+    verify_artifacts(base)
     (base / "checked.txt").write_text("HTTP acceptance passed\n", encoding="utf-8")
     print("[SUCCESS] HTTP reconciliation and recovery checks passed")
+
+
+def verify_artifacts(base: Path) -> None:
+    for relative in (
+        "moved-left/memory/notes/accepted-base.md",
+        "right/capture-b/accepted-before-local.md",
+        "right/memory/notes/http-recovery.md",
+        "right/skills/example/run.sh",
+    ):
+        require_file(base / relative)
+    for relative in (
+        "moved-left/.local/state/aikito/workspace-reconcile/pending.json",
+    ):
+        require_absent(base / relative)
 
 
 if __name__ == "__main__":

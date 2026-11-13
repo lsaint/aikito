@@ -7,11 +7,14 @@ import hashlib
 import json
 from pathlib import Path
 
-from aikito.workspace.payload import encode_payload
+from smoke_assertions import require_absent, require_file
+from workspace_reconcile_smoke import _workspace
+
 from aikito.workspace.payload import (
     FilePayload,
     ResourceDescriptor,
     ResourceMutation,
+    encode_payload,
     payload_hash,
 )
 from aikito.workspace.pending_commit import PendingCommitStore
@@ -20,7 +23,6 @@ from aikito.workspace.remote import FilesystemRemote
 from aikito.workspace.remote_store import CommitOutcomeUnknown
 from aikito.workspace.remote_wire import build_commit_request
 from aikito.workspace.replica_state import load_replica_state
-from workspace_reconcile_smoke import _workspace
 
 
 def main():
@@ -66,6 +68,7 @@ def main():
         pending = store.load()
         assert pending is not None
         assert load_replica_state(local)[0].base == {}
+        require_file(local / ".local/state/aikito/workspace-reconcile/pending.json")
         (root / "request-id.txt").write_text(pending.request.request_id)
         (local / "memory/notes/upload.md").write_text("new user upload")
         (local / "memory/notes/download.md").write_text("user edit after response loss")
@@ -84,6 +87,9 @@ def main():
         assert state.receipt_cursor.request_id != (root / "request-id.txt").read_text()
         assert state.revision == remote.read().revision == 3
         assert PendingCommitStore(local, home).load() is None
+        require_absent(local / ".local/state/aikito/workspace-reconcile/pending.json")
+        require_file(root / "center/memory/notes/upload.md")
+        require_file(local / "memory/notes/download.md")
         (root / "checked.json").write_text(
             json.dumps({"revision": state.revision, "conflicts": 1})
         )

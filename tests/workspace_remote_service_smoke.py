@@ -11,10 +11,12 @@ import time
 from pathlib import Path
 
 from http_remote_server import HTTPRemoteServer
-from workspace_reconcile_smoke import _workspace
-
-from workspace_memory_remote import InMemoryRemote
+from smoke_assertions import (
+    require_file,
+)
 from workspace_encrypted_setup import initialize_cli
+from workspace_memory_remote import InMemoryRemote
+from workspace_reconcile_smoke import _workspace
 
 TOKEN = "remote-service-smoke-secret"
 TOKEN_ENV = "AIKITO_REMOTE_SERVICE_SMOKE_TOKEN"
@@ -63,6 +65,7 @@ def run_cli(
 
     return subprocess.run(
         [sys.executable, "-m", "aikito", *args],
+        check=False,
         capture_output=True,
         text=True,
         input=input_text,
@@ -278,6 +281,7 @@ def run_smoke(base: Path) -> None:
     (base / "encrypted-manifest.json").write_text(
         json.dumps(sorted(backend.read().resources))
     )
+    verify_artifacts(base)
     print("[SUCCESS] Remote service smoke test passed successfully")
 
 
@@ -293,6 +297,22 @@ def main(base: Path | None = None) -> None:
     else:
         target.mkdir(parents=True, exist_ok=True)
         run_smoke(target)
+
+
+def verify_artifacts(base: Path) -> None:
+    binding = base / "ws_a/.local/state/aikito/workspace-reconcile/binding.json"
+    actual = binding.read_text(encoding="utf-8")
+    if os.name == "nt":
+        actual = actual.casefold()
+    assert "remote-service-smoke-secret" not in actual, f"{binding}: credential leaked"
+
+    for relative in (
+        "ws_a/.local/state/aikito/workspace-reconcile/binding.json",
+        "ws_a/.local/state/aikito/workspace-reconcile/status.json",
+        "ws_a/memory/notes/smoke-idea.md",
+        "encrypted-manifest.json",
+    ):
+        require_file(base / relative)
 
 
 if __name__ == "__main__":

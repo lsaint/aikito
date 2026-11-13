@@ -7,6 +7,10 @@ import sys
 from pathlib import Path
 
 from http_remote_server import HTTPRemoteServer
+from smoke_assertions import (
+    require_absent,
+    require_file,
+)
 from workspace_memory_remote import InMemoryRemote
 from workspace_reconcile_smoke import _workspace
 from workspace_remote_cli_smoke import run_cli
@@ -123,10 +127,21 @@ def main(base: Path) -> None:
                 assert files(fresh) == fresh_before
             assert not (fresh / REMOTE_BINDING_STATE).exists()
             assert not (local / PENDING_COMMIT_STATE).exists()
+    verify_artifacts(base)
     (base / "checked.txt").write_text(
         "Encrypted format CLI guards passed\n", encoding="utf-8"
     )
     print("[SUCCESS] Encrypted format CLI guards passed")
+
+
+def verify_artifacts(base: Path) -> None:
+    for relative in ("plaintext/local/memory/notes/retained.md",):
+        require_file(base / relative)
+    for relative in (
+        "plaintext/fresh/.local/state/aikito/workspace-reconcile/binding.json",
+        "future/fresh/.local/state/aikito/workspace-reconcile/binding.json",
+    ):
+        require_absent(base / relative)
 
 
 if __name__ == "__main__":

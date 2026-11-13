@@ -6,9 +6,16 @@ import sys
 import tomllib
 from pathlib import Path
 
+from smoke_assertions import (
+    require_absent,
+    require_file,
+)
+from workspace_reconcile_resources_smoke import write
+from workspace_reconcile_smoke import _workspace
+
 from aikito.workspace.payload import decode_payload, encode_payload, payload_hash
 from aikito.workspace.payload_io import capture_resources, prepare_payload_writes
-from aikito.workspace.remote import LOCAL_CONFIG, SYNC_KINDS, RECONCILE_POLICY
+from aikito.workspace.remote import LOCAL_CONFIG, RECONCILE_POLICY, SYNC_KINDS
 from aikito.workspace.resource_write import (
     ResourceContent,
     ResourceWrite,
@@ -16,8 +23,6 @@ from aikito.workspace.resource_write import (
 )
 from aikito.workspace.resources import snapshot_workspace
 from aikito.workspace.transactions import PathPolicy, apply
-from workspace_reconcile_resources_smoke import write
-from workspace_reconcile_smoke import _workspace
 
 
 def source_workspace(root: Path) -> Path:
@@ -107,6 +112,20 @@ def exercise(base: Path) -> None:
         snapshot_workspace(target).resources["skill:portable"].fingerprint
         == resources["skill:portable"].fingerprint
     )
+    verify_artifacts(base)
+
+
+def verify_artifacts(base: Path) -> None:
+    for relative in (
+        "target/skills/portable/SKILL.md",
+        "target/skills/portable/run.sh",
+        "target/capture/payload.md",
+        "target/config.toml",
+        "target/projects/demo/agent.toml",
+    ):
+        require_file(base / relative)
+    for relative in ("target/skills/portable/empty",):
+        require_absent(base / relative)
 
 
 if __name__ == "__main__":
