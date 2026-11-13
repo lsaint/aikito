@@ -9,6 +9,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from http_remote_server import HTTPRemoteServer
+from smoke_assertions import (
+    require_absent,
+    require_directory,
+    require_file,
+)
 from workspace_external_contract import (
     STORES,
     TOKEN_A,
@@ -23,14 +28,14 @@ from workspace_http_remote_smoke import HTTPBackend
 from workspace_reconcile_acceptance import exercise_behavior
 from workspace_reconcile_smoke import _workspace
 
+from aikito.workspace.encrypted_sync import initialize_encrypted_workspace
 from aikito.workspace.http_transport import HTTPTransport
 from aikito.workspace.pending_commit import PendingCommitStore
 from aikito.workspace.reconcile import WorkspaceReconcileError, run_reconciliation
 from aikito.workspace.remote_binding import RemoteAuth
 from aikito.workspace.remote_factory import bind_remote, open_bound_remote
-from aikito.workspace.encrypted_sync import initialize_encrypted_workspace
 from aikito.workspace.remote_protocol import Operation
-from aikito.workspace.resource_state import REMOTE_BINDING_STATE, PENDING_COMMIT_STATE
+from aikito.workspace.resource_state import PENDING_COMMIT_STATE, REMOTE_BINDING_STATE
 
 
 def main(base):
@@ -127,10 +132,28 @@ def main(base):
         (base / "lost-response-checked.txt").write_text(
             "Recovery passed\n", encoding="utf-8"
         )
+    verify_artifacts(base)
     (base / "checked.txt").write_text(
         "External server checks passed\n", encoding="utf-8"
     )
     print("[SUCCESS] External server isolation and recovery checks passed")
+
+
+def verify_artifacts(base: Path) -> None:
+    for relative in (
+        "center-test-server.json",
+        "local/.local/state/aikito/workspace-reconcile/binding.json",
+        "local/.local/state/aikito/workspace-reconcile/replica.json",
+        "lost-response-checked.txt",
+    ):
+        require_file(base / relative)
+    for relative in (
+        "center/stores/alpha",
+        "center/stores/beta",
+    ):
+        require_directory(base / relative)
+    for relative in ("local/.local/state/aikito/workspace-reconcile/pending.json",):
+        require_absent(base / relative)
 
 
 if __name__ == "__main__":

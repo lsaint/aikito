@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import io
+import os
+import subprocess
 import sys
 from contextlib import redirect_stdout
 from pathlib import Path
 
+from smoke_assertions import require_absent, require_file
+
 from aikito.init import init_workspace
 from aikito.templating import load_template
-from aikito.workspace.importing import run_workspace_import
 
 
 def _workspace(root: Path) -> Path:
@@ -20,6 +23,151 @@ def _workspace(root: Path) -> Path:
         load_template("agents/codex.toml"), encoding="utf-8"
     )
     return root
+
+
+def exercise_cli(base: Path, *, blocked: bool, partial: bool, execution: bool) -> None:
+    source, target, home = base / "source", base / "target", base / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    env = dict(
+        os.environ,
+        AIKITO_DIR=str(target),
+        HOME=str(home),
+        USERPROFILE=str(home),
+        XDG_CONFIG_HOME=str(home / ".config"),
+        APPDATA=str(home / ".config"),
+    )
+
+    def command(
+        *args: str, expected: int = 0, log: str | None = None, combine: bool = False
+    ) -> str:
+        result = subprocess.run(
+            [sys.executable, "-m", "aikito", "import", "workspace", str(source), *args],
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        output = result.stdout + result.stderr
+        captured = output if combine else result.stdout
+        if log is not None:
+            (base / log).write_text(captured, encoding="utf-8")
+        print(output, end="")
+        assert result.returncode == expected, (
+            f"Import {base.name} {args}: expected exit {expected}, "
+            f"got {result.returncode}\n{output}"
+        )
+        return captured
+
+    def matches(output: str, expected: str) -> bool:
+        return (
+            expected.casefold() in output.casefold()
+            if os.name == "nt"
+            else expected in output
+        )
+
+    def contains(path: Path, expected: str) -> None:
+        actual = path.read_text(encoding="utf-8")
+        if os.name == "nt":
+            actual, expected = actual.casefold(), expected.casefold()
+        assert expected in actual, (path, expected, actual)
+
+    def missing(relative: str) -> None:
+        require_absent(target / relative, kind="path" if os.name == "nt" else "file")
+
+    journal = ".local/state/aikito/workspace-transactions/pending.json"
+    if blocked:
+        output = command("--dry-run", expected=1, log="preview.out", combine=True)
+        for expected in (
+            "[BLOCKED] config.toml (config:inbox.path)",
+            "1 note under inbox/",
+        ):
+            assert matches(output, expected), (base, expected, output)
+        if os.name != "nt":
+            assert matches(output, "would leave them unmanaged"), output
+        command(expected=1, log="apply.out", combine=True)
+        for relative in ("inbox/existing.md", "config.toml"):
+            require_file(target / relative)
+        for relative in (
+            "notes/inbox/deep/import-smoke.md",
+            "skills/import-smoke/SKILL.md",
+            journal,
+        ):
+            missing(relative)
+        contains(target / "config.toml", 'path = "inbox"')
+    elif partial:
+        command("--dry-run", expected=2, log="preview.out")
+        missing("memory/notes/independent.md")
+        command(
+            "--keep-target",
+            "global-memory:notes/independent.md",
+            expected=2,
+            log="skip.out",
+        )
+        missing("memory/notes/independent.md")
+        output = command(expected=2, log="partial.out", combine=os.name != "nt")
+        assert matches(output, "[PARTIAL]"), output
+        for relative in ("memory/notes/independent.md", "memory/notes/keep.md"):
+            require_file(target / relative)
+        if os.name != "nt":
+            contains(target / "memory/notes/keep.md", "Target keep")
+        choices = []
+        for name in ("keep", "keep-again", "take", "take-again"):
+            choices.extend(
+                (
+                    "--keep-target" if name.startswith("keep") else "--take-source",
+                    f"global-memory:notes/{name}.md",
+                )
+            )
+        command("--dry-run", *choices)
+        contains(target / "memory/notes/take.md", "Target take")
+        command(*choices)
+        for name in ("keep", "keep-again", "take", "take-again"):
+            side = "Target" if name.startswith("keep") else "Source"
+            contains(target / f"memory/notes/{name}.md", f"{side} {name}")
+        output = command(*choices, log="repeat.out")
+        assert matches(output, "[SUMMARY] CREATE 0, UPDATE 0, CONFLICT 0, BLOCKED 0"), (
+            output
+        )
+        missing(journal)
+    elif execution:
+        command()
+        require_file(target / "notes/inbox/deep/import-smoke.md")
+        require_file(target / "config.toml")
+        contains(target / "config.toml", "stale_days = 90")
+        contains(target / "config.toml", "check = false")
+        command()
+        missing(journal)
+    else:
+        command("--dry-run")
+        output = command("--dry-run", "--verbose", log="import-verbose.out")
+        assert matches(output, "[SUMMARY]"), output
+        assert matches(output, "[UPDATE] skills.toml (skill-selection:import-smoke)"), (
+            output
+        )
+        assert not matches(output, "[MERGE]"), output
+        missing("inbox/deep/import-smoke.md")
+        command()
+        for relative in (
+            "inbox/deep/import-smoke.md",
+            "skills/import-smoke/SKILL.md",
+            "subagents/import-smoke.md",
+            "mcps/import-smoke.toml",
+            "memory/index.md",
+            "projects/new-project/agent.toml",
+            "projects/new-project/memory/index.md",
+            "agents/codex.toml",
+            "config.toml",
+            "global/AGENTS.md",
+        ):
+            require_file(target / relative)
+        contains(target / "agents/codex.toml", "Imported Codex")
+        contains(target / "config.toml", "stale_days = 90")
+        contains(target / "global/AGENTS.md", "Imported global instructions")
+    (base / "checked.txt").write_text(
+        "Import CLI acceptance passed\n", encoding="utf-8"
+    )
+    print(f"[SUCCESS] Workspace import CLI checks passed: {base.name}")
 
 
 def main() -> None:
@@ -91,66 +239,12 @@ def main() -> None:
     if "--prepare-only" in sys.argv[2:]:
         return
 
-    preview = run_workspace_import(source, target, base / "home", dry_run=True)
-    if blocked:
-        assert preview.blocked
-        assert run_workspace_import(
-            source, target, base / "home", dry_run=False
-        ).blocked
-        assert (target / "inbox/existing.md").is_file()
-        assert not (target / "notes/inbox/deep/import-smoke.md").exists()
-        assert "stale_days = 30" in (target / "config.toml").read_text(encoding="utf-8")
-        return
-    assert not preview.blocked
-    assert not (target / inbox / "deep/import-smoke.md").exists()
-    run_workspace_import(source, target, base / "home", dry_run=False)
-    assert (target / inbox / "deep/import-smoke.md").is_file()
-    assert (target / "skills/import-smoke/SKILL.md").is_file()
-    assert (target / "subagents/import-smoke.md").is_file()
-    assert (target / "mcps/import-smoke.toml").is_file()
-    assert (target / "memory/index.md").is_file()
-    assert (target / "projects/new-project/agent.toml").is_file()
-    assert (target / "projects/new-project/memory/index.md").is_file()
-    assert 'display_name = "Imported Codex"' in (
-        target / "agents/codex.toml"
-    ).read_text(encoding="utf-8")
-    assert "stale_days = 90" in (target / "config.toml").read_text(encoding="utf-8")
-    assert (target / "global/AGENTS.md").read_text(
-        encoding="utf-8"
-    ) == "# Imported global instructions\n"
-    assert '"~/source"' in (target / "projects/demo/agent.toml").read_text(
-        encoding="utf-8"
+    exercise_cli(
+        base,
+        blocked=blocked,
+        partial=partial,
+        execution="--execution-case" in sys.argv[2:],
     )
-    assert "check = false" in (target / "config.toml").read_text(encoding="utf-8")
-    if partial:
-        assert len(preview.conflicts) == 4
-        assert (target / "memory/notes/independent.md").is_file()
-        assert "Target keep" in (target / "memory/notes/keep.md").read_text(
-            encoding="utf-8"
-        )
-        choices = {
-            f"global-memory:notes/{name}.md": "target"
-            if name.startswith("keep")
-            else "source"
-            for name in ("keep", "keep-again", "take", "take-again")
-        }
-        resolved = run_workspace_import(
-            source, target, base / "home", dry_run=False, resolutions=choices
-        )
-        assert not resolved.conflicts and not resolved.blocked
-        assert "Target keep" in (target / "memory/notes/keep.md").read_text(
-            encoding="utf-8"
-        )
-        assert "Source take" in (target / "memory/notes/take.md").read_text(
-            encoding="utf-8"
-        )
-        assert not run_workspace_import(
-            source, target, base / "home", dry_run=True, resolutions=choices
-        ).changes
-    else:
-        assert not run_workspace_import(
-            source, target, base / "home", dry_run=True
-        ).changes
 
 
 if __name__ == "__main__":

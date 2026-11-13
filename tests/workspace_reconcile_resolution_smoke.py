@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 import tomllib
 from pathlib import Path
+
+from smoke_assertions import (
+    require_absent,
+    require_file,
+)
+from workspace_reconcile_resources_smoke import write
+from workspace_reconcile_smoke import _workspace
 
 from aikito.workspace.reconcile import (
     WorkspaceReconcileError,
@@ -13,8 +21,6 @@ from aikito.workspace.reconcile import (
     run_reconciliation,
 )
 from aikito.workspace.remote import FilesystemRemote
-from workspace_reconcile_resources_smoke import write
-from workspace_reconcile_smoke import _workspace
 
 
 def exercise(base: Path, identity: str, side: str) -> None:
@@ -69,10 +75,47 @@ def exercise(base: Path, identity: str, side: str) -> None:
     assert (b / "memory/notes/rejected.md").read_text(encoding="utf-8") == "new"
 
 
+def verify_artifacts(base: Path) -> None:
+    for relative in (
+        "skill-local/left/skills/x/SKILL.md",
+        "project-skill-local/left/skills/x/SKILL.md",
+        "skill-local/right/skills/x/SKILL.md",
+        "project-skill-local/right/skills/x/SKILL.md",
+        "skill-local/center/skills/x/SKILL.md",
+        "project-skill-local/center/skills/x/SKILL.md",
+        "skill-local/right/projects/newcomer/agent.toml",
+        "project-skill-local/right/projects/newcomer/agent.toml",
+        "skill-remote/right/projects/newcomer/agent.toml",
+        "project-skill-remote/right/projects/newcomer/agent.toml",
+        "skill-local/right/memory/notes/rejected.md",
+        "project-skill-local/right/memory/notes/rejected.md",
+        "skill-remote/right/memory/notes/rejected.md",
+        "project-skill-remote/right/memory/notes/rejected.md",
+    ):
+        require_file(base / relative)
+    for relative in (
+        "skill-remote/left/skills/x",
+        "project-skill-remote/left/skills/x",
+        "skill-remote/right/skills/x",
+        "project-skill-remote/right/skills/x",
+        "skill-remote/center/skills/x",
+        "project-skill-remote/center/skills/x",
+    ):
+        require_absent(base / relative, kind="path" if os.name == "nt" else "directory")
+    for relative in (
+        "skill-local/center/memory/notes/rejected.md",
+        "project-skill-local/center/memory/notes/rejected.md",
+        "skill-remote/center/memory/notes/rejected.md",
+        "project-skill-remote/center/memory/notes/rejected.md",
+    ):
+        require_absent(base / relative, kind="path" if os.name == "nt" else "file")
+
+
 if __name__ == "__main__":
     base = Path(sys.argv[1]).resolve()
     for kind in ("skill", "project-skill"):
         identity = "skill:x" if kind == "skill" else "project-skill:newcomer/x"
         for side in ("local", "remote"):
             exercise(base / f"{kind}-{side}", identity, side)
+    verify_artifacts(base)
     print("[SUCCESS] Reference conflict resolution smoke passed")

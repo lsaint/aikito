@@ -10,6 +10,7 @@ import threading
 from pathlib import Path
 
 from http_remote_server import HTTPRemoteServer
+from smoke_assertions import require_absent, require_file
 from workspace_memory_remote import InMemoryRemote
 
 from aikito.workspace.encrypted_remote import decode_recovery_code
@@ -296,6 +297,31 @@ def main(base: Path):
             winner, ["remote", "sync", "--dry-run", "--workspace", str(a)]
         )
         assert guarded.returncode == 0
+    for relative in (
+        "credential-checked.txt",
+        "references-checked.txt",
+        "progress-checked.txt",
+        "join-checked.txt",
+        "join-preview.out",
+        "join-apply.out",
+        "join-backup.md",
+        "join-index.json",
+        "join-paths-checked.txt",
+        "workspace-2/skills/join-example/SKILL.md",
+        "workspace-2/memory/notes/after-join.md",
+        "workspace-2/mcps/docs.toml",
+        "workspace-2/subagents/review.md",
+        "workspace-2/.local/state/aikito/workspace-reconcile/replica.json",
+        "workspace-2/.local/state/aikito/encrypted-discovery.json",
+    ):
+        require_file(base / relative)
+    for relative in (
+        "workspace-2/memory/notes/join-stale.md",
+        "workspace-2/skills/join-example/agents/openai.yaml",
+        "workspace-2/.local/state/aikito/workspace-reconcile/pending.json",
+        "workspace-2/memory/notes/e2ee.md",
+    ):
+        require_absent(base / relative)
     (base / "checked.txt").write_text(
         "Encrypted synchronization, independent initialization CAS and retries passed\n"
     )

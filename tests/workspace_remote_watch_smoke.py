@@ -10,12 +10,15 @@ import time
 from pathlib import Path
 
 from http_remote_server import HTTPRemoteServer
+from smoke_assertions import (
+    require_file,
+)
+from workspace_encrypted_setup import initialize_cli
+from workspace_memory_remote import InMemoryRemote
 from workspace_reconcile_smoke import _workspace
 
 from aikito.remote_cli import EXIT_LOCKED
 from aikito.workspace.auto_sync import is_worker_running
-from workspace_memory_remote import InMemoryRemote
-from workspace_encrypted_setup import initialize_cli
 
 TOKEN = "remote-watch-smoke-secret"
 TOKEN_ENV = "AIKITO_REMOTE_WATCH_SMOKE_TOKEN"
@@ -43,6 +46,7 @@ def run_cli(
     started = time.monotonic()
     result = subprocess.run(
         [sys.executable, "-m", "aikito", *args],
+        check=False,
         capture_output=True,
         text=True,
         env=env,
@@ -268,6 +272,7 @@ def run_smoke(base: Path) -> None:
     (base / "encrypted-manifest.json").write_text(
         json.dumps(sorted(backend.read().resources))
     )
+    verify_artifacts(base)
     print("[SUCCESS] Remote watch smoke test passed successfully")
 
 
@@ -283,6 +288,14 @@ def main(base: Path | None = None) -> None:
     else:
         target.mkdir(parents=True, exist_ok=True)
         run_smoke(target)
+
+
+def verify_artifacts(base: Path) -> None:
+    for relative in (
+        "ws_b/memory/notes/watch-smoke.md",
+        "ws_a/memory/notes/from-b.md",
+    ):
+        require_file(base / relative)
 
 
 if __name__ == "__main__":

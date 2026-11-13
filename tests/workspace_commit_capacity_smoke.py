@@ -5,6 +5,10 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from smoke_assertions import (
+    require_absent,
+    require_file,
+)
 from workspace_loopback_remote import LoopbackTransport
 from workspace_reconcile_smoke import _workspace
 
@@ -75,10 +79,25 @@ def exercise(base: Path) -> None:
         assert PendingCommitStore(local, home).load() is None
     finally:
         remote_limits.MAX_RESOURCE_PAYLOAD_BYTES = original_resource_limit
+    verify_artifacts(base)
     (base / "checked.txt").write_text(
         "Commit capacity checks passed\n", encoding="utf-8"
     )
     print("[SUCCESS] Commit capacity checks passed")
+
+
+def verify_artifacts(base: Path) -> None:
+    for relative in (
+        "local/memory/notes/capacity.md",
+        "center/memory/notes/capacity.md",
+        "center/memory/notes/neighbor.md",
+    ):
+        require_file(base / relative)
+    for relative in (
+        "center/memory/notes/oversized.md",
+        "local/.local/state/aikito/workspace-reconcile/pending.json",
+    ):
+        require_absent(base / relative)
 
 
 if __name__ == "__main__":

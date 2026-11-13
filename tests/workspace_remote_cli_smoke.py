@@ -10,10 +10,14 @@ import tempfile
 from pathlib import Path
 
 from http_remote_server import HTTPRemoteServer
+from smoke_assertions import (
+    require_absent,
+    require_file,
+)
+from workspace_encrypted_setup import initialize_cli
+from workspace_memory_remote import InMemoryRemote
 from workspace_reconcile_smoke import _workspace
 
-from workspace_memory_remote import InMemoryRemote
-from workspace_encrypted_setup import initialize_cli
 from aikito.workspace.resource_state import REMOTE_BINDING_STATE
 
 TOKEN = "remote-cli-smoke-secret"
@@ -39,6 +43,7 @@ def run_cli(
 
     return subprocess.run(
         [sys.executable, "-m", "aikito", *args],
+        check=False,
         capture_output=True,
         text=True,
         env=env,
@@ -226,6 +231,24 @@ def run_smoke(base: Path) -> None:
     (base / "encrypted-manifest.json").write_text(
         json.dumps(sorted(backend.read().resources))
     )
+    if os.name != "nt":
+        invalid = run_cli(
+            [
+                "remote",
+                "bind",
+                "http://invalid.example",
+                "--workspace",
+                str(ws_a),
+                "--rebind",
+            ],
+            workspace=ws_a,
+            home=home,
+        )
+        output = invalid.stdout + invalid.stderr
+        (base / "invalid-service.log").write_text(output, encoding="utf-8")
+        assert invalid.returncode != 0, output
+        assert "A service HTTPS origin is required" in output, output
+    verify_artifacts(base)
     print("[SUCCESS] Remote CLI smoke test passed successfully")
 
 
@@ -241,6 +264,28 @@ def main(base: Path | None = None) -> None:
     else:
         target.mkdir(parents=True, exist_ok=True)
         run_smoke(target)
+
+
+def verify_artifacts(base: Path) -> None:
+    binding = base / "ws_a/.local/state/aikito/workspace-reconcile/binding.json"
+    actual = binding.read_text(encoding="utf-8")
+    if os.name == "nt":
+        actual = actual.casefold()
+    assert "remote-cli-smoke-secret" not in actual, f"{binding}: credential leaked"
+
+    for relative in (
+        "home/.config/aikito/encrypted-remote/recovery.txt",
+        "recovery-saved-checked.txt",
+        "archive-fields-checked.txt",
+        "ws_a/.local/state/aikito/workspace-reconcile/binding.json",
+        "ws_b/.local/state/aikito/workspace-reconcile/binding.json",
+        "ws_b/memory/notes/smoke-idea.md",
+        "encrypted-manifest.json",
+        "ws_b/skills/smoke-skill/SKILL.md",
+    ):
+        require_file(base / relative)
+    for relative in ("ws_b/skills/smoke-skill/empty",):
+        require_absent(base / relative)
 
 
 if __name__ == "__main__":

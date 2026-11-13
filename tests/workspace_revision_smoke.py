@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 import json
 import sys
 from pathlib import Path
@@ -105,6 +104,23 @@ def exercise(base: Path):
         assert ok, error
         persisted = json.loads(state_path.read_text(encoding="utf-8"))
         assert persisted["revision"] == 2 and "generation" not in persisted
+
+    for path in (
+        right / "memory/notes/revision.md",
+        replica_path,
+        center_path,
+    ):
+        if not path.is_file():
+            raise AssertionError(
+                f"Revision smoke: expected a regular file at {path}; "
+                "found a missing path or non-file"
+            )
+    skill_state_dir = home / ".local/state/aikito/project-skills"
+    if not any(path.is_file() for path in skill_state_dir.glob("*.json")):
+        raise AssertionError(
+            f"Revision smoke: expected at least one regular *.json file in "
+            f"{skill_state_dir}; found none"
+        )
 
     (base / "contract-cleanup.json").write_text(
         json.dumps({"legacy_commit_refused": True, "noop_revision_unchanged": True}),

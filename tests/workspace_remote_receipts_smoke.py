@@ -9,16 +9,18 @@ import subprocess
 import sys
 from pathlib import Path
 
+from smoke_assertions import require_file
+
 from aikito.workspace import transactions
 from aikito.workspace.layout import content_digest
-from aikito.workspace.payload import encode_payload
 from aikito.workspace.payload import (
     FilePayload,
     ResourceDescriptor,
     ResourceMutation,
+    encode_payload,
     payload_hash,
 )
-from aikito.workspace.remote import FilesystemRemote, REMOTE_STATE
+from aikito.workspace.remote import REMOTE_STATE, FilesystemRemote
 from aikito.workspace.remote_store import RecoveryRequired
 from aikito.workspace.remote_wire import (
     build_commit_request,
@@ -111,6 +113,10 @@ def exercise(base: Path) -> None:
         assert reopened.commit(request) == reopened.resolve_commit(*args) == receipt
         assert reopened.read().revision == 1
         assert (remote.root / "memory/notes/receipt.md").read_bytes() == payload.data
+        require_file(case / "center/memory/notes/receipt.md")
+        require_file(
+            case / "center/.local/state/aikito/workspace-reconcile/remote.json"
+        )
         (case / "checked.json").write_text(
             json.dumps(
                 {

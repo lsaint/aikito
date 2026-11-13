@@ -9,13 +9,18 @@ import tomllib
 from pathlib import Path
 from unittest.mock import patch
 
+from smoke_assertions import (
+    require_absent,
+    require_file,
+)
+from workspace_reconcile_smoke import _workspace
+
 from aikito.workspace.reconcile import (
     WorkspaceReconcileError,
     build_reconcile_plan,
     run_reconciliation,
 )
 from aikito.workspace.remote import FilesystemRemote
-from workspace_reconcile_smoke import _workspace
 
 
 def write(root: Path, relative: str, value: str) -> None:
@@ -169,7 +174,35 @@ def main() -> None:
     assert "config:inbox.path" not in remote.read().resources
     assert not (remote.root / "config.toml").exists()
     assert not (remote.root / "projects/demo/agent.toml").exists()
+    verify_artifacts(base)
     print("[SUCCESS] Expanded resource reconciliation smoke passed")
+
+
+def verify_artifacts(base: Path) -> None:
+    for relative in (
+        "right/capture-b/deep/note.md",
+        "right/global/AGENTS.md",
+        "right/projects/demo/AGENTS.md",
+        "right/agents/custom.toml",
+        "right/mcps/docs.toml",
+        "right/subagents/review.md",
+        "right/config.toml",
+        "right/skills.toml",
+        "right/projects/demo/agent.toml",
+    ):
+        require_file(base / relative)
+    for relative in (
+        "right/capture-b/deleted.md",
+        "right/agents/deleted.toml",
+        "right/mcps/deleted.toml",
+        "right/subagents/deleted.md",
+        "right/projects/retired/agent.toml",
+        "right/projects/retired/AGENTS.md",
+        "center/config.toml",
+        "center/projects/demo/agent.toml",
+        "left/.local/state/aikito/workspace-transactions/pending.json",
+    ):
+        require_absent(base / relative, kind="path" if os.name == "nt" else "file")
 
 
 if __name__ == "__main__":

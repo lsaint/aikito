@@ -15,14 +15,19 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from smoke_assertions import require_absent, require_file
+from workspace_memory_remote import InMemoryRemote
+from workspace_reconcile_smoke import _workspace
+from workspace_unreliable_remote import Fault, Gate, UnreliableRemote
+
 from aikito.skill_state import WorkspaceWriterLock
 from aikito.workspace import pending_commit, remote_limits, transactions
 from aikito.workspace.commit_recovery import recover_pending
-from aikito.workspace.payload import encode_payload
 from aikito.workspace.payload import (
     FilePayload,
     ResourceDescriptor,
     ResourceMutation,
+    encode_payload,
     payload_hash,
 )
 from aikito.workspace.pending_commit import PendingCommitStore
@@ -36,9 +41,6 @@ from aikito.workspace.remote_store import SnapshotExpired
 from aikito.workspace.remote_wire import build_commit_request, encode_commit_request
 from aikito.workspace.replica_state import load_replica_state
 from aikito.workspace.resource_state import PENDING_COMMIT_STATE, REPLICA_STATE
-from workspace_memory_remote import InMemoryRemote
-from workspace_reconcile_smoke import _workspace
-from workspace_unreliable_remote import Fault, Gate, UnreliableRemote
 
 CHECKPOINTS = ("replica", "committed", "cleanup", "before-clear", "after-clear")
 
@@ -384,6 +386,32 @@ def main():
     historical_scenario(root, factory)
     if args.backend == "filesystem":
         local_crashes(root)
+    for scenario in (
+        "before-send",
+        "response-loss",
+        "duplicate",
+        "resolve-failure",
+        "delayed-accepted",
+        "delayed-cas",
+        "historical",
+    ):
+        case = root / scenario
+        require_file(case / "checked.json")
+        require_file(case / "local/memory/notes/upload.md")
+        require_absent(
+            case / "local/.local/state/aikito/workspace-reconcile/pending.json"
+        )
+    if args.backend == "filesystem":
+        for checkpoint in CHECKPOINTS:
+            case = root / "local-crashes" / checkpoint
+            require_file(case / "checked.json")
+            require_file(case / "center/memory/notes/upload.md")
+            require_file(
+                case / "local/.local/state/aikito/workspace-reconcile/replica.json"
+            )
+            require_absent(
+                case / "local/.local/state/aikito/workspace-reconcile/pending.json"
+            )
     report(
         root,
         backend=args.backend,

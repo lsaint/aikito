@@ -10,6 +10,20 @@ import tomllib
 from pathlib import Path
 from unittest.mock import patch
 
+from smoke_assertions import (
+    require_absent,
+    require_file,
+)
+from workspace_reconcile_backend import (
+    FilesystemBackend,
+    ReconciliationBackend,
+)
+from workspace_reconcile_backend import (
+    files as _files,
+)
+from workspace_reconcile_resources_smoke import write
+from workspace_reconcile_smoke import _workspace
+
 from aikito.workspace import transactions
 from aikito.workspace.reconcile import (
     WorkspaceReconcileError,
@@ -24,13 +38,6 @@ from aikito.workspace.resource_state import (
     SYNC_KINDS,
 )
 from aikito.workspace.resources import snapshot_workspace
-from workspace_reconcile_backend import (
-    FilesystemBackend,
-    ReconciliationBackend,
-    files as _files,
-)
-from workspace_reconcile_resources_smoke import write
-from workspace_reconcile_smoke import _workspace
 
 
 def _resources(root: Path) -> dict[str, str]:
@@ -254,7 +261,7 @@ def exercise_behavior(base: Path, backend: ReconciliationBackend) -> None:
         original_text = transactions.atomic_text
         failed = False
 
-        def fail_download(src, dst):
+        def fail_download(src, dst, original_replace=original_replace):
             nonlocal failed
             if (
                 not failed
@@ -265,7 +272,7 @@ def exercise_behavior(base: Path, backend: ReconciliationBackend) -> None:
                 raise OSError("Local download failed after center acceptance")
             original_replace(src, dst)
 
-        def fail_base(path, content):
+        def fail_base(path, content, original_text=original_text):
             nonlocal failed
             if not failed and Path(path) == a / REPLICA_STATE:
                 failed = True
@@ -342,6 +349,28 @@ def exercise(base: Path) -> None:
         b / "capture-b/center-relocated.md"
     ).read_text() == "after center relocation"
     assert _resources(a) == _resources(b) == backend.fingerprints()
+    verify_artifacts(base)
+
+
+def verify_artifacts(base: Path) -> None:
+    for relative in (
+        "moved-left/memory/notes/accepted-base.md",
+        "right/capture-b/accepted-before-local.md",
+        "right/capture-b/relocated.md",
+        "moved-left/capture-a/relocated.md",
+        "right/projects/demo/memory/notes/acceptance.md",
+        "moved-left/config.toml",
+        "right/config.toml",
+        "moved-center/.local/state/aikito/workspace-reconcile/remote.json",
+    ):
+        require_file(base / relative)
+    for relative in (
+        "right/capture-b/safe.md",
+        "moved-left/capture-a/safe.md",
+        "moved-left/.local/state/aikito/workspace-transactions/pending.json",
+        "moved-center/.local/state/aikito/workspace-transactions/pending.json",
+    ):
+        require_absent(base / relative, kind="path" if os.name == "nt" else "file")
 
 
 if __name__ == "__main__":

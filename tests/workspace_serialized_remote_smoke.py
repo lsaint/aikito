@@ -5,6 +5,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from smoke_assertions import (
+    require_absent,
+    require_file,
+)
 from workspace_loopback_remote import FaultyLoopback, LoopbackTransport
 from workspace_reconcile_resources_smoke import write
 from workspace_reconcile_smoke import _workspace
@@ -13,8 +17,8 @@ from workspace_serialized_attachment import FilesystemSerializedRemote
 from aikito.workspace.pending_commit import PendingCommitStore
 from aikito.workspace.reconcile import WorkspaceReconcileError, run_reconciliation
 from aikito.workspace.remote import FilesystemRemote
-from aikito.workspace.resource_state import PENDING_COMMIT_STATE
 from aikito.workspace.remote_store import InvalidContent
+from aikito.workspace.resource_state import PENDING_COMMIT_STATE
 
 
 def main(base: Path) -> None:
@@ -65,6 +69,20 @@ def main(base: Path) -> None:
     assert not (a / PENDING_COMMIT_STATE).exists()
     run_reconciliation(b, remote, home, dry_run=False)
     assert (b / "memory/notes/serialized-recovery.md").read_text() == "recovered"
+    verify_artifacts(base)
+
+
+def verify_artifacts(base: Path) -> None:
+    for relative in (
+        "right/memory/notes/serialized-smoke.md",
+        "right/projects/demo/memory/notes/serialized-smoke.md",
+        "right/memory/notes/serialized-recovery.md",
+        "right/.local/state/aikito/workspace-reconcile/replica.json",
+        "center/.local/state/aikito/workspace-reconcile/remote.json",
+    ):
+        require_file(base / relative)
+    for relative in ("left/.local/state/aikito/workspace-reconcile/pending.json",):
+        require_absent(base / relative)
 
 
 if __name__ == "__main__":
