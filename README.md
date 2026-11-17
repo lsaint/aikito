@@ -150,7 +150,7 @@ Visit the full [documentation site](https://lsaint.github.io/aikito/guide/) or d
 - [Chat Distiller](docs/chat-distiller.md): distill browser AI chats into Markdown notes in your Inbox.
 - [Troubleshooting](docs/troubleshooting.md): resolving conflicts and synchronization drift.
 - [Aikito Cloud(optional)](docs/remote-sync.md): automatic synchronization, MCP client access, and recovery.
-  [Remote protocol & self-hosting (optional)](docs/architecture/remote-protocol.md): building custom private services or cloud sync backends.
+- [Remote protocol & self-hosting (optional)](docs/architecture/remote-protocol.md): building custom private services or cloud sync backends.
 
 ## Support
 
