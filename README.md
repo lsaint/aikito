@@ -135,6 +135,7 @@ Aikito is local-first and predictable by design:
 - **You govern secrets**: workspace is a local Git repository; review secrets before pushing.
 
 Detailed safety and boundary references:
+
 - [Conflict handling & backups](docs/safety.md#conflict-and-drift-protection)
 - [Design boundaries & comparisons](docs/comparison.md)
 
@@ -144,12 +145,12 @@ Visit the full [documentation site](https://lsaint.github.io/aikito/guide/) or d
 
 - [Getting started](docs/guide.md): installation through adopting your existing setup.
 - [Workspace and synchronization](docs/architecture.md): directory layout, scopes, and linking model.
-- [Aikito Cloud](docs/remote-sync.md): account connection, automatic synchronization, MCP client access, and recovery.
 - [Connect another machine](docs/workspace-portability.md): multi-machine sync and custom paths.
 - [CLI reference](docs/cli-reference.md): commands, options, and shell completion.
 - [Chat Distiller](docs/chat-distiller.md): distill browser AI chats into Markdown notes in your Inbox.
 - [Troubleshooting](docs/troubleshooting.md): resolving conflicts and synchronization drift.
-- [Remote protocol & self-hosting (optional)](docs/architecture/remote-protocol.md): building custom private services or cloud sync backends.
+- [Aikito Cloud(optional)](docs/remote-sync.md): automatic synchronization, MCP client access, and recovery.
+  [Remote protocol & self-hosting (optional)](docs/architecture/remote-protocol.md): building custom private services or cloud sync backends.
 
 ## Support
 
