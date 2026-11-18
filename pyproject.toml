@@ -45,8 +45,11 @@ core-metadata-version = "2.3"
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-addopts = "-n auto --durations=20 -m 'not benchmark'"
-markers = ["benchmark: opt-in performance baselines (run with -m benchmark)"]
+addopts = "-n auto --durations=20 -m 'not benchmark and not smoke'"
+markers = [
+    "benchmark: opt-in performance baselines (run with -m benchmark)",
+    "smoke: opt-in end-to-end smoke test suite (run with -m smoke)",
+]
 
 [tool.ruff]
 target-version = "py312"

@@ -209,6 +209,15 @@ def main(base):
         (base / "checked.txt").write_text(
             "Native storage, independent readers and explicit file recovery verified\n"
         )
+        assert (base / "checked.txt").is_file()
+        assert (base / "header.json").is_file()
+        assert (workspace / "layout.toml").is_file()
+        assert (
+            config / "aikito/encrypted-remote/keys/00112233445566778899aabbccddeeff.key"
+        ).is_file()
+        assert not (
+            workspace / ".local/state/aikito/workspace-reconcile/pending.json"
+        ).exists()
         print("[SUCCESS] Native storage and explicit recovery passed")
     finally:
         if sys.platform == "darwin" and keychain.exists():
