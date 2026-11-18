@@ -34,6 +34,7 @@ class TestCliWorkflowE2E:
             ".dsh",
             ".grok/rules",
             ".gemini/antigravity-cli",
+            ".gemini/config",
             ".config/opencode",
             ".pi/agent",
         ):
