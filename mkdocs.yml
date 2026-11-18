@@ -61,6 +61,8 @@ nav:
   - Core Concepts:
       - Workspace and Synchronization: architecture.md
       - Memory Scope and Lifecycle: memory-workflow.md
+  - Contributing:
+      - Add an Agent Integration: agent-integrations.md
   - Reference:
       - Agent Request Examples: agent-workflow.md
       - CLI Reference: cli-reference.md

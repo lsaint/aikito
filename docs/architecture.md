@@ -94,6 +94,9 @@ workspace adoption).
 
 ### Agent definitions and adapters
 
+For a contributor walkthrough on adding a bundled Agent or configuring a
+workspace-local Agent, see [Add an Agent Integration](agent-integrations.md).
+
 Agent TOML declares paths, runner commands, optional capabilities, and portable
 installation policy. Core plans and executes capabilities; MCP and Subagent
 registries own native rendering, parsing, field validation, and file layouts.
