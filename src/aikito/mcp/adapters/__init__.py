@@ -311,7 +311,14 @@ def _build_dsh_cordis(url, override, authentication, headers, server_name):
 
 
 def _import_verbatim(entry: dict[str, Any]) -> dict[str, Any] | None:
-    return dict(entry)
+    url = entry.get("url") or entry.get("serverUrl")
+    if not isinstance(url, str) or not url.strip():
+        return None
+    imported = dict(entry)
+    imported["url"] = url
+    if "transport" not in imported:
+        imported["transport"] = "remote"
+    return imported
 
 
 def _import_copilot_json(entry: dict[str, Any]) -> dict[str, Any] | None:
@@ -416,6 +423,7 @@ MCP_ADAPTERS: dict[str, MCPAdapter] = {
         "mcpServers",
         "JSON",
         True,
+        import_entry=_import_verbatim,
     ),
     "claude_json": MCPAdapter(
         _build_claude_json,

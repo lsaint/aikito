@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 import tomllib
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
 
@@ -60,6 +60,11 @@ from .git_ops import (
     is_git_typechange,
 )
 from .inspection import InspectionStatus
+from .instructions import (
+    check_global_overlay_guidance_status,
+    ensure_global_overlay_guidance,
+    get_global_instruction_path,
+)
 from .link import classify_symlink, inspect_link_target  # noqa: F401
 from .local_state import clean_local_state, inspect_local_state
 from .mcp import (
@@ -1164,6 +1169,68 @@ def _check_project_overlay_and_excludes(
     return findings
 
 
+def _has_overlay_projects(projects: Sequence[ProjectSummary]) -> bool:
+    """Check if any project has or uses overlay instructions (.agents/AGENTS.md)."""
+    for project in projects:
+        project_dir = project.config_path.parent
+        canonical_agents = project_dir / "AGENTS.md"
+        for _, p_str in project.active_paths:
+            co = Path(p_str)
+            if not co.is_dir():
+                continue
+            overlay_link = co / ".agents" / "AGENTS.md"
+            if overlay_link.exists() or overlay_link.is_symlink():
+                return True
+            team_agents = co / "AGENTS.md"
+            if (
+                team_agents.is_file()
+                and not team_agents.is_symlink()
+                and canonical_agents.is_file()
+            ):
+                return True
+    return False
+
+
+def _check_overlay_guidance(
+    aikito_dir: Path,
+    projects: Sequence[ProjectSummary],
+) -> list[Finding]:
+    """Check health of the Overlay Guidance block in global AGENTS.md."""
+    findings: list[Finding] = []
+    has_overlay = _has_overlay_projects(projects)
+    global_agents = get_global_instruction_path(aikito_dir)
+    status, detail = check_global_overlay_guidance_status(global_agents)
+
+    if has_overlay:
+        if status == "OK":
+            findings.append(
+                _ok("Global AGENTS.md: overlay instruction guidance block is active")
+            )
+        elif status == "MISSING":
+            findings.append(
+                _warn(
+                    "Global AGENTS.md: missing overlay instruction guidance block",
+                    "aikito doctor --fix",
+                )
+            )
+        elif status == "CORRUPTED":
+            findings.append(
+                _warn(
+                    f"Global AGENTS.md: {detail or 'corrupted overlay instruction block detected'}",
+                    "aikito doctor --fix",
+                )
+            )
+    elif status == "CORRUPTED":
+        findings.append(
+            _warn(
+                f"Global AGENTS.md: {detail or 'corrupted overlay instruction block detected'}",
+                "aikito doctor --fix",
+            )
+        )
+
+    return findings
+
+
 def check_projects(aikito_dir: Path, home: Path) -> DoctorSection:
     """Report project runtime health using the same model as `show project`."""
     findings: list[Finding] = []
@@ -1255,6 +1322,8 @@ def check_projects(aikito_dir: Path, home: Path) -> DoctorSection:
 
     for project in projects:
         findings.extend(_check_project_overlay_and_excludes(project, aikito_dir))
+
+    findings.extend(_check_overlay_guidance(aikito_dir, projects))
 
     if not findings:
         findings.append(_ok(f"Project runtimes OK ({len(projects)} projects)"))
@@ -1832,6 +1901,19 @@ def run_doctor_fixes(aikito_dir: Path, home: Path | None = None) -> list[str]:
                                 )
             except (OSError, tomllib.TOMLDecodeError):
                 pass
+
+    global_agents = get_global_instruction_path(aikito_dir)
+    try:
+        projects = collect_project_summaries(aikito_dir, resolved_home)
+        has_overlay = _has_overlay_projects(projects)
+        status, _ = check_global_overlay_guidance_status(global_agents)
+        if (has_overlay and status != "OK") or status == "CORRUPTED":
+            ok, msg = ensure_global_overlay_guidance(global_agents, force_recover=True)
+            if ok and msg:
+                fixes.append(msg)
+    except OSError:
+        pass
+
     return fixes
 
 

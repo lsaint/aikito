@@ -24,7 +24,9 @@ from .config_runtime import (
     aggregate_file_plans,
 )
 from .diagnostics import Finding, is_error_finding
+from .frontmatter import _parse_markdown_frontmatter, _split_markdown_frontmatter
 from .inspection import InspectionStatus, ResourceInspectionView
+from .instructions import normalize_instructions_content
 from .plan_observation import (
     OperationEffect,
     PlanObservation,
@@ -59,7 +61,6 @@ from .subagent_validation import validate_platform_opts as validate_platform_opt
 
 DEFAULT_SUBAGENTS_CONFIG = Path("subagents")
 SUBAGENTS_DIR = Path("subagents")
-BACKUP_DIR = Path(".local/state/aikito/backups")
 
 SUBAGENT_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")
 
@@ -372,6 +373,54 @@ def get_target_subagent_path(
     )
 
 
+def is_subagent_content_equivalent(
+    target_path: Path,
+    rendered: str,
+    definition: SubagentDefinition,
+) -> bool:
+    """Check if an unmanaged subagent target file has content equivalent to the canonical definition."""
+    try:
+        target_content = target_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+
+    # 1. Compare directly after stripping the Aikito marker line(s) from rendered
+    rendered_no_marker = "\n".join(
+        line for line in rendered.splitlines() if not has_aikito_marker_text(line)
+    )
+    if normalize_instructions_content(target_content) == normalize_instructions_content(
+        rendered_no_marker
+    ):
+        return True
+
+    # 2. Markdown frontmatter + body comparison
+    split_res = _split_markdown_frontmatter(target_content)
+    if not split_res:
+        split_res = _split_markdown_frontmatter(target_content.strip())
+    if split_res:
+        target_meta, target_body = _parse_markdown_frontmatter(target_content)
+        rendered_meta, rendered_body = _parse_markdown_frontmatter(rendered_no_marker)
+
+        # Check instructions match
+        if normalize_instructions_content(
+            target_body
+        ) == normalize_instructions_content(rendered_body):
+            # Check description and name match if present
+            target_name = target_meta.get("name")
+            target_desc = target_meta.get("description")
+            name_matches = (
+                target_name is None or str(target_name).strip() == definition.name
+            )
+            desc_matches = (
+                target_desc is None
+                or str(target_desc).strip() == definition.description
+            )
+            if name_matches and desc_matches:
+                return True
+
+    return False
+
+
 def build_subagent_plan(
     aikito_dir: Path,
     home: Path,
@@ -672,17 +721,30 @@ def build_subagent_plan(
                             )
                         )
                 else:
-                    operations.append(
-                        ConfigOperation(
-                            target=target,
-                            action="CONFLICT" if not is_force_auth else "UPDATE",
-                            reason="Target file exists without Aikito marker",
-                            requires_force=True,
-                            force_identity=force_id,
-                            is_authorized=is_force_auth,
-                            rendered_payload=rendered,
+                    if is_subagent_content_equivalent(
+                        target_path, rendered, definition
+                    ):
+                        operations.append(
+                            ConfigOperation(
+                                target=target,
+                                action="UPDATE",
+                                reason="Target file has equivalent content; safe to take over with Aikito marker",
+                                is_authorized=True,
+                                rendered_payload=rendered,
+                            )
                         )
-                    )
+                    else:
+                        operations.append(
+                            ConfigOperation(
+                                target=target,
+                                action="CONFLICT" if not is_force_auth else "UPDATE",
+                                reason="Target file exists without Aikito marker",
+                                requires_force=True,
+                                force_identity=force_id,
+                                is_authorized=is_force_auth,
+                                rendered_payload=rendered,
+                            )
+                        )
 
         for sub_name, target_path in adapter.list_managed(
             agent_config.config_path
@@ -760,7 +822,7 @@ def _backup_file(home: Path, agent_name: str, target_path: Path) -> Path | None:
     if not target_path.is_file():
         return None
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    backup_path = home / BACKUP_DIR / agent_name / f"{timestamp}-{target_path.name}"
+    backup_path = home / ".aikito" / "backups" / f"sync_{timestamp}" / target_path.name
     backup_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(target_path, backup_path)
     return backup_path

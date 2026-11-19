@@ -50,7 +50,10 @@ def fake_home(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def fake_workspace(tmp_path: Path, fake_home: Path) -> Path:
+def fake_workspace(
+    tmp_path: Path, fake_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(fake_home / ".config"))
     ws = tmp_path / "workspace"
     for directory in (
         "agents",

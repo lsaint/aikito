@@ -176,7 +176,7 @@ class AikitoAdoptTest(unittest.TestCase):
         claude_dir.mkdir(parents=True)
         (claude_dir / "CLAUDE.md").write_text("Claude Rules\n", encoding="utf-8")
         (claude_dir / "claude_desktop_config.json").write_text(
-            json.dumps({"mcpServers": {"example": {"command": "example"}}}),
+            json.dumps({"mcpServers": {"example": {"url": "https://example.com/mcp"}}}),
             encoding="utf-8",
         )
 
@@ -201,7 +201,7 @@ class AikitoAdoptTest(unittest.TestCase):
         codex_dir.mkdir(parents=True)
         (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
         (codex_dir / "config.toml").write_text(
-            '[mcp_servers.example]\ncommand = "example"\n', encoding="utf-8"
+            '[mcp_servers.example]\nurl = "https://example.com/mcp"\n', encoding="utf-8"
         )
 
         summary = summarize_adopt_plan(
@@ -220,7 +220,8 @@ class AikitoAdoptTest(unittest.TestCase):
         codex_dir.mkdir(parents=True)
         (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
         (codex_dir / "config.toml").write_text(
-            '[mcp_servers."../escape"]\ncommand = "example"\n', encoding="utf-8"
+            '[mcp_servers."../escape"]\nurl = "https://example.com/mcp"\n',
+            encoding="utf-8",
         )
         plan = build_adopt_plan(self.target_path, self.fake_home)
 
@@ -247,7 +248,7 @@ class AikitoAdoptTest(unittest.TestCase):
         claude_dir = self.fake_home / ".claude"
         claude_dir.mkdir(parents=True)
         (claude_dir / "claude_desktop_config.json").write_text(
-            json.dumps({"mcpServers": {"example": {"command": "example"}}}),
+            json.dumps({"mcpServers": {"example": {"url": "https://example.com/mcp"}}}),
             encoding="utf-8",
         )
 
@@ -263,7 +264,8 @@ class AikitoAdoptTest(unittest.TestCase):
         codex_dir.mkdir(parents=True)
         (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
         (codex_dir / "config.toml").write_text(
-            '[mcp_servers."../escape"]\ncommand = "example"\n', encoding="utf-8"
+            '[mcp_servers."../escape"]\nurl = "https://example.com/mcp"\n',
+            encoding="utf-8",
         )
         plan = apply_adopt_skips(
             build_adopt_plan(self.target_path, self.fake_home),
@@ -283,7 +285,7 @@ class AikitoAdoptTest(unittest.TestCase):
         claude_dir.mkdir(parents=True)
         (claude_dir / "CLAUDE.md").write_text("Claude Rules\n", encoding="utf-8")
         (codex_dir / "config.toml").write_text(
-            '[mcp_servers.example]\ncommand = "example"\n', encoding="utf-8"
+            '[mcp_servers.example]\nurl = "https://example.com/mcp"\n', encoding="utf-8"
         )
         plan = apply_adopt_skips(
             build_adopt_plan(self.target_path, self.fake_home), ["instructions"]
@@ -357,13 +359,21 @@ class AikitoAdoptTest(unittest.TestCase):
     ) -> None:
         write_agents(self.target_path, load_agents_template())
         (self.fake_home / ".claude.json").write_text(
-            json.dumps({"mcpServers": {"example-server": {"command": "first"}}}),
+            json.dumps(
+                {"mcpServers": {"example-server": {"url": "https://first.example.com"}}}
+            ),
             encoding="utf-8",
         )
         claude_dir = self.fake_home / ".claude"
         claude_dir.mkdir(parents=True)
         (claude_dir / "claude_desktop_config.json").write_text(
-            json.dumps({"mcpServers": {"example_server": {"command": "second"}}}),
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "example_server": {"url": "https://second.example.com"}
+                    }
+                }
+            ),
             encoding="utf-8",
         )
 
@@ -555,7 +565,8 @@ config_format = "claude_json"
         codex_dir.mkdir(parents=True)
         source = codex_dir / "config.toml"
         source.write_text(
-            '[mcp_servers."../escape"]\ncommand = "example"\n', encoding="utf-8"
+            '[mcp_servers."../escape"]\nurl = "https://example.com/mcp"\n',
+            encoding="utf-8",
         )
 
         findings = collect_adopt_findings(
@@ -650,6 +661,7 @@ config_format = "claude_json"
         self.assertIn("unrecognized arguments: --apply", error.getvalue())
 
     def test_adopt_apply_points_to_safe_sync(self) -> None:
+        write_agents(self.target_path, load_agents_template())
         codex_dir = self.fake_home / ".codex"
         codex_dir.mkdir(parents=True)
         (codex_dir / "AGENTS.md").write_text("Shared Rules\n", encoding="utf-8")
@@ -662,13 +674,42 @@ config_format = "claude_json"
         self.assertIn("aikito sync", output.getvalue())
         self.assertNotIn("aikito sync --dry-run", output.getvalue())
 
-    def test_adopt_mcp_servers(self) -> None:
+        from aikito.instructions import (
+            build_global_instruction_batch,
+            execute_instruction_plan,
+            plan_instructions,
+        )
+
+        batch = build_global_instruction_batch(self.target_path, self.fake_home)
+        sync_plan = plan_instructions(batch, self.fake_home)
+        self.assertTrue(sync_plan.can_apply)
+        sync_res = execute_instruction_plan(sync_plan, self.fake_home)
+        self.assertTrue(sync_res.success)
+        self.assertTrue((codex_dir / "AGENTS.md").is_symlink())
+
+    def test_adopt_mcp_servers_skips_stdio(self) -> None:
         claude_dir = self.fake_home / ".claude"
         claude_dir.mkdir(parents=True)
         config_json = claude_dir / "claude_desktop_config.json"
         config_json.write_text(
             json.dumps(
                 {"mcpServers": {"test_server": {"command": "npx", "args": ["test"]}}}
+            ),
+            encoding="utf-8",
+        )
+
+        plan = build_adopt_plan(self.target_path, self.fake_home)
+        self.assertEqual(len(plan.mcp_servers), 0)
+        execute_adoption(plan, dry_run=False)
+        self.assertFalse((self.target_path / "mcps" / "test_server.toml").exists())
+
+    def test_adopt_mcp_servers_remote(self) -> None:
+        claude_dir = self.fake_home / ".claude"
+        claude_dir.mkdir(parents=True)
+        config_json = claude_dir / "claude_desktop_config.json"
+        config_json.write_text(
+            json.dumps(
+                {"mcpServers": {"test_server": {"url": "https://mcp.example.com/v1"}}}
             ),
             encoding="utf-8",
         )
@@ -681,7 +722,7 @@ config_format = "claude_json"
         mcps_toml = self.target_path / "mcps" / "test_server.toml"
         self.assertTrue(mcps_toml.is_file())
         content = mcps_toml.read_text(encoding="utf-8")
-        self.assertIn('command = "npx"', content)
+        self.assertIn('url = "https://mcp.example.com/v1"', content)
 
     def test_adopt_mcp_servers_with_env_dict_and_escaping(self) -> None:
         claude_dir = self.fake_home / ".claude"
@@ -692,6 +733,7 @@ config_format = "claude_json"
                 {
                     "mcpServers": {
                         "complex_server": {
+                            "url": "https://mcp.example.com/v1",
                             "command": 'npx "with quotes"',
                             "args": ["arg1", "arg2"],
                             "env": {
@@ -766,6 +808,7 @@ config_format = "claude_json"
                 {
                     "mcpServers": {
                         server_key: {
+                            "url": "https://mcp.example.com/v1",
                             "command": "npx",
                             "args": ["test"],
                         }
@@ -782,7 +825,7 @@ config_format = "claude_json"
         mcps_toml = self.target_path / "mcps" / f"{server_key}.toml"
         self.assertTrue(mcps_toml.is_file())
         content = mcps_toml.read_text(encoding="utf-8")
-        self.assertIn('command = "npx"', content)
+        self.assertIn('url = "https://mcp.example.com/v1"', content)
 
         # Verify tomllib.loads succeeds on generated TOML
         import tomllib
@@ -1180,7 +1223,7 @@ url = "https://example.com/shared"
 
         # Also add an MCP server to create multiple file plans
         (self.fake_home / ".claude.json").write_text(
-            json.dumps({"mcpServers": {"server-a": {"command": "echo"}}}),
+            json.dumps({"mcpServers": {"server-a": {"url": "https://example.com/a"}}}),
             encoding="utf-8",
         )
 

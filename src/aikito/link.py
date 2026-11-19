@@ -8,7 +8,9 @@ command module imports the other.
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -701,6 +703,7 @@ def apply_link_operation(
     dry_run: bool = False,
     verbose: bool = False,
     quiet_unchanged: bool = False,
+    home: Path | None = None,
 ) -> LinkExecutionResult:
     """Apply a planned LinkOperation with strict preflight verification."""
     target = op.target_path
@@ -964,8 +967,47 @@ def apply_link_operation(
                     error_message=f"Preflight failed: consumer parent directory missing for {target} (stale plan)",
                 )
 
-        # Preflight: target must not exist
-        if target.is_symlink() or target.exists():
+        # Preflight: target existence check
+        if op.expected_representation == "file":
+            if not (target.is_file() and not target.is_symlink()):
+                return LinkExecutionResult(
+                    operation=op,
+                    success=False,
+                    applied=False,
+                    error_message=f"Preflight failed: expected target to be a regular file: {target} (stale plan)",
+                )
+            if dry_run:
+                if op.target_kind == "instruction_link":
+                    print(
+                        f"[DRY RUN LINK] {op.resource_name} instructions: {target} -> {canonical}"
+                    )
+                else:
+                    print(f"[DRY RUN LINK] {canonical} -> {target}")
+                return LinkExecutionResult(operation=op, success=True, applied=False)
+
+            user_home = home if home is not None else Path.home()
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            backup_dir = user_home / ".aikito" / "backups" / f"sync_{timestamp}"
+            try:
+                backup_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(target, backup_dir / target.name)
+            except OSError as exc:
+                return LinkExecutionResult(
+                    operation=op,
+                    success=False,
+                    applied=False,
+                    error_message=f"Failed to backup target file {target}: {exc}",
+                )
+            try:
+                target.unlink()
+            except OSError as exc:
+                return LinkExecutionResult(
+                    operation=op,
+                    success=False,
+                    applied=False,
+                    error_message=f"Failed to remove pre-existing file {target}: {exc}",
+                )
+        elif target.is_symlink() or target.exists():
             return LinkExecutionResult(
                 operation=op,
                 success=False,

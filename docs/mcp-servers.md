@@ -153,6 +153,10 @@ builtin_mcps = ["openaiDeveloperDocs"]
 ```
 
 When `aikito adopt` scans local Agent configurations, any server listed in `builtin_mcps` that is not shared by other Agents is automatically skipped.
+Furthermore, local stdio-only MCP servers (command-based entries without an HTTP/HTTPS `url`)
+are automatically skipped during adoption with a warning, preventing invalid canonical MCP
+definitions from blocking downstream synchronization. Only remote MCP endpoints or entries
+carrying a `url` are imported into `mcps/*.toml`.
 Hyphen-to-underscore name matching is applied only to Agents whose registry entry
 uses `name_style = "underscore"`. Matching names with the same URL are treated
 as the same MCP server; Agent-specific headers, environment variables, and other

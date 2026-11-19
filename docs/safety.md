@@ -42,12 +42,18 @@ not bypass directory safety checks.
 or memory resources. It also refuses to bind an existing project name to a
 different code directory.
 
-## Doctor pruning
+## Doctor pruning and Diagnostics
 
 In multi-host SoT setups, undetected Agents on a specific machine are offline and
 must not be removed from `agents/<name>.toml` so other hosts can continue using them.
 The `--prune` flag has been removed from `aikito doctor`. Offline
 agents are preserved safely across all machines.
+
+When projects use overlay mode (linking personal instructions to `.agents/AGENTS.md` alongside
+team rules), `aikito doctor` verifies that the Global `AGENTS.md` contains an intact Overlay
+Guidance block. If the block is missing or its markers are corrupted, `doctor` flags a warning,
+and `aikito doctor --fix` safely restores the managed guidance block while strictly preserving any
+custom rules or content outside the markers.
 
 ## Adoption
 
@@ -58,7 +64,9 @@ plan. Use `aikito adopt --dry-run` for a concise read-only plan, or
 add `--verbose` to inspect every source and target.
 
 Each blocking finding names the affected resource, source, reason, and an exact
-next command. `aikito doctor` reports the same findings in its Adoption section
+next command. Stdio-only MCP servers lacking a remote URL are automatically skipped
+during adoption to prevent generating unroutable workspace definitions that would halt
+workspace synchronization. `aikito doctor` reports the same findings in its Adoption section
 without importing anything; `doctor --fix` does not apply or skip adoption.
 If a detected resource is intentionally out of scope, use a repeatable,
 one-shot `--skip instructions`, `--skip mcp/<name>`, or
@@ -133,8 +141,9 @@ not prove that Aikito owns it.
 | Unmanaged project skill directory matches the canonical skill | Leave files unchanged and report that ownership is unproven | `aikito sync project <name> --force` can explicitly claim the matching copy. |
 | Unregistered global skill directory or foreign skill symlink | Preserve and ignore the entry | External tools continue to manage it. A same-name registered skill remains a conflict requiring manual resolution. |
 | Project contains a Git-tracked instruction file (e.g. `AGENTS.md`) | Shift personal instruction link to `.agents/AGENTS.md` (overlay mode) and exclude it in `.git/info/exclude` | Personal instructions augment rather than replace team rules without polluting git status. |
-| Existing instruction or memory target is unmanaged | Report a conflict and preserve the target | Inspect both sources and resolve manually; `--force` cannot overwrite instructions or memory. |
-| Unmanaged subagent definition occupies a selected target | Report a conflict and preserve the definition | Review it; `aikito sync subagents --force <agent>/<subagent>` authorizes only that target. |
+| Existing instruction target is unmanaged | If content is equivalent to canonical, automatically take over ownership as a symlink and back up original file to `~/.aikito/backups/sync_<timestamp>/`; if content differs, report a conflict and preserve the target | Inspect both sources and resolve manually; `--force` cannot overwrite divergent instructions or memory. |
+| Existing memory target is unmanaged | Report a conflict and preserve the target | Inspect both sources and resolve manually; `--force` cannot overwrite memory. |
+| Unmanaged subagent definition occupies a selected target | If content is equivalent, automatically take over by injecting the managed marker and back up original file; if content differs, report a conflict and preserve the definition | Review it; `aikito sync subagents --force <agent>/<subagent>` authorizes only that target. |
 | Managed MCP server was edited outside Aikito | Block MCP sync and preserve the configuration | Review the server; `aikito sync mcp --force` can replace the conflicting managed server node. |
 | Unmanaged MCP server or unrelated configuration | Preserve it; a same-name collision blocks sync | Resolve the collision explicitly. Other servers and non-MCP settings remain untouched. |
 

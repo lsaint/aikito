@@ -21,6 +21,7 @@ from .link import (
     plan_link_target,
 )
 from .plan_observation import PlanObservation, PlanOperationView
+from .templating import load_default_memory_instruction
 
 
 @dataclass(frozen=True)
@@ -203,6 +204,74 @@ class InstructionExecutionResult:
     error_message: str | None = None
 
 
+GLOBAL_INSTRUCTION_RELPATH = Path("global") / "AGENTS.md"
+
+OVERLAY_INSTRUCTION_BLOCK_START = "<!-- AIKITO:MANAGED:OVERLAY_INSTRUCTION:START -->"
+OVERLAY_INSTRUCTION_BLOCK_END = "<!-- AIKITO:MANAGED:OVERLAY_INSTRUCTION:END -->"
+OVERLAY_INSTRUCTION_TEXT = (
+    "Before starting any task in the current project, if `.agents/AGENTS.md` exists, "
+    "you must read and follow it."
+)
+OVERLAY_MANAGED_BLOCK = (
+    f"{OVERLAY_INSTRUCTION_BLOCK_START}\n"
+    f"{OVERLAY_INSTRUCTION_TEXT}\n"
+    f"{OVERLAY_INSTRUCTION_BLOCK_END}"
+)
+
+
+def normalize_instructions_content(text: str) -> str:
+    lines = [line.rstrip() for line in text.strip().splitlines()]
+    return "\n".join(lines)
+
+
+def is_instruction_content_equivalent(
+    target_content: str, canonical_content: str
+) -> bool:
+    """Determine whether target instruction content is equivalent to canonical instructions."""
+    norm_target = normalize_instructions_content(target_content)
+    norm_canonical = normalize_instructions_content(canonical_content)
+    if norm_target == norm_canonical:
+        return True
+
+    # If canonical has appended default memory instructions (as done during adoption),
+    # check if appending default memory instruction to target produces canonical.
+    default_instruction = load_default_memory_instruction()
+    default_rule = normalize_instructions_content(default_instruction)
+    if default_rule in norm_canonical:
+        appended = (
+            f"{norm_target}\n\n{default_instruction}"
+            if norm_target
+            else default_instruction
+        )
+        if normalize_instructions_content(appended) == norm_canonical:
+            return True
+
+    # Check if canonical has overlay guidance block, strip it and re-check
+    pattern = re.compile(
+        rf"{re.escape(OVERLAY_INSTRUCTION_BLOCK_START)}[\s\S]*?{re.escape(OVERLAY_INSTRUCTION_BLOCK_END)}"
+    )
+    if OVERLAY_INSTRUCTION_BLOCK_START in canonical_content:
+        canonical_stripped = pattern.sub("", canonical_content)
+        norm_canonical_stripped = normalize_instructions_content(canonical_stripped)
+        if norm_target == norm_canonical_stripped:
+            return True
+        if default_rule in norm_canonical_stripped:
+            appended = (
+                f"{norm_target}\n\n{default_instruction}"
+                if norm_target
+                else default_instruction
+            )
+            if normalize_instructions_content(appended) == norm_canonical_stripped:
+                return True
+
+    return False
+
+
+def get_global_instruction_path(aikito_dir: Path) -> Path:
+    """Return the canonical path to global instructions: <workspace>/global/AGENTS.md."""
+    return aikito_dir / GLOBAL_INSTRUCTION_RELPATH
+
+
 def build_global_instruction_batch(
     aikito_dir: Path,
     home: Path,
@@ -212,7 +281,7 @@ def build_global_instruction_batch(
     """Build an InstructionBatch for global instructions."""
     if registry is None:
         registry = AgentRegistry.load(aikito_dir, home)
-    canonical = aikito_dir / "global" / "AGENTS.md"
+    canonical = get_global_instruction_path(aikito_dir)
     targets = resolve_targets(
         "global_instructions", aikito_dir, home, registry=registry
     )
@@ -498,23 +567,54 @@ def plan_instructions(
                     is_authorized=False,
                 )
             elif observed.entry_type == "file":
-                op = LinkOperation(
-                    action="CONFLICT",
-                    rule_id="INV-INST-03",
-                    target_path=target.path,
-                    canonical_path=batch.canonical_source,
-                    reason=(
-                        f"Target preserved: {target.path}. "
-                        f"Target is a regular file; Aikito does not overwrite existing instruction files. "
-                        f"Move or remove it manually, then run sync again."
-                    ),
-                    finding=f"Pre-existing regular instruction file: {target.path}",
-                    expected_representation="file",
-                    desired_representation="link",
-                    target_kind="instruction_link",
-                    resource_name=resource_name,
-                    is_authorized=False,
-                )
+                is_equivalent = False
+                try:
+                    target_text = target.path.read_text(
+                        encoding="utf-8", errors="replace"
+                    )
+                    canon_text = batch.canonical_source.read_text(
+                        encoding="utf-8", errors="replace"
+                    )
+                    is_equivalent = is_instruction_content_equivalent(
+                        target_text, canon_text
+                    )
+                except OSError:
+                    pass
+
+                if is_equivalent:
+                    op = LinkOperation(
+                        action="CREATE",
+                        rule_id="INV-INST-03-TAKEOVER",
+                        target_path=target.path,
+                        canonical_path=batch.canonical_source,
+                        reason=(
+                            f"Target regular file '{target.path}' has equivalent content to canonical instructions; "
+                            f"safe to take over as symlink"
+                        ),
+                        expected_representation="file",
+                        desired_representation="link",
+                        target_kind="instruction_link",
+                        resource_name=resource_name,
+                        is_authorized=True,
+                    )
+                else:
+                    op = LinkOperation(
+                        action="CONFLICT",
+                        rule_id="INV-INST-03",
+                        target_path=target.path,
+                        canonical_path=batch.canonical_source,
+                        reason=(
+                            f"Target preserved: {target.path}. "
+                            f"Target is a regular file; Aikito does not overwrite existing instruction files. "
+                            f"Move or remove it manually, then run sync again."
+                        ),
+                        finding=f"Pre-existing regular instruction file: {target.path}",
+                        expected_representation="file",
+                        desired_representation="link",
+                        target_kind="instruction_link",
+                        resource_name=resource_name,
+                        is_authorized=False,
+                    )
             elif observed.entry_type == "symlink":
                 if observed.link_points_to_canonical:
                     op = LinkOperation(
@@ -793,7 +893,11 @@ def execute_instruction_plan(
 
     for op in plan.operations:
         res = apply_link_operation(
-            op, dry_run=dry_run, verbose=verbose, quiet_unchanged=quiet_unchanged
+            op,
+            dry_run=dry_run,
+            verbose=verbose,
+            quiet_unchanged=quiet_unchanged,
+            home=home,
         )
         executed_ops.append(res.operation)
         if not res.success:
@@ -847,26 +951,73 @@ def execute_instruction_plan(
     )
 
 
-OVERLAY_INSTRUCTION_BLOCK_START = "<!-- AIKITO:MANAGED:OVERLAY_INSTRUCTION:START -->"
-OVERLAY_INSTRUCTION_BLOCK_END = "<!-- AIKITO:MANAGED:OVERLAY_INSTRUCTION:END -->"
-OVERLAY_INSTRUCTION_TEXT = (
-    "Before starting any task in the current project, if `.agents/AGENTS.md` exists, "
-    "you must read and follow it."
-)
-OVERLAY_MANAGED_BLOCK = (
-    f"{OVERLAY_INSTRUCTION_BLOCK_START}\n"
-    f"{OVERLAY_INSTRUCTION_TEXT}\n"
-    f"{OVERLAY_INSTRUCTION_BLOCK_END}"
-)
+def check_global_overlay_guidance_status(
+    global_instruction_path: Path,
+) -> tuple[str, str | None]:
+    """Inspect the status of the overlay guidance block in global AGENTS.md.
+
+    Returns:
+        (status, detail)
+        where status is one of "OK", "MISSING", "CORRUPTED"
+    """
+    if not global_instruction_path.is_file():
+        return "MISSING", f"File not found: {global_instruction_path}"
+
+    try:
+        text = global_instruction_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return "CORRUPTED", f"Could not read file: {exc}"
+
+    if not text.strip():
+        return "MISSING", "Global instruction file is empty"
+
+    has_start = OVERLAY_INSTRUCTION_BLOCK_START in text
+    has_end = OVERLAY_INSTRUCTION_BLOCK_END in text
+
+    if not has_start and not has_end:
+        return "MISSING", "missing overlay instruction guidance block"
+
+    if has_start != has_end:
+        return (
+            "CORRUPTED",
+            "corrupted overlay instruction guidance block (mismatched markers)",
+        )
+
+    pattern = re.compile(
+        rf"{re.escape(OVERLAY_INSTRUCTION_BLOCK_START)}[\s\S]*?{re.escape(OVERLAY_INSTRUCTION_BLOCK_END)}"
+    )
+    match = pattern.search(text)
+    if match and match.group(0).strip() == OVERLAY_MANAGED_BLOCK.strip():
+        return "OK", None
+
+    return "CORRUPTED", "corrupted or modified overlay instruction guidance block"
 
 
 def ensure_global_overlay_guidance(
     global_instruction_path: Path,
     *,
     dry_run: bool = False,
+    force_recover: bool = False,
 ) -> tuple[bool, str | None]:
     """Ensure global AGENTS.md contains the overlay guidance block idempotently."""
     if not global_instruction_path.is_file():
+        if force_recover:
+            if dry_run:
+                return (
+                    True,
+                    f"[DRY-RUN] Would create {global_instruction_path} with overlay instruction block",
+                )
+            try:
+                global_instruction_path.parent.mkdir(parents=True, exist_ok=True)
+                global_instruction_path.write_text(
+                    OVERLAY_MANAGED_BLOCK + "\n", encoding="utf-8"
+                )
+                return (
+                    True,
+                    f"Created {global_instruction_path}: added overlay instruction block",
+                )
+            except OSError as exc:
+                return False, f"Failed to create {global_instruction_path}: {exc}"
         return False, f"Global instruction file not found: {global_instruction_path}"
 
     try:
@@ -878,17 +1029,26 @@ def ensure_global_overlay_guidance(
         )
 
     if not text.strip():
+        if force_recover:
+            if dry_run:
+                return (
+                    True,
+                    f"[DRY-RUN] Would initialize overlay instruction block in {global_instruction_path}",
+                )
+            try:
+                global_instruction_path.write_text(
+                    OVERLAY_MANAGED_BLOCK + "\n", encoding="utf-8"
+                )
+                return (
+                    True,
+                    f"Updated {global_instruction_path}: initialized overlay instruction block",
+                )
+            except OSError as exc:
+                return False, f"Failed to update {global_instruction_path}: {exc}"
         return False, f"Global instruction file is empty: {global_instruction_path}"
 
     has_start = OVERLAY_INSTRUCTION_BLOCK_START in text
     has_end = OVERLAY_INSTRUCTION_BLOCK_END in text
-
-    if has_start != has_end:
-        return (
-            False,
-            f"Corrupted overlay instruction block detected in {global_instruction_path} "
-            "(mismatched START/END markers). Please fix manually.",
-        )
 
     pattern = re.compile(
         rf"{re.escape(OVERLAY_INSTRUCTION_BLOCK_START)}[\s\S]*?{re.escape(OVERLAY_INSTRUCTION_BLOCK_END)}"
@@ -914,6 +1074,36 @@ def ensure_global_overlay_guidance(
                 )
             except OSError as exc:
                 return False, f"Failed to update {global_instruction_path}: {exc}"
+
+    if has_start or has_end:
+        # Corrupted markers or malformed block
+        if force_recover:
+            if dry_run:
+                return (
+                    True,
+                    f"[DRY-RUN] Would restore corrupted overlay instruction block in {global_instruction_path}",
+                )
+            cleaned = text.replace(OVERLAY_INSTRUCTION_BLOCK_START, "")
+            cleaned = cleaned.replace(OVERLAY_INSTRUCTION_BLOCK_END, "")
+            cleaned = cleaned.replace(OVERLAY_INSTRUCTION_TEXT, "")
+            new_body = cleaned.rstrip()
+            if new_body:
+                new_text = new_body + "\n\n" + OVERLAY_MANAGED_BLOCK + "\n"
+            else:
+                new_text = OVERLAY_MANAGED_BLOCK + "\n"
+            try:
+                global_instruction_path.write_text(new_text, encoding="utf-8")
+                return (
+                    True,
+                    f"Updated {global_instruction_path}: restored corrupted overlay instruction block",
+                )
+            except OSError as exc:
+                return False, f"Failed to update {global_instruction_path}: {exc}"
+        return (
+            False,
+            f"Corrupted overlay instruction block detected in {global_instruction_path} "
+            "(mismatched START/END markers). Please fix manually.",
+        )
 
     if dry_run:
         return (

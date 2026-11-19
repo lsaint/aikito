@@ -21,11 +21,18 @@ aikito status
 
 `aikito sync` first builds the complete workspace plan. It writes only when all
 active scopes are safe, skips resources for Agents that are offline on this
-machine, and does not silently replace unmanaged files. Use `--dry-run` only
+machine, and does not silently replace unmanaged files with differing content. Use `--dry-run` only
 when you specifically want to stop after the read-only plan; add `--verbose`
 when exact items and paths are useful.
 
-If synchronization reports an unmanaged target, inspect both versions and
+When synchronizing after adoption, if an existing target file (such as a global
+instruction file or subagent definition) has equivalent content to the canonical source,
+Aikito automatically takes over ownership (replacing the regular file with a canonical symlink
+or injecting the subagent managed marker) after creating a timestamped backup under
+`~/.aikito/backups/sync_<timestamp>/`. If the content has diverged, synchronization preserves
+the unmanaged target and reports a conflict.
+
+If synchronization reports an unmanaged target conflict, inspect both versions and
 follow the [conflict guide](troubleshooting.md#existing-files-conflict). Use
 `--force` or `--prune` only after choosing what should be discarded.
 

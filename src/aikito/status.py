@@ -21,6 +21,7 @@ from .mcp import (
     redact_mcp_entry,
 )
 from .context_footprint import extract_skill_description
+from .instructions import get_global_instruction_path
 from .memory import extract_note_title
 from .project import (
     collect_project_summaries,
@@ -674,7 +675,9 @@ def get_status_report_data(aikito_dir: Path, home: Path) -> StatusReportData:
     total_issues = agent_issues + mem_issues
 
     # Global scope row
-    global_instr = get_instructions_line_count_display(aikito_dir / "AGENTS.md")
+    global_instr = get_instructions_line_count_display(
+        get_global_instruction_path(aikito_dir)
+    )
     global_notes_count = (
         memory_rows[0].notes_count
         if memory_rows and memory_rows[0].scope.lower() == "global"

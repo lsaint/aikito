@@ -1193,7 +1193,7 @@ instruction_path = ".codex/AGENTS.md"
             init_workspace(aikito_dir, home)
 
             # Global AGENTS.md with 3 physical lines
-            (aikito_dir / "AGENTS.md").write_text(
+            (aikito_dir / "global" / "AGENTS.md").write_text(
                 "# Line 1\n# Line 2\n# Line 3\n", encoding="utf-8"
             )
             # Create a project with 2 lines in AGENTS.md

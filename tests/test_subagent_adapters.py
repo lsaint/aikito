@@ -166,7 +166,7 @@ config_format = "dsh_cordis_subagent"
     result = execute_subagent_plan(plan, home)
     assert result.success
     assert path.read_text() == plan.file_plans[0].final_content
-    backups = list((home / ".local/state/aikito/backups").rglob("*"))
+    backups = list((home / ".aikito/backups").rglob("*"))
     assert any(
         item.is_file() and item.read_text() == "# External edit\n" for item in backups
     )

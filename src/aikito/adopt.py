@@ -220,6 +220,8 @@ def render_mcp_server_file(
         or "\\" in srv.server_name
     ):
         return None, f"[ERROR] Invalid MCP server name: {srv.server_name!r}"
+    if not cfg.get("url") or not isinstance(cfg.get("url"), str):
+        return None, f"[ERROR] MCP server '{srv.server_name}' requires a remote URL"
     lines = [f"agents = {_format_toml_value(srv.agents)}"]
 
     for key in ("command", "url", "args", "env", "transport", "headers"):

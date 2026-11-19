@@ -32,6 +32,11 @@ from aikito.render import (
     render_doctor_report,
 )
 from aikito.config_runtime import ConfigOperation, ConfigTarget
+from aikito.instructions import (
+    OVERLAY_INSTRUCTION_BLOCK_START,
+    OVERLAY_MANAGED_BLOCK,
+    get_global_instruction_path,
+)
 from aikito.subagent import SubagentPlan
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1144,7 +1149,7 @@ class AdoptionDoctorTest(unittest.TestCase):
             (home / ".codex").mkdir(parents=True)
             source = home / ".codex" / "config.toml"
             source.write_text(
-                '[mcp_servers."../escape"]\ncommand = "example"\n',
+                '[mcp_servers."../escape"]\nurl = "https://example.com/mcp"\n',
                 encoding="utf-8",
             )
 
@@ -1846,6 +1851,147 @@ class ConflictMarkersTest(unittest.TestCase):
         ok_msgs = [f.message for f in section.findings if f.status == "OK"]
         # Two notes and two top-level configuration files.
         self.assertTrue(any("4 files checked" in m for m in ok_msgs))
+
+
+class DoctorOverlayGuidanceTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.workspace = self.root / "aikito"
+        self.workspace.mkdir()
+        self.home = self.root / "home"
+        self.home.mkdir()
+        self.project_path = self.root / "demo"
+        self.project_path.mkdir()
+        self.project_dir = self.workspace / "projects" / "demo"
+        self.project_dir.mkdir(parents=True)
+        write_agents(
+            self.workspace,
+            "[agents.codex]\nproject_instruction_path = 'AGENTS.md'\n",
+        )
+        (self.project_dir / "agent.toml").write_text(
+            f'path = "{self.project_path.as_posix()}"\nskills = []\n',
+            encoding="utf-8",
+        )
+        (self.project_dir / "AGENTS.md").write_text(
+            "# Project Rules\n", encoding="utf-8"
+        )
+        (self.project_dir / "memory").mkdir()
+        # Set up overlay target in checkout
+        overlay_dir = self.project_path / ".agents"
+        overlay_dir.mkdir(parents=True)
+        (overlay_dir / "AGENTS.md").symlink_to(self.project_dir / "AGENTS.md")
+
+        self.global_agents = get_global_instruction_path(self.workspace)
+        self.global_agents.parent.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_overlay_guidance_ok_when_block_present_and_correct(self) -> None:
+        self.global_agents.write_text(
+            f"# Global Rules\n\n{OVERLAY_MANAGED_BLOCK}\n", encoding="utf-8"
+        )
+        section = check_projects(self.workspace, self.home)
+        ok_findings = [
+            f
+            for f in section.findings
+            if f.status == "OK"
+            and "overlay instruction guidance block is active" in f.message
+        ]
+        self.assertEqual(len(ok_findings), 1)
+
+    def test_overlay_guidance_warns_when_missing(self) -> None:
+        self.global_agents.write_text(
+            "# Global Rules\nNo overlay block here.\n", encoding="utf-8"
+        )
+        section = check_projects(self.workspace, self.home)
+        warn_findings = [
+            f
+            for f in section.findings
+            if f.status == "WARN"
+            and "missing overlay instruction guidance block" in f.message
+        ]
+        self.assertEqual(len(warn_findings), 1)
+        self.assertEqual(warn_findings[0].fix_hint, "aikito doctor --fix")
+
+    def test_overlay_guidance_warns_when_corrupted(self) -> None:
+        self.global_agents.write_text(
+            f"# Global Rules\n\n{OVERLAY_INSTRUCTION_BLOCK_START}\nIncomplete\n",
+            encoding="utf-8",
+        )
+        section = check_projects(self.workspace, self.home)
+        warn_findings = [
+            f
+            for f in section.findings
+            if f.status == "WARN" and "corrupted overlay instruction" in f.message
+        ]
+        self.assertEqual(len(warn_findings), 1)
+        self.assertEqual(warn_findings[0].fix_hint, "aikito doctor --fix")
+
+    def test_doctor_fix_restores_corrupted_block_preserving_custom_content(
+        self,
+    ) -> None:
+        from aikito.doctor import run_doctor_fixes
+
+        custom_header = "# My Custom Instructions\nKeep this rule!\n"
+        custom_footer = "## Footer Rules\nDo not lose this!\n"
+        corrupted_text = (
+            f"{custom_header}\n"
+            f"{OVERLAY_INSTRUCTION_BLOCK_START}\n"
+            f"Some broken overlay text\n\n"
+            f"{custom_footer}"
+        )
+        self.global_agents.write_text(corrupted_text, encoding="utf-8")
+
+        fixes = run_doctor_fixes(self.workspace, self.home)
+        self.assertTrue(
+            any("restored corrupted overlay instruction block" in f for f in fixes)
+        )
+
+        recovered = self.global_agents.read_text(encoding="utf-8")
+        self.assertIn("# My Custom Instructions", recovered)
+        self.assertIn("Keep this rule!", recovered)
+        self.assertIn("## Footer Rules", recovered)
+        self.assertIn("Do not lose this!", recovered)
+        self.assertIn(OVERLAY_MANAGED_BLOCK, recovered)
+
+        section = check_projects(self.workspace, self.home)
+        warn_findings = [
+            f
+            for f in section.findings
+            if f.status == "WARN" and "overlay instruction" in f.message
+        ]
+        self.assertEqual(len(warn_findings), 0)
+        ok_findings = [
+            f
+            for f in section.findings
+            if f.status == "OK"
+            and "overlay instruction guidance block is active" in f.message
+        ]
+        self.assertEqual(len(ok_findings), 1)
+
+    def test_doctor_fix_initializes_empty_file(self) -> None:
+        from aikito.doctor import run_doctor_fixes
+
+        self.global_agents.write_text("", encoding="utf-8")
+        fixes = run_doctor_fixes(self.workspace, self.home)
+        self.assertTrue(
+            any("initialized overlay instruction block" in f for f in fixes)
+        )
+        self.assertIn(
+            OVERLAY_MANAGED_BLOCK,
+            self.global_agents.read_text(encoding="utf-8"),
+        )
+
+        section = check_projects(self.workspace, self.home)
+        ok_findings = [
+            f
+            for f in section.findings
+            if f.status == "OK"
+            and "overlay instruction guidance block is active" in f.message
+        ]
+        self.assertEqual(len(ok_findings), 1)
 
 
 if __name__ == "__main__":

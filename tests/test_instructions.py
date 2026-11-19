@@ -125,6 +125,104 @@ class InstructionBatchAndPlanTests(TestCase):
         self.assertEqual(len(conflicts), 1)
         self.assertEqual(conflicts[0].rule_id, "INV-INST-03")
 
+    def test_plan_global_instructions_regular_file_equivalent_content_takes_over(
+        self,
+    ) -> None:
+        from aikito.templating import load_default_memory_instruction
+
+        # Canonical has user instructions + appended default memory instructions
+        user_text = "# Shared Rules\nLine 1\nLine 2\n"
+        self.global_agents_md.write_text(
+            user_text + "\n" + load_default_memory_instruction() + "\n",
+            encoding="utf-8",
+        )
+        target_file = self.home / ".codex" / "AGENTS.md"
+        target_file.write_text(user_text, encoding="utf-8")
+
+        batch = build_global_instruction_batch(self.ws, self.home)
+        plan = plan_instructions(batch, self.home)
+        self.assertTrue(plan.can_apply)
+        self.assertEqual(len(plan.conflicts), 0)
+
+        # Execution replaces target file with symlink and creates backup
+        res = execute_instruction_plan(plan, self.home)
+        self.assertTrue(res.success)
+        self.assertTrue(target_file.is_symlink())
+        self.assertEqual(target_file.resolve(), self.global_agents_md.resolve())
+
+        # Backup verification
+        backup_dir = self.home / ".aikito" / "backups"
+        self.assertTrue(backup_dir.is_dir())
+        self.assertTrue(any("AGENTS.md" in p.name for p in backup_dir.rglob("*")))
+
+    def test_plan_global_instructions_single_word_diff_conflicts_and_does_not_take_over(
+        self,
+    ) -> None:
+        from aikito.instructions import is_instruction_content_equivalent
+        from aikito.templating import load_default_memory_instruction
+
+        user_text = "# Shared Rules\nLine 1\nAlways use tabs for indentation.\n"
+        target_text_single_word_diff = (
+            "# Shared Rules\nLine 1\nAlways use spaces for indentation.\n"
+        )
+
+        canonical_content = user_text + "\n" + load_default_memory_instruction() + "\n"
+        self.global_agents_md.write_text(canonical_content, encoding="utf-8")
+
+        # Direct equivalence helper must return False
+        self.assertFalse(
+            is_instruction_content_equivalent(
+                target_text_single_word_diff, canonical_content
+            )
+        )
+
+        target_file = self.home / ".codex" / "AGENTS.md"
+        target_file.write_text(target_text_single_word_diff, encoding="utf-8")
+
+        batch = build_global_instruction_batch(self.ws, self.home)
+        plan = plan_instructions(batch, self.home)
+
+        # Must report conflict and CANNOT apply
+        self.assertFalse(plan.can_apply)
+        conflicts = [op for op in plan.conflicts if op.target_path == target_file]
+        self.assertEqual(len(conflicts), 1)
+        self.assertEqual(conflicts[0].rule_id, "INV-INST-03")
+        self.assertEqual(conflicts[0].action, "CONFLICT")
+        # Target file must remain untouched
+        self.assertFalse(target_file.is_symlink())
+        self.assertEqual(
+            target_file.read_text(encoding="utf-8"),
+            target_text_single_word_diff,
+        )
+
+    def test_is_instruction_content_equivalent_negative_cases(self) -> None:
+        from aikito.instructions import (
+            OVERLAY_MANAGED_BLOCK,
+            is_instruction_content_equivalent,
+        )
+        from aikito.templating import load_default_memory_instruction
+
+        base = "# Instructions\nRule 1: Always test code.\n"
+        default_mem = load_default_memory_instruction()
+
+        # 1. Base vs slightly altered base
+        subtle_diff = "# Instructions\nRule 1: Always test feature.\n"
+        self.assertFalse(is_instruction_content_equivalent(subtle_diff, base))
+
+        # 2. Canonical has default memory instruction, target has subtle diff
+        canon_with_mem = f"{base}\n\n{default_mem}"
+        self.assertFalse(is_instruction_content_equivalent(subtle_diff, canon_with_mem))
+
+        # 3. Canonical has overlay block, target has subtle diff
+        canon_with_overlay = f"{base}\n\n{OVERLAY_MANAGED_BLOCK}"
+        self.assertFalse(
+            is_instruction_content_equivalent(subtle_diff, canon_with_overlay)
+        )
+
+        # 4. Canonical has both default memory and overlay, target has subtle diff
+        canon_both = f"{base}\n\n{default_mem}\n\n{OVERLAY_MANAGED_BLOCK}"
+        self.assertFalse(is_instruction_content_equivalent(subtle_diff, canon_both))
+
     def test_plan_global_instructions_wrong_symlink_conflict(self) -> None:
         target_link = self.home / ".codex" / "AGENTS.md"
         other = self.root / "other.md"
