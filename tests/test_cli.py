@@ -2587,6 +2587,54 @@ url = "http://custom.example.com"
         self.assertEqual(mock_stdout.getvalue(), "project rules\n")
         self.assertIn("Also active: global instructions", mock_stderr.getvalue())
 
+    def test_show_instructions_multi_path_display(self) -> None:
+        home = self.home.resolve()
+        (self.aikito_dir / "global").mkdir()
+        (self.aikito_dir / "global" / "AGENTS.md").write_text("global rules\n")
+        (home / ".codex" / "AGENTS.md").symlink_to(
+            self.aikito_dir / "global" / "AGENTS.md"
+        )
+
+        single_proj = self.aikito_dir / "projects" / "single"
+        single_proj.mkdir(parents=True)
+        (single_proj / "AGENTS.md").write_text("single rules\n")
+        single_path = home / "single-repo"
+        single_path.mkdir(parents=True)
+        (single_proj / "agent.toml").write_text(
+            f'name = "single"\npaths = ["{single_path.as_posix()}"]\n'
+        )
+        (single_path / "AGENTS.md").symlink_to(single_proj / "AGENTS.md")
+
+        multi_proj = self.aikito_dir / "projects" / "multi"
+        multi_proj.mkdir(parents=True)
+        (multi_proj / "AGENTS.md").write_text("multi rules\n")
+        multi_path_a = home / "multi-a"
+        multi_path_b = home / "multi-b"
+        multi_path_a.mkdir(parents=True)
+        multi_path_b.mkdir(parents=True)
+        (multi_proj / "agent.toml").write_text(
+            f'name = "multi"\npaths = ["{multi_path_a.as_posix()}", "{multi_path_b.as_posix()}"]\n'
+        )
+        (multi_path_a / "AGENTS.md").symlink_to(multi_proj / "AGENTS.md")
+
+        with (
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
+            patch.object(Path, "home", return_value=home),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "instructions", "--color", "never", "--no-color"]
+            )
+            args.func(args)
+
+        listing = mock_stdout.getvalue()
+        self.assertIn("Projects", listing)
+        self.assertIn("single:  linked", listing)
+        self.assertIn("multi (~/multi-a):  linked", listing)
+        self.assertIn("multi (~/multi-b):  missing", listing)
+
     def test_status_has_no_subcommands(self) -> None:
         with (
             patch("sys.stderr", new_callable=io.StringIO),

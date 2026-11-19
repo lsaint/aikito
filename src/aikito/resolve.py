@@ -375,7 +375,17 @@ def collect_project_instruction_status(
         "CONFLICT": "conflict",
     }
 
-    for name, source, project_path in find_instruction_sources(aikito_dir, home)[1:]:
+    sources = find_instruction_sources(aikito_dir, home)[1:]
+    name_counts: dict[str, int] = {}
+    for name, _, _ in sources:
+        name_counts[name] = name_counts.get(name, 0) + 1
+
+    for name, source, project_path in sources:
+        label = (
+            f"{name} ({safe_relative_path(project_path, home)})"
+            if name_counts.get(name, 0) > 1 and project_path is not None
+            else name
+        )
         try:
             has_content = source.is_file() and bool(
                 source.read_text(encoding="utf-8").strip()
@@ -383,11 +393,15 @@ def collect_project_instruction_status(
         except OSError:
             has_content = False
         if not has_content or project_path is None:
-            rows.append((name, "-"))
+            rows.append((label, "-"))
             continue
-        target = project_path / ".agents" / "AGENTS.md"
+        target = project_path / "AGENTS.md"
+        if not target.exists() and not target.is_symlink():
+            legacy_target = project_path / ".agents" / "AGENTS.md"
+            if legacy_target.exists() or legacy_target.is_symlink():
+                target = legacy_target
         status = symlink_verdict_to_status(classify_symlink(target, source))
-        rows.append((name, status_names.get(status, status.lower())))
+        rows.append((label, status_names.get(status, status.lower())))
     return rows
 
 
