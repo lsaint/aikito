@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.64.0] - 2026-11-19
+
 ### Added
 
 - Added personal instruction overlay mode (`.agents/AGENTS.md`) when a project repository already tracks team instructions in `AGENTS.md`.
@@ -1260,7 +1262,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.63.1...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.64.0...HEAD
+[1.64.0]: https://github.com/lsaint/aikito/compare/v1.63.1...v1.64.0
 [1.63.1]: https://github.com/lsaint/aikito/compare/v1.63.0...v1.63.1
 [1.63.0]: https://github.com/lsaint/aikito/compare/v1.62.0...v1.63.0
 [1.62.0]: https://github.com/lsaint/aikito/compare/v1.61.1...v1.62.0
