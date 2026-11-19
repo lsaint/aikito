@@ -63,10 +63,26 @@ file.
 
 If multiple agents declare the same physical instruction path (e.g. `AGENTS.md`),
 Aikito resolves and plans exactly one physical target link while tracking all
-declaring consumer agents, avoiding redundant writes and ensuring idempotent
+consumer agents, avoiding redundant writes and ensuring idempotent
 symlink management.
 
-If the target repository already contains an unmanaged instruction file,
+### Team Instructions and Personal Instruction Overlay
+
+When a project repository already contains a Git-tracked instruction file (such
+as a team-managed `AGENTS.md`), Aikito enters **overlay mode**:
+
+- Personal project instructions are linked to `.agents/AGENTS.md` instead of
+  conflicting with or overwriting the team `AGENTS.md`.
+- `.agents/AGENTS.md` is automatically registered in `.git/info/exclude` so it
+  never appears as untracked in `git status` or gets accidentally committed.
+- Aikito injects a managed guidance block (`<!-- aikito:managed-block:overlay-instructions -->`)
+  into `<workspace>/global/AGENTS.md`, prompting coding agents to inspect and
+  respect `.agents/AGENTS.md` whenever present in a repository.
+- Claude Code (>= 2.1.277) natively reads `AGENTS.md` at project root. Aikito's
+  bundled Claude Code template targets `AGENTS.md`, and any legacy
+  `.claude/CLAUDE.md` link owned by Aikito is cleanly unlinked on migration.
+
+If the target repository already contains an unmanaged, untracked instruction file,
 synchronization stops and reports a conflict. Review the
 [conflict guide](troubleshooting.md#existing-files-conflict) to adopt or merge
 the existing file before continuing.

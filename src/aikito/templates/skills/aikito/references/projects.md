@@ -16,11 +16,21 @@ removing them from the workspace.
 
 ## Ownership and Drift
 
-Project instructions and memory remain linked to canonical sources. Project
-skills use the configured `sync_mode`:
+Project instructions and memory remain linked to canonical sources. When a
+project repository already has a Git-tracked `AGENTS.md` (team rules), Aikito
+links personal project instructions to `.agents/AGENTS.md` (overlay mode) and
+adds it to `.git/info/exclude`. Memory (`.agents/memory`) and link-mode skills
+(`.agents/skills/<name>`) are also tracked in `.git/info/exclude` to keep
+`git status` clean.
+
+Project skills use the configured `sync_mode`:
 
 - `link` keeps symbolic links to canonical skills;
 - `copy` creates managed copies suitable for project Git tracking.
+
+If a project repository already tracks a team skill with the same name as a
+selected personal skill, the personal skill is skipped with a warning (`INV-TR-21`)
+without blocking synchronization.
 
 Register canonical or external skills for projects with
 `aikito add skill <name> --project <name>` (supports `--from <path>`,

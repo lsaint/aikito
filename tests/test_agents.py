@@ -558,7 +558,7 @@ class AgentDefinitionGoldenTests(unittest.TestCase):
                 "claude-code",
                 "Claude Code",
                 instruction_path=h / ".claude/CLAUDE.md",
-                project_instruction_path=Path(".claude/CLAUDE.md"),
+                project_instruction_path=Path("AGENTS.md"),
                 skills_path=h / ".claude/skills",
                 mcp={
                     "config_path": h / ".claude.json",

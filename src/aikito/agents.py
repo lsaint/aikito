@@ -14,6 +14,7 @@ from .compat import (
     get_physical_path,
     is_directory_case_sensitive,
 )
+from .git_ops import is_git_tracked
 
 # Template order is product policy, separate from host installation signals.
 BUILTIN_AGENTS = (
@@ -606,6 +607,18 @@ def check_target_availability(
     return AgentAvailability("unknown", "cannot_determine")
 
 
+def is_outdated_claude_code_config(claude_toml_path: Path) -> bool:
+    """Return True if claude-code.toml uses legacy .claude/CLAUDE.md project instruction path."""
+    if not claude_toml_path.is_file():
+        return False
+    try:
+        doc = tomllib.loads(claude_toml_path.read_text(encoding="utf-8"))
+        spec = doc.get("agents", {}).get("claude-code", {})
+        return spec.get("project_instruction_path") == ".claude/CLAUDE.md"
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+
+
 def resolve_targets(
     resource_kind: str,
     aikito_dir: Path,
@@ -695,10 +708,38 @@ def resolve_targets(
             if project_name
             else None
         )
+
+        team_candidates: set[str] = {"AGENTS.md", "CLAUDE.md", ".claude/CLAUDE.md"}
+        for agent in registry.values():
+            if agent.project_instruction_path is not None:
+                team_candidates.add(agent.project_instruction_path.as_posix())
+
+        is_project_overlay = False
+        for rel_cand in sorted(team_candidates):
+            cand_path = project_path / rel_cand
+            if cand_path.is_symlink() and canonical_source is not None:
+                try:
+                    if cand_path.resolve(strict=False) == canonical_source.resolve(
+                        strict=False
+                    ):
+                        continue
+                except OSError:
+                    pass
+            if is_git_tracked(cand_path, project_path):
+                is_project_overlay = True
+                break
+
+        def _resolve_agent_instruction_path(agent_obj: Agent) -> Path:
+            if is_project_overlay:
+                return project_path / ".agents" / "AGENTS.md"
+            if agent_obj.project_instruction_path is None:
+                return project_path / "AGENTS.md"
+            return project_path / agent_obj.project_instruction_path
+
         grouped = _group_agent_paths(
             (
                 (
-                    project_path / agent.project_instruction_path,
+                    _resolve_agent_instruction_path(agent),
                     agent.name,
                     agent.display_name,
                 )

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from .agents import is_outdated_claude_code_config
 from .compat import check_case_collision, safe_relative_path
 from .conflict import collect_resource_conflicts
 from .diagnostics import Finding
@@ -21,6 +22,7 @@ from .instructions import (
     InstructionExecutionResult,
     InstructionPlan,
     build_project_instruction_batch,
+    ensure_global_overlay_guidance,
     execute_instruction_plan,
     plan_instructions,
 )
@@ -504,6 +506,23 @@ def _apply_project_sync_batch(
                 or "Failed to synchronize project instructions",
             )
 
+        has_overlay = any(
+            op.target_path.name == "AGENTS.md"
+            and op.target_path.parent.name == ".agents"
+            for op in batch.instruction_plan.operations
+            if op.action in ("CREATE", "NOOP")
+        )
+        if has_overlay:
+            global_agents = batch.workspace_root / "global" / "AGENTS.md"
+            ok, overlay_msg = ensure_global_overlay_guidance(
+                global_agents, dry_run=dry_run
+            )
+            if overlay_msg:
+                if not ok:
+                    print(f"[WARN] {overlay_msg}", file=sys.stderr)
+                else:
+                    print(overlay_msg)
+
     # 3. Apply MemoryPlan
     memory_result: MemoryExecutionResult | None = None
     if batch.memory_plan is not None:
@@ -581,6 +600,14 @@ def _sync_project(
 
     binding = resolve_project_binding(data, home)
     target_path: Path | None = None
+
+    claude_toml = aikito_dir / "agents" / "claude-code.toml"
+    if is_outdated_claude_code_config(claude_toml):
+        print(
+            "[WARN] agents/claude-code.toml uses outdated default '.claude/CLAUDE.md'; "
+            "run 'aikito doctor --fix' to update.",
+            file=sys.stderr,
+        )
 
     if project_path:
         target_path = Path(project_path).expanduser().resolve()

@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Added personal instruction overlay mode (`.agents/AGENTS.md`) when a project repository already tracks team instructions in `AGENTS.md`.
+- Added automatic Git `info/exclude` registration for `.agents/AGENTS.md`, `.agents/memory`, and link-mode skills (`.agents/skills/<name>`) to prevent repository status pollution.
+- Added managed global guidance block (`<!-- aikito:managed-block:overlay-instructions -->`) in `<workspace>/global/AGENTS.md` for AI agent discovery of project overlay instructions.
+- Added graceful skipping (`status="WARN"`, `rule_id="INV-TR-21"`) when a selected project skill collides with a Git-tracked team skill in the repository.
+- Added `aikito doctor` diagnostics for Claude Code version (< 2.1.277), outdated default `claude-code.toml`, missing Git exclude entries (with `--fix`), git typechange, and duplicate team instruction paragraphs.
+
+### Changed
+
+- Updated bundled Claude Code template `project_instruction_path` to `"AGENTS.md"`, automatically migrating and unlinking legacy `.claude/CLAUDE.md` links.
+
 ## [1.63.1] - 2026-11-12
 
 ### Fixed

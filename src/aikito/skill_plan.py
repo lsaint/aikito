@@ -70,6 +70,7 @@ class ObservedSkill:
     state_error: str | None = None
     target_lstat: Any = None
     state_revision: int = 0  # Revision of the state doc at plan time
+    is_git_tracked: bool = False
 
 
 @dataclass(frozen=True)
@@ -167,6 +168,8 @@ def skill_operation_effect(op: SkillOperation) -> OperationEffect:
             return OperationEffect.REMOVE
         case "NOOP":
             return OperationEffect.NOOP
+        case "SKIP":
+            return OperationEffect.NONE
         case (
             "RECONCILE_STATE" | "CLAIM_STATE" | "REACTIVATE_STATE" | "DEACTIVATE_STATE"
         ):
@@ -184,6 +187,13 @@ def skill_operation_finding(op: SkillOperation) -> Finding | None:
             status="CONFLICT",
             code=op.rule_id or "SKILL_CONFLICT",
             message=op.finding or op.reason,
+            resource=str(op.target.target_path),
+        )
+    if op.action == "SKIP" and op.finding:
+        return Finding(
+            status="WARN",
+            code=op.rule_id or "SKILL_SKIPPED",
+            message=op.finding,
             resource=str(op.target.target_path),
         )
     return None
@@ -271,6 +281,28 @@ def plan_single_skill(
                 is_authorized=False,
                 expected_representation=observed.entry_type,
                 desired_representation=desired.mode,
+            )
+
+        # Check team-tracked skill (tracked in git when personal skill is in link mode)
+        if (
+            desired.mode == "link"
+            and observed.is_git_tracked
+            and not (
+                observed.entry_type == "symlink" and observed.link_points_to_canonical
+            )
+        ):
+            return SkillOperation(
+                action="SKIP",
+                rule_id="INV-TR-21",
+                target=target,
+                reason=f"Skill '{target.skill_name}' is tracked by team git; personal version skipped",
+                finding=(
+                    f"Skill '{target.skill_name}' is tracked by team git; skipping personal version. "
+                    "Rename canonical skill if you want to select it separately."
+                ),
+                expected_representation=observed.entry_type,
+                desired_representation=desired.mode,
+                is_authorized=True,
             )
 
         # Mode: Link

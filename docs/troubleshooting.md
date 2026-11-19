@@ -59,12 +59,32 @@ Review runtime changes and bring improvements you want to keep back into the
 canonical source. Synchronize the affected scope afterward. Use `--force` only
 when you have reviewed and chosen to discard runtime differences.
 
-## An agent is missing
+## An agent is missing or outdated
 
-`aikito doctor` reports installed supported agents missing from the registry.
+`aikito doctor` reports installed supported agents missing from the registry, as
+well as agent versions that fall below minimum compatibility thresholds (such as
+Claude Code requiring version >= 2.1.277 for native `AGENTS.md` support).
+
+If your workspace's `agents/claude-code.toml` still uses the legacy `.claude/CLAUDE.md`
+default, `aikito doctor --fix` updates it to `AGENTS.md`.
+
 Review findings before using `aikito doctor --fix`, which can add bundled
-defaults without replacing existing values. Agents not installed on this host
+defaults without replacing existing custom values. Agents not installed on this host
 remain registered as offline for multi-machine use.
+
+## Git exclude and overlay diagnostics
+
+When Aikito creates overlay instructions (`.agents/AGENTS.md`), project memory
+(`.agents/memory`), or link-mode skills (`.agents/skills/<name>`), it manages entries
+in `.git/info/exclude` to keep `git status` clean.
+
+- `aikito doctor` checks that all required entries are present in `.git/info/exclude`.
+  Missing entries can be repaired automatically with `aikito doctor --fix`.
+- `aikito doctor` warns if Git reports a typechange (`T`) at any managed target,
+  indicating that a Git-tracked regular file was converted into a symlink.
+- `aikito doctor` inspects personal instructions and warns if any paragraph is a
+  verbatim duplicate of the repository's team `AGENTS.md`, helping keep personal
+  instructions lean.
 
 ## A project is offline
 

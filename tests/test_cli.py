@@ -1276,6 +1276,14 @@ class InitSubcommandParserTest(unittest.TestCase):
             (root / ".claude").mkdir()
             with patch("aikito.init.shutil.which", return_value=None):
                 AIKITO_CLI.init_workspace(workspace, root)
+            claude_config = workspace / "agents" / "claude-code.toml"
+            claude_config.write_text(
+                claude_config.read_text(encoding="utf-8").replace(
+                    'project_instruction_path = "AGENTS.md"',
+                    'project_instruction_path = ".claude/CLAUDE.md"',
+                ),
+                encoding="utf-8",
+            )
             AIKITO_CLI.init_project(workspace, project, "example", home=root)
             (workspace / "projects" / "example" / "AGENTS.md").write_text(
                 "Project rules\n", encoding="utf-8"

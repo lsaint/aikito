@@ -124,7 +124,7 @@ class AikitoInitTest(unittest.TestCase):
         )
         self.assertEqual(
             agents["claude-code"].project_instruction_path,
-            Path(".claude/CLAUDE.md"),
+            Path("AGENTS.md"),
         )
         self.assertEqual(
             agents["agy"].skills_path,

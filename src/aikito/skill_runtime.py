@@ -30,6 +30,12 @@ from .compat import (
     require_symlink_support,
     safe_symlink,
 )
+from .git_ops import (
+    add_git_exclude_entries,
+    is_git_repository,
+    is_git_tracked,
+    remove_git_exclude_entries,
+)
 from .skill_plan import (
     DesiredSkill,
     ObservedSkill,
@@ -210,6 +216,10 @@ def inspect_skill_target(
         if target.skill_name in state_doc.records:
             state_record = state_doc.records[target.skill_name]
 
+    is_tracked = False
+    if entry_type == "dir":
+        is_tracked = is_git_tracked(runtime_path, target.physical_checkout)
+
     observed = ObservedSkill(
         target=target,
         entry_type=entry_type,
@@ -225,6 +235,7 @@ def inspect_skill_target(
         state_error=state_err,
         target_lstat=target_lstat,
         state_revision=state_revision,
+        is_git_tracked=is_tracked,
     )
 
     desired = DesiredSkill(
@@ -809,7 +820,28 @@ def execute_skill_plan(
                 target = op.target
                 canonical_source = plan.workspace_root / "skills" / target.skill_name
 
-                if op.action == "NOOP":
+                if op.action in ("NOOP", "SKIP"):
+                    if (
+                        op.action == "NOOP"
+                        and target.target_path.is_symlink()
+                        and is_git_repository(checkout_path)
+                    ):
+                        if not add_git_exclude_entries(
+                            checkout_path, [f".agents/skills/{target.skill_name}"]
+                        ):
+                            print(
+                                f"[WARN] Failed to update git info/exclude in {checkout_path}",
+                                file=sys.stderr,
+                            )
+                    elif (
+                        op.action == "NOOP"
+                        and target.target_path.is_dir()
+                        and not target.target_path.is_symlink()
+                        and is_git_repository(checkout_path)
+                    ):
+                        remove_git_exclude_entries(
+                            checkout_path, [f".agents/skills/{target.skill_name}"]
+                        )
                     skipped_ops.append(op)
                     continue
 
@@ -842,6 +874,15 @@ def execute_skill_plan(
                         )
                     target.target_path.parent.mkdir(parents=True, exist_ok=True)
                     if safe_symlink(canonical_source, target.target_path):
+                        if is_git_repository(
+                            checkout_path
+                        ) and not add_git_exclude_entries(
+                            checkout_path, [f".agents/skills/{target.skill_name}"]
+                        ):
+                            print(
+                                f"[WARN] Failed to update git info/exclude in {checkout_path}",
+                                file=sys.stderr,
+                            )
                         checkpoint_error = checkpoint_operation(op, checkout_path, doc)
                         if checkpoint_error:
                             return rollback_current(
@@ -906,6 +947,11 @@ def execute_skill_plan(
                         return rollback_current(
                             op,
                             f"Failed to replace target for skill '{target.skill_name}': {exc}",
+                        )
+
+                    if is_git_repository(checkout_path):
+                        remove_git_exclude_entries(
+                            checkout_path, [f".agents/skills/{target.skill_name}"]
                         )
 
                     doc.records[target.skill_name] = SkillStateRecord(
@@ -1036,6 +1082,13 @@ def execute_skill_plan(
                         return rollback_current(
                             op,
                             f"Failed to create symlink during copy→link switch for '{target.skill_name}'",
+                        )
+                    if is_git_repository(checkout_path) and not add_git_exclude_entries(
+                        checkout_path, [f".agents/skills/{target.skill_name}"]
+                    ):
+                        print(
+                            f"[WARN] Failed to update git info/exclude in {checkout_path}",
+                            file=sys.stderr,
                         )
 
                     if target.skill_name in doc.records:

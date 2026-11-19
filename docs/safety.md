@@ -129,8 +129,10 @@ not prove that Aikito owns it.
 | Situation | Default response | Reviewed next step |
 | --- | --- | --- |
 | Copied project skill changed locally | Block project sync and preserve the copy | Use `aikito diff project <name>`; keep the local edit in the canonical skill or explicitly run `aikito sync project <name> --force` to replace the copy. |
+| Selected project skill collides with Git-tracked team skill | Skip personal skill with a warning (INV-TR-21) and preserve team directory | The team-committed skill takes precedence without blocking project synchronization. |
 | Unmanaged project skill directory matches the canonical skill | Leave files unchanged and report that ownership is unproven | `aikito sync project <name> --force` can explicitly claim the matching copy. |
 | Unregistered global skill directory or foreign skill symlink | Preserve and ignore the entry | External tools continue to manage it. A same-name registered skill remains a conflict requiring manual resolution. |
+| Project contains a Git-tracked instruction file (e.g. `AGENTS.md`) | Shift personal instruction link to `.agents/AGENTS.md` (overlay mode) and exclude it in `.git/info/exclude` | Personal instructions augment rather than replace team rules without polluting git status. |
 | Existing instruction or memory target is unmanaged | Report a conflict and preserve the target | Inspect both sources and resolve manually; `--force` cannot overwrite instructions or memory. |
 | Unmanaged subagent definition occupies a selected target | Report a conflict and preserve the definition | Review it; `aikito sync subagents --force <agent>/<subagent>` authorizes only that target. |
 | Managed MCP server was edited outside Aikito | Block MCP sync and preserve the configuration | Review the server; `aikito sync mcp --force` can replace the conflicting managed server node. |

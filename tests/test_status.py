@@ -162,6 +162,32 @@ class AikitoStatusRenderTest(unittest.TestCase):
             "\033[1mAll in one workspace: /tmp/aikito\033[0m (configured)", rendered
         )
 
+    def test_render_project_apply_error_placed_at_very_end(self) -> None:
+        report_data = StatusReportData(
+            agents=self.agent_rows,
+            memories=self.memory_rows,
+            remote_status={
+                "binding": True,
+                "project_apply": {
+                    "last_error": "Something went wrong in project apply"
+                },
+            },
+        )
+        rendered = render_status_report(
+            report_data,
+            is_tty=True,
+            no_color=True,
+            workspace="/tmp/aikito",
+        )
+        ws_idx = rendered.index("All in one workspace:")
+        err_idx = rendered.index(
+            "Project apply: ! Something went wrong in project apply"
+        )
+        self.assertGreater(err_idx, ws_idx)
+        self.assertTrue(
+            rendered.endswith("Project apply: ! Something went wrong in project apply")
+        )
+
     def test_subagent_status_distinguishes_missing_drift_and_conflict(self) -> None:
         self.assertEqual(
             _summarize_subagent_status([InspectionStatus.MISSING]), "MISSING (0/1)"

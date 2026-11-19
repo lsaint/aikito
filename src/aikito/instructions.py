@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,6 +11,7 @@ from pathlib import Path
 from .agents import AgentRegistry, Target, check_target_availability, resolve_targets
 from .compat import is_same_target_location
 from .diagnostics import Finding, is_error_finding
+from .git_ops import add_git_exclude_entries, is_git_repository
 from .inspection import InspectionStatus, ResourceInspectionView
 from .link import (
     LinkOperation,
@@ -321,6 +324,30 @@ def build_project_instruction_batch(
                             canonical_source=canonical,
                             consumers=(),
                             consumer_display_names=("Legacy .agents",),
+                        )
+                    )
+
+            legacy_claude = co / ".claude" / "CLAUDE.md"
+            is_formal_claude = any(
+                is_same_target_location(t.path, legacy_claude) for t in all_targets
+            )
+            if not is_formal_claude and legacy_claude.is_symlink():
+                try:
+                    points_to_canonical = is_same_target_location(
+                        legacy_claude.resolve(strict=False),
+                        canonical.resolve(strict=False),
+                    )
+                except OSError:
+                    points_to_canonical = False
+                if points_to_canonical:
+                    _add_stale(
+                        Target(
+                            kind="instruction_link",
+                            scope="project",
+                            path=legacy_claude,
+                            canonical_source=canonical,
+                            consumers=(),
+                            consumer_display_names=("Legacy Claude Code",),
                         )
                     )
 
@@ -783,6 +810,23 @@ def execute_instruction_plan(
                 or f"Failed operation on {op.target_path}",
             )
 
+        if not dry_run:
+            if (
+                op.target_path.name == "AGENTS.md"
+                and op.target_path.parent.name == ".agents"
+            ):
+                co_dir = op.target_path.parent.parent
+                if (
+                    is_git_repository(co_dir)
+                    and op.action in ("CREATE", "NOOP")
+                    and (op.target_path.is_symlink() or res.applied)
+                ):
+                    if not add_git_exclude_entries(co_dir, [".agents/AGENTS.md"]):
+                        print(
+                            f"[WARN] Failed to update git info/exclude in {co_dir}",
+                            file=sys.stderr,
+                        )
+
         if op.action == "SHARED_PATH":
             shared_path_count += 1
         elif op.action == "SKIP":
@@ -801,3 +845,88 @@ def execute_instruction_plan(
         shared_path_count=shared_path_count,
         noop_count=noop_count,
     )
+
+
+OVERLAY_INSTRUCTION_BLOCK_START = "<!-- AIKITO:MANAGED:OVERLAY_INSTRUCTION:START -->"
+OVERLAY_INSTRUCTION_BLOCK_END = "<!-- AIKITO:MANAGED:OVERLAY_INSTRUCTION:END -->"
+OVERLAY_INSTRUCTION_TEXT = (
+    "Before starting any task in the current project, if `.agents/AGENTS.md` exists, "
+    "you must read and follow it."
+)
+OVERLAY_MANAGED_BLOCK = (
+    f"{OVERLAY_INSTRUCTION_BLOCK_START}\n"
+    f"{OVERLAY_INSTRUCTION_TEXT}\n"
+    f"{OVERLAY_INSTRUCTION_BLOCK_END}"
+)
+
+
+def ensure_global_overlay_guidance(
+    global_instruction_path: Path,
+    *,
+    dry_run: bool = False,
+) -> tuple[bool, str | None]:
+    """Ensure global AGENTS.md contains the overlay guidance block idempotently."""
+    if not global_instruction_path.is_file():
+        return False, f"Global instruction file not found: {global_instruction_path}"
+
+    try:
+        text = global_instruction_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return (
+            False,
+            f"Could not read global instruction file {global_instruction_path}: {exc}",
+        )
+
+    if not text.strip():
+        return False, f"Global instruction file is empty: {global_instruction_path}"
+
+    has_start = OVERLAY_INSTRUCTION_BLOCK_START in text
+    has_end = OVERLAY_INSTRUCTION_BLOCK_END in text
+
+    if has_start != has_end:
+        return (
+            False,
+            f"Corrupted overlay instruction block detected in {global_instruction_path} "
+            "(mismatched START/END markers). Please fix manually.",
+        )
+
+    pattern = re.compile(
+        rf"{re.escape(OVERLAY_INSTRUCTION_BLOCK_START)}[\s\S]*?{re.escape(OVERLAY_INSTRUCTION_BLOCK_END)}"
+    )
+
+    if has_start and has_end:
+        match = pattern.search(text)
+        if match:
+            current_block = match.group(0).strip()
+            if current_block == OVERLAY_MANAGED_BLOCK.strip():
+                return True, None
+            if dry_run:
+                return (
+                    True,
+                    f"[DRY-RUN] Would update overlay instruction block in {global_instruction_path}",
+                )
+            new_text = pattern.sub(OVERLAY_MANAGED_BLOCK, text)
+            try:
+                global_instruction_path.write_text(new_text, encoding="utf-8")
+                return (
+                    True,
+                    f"Updated {global_instruction_path}: refreshed overlay instruction block",
+                )
+            except OSError as exc:
+                return False, f"Failed to update {global_instruction_path}: {exc}"
+
+    if dry_run:
+        return (
+            True,
+            f"[DRY-RUN] Would add overlay instruction block to {global_instruction_path}",
+        )
+
+    new_text = text.rstrip() + "\n\n" + OVERLAY_MANAGED_BLOCK + "\n"
+    try:
+        global_instruction_path.write_text(new_text, encoding="utf-8")
+        return (
+            True,
+            f"Updated {global_instruction_path}: added overlay instruction block",
+        )
+    except OSError as exc:
+        return False, f"Failed to update {global_instruction_path}: {exc}"

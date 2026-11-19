@@ -143,9 +143,12 @@ native semantics, so subagent capabilities have no separate adapter key.
 Project synchronization creates a managed `.agents/` directory in the target
 project for skills and memory. Project instructions are linked only to each
 workspace-registered agent's configured `project_instruction_path`; paths shared
-by multiple agents are created once. Aikito refuses to replace unmanaged content
-at any instruction target. Skills use the project's configured
-`sync_mode`, which can link or copy them.
+by multiple agents are created once. If a target instruction file (such as
+`AGENTS.md`) is already tracked by Git as a team instruction file, Aikito
+automatically shifts the personal instructions target to `.agents/AGENTS.md`
+(overlay mode) and registers `.agents/AGENTS.md` in `.git/info/exclude`.
+Aikito refuses to replace unmanaged, untracked content at any instruction target.
+Skills use the project's configured `sync_mode`, which can link or copy them.
 
 ### Project Skill Sync Modes
 
@@ -163,20 +166,26 @@ The two skill modes serve different collaboration models:
 | `copy` | Managed copies inside the project | Make selected skill contents reviewable and versionable with the project | Copies can drift from their canonical skills and must be reconciled before synchronization replaces collaborator changes |
 
 Use `link` when the workspace is the authoritative working environment and
-projects should immediately see canonical skill updates. Use `copy` when a
-project needs a self-contained, Git-trackable snapshot of its selected skills,
-for example when collaborators or CI do not share the same Aikito workspace.
-Treat copied skills as generated project artifacts. `aikito status` reports
-drift and `aikito diff` compares runtime files with their canonical workspace
-versions. Make lasting improvements in the canonical skill, or reconcile
-project changes back into it before synchronizing again. Synchronization stops
-on drift unless `--force` is supplied after review.
+projects should immediately see canonical skill updates. Symlinked skills are
+registered in `.git/info/exclude` (without a trailing slash) so they do not
+pollute `git status`. If a project repository already tracks a team skill under
+`.agents/skills/<name>`, any colliding personal skill is skipped with a warning
+(`INV-TR-21`) rather than overwriting or erroring out.
+
+Use `copy` when a project needs a self-contained, Git-trackable snapshot of its
+selected skills, for example when collaborators or CI do not share the same
+Aikito workspace. Treat copied skills as generated project artifacts.
+`aikito status` reports drift and `aikito diff` compares runtime files with
+their canonical workspace versions. Make lasting improvements in the canonical
+skill, or reconcile project changes back into it before synchronizing again.
+Synchronization stops on drift unless `--force` is supplied after review.
 
 Project `.agents/skills/` uses entry-level ownership. Skills not selected by the
 project configuration coexist as project-owned entries and appear as notices;
-only selected-name collisions are conflicts. A matching directory copy does not
-prove Aikito ownership; only provably managed links are removed after
-deselection. `.agents/memory/` remains exclusively managed by Aikito.
+only selected-name collisions with untracked entries are conflicts. A matching
+directory copy does not prove Aikito ownership; only provably managed links are
+removed after deselection. `.agents/memory/` remains exclusively managed by Aikito
+and is registered in `.git/info/exclude`.
 
 ## Synchronization Behavior
 

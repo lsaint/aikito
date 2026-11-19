@@ -4,7 +4,7 @@
 [agents.claude-code]
 display_name = "Claude Code"
 instruction_path = ".claude/CLAUDE.md"
-project_instruction_path = ".claude/CLAUDE.md"
+project_instruction_path = "AGENTS.md"
 skills_path = ".claude/skills"
 
 [agents.claude-code.detect]

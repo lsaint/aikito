@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 import tomllib
 import uuid
 from collections.abc import Mapping, Sequence
@@ -17,6 +18,7 @@ from typing import Any
 
 from .compat import safe_symlink
 from .diagnostics import Finding, is_error_finding
+from .git_ops import add_git_exclude_entries, is_git_repository
 from .link import (
     LinkOperation,
     apply_link_operation,
@@ -1390,6 +1392,32 @@ def execute_memory_plan(
                 error_message=res.error_message
                 or f"Failed to apply memory operation on {op.target_path}",
             )
+
+        if not dry_run and (
+            (
+                op.target_path.name == "memory"
+                and op.target_path.parent.name == ".agents"
+            )
+            or (
+                op.target_path.parent.name == "memory"
+                and op.target_path.parent.parent.name == ".agents"
+            )
+        ):
+            co_dir = (
+                op.target_path.parent.parent.parent
+                if op.target_path.parent.name == "memory"
+                else op.target_path.parent.parent
+            )
+            if (
+                is_git_repository(co_dir)
+                and op.action in ("CREATE", "NOOP")
+                and (op.target_path.is_symlink() or res.applied)
+            ):
+                if not add_git_exclude_entries(co_dir, [".agents/memory"]):
+                    print(
+                        f"[WARN] Failed to update git info/exclude in {co_dir}",
+                        file=sys.stderr,
+                    )
 
         if res.applied:
             applied += 1

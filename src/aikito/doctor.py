@@ -27,6 +27,7 @@ from .agents import (
     bundled_agent,
     check_agent_availability,
     check_target_availability,
+    is_outdated_claude_code_config,
     load_agent_definitions,
 )
 from .compat import (
@@ -51,8 +52,15 @@ from .conflict import (
     has_any_conflict_markers as _has_conflict_markers,
 )
 from .diagnostics import Finding, FindingAction
+from .git_ops import (
+    add_git_exclude_entries,
+    check_git_exclude_entries,
+    is_git_repository,
+    is_git_tracked,
+    is_git_typechange,
+)
 from .inspection import InspectionStatus
-from .link import classify_symlink  # noqa: F401
+from .link import classify_symlink, inspect_link_target  # noqa: F401
 from .local_state import clean_local_state, inspect_local_state
 from .mcp import (
     MCPConfigError,
@@ -824,6 +832,14 @@ def check_config_syntax(aikito_dir: Path, home: Path) -> DoctorSection:
                         "aikito doctor --fix",
                     )
                 )
+            claude_toml = agents_dir / "claude-code.toml"
+            if is_outdated_claude_code_config(claude_toml):
+                findings.append(
+                    _warn(
+                        "agents/claude-code.toml: project_instruction_path is using outdated default '.claude/CLAUDE.md'",
+                        "aikito doctor --fix",
+                    )
+                )
         except (
             WorkspaceLayoutError,
             ValueError,
@@ -1010,6 +1026,144 @@ def _project_apply_context(
     return "\n".join(lines), tuple(actions)
 
 
+def _check_duplicate_team_instructions(
+    team_path: Path, canonical_path: Path
+) -> tuple[int, str | None]:
+    if not team_path.is_file() or not canonical_path.is_file():
+        return 0, None
+    try:
+        team_text = team_path.read_text(encoding="utf-8", errors="replace")
+        canon_text = canonical_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return 0, None
+
+    def _extract_valid_paragraphs(text: str) -> list[str]:
+        raw_paras = re.split(r"\n\s*\n", text)
+        valid = []
+        for p in raw_paras:
+            norm = re.sub(r"\s+", " ", p).strip().lower()
+            if len(norm) < 80:
+                continue
+            first_line = p.strip().splitlines()[0].strip()
+            if first_line.startswith("#"):
+                continue
+            if first_line.startswith("---") or first_line.startswith("==="):
+                continue
+            if first_line.startswith("```"):
+                continue
+            if re.match(r"^[-*+]\s", first_line) or re.match(r"^\d+\.\s", first_line):
+                if len(p.strip().splitlines()) == 1:
+                    continue
+            valid.append(norm)
+        return valid
+
+    team_valid = _extract_valid_paragraphs(team_text)
+    canon_valid = _extract_valid_paragraphs(canon_text)
+    if not team_valid or not canon_valid:
+        return 0, None
+
+    canon_set = set(canon_valid)
+    matched = [p for p in team_valid if p in canon_set]
+    count = len(matched)
+    ratio = count / len(team_valid)
+    if count >= 3 or (len(team_valid) >= 2 and ratio >= 0.5):
+        sample = matched[0][:60]
+        return count, sample
+    return 0, None
+
+
+def _check_project_overlay_and_excludes(
+    project: ProjectSummary,
+    aikito_dir: Path,
+) -> list[Finding]:
+    findings: list[Finding] = []
+    project_dir = project.config_path.parent
+    canonical_agents = project_dir / "AGENTS.md"
+    canonical_memory = project_dir / "memory"
+
+    for _, p_str in project.active_paths:
+        co = Path(p_str)
+        if not co.is_dir() or not is_git_repository(co):
+            continue
+
+        team_agents = co / "AGENTS.md"
+        if team_agents.is_symlink() and is_git_typechange(team_agents, co):
+            findings.append(
+                _warn(
+                    f"Project '{project.name}': AGENTS.md was replaced by a symlink (git typechange). "
+                    "Run 'git checkout -- AGENTS.md' to restore team file and switch to overlay mode."
+                )
+            )
+
+        if (
+            team_agents.is_file()
+            and not team_agents.is_symlink()
+            and is_git_tracked(team_agents, co)
+            and canonical_agents.is_file()
+        ):
+            dup_count, dup_sample = _check_duplicate_team_instructions(
+                team_agents, canonical_agents
+            )
+            if dup_count > 0:
+                findings.append(
+                    _warn(
+                        f"Project '{project.name}': canonical AGENTS.md appears to contain "
+                        f"{dup_count} duplicated paragraph(s) from team AGENTS.md "
+                        f"(e.g. '{dup_sample}...'). Consider removing duplicated content."
+                    )
+                )
+
+        to_check = []
+        overlay_link = co / ".agents" / "AGENTS.md"
+        if (
+            overlay_link.is_symlink()
+            and inspect_link_target(
+                overlay_link, canonical_agents
+            ).link_points_to_canonical
+        ):
+            to_check.append(".agents/AGENTS.md")
+        mem_path = co / ".agents" / "memory"
+        if (
+            mem_path.is_symlink()
+            and inspect_link_target(mem_path, canonical_memory).link_points_to_canonical
+        ):
+            to_check.append(".agents/memory")
+        elif mem_path.is_dir():
+            for child in sorted(mem_path.iterdir()):
+                expected_canon = canonical_memory / child.name
+                if (
+                    child.is_symlink()
+                    and inspect_link_target(
+                        child, expected_canon
+                    ).link_points_to_canonical
+                ):
+                    to_check.append(".agents/memory")
+                    break
+        skills_dir = co / ".agents" / "skills"
+        if skills_dir.is_dir():
+            for child in sorted(skills_dir.iterdir()):
+                canonical_skill = aikito_dir / "skills" / child.name
+                if (
+                    child.is_symlink()
+                    and inspect_link_target(
+                        child, canonical_skill
+                    ).link_points_to_canonical
+                ):
+                    to_check.append(f".agents/skills/{child.name}")
+
+        if to_check:
+            status = check_git_exclude_entries(co, to_check)
+            for item, is_excluded in status.items():
+                if not is_excluded:
+                    findings.append(
+                        _warn(
+                            f"Project '{project.name}': missing git exclude entry for '{item}'",
+                            "aikito doctor --fix",
+                        )
+                    )
+    return findings
+
+
 def check_projects(aikito_dir: Path, home: Path) -> DoctorSection:
     """Report project runtime health using the same model as `show project`."""
     findings: list[Finding] = []
@@ -1098,6 +1252,9 @@ def check_projects(aikito_dir: Path, home: Path) -> DoctorSection:
                 actions=actions,
             )
         )
+
+    for project in projects:
+        findings.extend(_check_project_overlay_and_excludes(project, aikito_dir))
 
     if not findings:
         findings.append(_ok(f"Project runtimes OK ({len(projects)} projects)"))
@@ -1340,6 +1497,35 @@ def check_security(aikito_dir: Path, home: Path) -> DoctorSection:
 # ---------------------------------------------------------------------------
 
 
+def _check_claude_version() -> Finding | None:
+    try:
+        res = subprocess.run(
+            ["claude", "--version"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+            check=False,
+        )
+        if res.returncode != 0:
+            return None
+        text = res.stdout.strip()
+        match = re.search(r"(\d+)\.(\d+)\.(\d+)", text)
+        if match:
+            major, minor, patch = map(int, match.groups())
+            version_tuple = (major, minor, patch)
+            if version_tuple < (2, 1, 277):
+                return _fail(
+                    f"Claude Code {major}.{minor}.{patch} is below minimum required 2.1.277 "
+                    "for AGENTS.md support. Please upgrade claude."
+                )
+            return _ok(f"Claude Code version {major}.{minor}.{patch} (>= 2.1.277)")
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
+
+
 def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
     """Check runtime environment: AIKITO_DIR, interpreter consistency, agent CLIs."""
     findings: list[Finding] = []
@@ -1432,6 +1618,10 @@ def check_environment(aikito_dir: Path, home: Path) -> DoctorSection:
         if shutil.which(binary):
             findings.append(_ok(f"{label} CLI found ({binary})"))
             found_clis.append(label)
+            if binary == "claude":
+                v_finding = _check_claude_version()
+                if v_finding:
+                    findings.append(v_finding)
 
     if not found_clis:
         findings.append(
@@ -1558,6 +1748,90 @@ def run_doctor_fixes(aikito_dir: Path, home: Path | None = None) -> list[str]:
             )
         except (OSError, tomllib.TOMLDecodeError):
             pass
+
+    claude_toml = aikito_dir / "agents" / "claude-code.toml"
+    if is_outdated_claude_code_config(claude_toml):
+        try:
+            content = claude_toml.read_text(encoding="utf-8")
+            new_content = re.sub(
+                r'(project_instruction_path\s*=\s*)".claude/CLAUDE.md"',
+                r'\1"AGENTS.md"',
+                content,
+            )
+            if new_content != content:
+                claude_toml.write_text(new_content, encoding="utf-8")
+                fixes.append(
+                    "agents/claude-code.toml: updated project_instruction_path to 'AGENTS.md'"
+                )
+        except OSError:
+            pass
+
+    projects_dir = aikito_dir / "projects"
+    if projects_dir.is_dir():
+        for proj_dir in sorted(projects_dir.iterdir()):
+            agent_toml = proj_dir / "agent.toml"
+            if not agent_toml.is_file():
+                continue
+            try:
+                p_doc = tomllib.loads(agent_toml.read_text(encoding="utf-8"))
+                binding = resolve_project_binding(p_doc, resolved_home)
+                for entry in binding.active_entries:
+                    co = entry.resolved_path
+                    if not co.is_dir() or not is_git_repository(co):
+                        continue
+                    to_add = []
+                    overlay_link = co / ".agents" / "AGENTS.md"
+                    canonical_agents = proj_dir / "AGENTS.md"
+                    if (
+                        overlay_link.is_symlink()
+                        and inspect_link_target(
+                            overlay_link, canonical_agents
+                        ).link_points_to_canonical
+                    ):
+                        to_add.append(".agents/AGENTS.md")
+                    mem_path = co / ".agents" / "memory"
+                    canonical_memory = proj_dir / "memory"
+                    if (
+                        mem_path.is_symlink()
+                        and inspect_link_target(
+                            mem_path, canonical_memory
+                        ).link_points_to_canonical
+                    ):
+                        to_add.append(".agents/memory")
+                    elif mem_path.is_dir():
+                        for child in sorted(mem_path.iterdir()):
+                            expected_canon = canonical_memory / child.name
+                            if (
+                                child.is_symlink()
+                                and inspect_link_target(
+                                    child, expected_canon
+                                ).link_points_to_canonical
+                            ):
+                                to_add.append(".agents/memory")
+                                break
+                    skills_dir = co / ".agents" / "skills"
+                    if skills_dir.is_dir():
+                        for child in sorted(skills_dir.iterdir()):
+                            canonical_skill = aikito_dir / "skills" / child.name
+                            if (
+                                child.is_symlink()
+                                and inspect_link_target(
+                                    child, canonical_skill
+                                ).link_points_to_canonical
+                            ):
+                                to_add.append(f".agents/skills/{child.name}")
+                    if to_add:
+                        status = check_git_exclude_entries(co, to_add)
+                        missing = [
+                            item for item, excluded in status.items() if not excluded
+                        ]
+                        if missing:
+                            if add_git_exclude_entries(co, missing):
+                                fixes.append(
+                                    f"Project '{proj_dir.name}': added git exclude entries: {', '.join(missing)}"
+                                )
+            except (OSError, tomllib.TOMLDecodeError):
+                pass
     return fixes
 
 

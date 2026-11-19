@@ -1165,11 +1165,6 @@ def render_status_report(
         remote_parts.append(f"Pending: {pending}")
         output_sections.append(" · ".join(remote_parts))
 
-    if data.remote_status:
-        project_apply = data.remote_status.get("project_apply") or {}
-        if project_apply.get("last_error"):
-            output_sections.append(f"Project apply: ! {project_apply['last_error']}")
-
     # Consumers
     consumers = data.consumers
     if not consumers and data.agents:
@@ -1190,6 +1185,11 @@ def render_status_report(
         if workspace_source:
             ws_line += f" ({workspace_source})"
         output_sections.append(ws_line)
+
+    if data.remote_status:
+        project_apply = data.remote_status.get("project_apply") or {}
+        if project_apply.get("last_error"):
+            output_sections.append(f"Project apply: ! {project_apply['last_error']}")
 
     return "\n".join(output_sections)
 

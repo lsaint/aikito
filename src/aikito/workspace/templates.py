@@ -26,6 +26,7 @@ TEMPLATE_HISTORY: dict[str, frozenset[str]] = {
             "25eee038667d050e648efd53a4996f887d97c7fbb0ce88913d041ff13063fe39",
             "73eecae61454a3c7287b20dc5f50678a73f65d80fe138852b11f02f68225247e",
             "d63457fe0f6f946b5bf3ae63536935b3cf836399a40fd6d85081704842f4a7f5",
+            "2ed3325dbb0a43bb19e5e399e73f4bf40b3db949fad80b1fc784c281140ff43f",
         }
     ),
     "agent:codex": frozenset(

@@ -88,20 +88,28 @@ Aikito evaluates candidate paths dynamically on the local machine:
   use `-`. There is no privileged primary path.
 
 Native project instruction paths come from the workspace root `agents/<name>.toml`; project
-configs do not duplicate that list. `sync_mode` controls only the selected project skills:
+configs do not duplicate that list. When the repository already has a Git-tracked
+`AGENTS.md` (team rules), Aikito links personal project instructions to
+`.agents/AGENTS.md` (overlay mode) and automatically excludes it in
+`.git/info/exclude`. An empty canonical project `AGENTS.md` disables instruction
+synchronization. Aikito removes only its own obsolete links and leaves a
+repository-owned `AGENTS.md` untouched; `show project` reports that file as an
+informational notice.
 
-An empty canonical project `AGENTS.md` disables instruction synchronization.
-Aikito removes only its own obsolete links and leaves a repository-owned
-`AGENTS.md` untouched; `show project` reports that file as an informational notice.
+`sync_mode` controls only the selected project skills:
 
 - Keep the default `link` mode when this Aikito workspace is the shared source
-  of truth and projects should receive skill updates immediately.
+  of truth and projects should receive skill updates immediately. Symlinked skills
+  in `.agents/skills/<name>` are excluded in `.git/info/exclude`. If the repository
+  already tracks a team skill with the same name, Aikito skips the personal skill
+  with a warning (`INV-TR-21`) to preserve the team's version.
 - Choose `copy` when the project repository should contain and track a managed
   snapshot of its selected skills, such as for collaborators or CI environments
   that do not share the workspace.
 
 Project instructions and memory always remain linked, regardless of
-`sync_mode`. Copied skills may diverge from their canonical workspace versions;
+`sync_mode`. Memory links under `.agents/memory` are also excluded in
+`.git/info/exclude`. Copied skills may diverge from their canonical workspace versions;
 review and reconcile collaborator changes before running a synchronization that
 would replace them. See [Architecture](architecture.md#project-skill-sync-modes)
 for the full design trade-off.
