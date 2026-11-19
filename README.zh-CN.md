@@ -29,7 +29,7 @@ Aikito 为你提供一个统一的地方，治理 Coding Agent 所共享的上�
 跨 Agent、项目与机器，统一管理指令、Skills、MCP 配置、Subagents 和长期记忆。
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/lsaint/aikito/main/docs/assets/aikito-overview.png" alt="Aikito 概览图">
+  <img src="https://raw.githubusercontent.com/lsaint/aikito/main/docs/assets/demo.gif" alt="Aikito 演示">
 </p>
 
 ## 快速开始
@@ -102,6 +102,10 @@ AI Agent 资源会在三个方向上碎片化：
 - **跨时间**：有价值的架构决策与踩坑经验在临时的会话窗口中丢失。
 
 Aikito 将源文件保存在个人的 Git 工作区，按需连接到各个 Agent 和项目。无需后台守护进程、向量数据库或托管云服务。
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/lsaint/aikito/main/docs/assets/aikito-overview.png" alt="Aikito 架构概览图">
+</p>
 
 ### 长期 Memory
 

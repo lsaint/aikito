@@ -29,7 +29,7 @@ Aikito gives you one place to govern the context your coding agents share.
 Manage instructions, skills, MCPs, subagents, and durable memory across agents, projects, and machines.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/lsaint/aikito/main/docs/assets/aikito-overview.png" alt="Aikito overview">
+  <img src="https://raw.githubusercontent.com/lsaint/aikito/main/docs/assets/demo.gif" alt="Aikito demo">
 </p>
 
 ## Quick Start
@@ -110,6 +110,10 @@ AI agent resources fragment in three directions:
 Aikito keeps the source files in one personal Git workspace and connects
 selected resources to each agent and project. No background daemon, vector store,
 database, or hosted service is required.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/lsaint/aikito/main/docs/assets/aikito-overview.png" alt="Aikito architecture overview">
+</p>
 
 ### Durable Memory
 
