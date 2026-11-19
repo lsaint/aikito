@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.64.1] - 2026-11-19
+
+### Fixed
+
+- Allowed safe takeover of unmanaged instructions and subagents during synchronization when target content is equivalent, with unified safety backup under `~/.aikito/backups/sync_<timestamp>/`.
+- Refused and skipped stdio MCP definitions during adoption with guidance to prevent blocking downstream synchronization.
+- Fixed global instruction line count calculation in `aikito status` to read `global/AGENTS.md`.
+- Added `aikito doctor` Overlay Guidance diagnostics (`INV-AG-04`) and safe `--fix` recovery for `global/AGENTS.md`.
+
 ## [1.64.0] - 2026-11-19
 
 ### Added
@@ -1262,7 +1271,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.64.0...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.64.1...HEAD
+[1.64.1]: https://github.com/lsaint/aikito/compare/v1.64.0...v1.64.1
 [1.64.0]: https://github.com/lsaint/aikito/compare/v1.63.1...v1.64.0
 [1.63.1]: https://github.com/lsaint/aikito/compare/v1.63.0...v1.63.1
 [1.63.0]: https://github.com/lsaint/aikito/compare/v1.62.0...v1.63.0
