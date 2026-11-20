@@ -8,6 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Enhanced `aikito show instructions` with a structured project table reporting Mode (`overlay`/`direct`), Public repository instructions, Private user instructions, and link status, along with multi-layer instruction output when viewing overlay projects.
 - Enhanced `aikito diff mcp` and `aikito diff subagent` to accept flexible arguments including slash format (`agent/server`, `agent/name`), bare server/subagent names, or omitted arguments to view diffs at agent or resource level without requiring strict separate positional arguments.
 - Enhanced `aikito diff project` to support `<project>/<skill>` and `<project>/<skill>/<file>` path notation.
 

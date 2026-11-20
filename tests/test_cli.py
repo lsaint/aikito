@@ -2572,12 +2572,17 @@ url = "http://custom.example.com"
             args.func(args)
         listing = mock_stdout.getvalue()
         self.assertNotIn("╭", listing)
-        self.assertIn("Agent:  Codex", listing)
-        self.assertIn("Status:  linked", listing)
-        self.assertIn("Target:  ~/.codex/AGENTS.md", listing)
+        self.assertIn("Global Instructions", listing)
+        self.assertIn("Agents:", listing)
+        self.assertIn("Overlay prompt:", listing)
+        self.assertNotIn("Connected:", listing)
         self.assertIn("Projects", listing)
-        self.assertIn("example:  linked", listing)
-        self.assertIn("empty:  -", listing)
+        self.assertIn("Mode", listing)
+        self.assertIn("Public", listing)
+        self.assertIn("Private", listing)
+        self.assertIn("Status", listing)
+        self.assertIn("example", listing)
+        self.assertIn("empty", listing)
 
         with (
             patch.object(
@@ -2675,9 +2680,113 @@ url = "http://custom.example.com"
 
         listing = mock_stdout.getvalue()
         self.assertIn("Projects", listing)
-        self.assertIn("single:  linked", listing)
-        self.assertIn("multi (~/multi-a):  linked", listing)
-        self.assertIn("multi (~/multi-b):  missing", listing)
+        self.assertIn("single", listing)
+        self.assertIn("multi (~/multi-a)", listing)
+        self.assertIn("multi (~/multi-b)", listing)
+
+    def test_show_instructions_overlay_mode(self) -> None:
+        home = self.home.resolve()
+        repo_dir = home / "overlay-repo"
+        repo_dir.mkdir(parents=True)
+        (repo_dir / "AGENTS.md").write_text("team repo guidelines\n")
+        (repo_dir / ".git").mkdir()
+
+        proj_dir = self.aikito_dir / "projects" / "overlay-proj"
+        proj_dir.mkdir(parents=True)
+        (proj_dir / "AGENTS.md").write_text("my private guidelines\n")
+        (proj_dir / "agent.toml").write_text(
+            f'name = "overlay-proj"\npaths = ["{repo_dir.as_posix()}"]\n'
+        )
+        (repo_dir / ".agents").mkdir(parents=True)
+        (repo_dir / ".agents" / "AGENTS.md").symlink_to(proj_dir / "AGENTS.md")
+
+        with (
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
+            patch.object(Path, "home", return_value=home),
+            patch("aikito.agents.is_git_tracked", return_value=True),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "instructions", "overlay-proj"]
+            )
+            args.func(args)
+
+        output = mock_stdout.getvalue()
+        self.assertIn("[Mode: overlay]", output)
+        self.assertIn("Status:      linked", output)
+        self.assertIn("[1. Public Instructions] (AGENTS.md", output)
+        self.assertIn("team repo guidelines", output)
+        self.assertIn("[2. Private Instructions] (.agents/AGENTS.md", output)
+        self.assertIn("my private guidelines", output)
+
+    def test_show_instructions_direct_mode_legacy_fallback(self) -> None:
+        home = self.home.resolve()
+        repo_dir = home / "legacy-repo"
+        repo_dir.mkdir(parents=True)
+        (repo_dir / ".agents").mkdir()
+
+        proj_dir = self.aikito_dir / "projects" / "legacy-proj"
+        proj_dir.mkdir(parents=True)
+        (proj_dir / "AGENTS.md").write_text("direct guidelines\n")
+        (proj_dir / "agent.toml").write_text(
+            f'name = "legacy-proj"\npaths = ["{repo_dir.as_posix()}"]\n'
+        )
+        (repo_dir / ".agents" / "AGENTS.md").symlink_to(proj_dir / "AGENTS.md")
+
+        with (
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
+            patch.object(Path, "home", return_value=home),
+            patch("aikito.agents.is_git_tracked", return_value=False),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "instructions", "--color", "never", "--no-color"]
+            )
+            args.func(args)
+
+        listing = mock_stdout.getvalue()
+        self.assertIn("legacy-proj", listing)
+        self.assertIn("direct", listing)
+        # Should be linked (v) via legacy fallback, not ! miss
+        self.assertNotIn("! miss", listing)
+
+    def test_show_instructions_overlay_prompt_not_needed_when_no_overlay(self) -> None:
+        home = self.home.resolve()
+        (self.aikito_dir / "global").mkdir()
+        # Plain global AGENTS.md without overlay guidance block
+        (self.aikito_dir / "global" / "AGENTS.md").write_text("plain global\n")
+
+        single_proj = self.aikito_dir / "projects" / "single"
+        single_proj.mkdir(parents=True)
+        (single_proj / "AGENTS.md").write_text("single rules\n")
+        single_path = home / "single-repo"
+        single_path.mkdir(parents=True)
+        (single_proj / "agent.toml").write_text(
+            f'name = "single"\npaths = ["{single_path.as_posix()}"]\n'
+        )
+        (single_path / "AGENTS.md").symlink_to(single_proj / "AGENTS.md")
+
+        with (
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
+            patch.object(Path, "home", return_value=home),
+            patch("aikito.agents.is_git_tracked", return_value=False),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "instructions", "--color", "never", "--no-color"]
+            )
+            args.func(args)
+
+        listing = mock_stdout.getvalue()
+        # Because no project uses overlay, it should NOT warn "missing !"
+        self.assertNotIn("missing !", listing)
+        self.assertIn("- (no overlay projects)", listing)
 
     def test_status_has_no_subcommands(self) -> None:
         with (

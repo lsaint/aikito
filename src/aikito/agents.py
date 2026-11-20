@@ -619,6 +619,43 @@ def is_outdated_claude_code_config(claude_toml_path: Path) -> bool:
         return False
 
 
+def detect_team_instruction(
+    project_path: Path,
+    canonical_source: Path | None = None,
+    registry: AgentRegistry | None = None,
+) -> tuple[bool, Path | None]:
+    """Detect if project repository has a Git-tracked public/team instruction file.
+
+    Returns:
+        (is_overlay, public_file_path)
+    """
+    if not project_path.exists():
+        return False, None
+
+    team_candidates: set[str] = {"AGENTS.md", "CLAUDE.md", ".claude/CLAUDE.md"}
+    if registry is not None:
+        for agent in registry.values():
+            if agent.project_instruction_path is not None:
+                team_candidates.add(agent.project_instruction_path.as_posix())
+
+    for rel_cand in sorted(team_candidates):
+        cand_path = project_path / rel_cand
+        if not cand_path.is_file():
+            continue
+        if cand_path.is_symlink() and canonical_source is not None:
+            try:
+                if cand_path.resolve(strict=False) == canonical_source.resolve(
+                    strict=False
+                ):
+                    continue
+            except OSError:
+                pass
+        if is_git_tracked(cand_path, project_path):
+            return True, cand_path
+
+    return False, None
+
+
 def resolve_targets(
     resource_kind: str,
     aikito_dir: Path,
@@ -709,25 +746,9 @@ def resolve_targets(
             else None
         )
 
-        team_candidates: set[str] = {"AGENTS.md", "CLAUDE.md", ".claude/CLAUDE.md"}
-        for agent in registry.values():
-            if agent.project_instruction_path is not None:
-                team_candidates.add(agent.project_instruction_path.as_posix())
-
-        is_project_overlay = False
-        for rel_cand in sorted(team_candidates):
-            cand_path = project_path / rel_cand
-            if cand_path.is_symlink() and canonical_source is not None:
-                try:
-                    if cand_path.resolve(strict=False) == canonical_source.resolve(
-                        strict=False
-                    ):
-                        continue
-                except OSError:
-                    pass
-            if is_git_tracked(cand_path, project_path):
-                is_project_overlay = True
-                break
+        is_project_overlay, _ = detect_team_instruction(
+            project_path, canonical_source, registry
+        )
 
         def _resolve_agent_instruction_path(agent_obj: Agent) -> Path:
             if is_project_overlay:

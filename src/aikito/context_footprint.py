@@ -26,19 +26,29 @@ def estimate_tokens(text: str) -> int:
     return (len(text.encode("utf-8")) + 3) // 4
 
 
-def format_token_estimate(tokens: int) -> str:
+def format_token_estimate(
+    tokens: int, *, decimals: int = 1, force_k: bool = False
+) -> str:
     """Format token count into display string.
 
     Rules:
-    - tokens <= 0 -> '~0'
-    - 0 < tokens < 1000 -> '~{tokens}'
-    - tokens >= 1000 -> '~{tokens / 1000:.1f}k' (fixed 1 decimal place, e.g. '~1.0k')
+    - tokens <= 0 -> '~0' (or '~0.00k' if force_k)
+    - 0 < tokens < 1000 -> '~{tokens}' (or formatted with 'k' if force_k)
+    - tokens >= 1000 -> '~{tokens / 1000:.{decimals}f}k'
     """
     if tokens <= 0:
-        return "~0"
-    if tokens < 1000:
+        return f"~{0:.{decimals}f}k" if force_k else "~0"
+    if not force_k and tokens < 1000:
         return f"~{tokens}"
-    return f"~{tokens / 1000:.1f}k"
+    return f"~{tokens / 1000:.{decimals}f}k"
+
+
+def format_instruction_size(text: str) -> str:
+    """Return formatted instruction stats e.g. '33L · ~14.20k'."""
+    lines = len(text.splitlines())
+    tokens = estimate_tokens(text)
+    token_str = format_token_estimate(tokens, decimals=2, force_k=True)
+    return f"{lines}L · {token_str}"
 
 
 def extract_skill_description(skill_dir: Path) -> str | None:

@@ -10,17 +10,20 @@ from .global_approval import global_approval_error
 from .global_auto_apply import reconcile_local_global
 from .global_skills import load_global_skills_list
 from .cli_parser import resolve_color_flags
+from .compat import safe_relative_path
 from .resolve import (
     ProjectContextConflictError,
+    collect_global_instruction_status,
     collect_instruction_agent_status,
     collect_project_instruction_status,
     detect_current_project,
-    resolve_instruction_target,
+    resolve_instruction_detail,
     resolve_mcp_target_for_command,
     resolve_project_filter,
     resolve_skill_target_for_command,
     resolve_subagent_target_for_command,
 )
+from .context_footprint import format_instruction_size
 from .memory import resolve_memory_target_for_command
 from .mcp import MCPConfigError
 from .project import ProjectSummary, collect_project_summaries
@@ -210,28 +213,79 @@ def cmd_show_skill(args: argparse.Namespace) -> None:
 def cmd_show_instructions(args: argparse.Namespace) -> None:
     aikito_dir = resolve_workspace(Path.home())
     target = getattr(args, "target", None)
+    home = Path.home()
     if not target:
         use_unicode, use_color = resolve_color_flags(args)
-        rows = collect_instruction_agent_status(aikito_dir, Path.home())
-        project_rows = collect_project_instruction_status(aikito_dir, Path.home())
+        global_status = collect_global_instruction_status(aikito_dir, home)
+        agent_rows = collect_instruction_agent_status(aikito_dir, home)
+        project_rows = collect_project_instruction_status(aikito_dir, home)
         print(
-            render_instruction_agent_status(rows, project_rows, use_unicode, use_color)
+            render_instruction_agent_status(
+                global_status, agent_rows, project_rows, use_unicode, use_color
+            )
         )
         return
 
-    name, instructions_path = resolve_instruction_target(
-        aikito_dir, Path.home(), target, Path.cwd()
-    )
-    if not instructions_path.is_file():
-        print(
-            f"[ERROR] Instructions file not found: {instructions_path}",
-            file=sys.stderr,
+    detail = resolve_instruction_detail(aikito_dir, home, target, Path.cwd())
+    if detail.name == "global":
+        if not detail.private_path.is_file():
+            print(
+                f"[ERROR] Instructions file not found: {detail.private_path}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        print(detail.private_path.read_text(encoding="utf-8"), end="")
+        print_global_approval_notice(aikito_dir, home)
+        return
+
+    if detail.is_overlay and detail.public_path and detail.public_path.is_file():
+        pub_text = detail.public_path.read_text(encoding="utf-8", errors="replace")
+        pub_size = format_instruction_size(pub_text)
+
+        priv_text = (
+            detail.private_path.read_text(encoding="utf-8")
+            if detail.private_path.is_file()
+            else ""
         )
-        sys.exit(1)
-    print(instructions_path.read_text(encoding="utf-8"), end="")
-    if name == "global":
-        print_global_approval_notice(aikito_dir, Path.home())
-    if target == "." and name != "global":
+        priv_size = format_instruction_size(priv_text)
+
+        repo_str = (
+            safe_relative_path(detail.project_path, home) if detail.project_path else ""
+        )
+        repo_display = f"\nRepository:  {repo_str}" if repo_str else ""
+        status_sym = "linked" if detail.status == "OK" else detail.status.lower()
+        status_display = (
+            f"\nStatus:      {status_sym}"
+            if detail.status and detail.status != "-"
+            else ""
+        )
+        print(
+            f"Project:     {detail.name} [Mode: overlay]{repo_display}{status_display}\n"
+        )
+        print("=" * 60)
+        print(f"[1. Public Instructions] ({detail.public_path.name}, {pub_size})")
+        print("=" * 60)
+        print(pub_text.rstrip())
+        print("\n" + "=" * 60)
+        priv_display = (
+            f".agents/AGENTS.md -> {safe_relative_path(detail.private_path, home)}"
+        )
+        print(f"[2. Private Instructions] ({priv_display}, {priv_size})")
+        print("=" * 60)
+        if priv_text:
+            print(priv_text.rstrip())
+        else:
+            print("(empty)")
+    else:
+        if not detail.private_path.is_file():
+            print(
+                f"[ERROR] Instructions file not found: {detail.private_path}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        print(detail.private_path.read_text(encoding="utf-8"), end="")
+
+    if target == "." and detail.name != "global":
         print("\nAlso active: global instructions", file=sys.stderr)
         print("View with: aikito show instructions global", file=sys.stderr)
 

@@ -702,30 +702,105 @@ def render_subagent_details(
 
 
 def render_instruction_agent_status(
-    rows: List[tuple[str, str, str]],
-    project_rows: List[tuple[str, str]],
+    global_status: Any,
+    agent_rows: Optional[List[Tuple[str, str, str]]],
+    project_rows: List[Any],
     use_unicode: bool,
     use_color: bool,
 ) -> str:
-    blocks = ["Instructions"]
-    for display_name, target, status in rows:
-        blocks.append(
-            render_key_value_fields(
-                [("Agent:", display_name), ("Status:", status), ("Target:", target)]
-            )
-        )
+    # 1. Global block
+    canon_display = global_status.canonical_display
+    ok_sym = "✓" if use_unicode else "v"
+
+    agents_field = None
+    if agent_rows:
+        linked = [r for r in agent_rows if r[2] == "linked"]
+        issues = [r for r in agent_rows if r[2] in ("missing", "conflict")]
+        total = len(agent_rows)
+        if not issues:
+            agents_val = f"{len(linked)}/{total} linked {_colorize(ok_sym, COLOR_GREEN, use_color)}"
+        else:
+            issue_summary = ", ".join(f"{r[0]}: {r[2]}" for r in issues)
+            badge = _colorize(f"(! {issue_summary})", COLOR_RED, use_color)
+            agents_val = f"{len(linked)}/{total} linked {badge}"
+        agents_field = ("Agents:", agents_val)
+
+    has_overlay_projects = any(
+        getattr(r, "mode", "-") == "overlay" for r in project_rows
+    )
+    overlay_status = global_status.overlay_status
+    if has_overlay_projects:
+        if overlay_status == "OK":
+            overlay_display = f"detected {_colorize(ok_sym, COLOR_GREEN, use_color)}"
+        elif overlay_status == "MISSING":
+            overlay_display = f"missing {_colorize('!', COLOR_YELLOW, use_color)}"
+        else:
+            overlay_display = f"corrupted {_colorize('!', COLOR_RED, use_color)}"
+    else:
+        if overlay_status == "OK":
+            overlay_display = f"detected {_colorize(ok_sym, COLOR_GREEN, use_color)}"
+        else:
+            overlay_display = _colorize("- (no overlay projects)", COLOR_DIM, use_color)
+
+    global_fields = [("Canonical:", canon_display)]
+    if agents_field:
+        global_fields.append(agents_field)
+    global_fields.append(("Overlay prompt:", overlay_display))
+    global_block = "Global Instructions\n" + render_key_value_fields(global_fields)
+
+    # 2. Projects block
     if project_rows:
-        blocks.append(
-            "\n".join(
+        table_rows = []
+        for r in project_rows:
+            mode = getattr(r, "mode", "-")
+            if mode == "overlay":
+                mode_str = _colorize("overlay", COLOR_CYAN, use_color)
+            elif mode == "direct":
+                mode_str = "direct"
+            else:
+                mode_str = _colorize("-", COLOR_DIM, use_color)
+
+            status = getattr(r, "status", "-")
+            if status == "OK":
+                status_badge = _colorize(ok_sym, COLOR_GREEN, use_color)
+            elif status == "-":
+                status_badge = _colorize("-", COLOR_DIM, use_color)
+            elif status == "CONFLICT":
+                status_badge = _colorize("! conf", COLOR_RED, use_color)
+            elif status == "MISSING":
+                status_badge = _colorize("! miss", COLOR_YELLOW, use_color)
+            else:
+                status_badge = _colorize(str(status).lower(), COLOR_RED, use_color)
+
+            pub_val = getattr(r, "public", "-")
+            priv_val = getattr(r, "private", "-")
+            pub_str = _colorize(
+                pub_val, COLOR_RESET if pub_val != "-" else COLOR_DIM, use_color
+            )
+            priv_str = _colorize(
+                priv_val, COLOR_RESET if priv_val != "-" else COLOR_DIM, use_color
+            )
+
+            proj_name = getattr(r, "project", str(r))
+            table_rows.append(
                 [
-                    "Projects",
-                    render_key_value_fields(
-                        [(f"{name}:", status) for name, status in project_rows]
-                    ),
+                    proj_name,
+                    mode_str,
+                    pub_str,
+                    priv_str,
+                    status_badge,
                 ]
             )
+        projects_block = "Projects\n" + _build_generic_table(
+            ["Project", "Mode", "Public", "Private", "Status"],
+            table_rows,
+            use_unicode,
+            use_color,
         )
-    return "\n\n".join(blocks)
+    else:
+        projects_block = "Projects\n  (no projects configured)"
+
+    return global_block + "\n\n" + projects_block
 
 
 def render_subagents_status_table(

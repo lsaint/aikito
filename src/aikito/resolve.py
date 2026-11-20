@@ -8,12 +8,15 @@ script so the entry stays a thin parser plus dispatch.
 import subprocess
 import sys
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 
 from .config import get_inbox_path
+from .context_footprint import format_instruction_size
+from .doctor import check_global_overlay_guidance_status
 from .inbox import resolve_inbox_target_for_command
 from .link import classify_symlink, symlink_verdict_to_status
-from .agents import load_agent_definitions
+from .agents import AgentRegistry, detect_team_instruction, load_agent_definitions
 from .memory import ensure_safe_path
 from .project import resolve_project_binding
 from .compat import (
@@ -310,35 +313,8 @@ def find_instruction_sources(
 def resolve_instruction_target(
     aikito_dir: Path, home: Path, target: str, cwd: Path
 ) -> tuple[str, Path]:
-    sources = find_instruction_sources(aikito_dir, home)
-    if target == ".":
-        try:
-            detected = detect_current_project(aikito_dir, cwd, home)
-        except ProjectContextConflictError as exc:
-            names = ", ".join(exc.projects)
-            print(
-                f"[CONFLICT] Multiple projects match current directory '{exc.path}': {names}",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        if detected:
-            for name, instructions_path, _ in sources:
-                if name == detected:
-                    return name, instructions_path
-            return detected, aikito_dir / "projects" / detected / "AGENTS.md"
-        print(
-            f"[ERROR] Current directory is not inside a registered project: {cwd.resolve()}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    for name, instructions_path, _ in sources:
-        if name == target:
-            return name, instructions_path
-
-    print(f"[ERROR] Instructions target '{target}' not found.", file=sys.stderr)
-    print("Run 'aikito show instructions' to view available targets.", file=sys.stderr)
-    sys.exit(1)
+    detail = resolve_project_instruction_detail(aikito_dir, home, target, cwd)
+    return detail.name, detail.private_path
 
 
 def collect_instruction_agent_status(
@@ -365,15 +341,61 @@ def collect_instruction_agent_status(
     return rows
 
 
+@dataclass(frozen=True)
+class GlobalInstructionStatus:
+    canonical_display: str
+    overlay_status: str
+
+
+def collect_global_instruction_status(
+    aikito_dir: Path, home: Path
+) -> GlobalInstructionStatus:
+    canonical_path = aikito_dir / "global" / "AGENTS.md"
+    canon_display = safe_relative_path(canonical_path, home)
+    if canonical_path.is_file():
+        try:
+            content = canonical_path.read_text(encoding="utf-8")
+            canon_display = f"{canon_display} ({format_instruction_size(content)})"
+        except OSError:
+            canon_display = f"{canon_display} (-)"
+    else:
+        canon_display = f"{canon_display} (-)"
+
+    overlay_status, _ = check_global_overlay_guidance_status(canonical_path)
+    return GlobalInstructionStatus(
+        canonical_display=canon_display,
+        overlay_status=overlay_status,
+    )
+
+
+@dataclass(frozen=True)
+class ProjectInstructionRow:
+    project: str
+    mode: str
+    public: str
+    private: str
+    status: str
+
+
+@dataclass(frozen=True)
+class ProjectInstructionDetail:
+    name: str
+    project_path: Path | None
+    private_path: Path
+    public_path: Path | None
+    is_overlay: bool
+    status: str
+
+
 def collect_project_instruction_status(
     aikito_dir: Path, home: Path
-) -> list[tuple[str, str]]:
-    rows = []
-    status_names = {
-        "OK": "linked",
-        "MISSING": "missing",
-        "CONFLICT": "conflict",
-    }
+) -> list[ProjectInstructionRow]:
+    rows: list[ProjectInstructionRow] = []
+
+    try:
+        registry = AgentRegistry.load(aikito_dir, home)
+    except Exception:
+        registry = None
 
     sources = find_instruction_sources(aikito_dir, home)[1:]
     name_counts: dict[str, int] = {}
@@ -386,23 +408,166 @@ def collect_project_instruction_status(
             if name_counts.get(name, 0) > 1 and project_path is not None
             else name
         )
+
+        has_private = False
+        private_lines_display = "-"
         try:
-            has_content = source.is_file() and bool(
-                source.read_text(encoding="utf-8").strip()
-            )
+            if source.is_file():
+                content = source.read_text(encoding="utf-8")
+                if content.strip():
+                    has_private = True
+                    private_lines_display = f"{len(content.splitlines())}L"
         except OSError:
-            has_content = False
-        if not has_content or project_path is None:
-            rows.append((label, "-"))
-            continue
-        target = project_path / "AGENTS.md"
-        if not target.exists() and not target.is_symlink():
+            pass
+
+        public_file = None
+        is_overlay = False
+        if project_path is not None:
+            is_overlay, public_file = detect_team_instruction(
+                project_path, source, registry
+            )
+
+        public_lines_display = "-"
+        if public_file is not None:
+            try:
+                pub_content = public_file.read_text(encoding="utf-8", errors="replace")
+                public_lines_display = f"{len(pub_content.splitlines())}L"
+            except OSError:
+                public_lines_display = "-"
+
+        if is_overlay:
+            mode = "overlay"
+            target = project_path / ".agents" / "AGENTS.md" if project_path else None
+        elif has_private:
+            mode = "direct"
+            target = project_path / "AGENTS.md" if project_path else None
+            if target is not None and not target.exists() and not target.is_symlink():
+                legacy_target = project_path / ".agents" / "AGENTS.md"
+                if legacy_target.exists() or legacy_target.is_symlink():
+                    target = legacy_target
+        else:
+            mode = "-"
+            target = None
+
+        if has_private and project_path is not None and target is not None:
+            status = symlink_verdict_to_status(classify_symlink(target, source))
+        else:
+            status = "-"
+
+        rows.append(
+            ProjectInstructionRow(
+                project=label,
+                mode=mode,
+                public=public_lines_display,
+                private=private_lines_display,
+                status=status,
+            )
+        )
+    return rows
+
+
+InstructionDetail = ProjectInstructionDetail
+
+
+def resolve_project_instruction_detail(
+    aikito_dir: Path, home: Path, target: str, cwd: Path
+) -> ProjectInstructionDetail:
+    sources = find_instruction_sources(aikito_dir, home)
+    detected_project = None
+    if target == ".":
+        try:
+            detected_project = detect_current_project(aikito_dir, cwd, home)
+        except ProjectContextConflictError as exc:
+            names = ", ".join(exc.projects)
+            print(
+                f"[CONFLICT] Multiple projects match current directory '{exc.path}': {names}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if not detected_project:
+            print(
+                f"[ERROR] Current directory is not inside a registered project: {cwd.resolve()}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        target_name = detected_project
+    else:
+        target_name = target
+
+    matched_entry = None
+    for name, instructions_path, project_path in sources:
+        if name == target_name:
+            if target == "." and project_path is not None:
+                try:
+                    if (
+                        project_path.resolve() == cwd.resolve()
+                        or project_path.resolve() in cwd.resolve().parents
+                    ):
+                        matched_entry = (name, instructions_path, project_path)
+                        break
+                except OSError:
+                    pass
+            if matched_entry is None:
+                matched_entry = (name, instructions_path, project_path)
+
+    if matched_entry is None:
+        print(f"[ERROR] Instructions target '{target}' not found.", file=sys.stderr)
+        print(
+            "Run 'aikito show instructions' to view available targets.", file=sys.stderr
+        )
+        sys.exit(1)
+
+    name, private_path, project_path = matched_entry
+
+    try:
+        registry = AgentRegistry.load(aikito_dir, home)
+    except Exception:
+        registry = None
+
+    public_file = None
+    is_overlay = False
+    if project_path is not None:
+        is_overlay, public_file = detect_team_instruction(
+            project_path, private_path, registry
+        )
+
+    if is_overlay:
+        target_symlink = (
+            project_path / ".agents" / "AGENTS.md" if project_path else None
+        )
+    else:
+        target_symlink = project_path / "AGENTS.md" if project_path else None
+        if (
+            target_symlink is not None
+            and not target_symlink.exists()
+            and not target_symlink.is_symlink()
+        ):
             legacy_target = project_path / ".agents" / "AGENTS.md"
             if legacy_target.exists() or legacy_target.is_symlink():
-                target = legacy_target
-        status = symlink_verdict_to_status(classify_symlink(target, source))
-        rows.append((label, status_names.get(status, status.lower())))
-    return rows
+                target_symlink = legacy_target
+
+    if (
+        project_path is not None
+        and target_symlink is not None
+        and private_path.exists()
+    ):
+        status = symlink_verdict_to_status(
+            classify_symlink(target_symlink, private_path)
+        )
+    else:
+        status = "-"
+
+    return ProjectInstructionDetail(
+        name=name,
+        project_path=project_path,
+        private_path=private_path,
+        public_path=public_file,
+        is_overlay=is_overlay,
+        status=status,
+    )
+
+
+resolve_instruction_detail = resolve_project_instruction_detail
 
 
 def open_in_editor(target_file: Path) -> None:
@@ -492,17 +657,24 @@ def resolve_project_filter(
 
 
 __all__ = [
+    "GlobalInstructionStatus",
+    "InstructionDetail",
     "ProjectContextConflictError",
+    "ProjectInstructionDetail",
+    "ProjectInstructionRow",
     "SkillTargetConflictError",
+    "collect_global_instruction_status",
     "collect_instruction_agent_status",
     "collect_project_instruction_status",
     "detect_current_project",
     "find_instruction_sources",
     "open_in_editor",
     "resolve_inbox_target",
+    "resolve_instruction_detail",
     "resolve_instruction_target",
     "resolve_mcp_target_for_command",
     "resolve_project_filter",
+    "resolve_project_instruction_detail",
     "resolve_skill_target",
     "resolve_skill_target_for_command",
     "resolve_subagent_target_for_command",

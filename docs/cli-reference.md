@@ -429,11 +429,7 @@ Targeted commands inspect only their resource kind, so unrelated MCP configurati
 Aikito calls this resource “instructions” and stores its canonical content in
 `AGENTS.md` for ecosystem compatibility.
 
-Without a target, show how each Agent is connected to global instructions,
-followed by a compact Projects section. A project with missing or empty
-canonical instructions is shown as `-`; otherwise its runtime link is shown
-as `linked`, `missing`, or `conflict`. Provide `global`, a project name, or `.`
-to print raw Markdown content:
+Without a target, `aikito show instructions` displays global instruction status and a structured projects table reporting Mode (`overlay` vs `direct`), public repository instructions (`Public`), private user instructions (`Private`), and link status. Provide `global`, a project name, or `.` to inspect instructions content. In overlay mode, both public repository instructions and private user overlay instructions are rendered in structured sections.
 
 ```bash
 aikito show instructions
