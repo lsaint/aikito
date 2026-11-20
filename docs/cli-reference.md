@@ -422,7 +422,7 @@ aikito diff --all
 
 The bare `aikito diff` command outputs a high-level drift index showing which MCPs, subagents, and projects have drifted, without dumping raw unified diffs. To inspect full diffs, drill down by project/skill/file or use `--all` to print all unified diffs at once. MCP credentials and sensitive headers are redacted. Binary project skill files are reported without printing their contents. Missing resources and unmanaged conflicts remain status findings and are not rendered as drift diffs.
 
-Targeted commands inspect only their resource kind, so unrelated MCP configuration errors do not block project or subagent diffs. Project indices group changes by checkout path, and full diffs identify the checkout in each resource label. File targets accept `/` or `\` separators and equivalent relative paths such as `./scripts/check.py`.
+Targeted commands inspect only their resource kind, so unrelated MCP configuration errors do not block project or subagent diffs. Project indices group changes by checkout path, and full diffs identify the checkout in each resource label. File targets accept `/` or `\` separators and equivalent relative paths such as `./scripts/check.py`. For `diff mcp` and `diff subagent`, when a single argument is supplied without a slash, it is resolved first against agent names if drift exists for that agent, otherwise as a server/subagent name. Drift resolution operates over currently detected drifts.
 
 ## Instructions
 

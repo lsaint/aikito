@@ -4388,6 +4388,47 @@ class CwdInteractionTest(unittest.TestCase):
             "[Project demo/skill formatter — SKILL.md]", mock_stdout.getvalue()
         )
 
+        # 4c. diff project demo/ (trailing slash stripped)
+        args_proj_trailing = parser.parse_args(["diff", "project", "demo/"])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(
+                AIKITO_CLI, "collect_drift_diffs", return_value=dummy_diffs
+            ) as mock_diffs,
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args_proj_trailing.func(args_proj_trailing)
+        mock_diffs.assert_called_once_with(
+            self.aikito_dir, self.home, project_filter="demo", kind="project_skill"
+        )
+
+        # 4d. conflicting arguments: slash notation with extra positional arg
+        args_proj_conf = parser.parse_args(
+            ["diff", "project", "demo/formatter", "other"]
+        )
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+        ):
+            with self.assertRaises(SystemExit) as cm:
+                args_proj_conf.func(args_proj_conf)
+            self.assertEqual(cm.exception.code, 1)
+            self.assertIn("Conflicting arguments", mock_stderr.getvalue())
+
+        args_mcp_conf = parser.parse_args(["diff", "mcp", "codex/github", "other"])
+        with (
+            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
+            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+            patch.object(AIKITO_CLI, "collect_drift_diffs", return_value=dummy_diffs),
+            patch("sys.stderr", new_callable=io.StringIO) as mock_stderr,
+        ):
+            with self.assertRaises(SystemExit) as cm:
+                args_mcp_conf.func(args_mcp_conf)
+            self.assertEqual(cm.exception.code, 1)
+            self.assertIn("Conflicting arguments", mock_stderr.getvalue())
+
         # 5. diff project without project name outside of project directory exits 1
         args_proj_no_cwd = parser.parse_args(["diff", "project"])
         with (

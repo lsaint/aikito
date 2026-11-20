@@ -604,6 +604,12 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     p_diff_mcp = diff_subparsers.add_parser(
         "mcp",
         help="Show unified diff for drifted MCP servers",
+        description=(
+            "Show unified diff for drifted MCP servers. Accepts [agent] [server], slash notation "
+            "[agent/server], [agent], or [server]. When a single argument is given, it is matched "
+            "first as an Agent if drift exists for that agent, otherwise as a server name. Drift "
+            "search operates only over currently detected drifts."
+        ),
     )
     p_diff_mcp.add_argument(
         "agent",
@@ -623,6 +629,12 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     p_diff_subagent = diff_subparsers.add_parser(
         "subagent",
         help="Show unified diff for drifted subagents",
+        description=(
+            "Show unified diff for drifted subagents. Accepts [agent] [name], slash notation "
+            "[agent/name], [agent], or [name]. When a single argument is given, it is matched "
+            "first as an Agent if drift exists for that agent, otherwise as a subagent name. Drift "
+            "search operates only over currently detected drifts."
+        ),
     )
     p_diff_subagent.add_argument(
         "agent",

@@ -657,6 +657,46 @@ def cmd_web(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def _parse_agent_resource_spec(
+    first: str | None,
+    second: str | None,
+    diffs: list[Any],
+    *,
+    resource_type: str = "resource",
+) -> tuple[str | None, str | None]:
+    if first and "/" in first:
+        if second:
+            print(
+                f"[ERROR] Conflicting arguments: cannot specify both slash format '{first}' "
+                f"and '{second}'. Use '{first}' or '{first.split('/')[0]} {second}'.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        parts = [p for p in first.split("/") if p]
+        if len(parts) == 2:
+            first, second = parts[0], parts[1]
+        elif len(parts) == 1:
+            first = parts[0]
+            second = None
+        else:
+            print(
+                f"[ERROR] Invalid format '{first}'. Expected '[agent]/[{resource_type}]'.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    agent = first
+    resource_name = second
+    if agent and not resource_name:
+        agent_names = {d.agent for d in diffs if d.agent}
+        resource_names = {d.name for d in diffs if d.name}
+        if agent not in agent_names and agent in resource_names:
+            resource_name = agent
+            agent = None
+
+    return agent, resource_name
+
+
 def cmd_diff(args: argparse.Namespace) -> None:
     aikito_dir = get_aikito_dir()
     home = Path.home()
@@ -673,13 +713,24 @@ def cmd_diff(args: argparse.Namespace) -> None:
         project_name = getattr(args, "project_name", None)
         skill_name = getattr(args, "skill_name", None)
         file_path = getattr(args, "file_path", None)
-        if project_name and "/" in project_name and not skill_name and not file_path:
+        if project_name and "/" in project_name:
+            if skill_name or file_path:
+                print(
+                    f"[ERROR] Conflicting arguments: cannot specify skill or file arguments "
+                    f"when project contains '/'. Use '{project_name}' or separate positional arguments.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
             parts = [p for p in project_name.split("/") if p]
-            if len(parts) == 2:
+            if len(parts) == 1:
+                project_name = parts[0]
+            elif len(parts) == 2:
                 project_name, skill_name = parts
             elif len(parts) >= 3:
                 project_name, skill_name = parts[0], parts[1]
                 file_path = "/".join(parts[2:])
+            else:
+                project_name = None
 
         if not project_name:
             try:
@@ -738,17 +789,10 @@ def cmd_diff(args: argparse.Namespace) -> None:
     if target == "mcp":
         agent = getattr(args, "agent", None)
         server = getattr(args, "server", None)
-        if agent and "/" in agent and not server:
-            agent_part, server_part = agent.split("/", 1)
-            agent = agent_part or None
-            server = server_part or None
         diffs = collect_drift_diffs(aikito_dir, home, kind="mcp")
-        if agent and not server:
-            agent_names = {d.agent for d in diffs if d.agent}
-            server_names = {d.name for d in diffs if d.name}
-            if agent not in agent_names and agent in server_names:
-                server = agent
-                agent = None
+        agent, server = _parse_agent_resource_spec(
+            agent, server, diffs, resource_type="server"
+        )
         matching = filter_drift_diffs(
             diffs,
             kind="mcp",
@@ -762,17 +806,10 @@ def cmd_diff(args: argparse.Namespace) -> None:
     if target == "subagent":
         agent = getattr(args, "agent", None)
         name = getattr(args, "name", None)
-        if agent and "/" in agent and not name:
-            agent_part, name_part = agent.split("/", 1)
-            agent = agent_part or None
-            name = name_part or None
         diffs = collect_drift_diffs(aikito_dir, home, kind="subagent")
-        if agent and not name:
-            agent_names = {d.agent for d in diffs if d.agent}
-            subagent_names = {d.name for d in diffs if d.name}
-            if agent not in agent_names and agent in subagent_names:
-                name = agent
-                agent = None
+        agent, name = _parse_agent_resource_spec(
+            agent, name, diffs, resource_type="subagent"
+        )
         matching = filter_drift_diffs(
             diffs,
             kind="subagent",
