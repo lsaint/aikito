@@ -990,3 +990,23 @@ class InstructionOverlayTests(TestCase):
         # Querying unrelated.txt triggers on-demand targeted query
         self.assertTrue(tracker.is_tracked(self.co / "other" / "unrelated.txt"))
         self.assertIn("other/unrelated.txt", tracker.tracked_files)
+
+    # 26. Tracked team instruction deleted from working tree still triggers overlay mode
+    def test_26_deleted_tracked_file_remains_overlay_mode_avoiding_typechange(
+        self,
+    ) -> None:
+        from aikito.agents import detect_team_instruction
+        from aikito.git_ops import clear_git_tracker_cache
+
+        _init_git_repo(self.co)
+        clear_git_tracker_cache()
+        _commit_file(self.co, "AGENTS.md", "team instructions\n")
+
+        # Physically remove AGENTS.md from working tree (e.g. rm AGENTS.md)
+        (self.co / "AGENTS.md").unlink()
+        self.assertFalse((self.co / "AGENTS.md").exists())
+
+        # detect_team_instruction still returns overlay mode True because git tracks it
+        is_overlay, public_path = detect_team_instruction(self.co)
+        self.assertTrue(is_overlay)
+        self.assertEqual(public_path, self.co / "AGENTS.md")

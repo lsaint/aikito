@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .config import get_inbox_path
 from .context_footprint import format_instruction_size
-from .doctor import check_global_overlay_guidance_status
+from .instructions import check_global_overlay_guidance_status
 from .inbox import resolve_inbox_target_for_command
 from .link import classify_symlink, symlink_verdict_to_status
 from .agents import AgentRegistry, detect_team_instruction, load_agent_definitions
@@ -313,7 +313,7 @@ def find_instruction_sources(
 def resolve_instruction_target(
     aikito_dir: Path, home: Path, target: str, cwd: Path
 ) -> tuple[str, Path]:
-    detail = resolve_project_instruction_detail(aikito_dir, home, target, cwd)
+    detail = resolve_instruction_detail(aikito_dir, home, target, cwd)
     return detail.name, detail.private_path
 
 
@@ -378,7 +378,7 @@ class ProjectInstructionRow:
 
 
 @dataclass(frozen=True)
-class ProjectInstructionDetail:
+class InstructionDetail:
     name: str
     project_path: Path | None
     private_path: Path
@@ -387,15 +387,67 @@ class ProjectInstructionDetail:
     status: str
 
 
+def resolve_project_instruction_mode(
+    project_path: Path | None,
+    private_path: Path,
+    registry: AgentRegistry | None = None,
+) -> tuple[str, Path | None, Path | None, str]:
+    """Resolve instruction mode, public team file, target symlink, and symlink status.
+
+    Returns:
+        (mode, public_file, target_symlink, status)
+    """
+    has_private = False
+    try:
+        if private_path.is_file():
+            content = private_path.read_text(encoding="utf-8")
+            if content.strip():
+                has_private = True
+    except OSError:
+        pass
+
+    public_file = None
+    is_overlay = False
+    if project_path is not None:
+        is_overlay, public_file = detect_team_instruction(
+            project_path, private_path, registry
+        )
+
+    if is_overlay:
+        mode = "overlay"
+        target_symlink = (
+            project_path / ".agents" / "AGENTS.md" if project_path else None
+        )
+    elif has_private or project_path is not None:
+        mode = "direct" if has_private else "-"
+        target_symlink = project_path / "AGENTS.md" if project_path else None
+        if (
+            target_symlink is not None
+            and not target_symlink.exists()
+            and not target_symlink.is_symlink()
+        ):
+            legacy_target = project_path / ".agents" / "AGENTS.md"
+            if legacy_target.exists() or legacy_target.is_symlink():
+                target_symlink = legacy_target
+    else:
+        mode = "-"
+        target_symlink = None
+
+    if has_private and project_path is not None and target_symlink is not None:
+        status = symlink_verdict_to_status(
+            classify_symlink(target_symlink, private_path)
+        )
+    else:
+        status = "-"
+
+    return mode, public_file, target_symlink, status
+
+
 def collect_project_instruction_status(
     aikito_dir: Path, home: Path
 ) -> list[ProjectInstructionRow]:
     rows: list[ProjectInstructionRow] = []
-
-    try:
-        registry = AgentRegistry.load(aikito_dir, home)
-    except Exception:
-        registry = None
+    registry = AgentRegistry.load(aikito_dir, home)
 
     sources = find_instruction_sources(aikito_dir, home)[1:]
     name_counts: dict[str, int] = {}
@@ -409,23 +461,18 @@ def collect_project_instruction_status(
             else name
         )
 
-        has_private = False
+        mode, public_file, _, status = resolve_project_instruction_mode(
+            project_path, source, registry
+        )
+
         private_lines_display = "-"
         try:
             if source.is_file():
                 content = source.read_text(encoding="utf-8")
                 if content.strip():
-                    has_private = True
                     private_lines_display = f"{len(content.splitlines())}L"
         except OSError:
             pass
-
-        public_file = None
-        is_overlay = False
-        if project_path is not None:
-            is_overlay, public_file = detect_team_instruction(
-                project_path, source, registry
-            )
 
         public_lines_display = "-"
         if public_file is not None:
@@ -434,25 +481,6 @@ def collect_project_instruction_status(
                 public_lines_display = f"{len(pub_content.splitlines())}L"
             except OSError:
                 public_lines_display = "-"
-
-        if is_overlay:
-            mode = "overlay"
-            target = project_path / ".agents" / "AGENTS.md" if project_path else None
-        elif has_private:
-            mode = "direct"
-            target = project_path / "AGENTS.md" if project_path else None
-            if target is not None and not target.exists() and not target.is_symlink():
-                legacy_target = project_path / ".agents" / "AGENTS.md"
-                if legacy_target.exists() or legacy_target.is_symlink():
-                    target = legacy_target
-        else:
-            mode = "-"
-            target = None
-
-        if has_private and project_path is not None and target is not None:
-            status = symlink_verdict_to_status(classify_symlink(target, source))
-        else:
-            status = "-"
 
         rows.append(
             ProjectInstructionRow(
@@ -466,12 +494,9 @@ def collect_project_instruction_status(
     return rows
 
 
-InstructionDetail = ProjectInstructionDetail
-
-
-def resolve_project_instruction_detail(
+def resolve_instruction_detail(
     aikito_dir: Path, home: Path, target: str, cwd: Path
-) -> ProjectInstructionDetail:
+) -> InstructionDetail:
     sources = find_instruction_sources(aikito_dir, home)
     detected_project = None
     if target == ".":
@@ -518,56 +543,19 @@ def resolve_project_instruction_detail(
         sys.exit(1)
 
     name, private_path, project_path = matched_entry
+    registry = AgentRegistry.load(aikito_dir, home)
+    mode, public_file, _, status = resolve_project_instruction_mode(
+        project_path, private_path, registry
+    )
 
-    try:
-        registry = AgentRegistry.load(aikito_dir, home)
-    except Exception:
-        registry = None
-
-    public_file = None
-    is_overlay = False
-    if project_path is not None:
-        is_overlay, public_file = detect_team_instruction(
-            project_path, private_path, registry
-        )
-
-    if is_overlay:
-        target_symlink = (
-            project_path / ".agents" / "AGENTS.md" if project_path else None
-        )
-    else:
-        target_symlink = project_path / "AGENTS.md" if project_path else None
-        if (
-            target_symlink is not None
-            and not target_symlink.exists()
-            and not target_symlink.is_symlink()
-        ):
-            legacy_target = project_path / ".agents" / "AGENTS.md"
-            if legacy_target.exists() or legacy_target.is_symlink():
-                target_symlink = legacy_target
-
-    if (
-        project_path is not None
-        and target_symlink is not None
-        and private_path.exists()
-    ):
-        status = symlink_verdict_to_status(
-            classify_symlink(target_symlink, private_path)
-        )
-    else:
-        status = "-"
-
-    return ProjectInstructionDetail(
+    return InstructionDetail(
         name=name,
         project_path=project_path,
         private_path=private_path,
         public_path=public_file,
-        is_overlay=is_overlay,
+        is_overlay=(mode == "overlay"),
         status=status,
     )
-
-
-resolve_instruction_detail = resolve_project_instruction_detail
 
 
 def open_in_editor(target_file: Path) -> None:
@@ -660,7 +648,6 @@ __all__ = [
     "GlobalInstructionStatus",
     "InstructionDetail",
     "ProjectContextConflictError",
-    "ProjectInstructionDetail",
     "ProjectInstructionRow",
     "SkillTargetConflictError",
     "collect_global_instruction_status",
@@ -674,7 +661,7 @@ __all__ = [
     "resolve_instruction_target",
     "resolve_mcp_target_for_command",
     "resolve_project_filter",
-    "resolve_project_instruction_detail",
+    "resolve_project_instruction_mode",
     "resolve_skill_target",
     "resolve_skill_target_for_command",
     "resolve_subagent_target_for_command",

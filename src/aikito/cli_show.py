@@ -238,9 +238,15 @@ def cmd_show_instructions(args: argparse.Namespace) -> None:
         print_global_approval_notice(aikito_dir, home)
         return
 
-    if detail.is_overlay and detail.public_path and detail.public_path.is_file():
-        pub_text = detail.public_path.read_text(encoding="utf-8", errors="replace")
-        pub_size = format_instruction_size(pub_text)
+    if detail.is_overlay:
+        if detail.public_path and detail.public_path.is_file():
+            pub_text = detail.public_path.read_text(encoding="utf-8", errors="replace")
+            pub_size = format_instruction_size(pub_text)
+            pub_name = detail.public_path.name
+        else:
+            pub_text = ""
+            pub_size = "-"
+            pub_name = detail.public_path.name if detail.public_path else "AGENTS.md"
 
         priv_text = (
             detail.private_path.read_text(encoding="utf-8")
@@ -263,9 +269,12 @@ def cmd_show_instructions(args: argparse.Namespace) -> None:
             f"Project:     {detail.name} [Mode: overlay]{repo_display}{status_display}\n"
         )
         print("=" * 60)
-        print(f"[1. Public Instructions] ({detail.public_path.name}, {pub_size})")
+        print(f"[1. Public Instructions] ({pub_name}, {pub_size})")
         print("=" * 60)
-        print(pub_text.rstrip())
+        if pub_text:
+            print(pub_text.rstrip())
+        else:
+            print("(missing from working tree)")
         print("\n" + "=" * 60)
         priv_display = (
             f".agents/AGENTS.md -> {safe_relative_path(detail.private_path, home)}"

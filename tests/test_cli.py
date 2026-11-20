@@ -2705,7 +2705,10 @@ url = "http://custom.example.com"
                 AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
             ),
             patch.object(Path, "home", return_value=home),
-            patch("aikito.agents.is_git_tracked", return_value=True),
+            patch(
+                "aikito.agents.is_git_tracked",
+                side_effect=lambda p, *a, **k: p.name == "AGENTS.md",
+            ),
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
         ):
             args = AIKITO_CLI.build_parser().parse_args(
@@ -2787,6 +2790,81 @@ url = "http://custom.example.com"
         # Because no project uses overlay, it should NOT warn "missing !"
         self.assertNotIn("missing !", listing)
         self.assertIn("- (no overlay projects)", listing)
+
+    def test_show_instructions_overlay_deleted_tracked_file(self) -> None:
+        home = self.home.resolve()
+        repo_dir = home / "deleted-repo"
+        repo_dir.mkdir(parents=True)
+        # Note: AGENTS.md does not exist in working tree (e.g. was deleted)
+        (repo_dir / ".git").mkdir()
+
+        proj_dir = self.aikito_dir / "projects" / "deleted-proj"
+        proj_dir.mkdir(parents=True)
+        (proj_dir / "AGENTS.md").write_text("my private guidelines\n")
+        (proj_dir / "agent.toml").write_text(
+            f'name = "deleted-proj"\npaths = ["{repo_dir.as_posix()}"]\n'
+        )
+        (repo_dir / ".agents").mkdir(parents=True)
+        (repo_dir / ".agents" / "AGENTS.md").symlink_to(proj_dir / "AGENTS.md")
+
+        with (
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
+            patch.object(Path, "home", return_value=home),
+            # git still tracks AGENTS.md even if deleted from disk
+            patch(
+                "aikito.agents.is_git_tracked",
+                side_effect=lambda p, *a, **k: p.name == "AGENTS.md",
+            ),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "instructions", "deleted-proj"]
+            )
+            args.func(args)
+
+        output = mock_stdout.getvalue()
+        self.assertIn("[Mode: overlay]", output)
+        self.assertIn("(missing from working tree)", output)
+        self.assertIn("my private guidelines", output)
+
+    def test_show_instructions_overlay_corrupted_prompt_warns_without_overlay_projects(
+        self,
+    ) -> None:
+        home = self.home.resolve()
+        (self.aikito_dir / "global").mkdir()
+        # Corrupted guidance block: START without matching END
+        (self.aikito_dir / "global" / "AGENTS.md").write_text(
+            "<!-- AIKITO:MANAGED:OVERLAY_INSTRUCTION:START -->\ncorrupted without end\n"
+        )
+
+        single_proj = self.aikito_dir / "projects" / "single"
+        single_proj.mkdir(parents=True)
+        (single_proj / "AGENTS.md").write_text("single rules\n")
+        single_path = home / "single-repo"
+        single_path.mkdir(parents=True)
+        (single_proj / "agent.toml").write_text(
+            f'name = "single"\npaths = ["{single_path.as_posix()}"]\n'
+        )
+        (single_path / "AGENTS.md").symlink_to(single_proj / "AGENTS.md")
+
+        with (
+            patch.object(
+                AIKITO_SHOW, "resolve_workspace", return_value=self.aikito_dir
+            ),
+            patch.object(Path, "home", return_value=home),
+            patch("aikito.agents.is_git_tracked", return_value=False),
+            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+        ):
+            args = AIKITO_CLI.build_parser().parse_args(
+                ["show", "instructions", "--color", "never", "--no-color"]
+            )
+            args.func(args)
+
+        listing = mock_stdout.getvalue()
+        # Corrupted should warn even when no projects use overlay
+        self.assertIn("corrupted !", listing)
 
     def test_status_has_no_subcommands(self) -> None:
         with (

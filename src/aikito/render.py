@@ -716,31 +716,30 @@ def render_instruction_agent_status(
     if agent_rows:
         linked = [r for r in agent_rows if r[2] == "linked"]
         issues = [r for r in agent_rows if r[2] in ("missing", "conflict")]
-        total = len(agent_rows)
+        skipped = [r for r in agent_rows if r[2] == "skipped"]
+        applicable = [r for r in agent_rows if r[2] != "skipped"]
+        total = len(applicable)
+        skip_suffix = f" ({len(skipped)} skipped)" if skipped else ""
         if not issues:
-            agents_val = f"{len(linked)}/{total} linked {_colorize(ok_sym, COLOR_GREEN, use_color)}"
+            agents_val = f"{len(linked)}/{total} linked {_colorize(ok_sym, COLOR_GREEN, use_color)}{skip_suffix}"
         else:
             issue_summary = ", ".join(f"{r[0]}: {r[2]}" for r in issues)
             badge = _colorize(f"(! {issue_summary})", COLOR_RED, use_color)
-            agents_val = f"{len(linked)}/{total} linked {badge}"
+            agents_val = f"{len(linked)}/{total} linked {badge}{skip_suffix}"
         agents_field = ("Agents:", agents_val)
 
     has_overlay_projects = any(
         getattr(r, "mode", "-") == "overlay" for r in project_rows
     )
     overlay_status = global_status.overlay_status
-    if has_overlay_projects:
-        if overlay_status == "OK":
-            overlay_display = f"detected {_colorize(ok_sym, COLOR_GREEN, use_color)}"
-        elif overlay_status == "MISSING":
-            overlay_display = f"missing {_colorize('!', COLOR_YELLOW, use_color)}"
-        else:
-            overlay_display = f"corrupted {_colorize('!', COLOR_RED, use_color)}"
+    if overlay_status == "CORRUPTED":
+        overlay_display = f"corrupted {_colorize('!', COLOR_RED, use_color)}"
+    elif overlay_status == "OK":
+        overlay_display = f"detected {_colorize(ok_sym, COLOR_GREEN, use_color)}"
+    elif has_overlay_projects:
+        overlay_display = f"missing {_colorize('!', COLOR_YELLOW, use_color)}"
     else:
-        if overlay_status == "OK":
-            overlay_display = f"detected {_colorize(ok_sym, COLOR_GREEN, use_color)}"
-        else:
-            overlay_display = _colorize("- (no overlay projects)", COLOR_DIM, use_color)
+        overlay_display = _colorize("- (no overlay projects)", COLOR_DIM, use_color)
 
     global_fields = [("Canonical:", canon_display)]
     if agents_field:

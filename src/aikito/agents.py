@@ -640,8 +640,6 @@ def detect_team_instruction(
 
     for rel_cand in sorted(team_candidates):
         cand_path = project_path / rel_cand
-        if not cand_path.is_file():
-            continue
         if cand_path.is_symlink() and canonical_source is not None:
             try:
                 if cand_path.resolve(strict=False) == canonical_source.resolve(
