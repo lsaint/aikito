@@ -6,11 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.64.2] - 2026-11-20
+
 ### Changed
 
 - Enhanced `aikito show instructions` with a structured project table reporting Mode (`overlay`/`direct`), Public repository instructions, Private user instructions, and link status, along with multi-layer instruction output when viewing overlay projects.
 - Enhanced `aikito diff mcp` and `aikito diff subagent` to accept flexible arguments including slash format (`agent/server`, `agent/name`), bare server/subagent names, or omitted arguments to view diffs at agent or resource level without requiring strict separate positional arguments.
 - Enhanced `aikito diff project` to support `<project>/<skill>` and `<project>/<skill>/<file>` path notation.
+
+### Fixed
+
+- Preserved project instruction overlay status when Git-tracked target file does not yet exist and refined table rendering.
+- Stripped trailing slashes and rejected conflicting arguments in `aikito diff`.
 
 ## [1.64.1] - 2026-11-19
 
@@ -1277,7 +1284,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   scanning, integrity checks, and automated tests.
 - Added installation and operational documentation for macOS, Linux, and WSL2.
 
-[Unreleased]: https://github.com/lsaint/aikito/compare/v1.64.1...HEAD
+[Unreleased]: https://github.com/lsaint/aikito/compare/v1.64.2...HEAD
+[1.64.2]: https://github.com/lsaint/aikito/compare/v1.64.1...v1.64.2
 [1.64.1]: https://github.com/lsaint/aikito/compare/v1.64.0...v1.64.1
 [1.64.0]: https://github.com/lsaint/aikito/compare/v1.63.1...v1.64.0
 [1.63.1]: https://github.com/lsaint/aikito/compare/v1.63.0...v1.63.1
