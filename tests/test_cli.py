@@ -148,6 +148,42 @@ class SyncSubcommandParserTest(unittest.TestCase):
         self.assertEqual(args.command, "diff")
         self.assertEqual(args.func, AIKITO_CLI.cmd_diff)
 
+        # diff mcp variations
+        args_mcp = parser.parse_args(["diff", "mcp"])
+        self.assertEqual(args_mcp.diff_target, "mcp")
+        self.assertIsNone(args_mcp.agent)
+        self.assertIsNone(args_mcp.server)
+
+        args_mcp = parser.parse_args(["diff", "mcp", "agy"])
+        self.assertEqual(args_mcp.agent, "agy")
+        self.assertIsNone(args_mcp.server)
+
+        args_mcp = parser.parse_args(["diff", "mcp", "agy/atlassian-rovo"])
+        self.assertEqual(args_mcp.agent, "agy/atlassian-rovo")
+        self.assertIsNone(args_mcp.server)
+
+        args_mcp = parser.parse_args(["diff", "mcp", "agy", "atlassian-rovo"])
+        self.assertEqual(args_mcp.agent, "agy")
+        self.assertEqual(args_mcp.server, "atlassian-rovo")
+
+        # diff subagent variations
+        args_sub = parser.parse_args(["diff", "subagent"])
+        self.assertEqual(args_sub.diff_target, "subagent")
+        self.assertIsNone(args_sub.agent)
+        self.assertIsNone(args_sub.name)
+
+        args_sub = parser.parse_args(["diff", "subagent", "claude"])
+        self.assertEqual(args_sub.agent, "claude")
+        self.assertIsNone(args_sub.name)
+
+        args_sub = parser.parse_args(["diff", "subagent", "claude/reviewer"])
+        self.assertEqual(args_sub.agent, "claude/reviewer")
+        self.assertIsNone(args_sub.name)
+
+        args_sub = parser.parse_args(["diff", "subagent", "claude", "reviewer"])
+        self.assertEqual(args_sub.agent, "claude")
+        self.assertEqual(args_sub.name, "reviewer")
+
     def test_sync_subcommands(self) -> None:
         parser = AIKITO_CLI.build_parser()
 
@@ -4184,29 +4220,64 @@ class CwdInteractionTest(unittest.TestCase):
             "[Project demo/skill formatter — SKILL.md]", mock_stdout.getvalue()
         )
 
-        # 3. diff mcp codex github
-        args_mcp = parser.parse_args(["diff", "mcp", "codex", "github"])
+        # 3. diff mcp codex github (and flexible slash / single-arg variations)
+        for mcp_cmd in (
+            ["diff", "mcp", "codex", "github"],
+            ["diff", "mcp", "codex/github"],
+            ["diff", "mcp", "codex"],
+            ["diff", "mcp", "github"],
+            ["diff", "mcp"],
+        ):
+            with self.subTest(mcp_cmd=mcp_cmd):
+                args_mcp = parser.parse_args(mcp_cmd)
+                with (
+                    patch.object(
+                        AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir
+                    ),
+                    patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+                    patch.object(
+                        AIKITO_CLI, "collect_drift_diffs", return_value=dummy_diffs
+                    ),
+                    patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+                ):
+                    args_mcp.func(args_mcp)
+                self.assertIn("[MCP codex/github]", mock_stdout.getvalue())
+
+        # 4. diff subagent claude reviewer (and flexible slash / single-arg variations)
+        for sub_cmd in (
+            ["diff", "subagent", "claude", "reviewer"],
+            ["diff", "subagent", "claude/reviewer"],
+            ["diff", "subagent", "claude"],
+            ["diff", "subagent", "reviewer"],
+            ["diff", "subagent"],
+        ):
+            with self.subTest(sub_cmd=sub_cmd):
+                args_sub = parser.parse_args(sub_cmd)
+                with (
+                    patch.object(
+                        AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir
+                    ),
+                    patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
+                    patch.object(
+                        AIKITO_CLI, "collect_drift_diffs", return_value=dummy_diffs
+                    ),
+                    patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
+                ):
+                    args_sub.func(args_sub)
+                self.assertIn("[Subagent claude/reviewer]", mock_stdout.getvalue())
+
+        # 4b. diff project demo/formatter (slash notation)
+        args_proj_slash = parser.parse_args(["diff", "project", "demo/formatter"])
         with (
             patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
             patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
             patch.object(AIKITO_CLI, "collect_drift_diffs", return_value=dummy_diffs),
             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
         ):
-            args_mcp.func(args_mcp)
-
-        self.assertIn("[MCP codex/github]", mock_stdout.getvalue())
-
-        # 4. diff subagent claude reviewer
-        args_sub = parser.parse_args(["diff", "subagent", "claude", "reviewer"])
-        with (
-            patch.object(AIKITO_CLI, "get_aikito_dir", return_value=self.aikito_dir),
-            patch.object(AIKITO_CLI.Path, "home", return_value=self.home),
-            patch.object(AIKITO_CLI, "collect_drift_diffs", return_value=dummy_diffs),
-            patch("sys.stdout", new_callable=io.StringIO) as mock_stdout,
-        ):
-            args_sub.func(args_sub)
-
-        self.assertIn("[Subagent claude/reviewer]", mock_stdout.getvalue())
+            args_proj_slash.func(args_proj_slash)
+        self.assertIn(
+            "[Project demo/skill formatter — SKILL.md]", mock_stdout.getvalue()
+        )
 
         # 5. diff project without project name outside of project directory exits 1
         args_proj_no_cwd = parser.parse_args(["diff", "project"])

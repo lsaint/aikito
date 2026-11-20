@@ -600,32 +600,40 @@ def build_parser(handlers: dict[str, Any] | None = None) -> argparse.ArgumentPar
     )
     p_diff_project.set_defaults(func=cmd_diff)
 
-    # diff mcp <agent> <server>
+    # diff mcp [agent] [server]
     p_diff_mcp = diff_subparsers.add_parser(
         "mcp",
-        help="Show unified diff for a specific drifted MCP server",
+        help="Show unified diff for drifted MCP servers",
     )
     p_diff_mcp.add_argument(
         "agent",
-        help="Agent identifier (e.g. claude, codex, agy)",
+        nargs="?",
+        default=None,
+        help="Agent identifier (e.g. claude, codex, agy), agent/server specifier, or server name",
     )
     p_diff_mcp.add_argument(
         "server",
+        nargs="?",
+        default=None,
         help="Server name in mcps/<server>.toml",
     )
     p_diff_mcp.set_defaults(func=cmd_diff)
 
-    # diff subagent <agent> <name>
+    # diff subagent [agent] [name]
     p_diff_subagent = diff_subparsers.add_parser(
         "subagent",
-        help="Show unified diff for a specific drifted subagent",
+        help="Show unified diff for drifted subagents",
     )
     p_diff_subagent.add_argument(
         "agent",
-        help="Agent identifier (e.g. claude, codex)",
+        nargs="?",
+        default=None,
+        help="Agent identifier (e.g. claude, codex), agent/name specifier, or subagent name",
     )
     p_diff_subagent.add_argument(
         "name",
+        nargs="?",
+        default=None,
         help="Subagent name in subagents/<name>.md",
     )
     p_diff_subagent.set_defaults(func=cmd_diff)

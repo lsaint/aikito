@@ -412,9 +412,9 @@ aikito diff project [project]
 aikito diff project <project> <skill>
 aikito diff project <project> <skill> <file>
 
-# Specific MCP server or subagent
-aikito diff mcp <agent> <server>
-aikito diff subagent <agent> <name>
+# Specific MCP server or subagent (supports [agent] [server], [agent/server], [agent], or [server])
+aikito diff mcp [agent] [server]
+aikito diff subagent [agent] [name]
 
 # Full unified diff dump across all drifted resources
 aikito diff --all
